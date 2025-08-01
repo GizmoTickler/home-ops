@@ -32,10 +32,7 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email:
-      secretRef:
-        name: cert-manager-config-secret
-        key: ACME_EMAIL
+    email: "${ACME_EMAIL}"
     privateKeySecretRef:
       name: letsencrypt-production
     solvers:
