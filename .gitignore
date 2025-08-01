@@ -18,6 +18,8 @@ talosconfig
 /github-deploy.key
 /github-deploy.key.pub
 /github-push-token.txt
+/secrets.sops.yaml
 # Template config files
 /cluster.yaml
 /nodes.yaml
+
