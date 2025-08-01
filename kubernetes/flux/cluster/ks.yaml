@@ -42,8 +42,6 @@ spec:
         metadata:
           name: not-used
         spec:
-          components:
-            - ../../../../components/common-config
           postBuild:
             substituteFrom:
               - kind: Secret
