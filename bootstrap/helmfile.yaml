@@ -42,15 +42,13 @@ releases:
     hooks:
       - # Apply cluster secret store
         events: ['postsync']
-        command: kubectl
+        command: bash
         args:
-          - apply
-          - --namespace=external-secrets
-          - --server-side
-          - --field-manager=kustomize-controller
-          - --filename
-          - ../kubernetes/apps/external-secrets/external-secrets/app/clustersecretstore.yaml
-          - --wait=true
+          - -c
+          - |
+            export ROOT_DIR="$(git rev-parse --show-toplevel)"
+            source "${ROOT_DIR}/scripts/lib/common.sh"
+            render_template "${ROOT_DIR}/bootstrap/clustersecretstore.yaml.j2" | kubectl apply --namespace=external-secrets --server-side --field-manager=kustomize-controller --filename=- --wait=true
         showlogs: true
     needs: ['cert-manager/cert-manager']
 
