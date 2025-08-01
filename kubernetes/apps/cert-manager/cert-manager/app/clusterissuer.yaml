@@ -7,17 +7,11 @@ metadata:
 spec:
   acme:
     server: https://dv.acme-v02.api.pki.goog/directory
-    email:
-      secretRef:
-        name: cert-manager-config-secret
-        key: ACME_EMAIL
+    email: "${ACME_EMAIL}"
     privateKeySecretRef:
       name: gts-prod-secret
     externalAccountBinding:
-      keyID:
-        secretRef:
-          name: cert-manager-config-secret
-          key: EAB_KEY_ID
+      keyID: "${EAB_KEY_ID}"
       keySecretRef:
         name: cloudflare-issuer-secret
         key: secret
