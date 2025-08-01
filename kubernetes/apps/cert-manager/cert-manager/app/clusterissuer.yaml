@@ -19,7 +19,7 @@ spec:
       - dns01:
           cloudflare:
             apiTokenSecretRef:
-              name: cloudflare-issuer-secret
+              name: cert-manager-config-secret
               key: CLOUDFLARE_DNS_TOKEN
         selector:
           dnsZones:
@@ -39,7 +39,7 @@ spec:
       - dns01:
           cloudflare:
             apiTokenSecretRef:
-              name: cloudflare-issuer-secret
+              name: cert-manager-config-secret
               key: CLOUDFLARE_DNS_TOKEN
         selector:
           dnsZones:
