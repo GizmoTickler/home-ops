@@ -13,7 +13,7 @@ spec:
     externalAccountBinding:
       keyID: "${EAB_KEY_ID}"
       keySecretRef:
-        name: cloudflare-issuer-secret
+        name: cert-manager-config-secret
         key: secret
     solvers:
       - dns01:
