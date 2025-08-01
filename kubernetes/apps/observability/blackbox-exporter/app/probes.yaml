@@ -1,0 +1,38 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: devices
+spec:
+  module: icmp
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - sc01.${SECRET_DOMAIN}
+        - ewlc01.${SECRET_DOMAIN}
+        - nas01.{SECRET_DOMAIN}
+        - nas01-console.${SECRET_DOMAIN}
+        - unifi.${SECRET_DOMAIN}
+        - jellyfin.${SECRET_DOMAIN}
+        - airconsole.${SECRET_DOMAIN}
+        - s3.${SECRET_DOMAIN}
+        - mgateway1.${SECRET_DOMAIN}
+        - mgateway2.${SECRET_DOMAIN}
+
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: nfs
+spec:
+  module: tcp_connect
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - nas01.${SECRET_DOMAIN}:2049
