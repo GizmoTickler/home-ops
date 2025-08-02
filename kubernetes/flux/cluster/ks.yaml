@@ -50,3 +50,4 @@ spec:
       target:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization
+        labelSelector: "!kustomize.toolkit.fluxcd.io/name=system-upgrade-controller-plans"
