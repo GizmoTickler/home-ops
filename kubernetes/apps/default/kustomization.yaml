@@ -14,6 +14,6 @@ resources:
   - ./pinchflat/ks.yaml
   - ./radarr/ks.yaml
   - ./recyclarr/ks.yaml
-#  - ./sabnzbd/ks.yaml
+  - ./sabnzbd/ks.yaml
   - ./sonarr/ks.yaml
 #  - ./webhook/ks.yaml
