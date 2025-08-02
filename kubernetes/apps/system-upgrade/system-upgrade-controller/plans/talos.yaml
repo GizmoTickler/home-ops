@@ -9,6 +9,7 @@ spec:
   concurrency: 1
   postCompleteDelay: 2m
   exclusive: true
+  jobActiveDeadlineSeconds: 2400  # 40 minutes for Talos upgrades (includes reboot time)
   serviceAccountName: system-upgrade-controller
   secrets:
     - name: system-upgrade-controller
