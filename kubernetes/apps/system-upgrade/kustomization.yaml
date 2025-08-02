@@ -5,6 +5,11 @@ kind: Kustomization
 namespace: system-upgrade
 components:
   - ../../components/common
+configurations:
+  - kustomizeconfig.yaml
+configMapGenerator:
+  - name: versions
+    envs:
+      - versions.env
 resources:
-  - ./versions/ks.yaml
   - ./system-upgrade-controller/ks.yaml
