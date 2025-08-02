@@ -5,7 +5,7 @@ kind: Plan
 metadata:
   name: talos
 spec:
-  version: "${TALOS_VERSION}"
+  version: ${TALOS_VERSION}
   concurrency: 1
   postCompleteDelay: 2m
   exclusive: true
