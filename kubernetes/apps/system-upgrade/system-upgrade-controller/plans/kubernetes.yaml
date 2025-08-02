@@ -8,7 +8,7 @@ spec:
   version: ${KUBERNETES_VERSION}
   concurrency: 1
   exclusive: true
-  jobActiveDeadlineSeconds: 1800  # 30 minutes for Kubernetes upgrades
+  jobActiveDeadlineSecs: 1800  # 30 minutes for Kubernetes upgrades
   serviceAccountName: system-upgrade-controller
   secrets:
     - name: system-upgrade-controller
