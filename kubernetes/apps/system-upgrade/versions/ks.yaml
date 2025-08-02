@@ -5,6 +5,8 @@ kind: Kustomization
 metadata:
   name: &app versions
   namespace: &namespace system-upgrade
+  labels:
+    substitution.flux.home.arpa/disabled: "true"
 spec:
   commonMetadata:
     labels:
