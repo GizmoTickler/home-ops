@@ -4,4 +4,4 @@ kind: Kustomization
 namespace: system-upgrade
 configMapGenerator:
   - name: versions
-    env: ../versions.env
+    env: ./versions.env
