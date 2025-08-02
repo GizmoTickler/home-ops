@@ -36,6 +36,8 @@ spec:
     labels:
       app.kubernetes.io/name: *app
   dependsOn:
+    - name: versions
+      namespace: system-upgrade
     - name: system-upgrade-controller
       namespace: system-upgrade
   interval: 1h
