@@ -11,6 +11,11 @@ spec:
       app.kubernetes.io/name: *app
   interval: 1h
   path: ./kubernetes/apps/network/k8s-gateway
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: cluster-config-secret
+        optional: false
   prune: true
   retryInterval: 2m
   sourceRef:
