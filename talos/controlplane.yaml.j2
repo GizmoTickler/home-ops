@@ -172,3 +172,9 @@ cluster:
       listen-metrics-urls: http://0.0.0.0:2381
     advertisedSubnets: ["192.168.120.0/22"]
   allowSchedulingOnControlPlanes: true
+  discovery:
+    enabled: true
+    registries:
+      kubernetes: {}
+      service:
+        disabled: true
