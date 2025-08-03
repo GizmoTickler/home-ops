@@ -24,41 +24,75 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 ### Infrastructure Details
 
 - **Host OS**: TrueNAS Scale with libvirt/QEMU virtualization
-- **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
+- **Kubernetes Distribution**: Talos Linux v1.10.6 (immutable, minimal, secure)
+- **Kubernetes Version**: v1.33.3
 - **VM Configuration**: 3 control plane nodes, each with 8 vCPUs and 32GB RAM
-- **Storage Strategy**: Multi-tier approach using local NVMe for performance and distributed block storage for resilience
-- **Networking**: Cilium CNI with eBPF for high-performance networking
+- **Storage Strategy**: Multi-tier approach using local NVMe for performance and Rook Ceph for distributed resilience
+- **Networking**: Cilium v1.18.0 CNI with eBPF, Gateway API, and L2 announcements
+- **Ingress**: Cilium Gateway API with per-application LoadBalancer services
+- **DNS**: k8s-gateway for internal resolution, external-dns for Cloudflare integration
 
 ### Core Components
 
-- [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted Github runners.
-- [cert-manager](https://github.com/cert-manager/cert-manager): Creates SSL certificates for services in my cluster.
-- [cilium](https://github.com/cilium/cilium): eBPF-based networking for my workloads.
-- [cloudflared](https://github.com/cloudflare/cloudflared): Enables Cloudflare secure access to my routes.
-- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automatically syncs ingress DNS records to a DNS provider.
-- [external-secrets](https://github.com/external-secrets/external-secrets): Managed Kubernetes secrets using [1Password Connect](https://github.com/1Password/connect).
-- [rook](https://github.com/rook/rook): Distributed block storage for peristent storage.
-- [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes and Terraform which are commited to Git.
-- [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror.
-- [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims.
+- [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted GitHub runners for CI/CD workflows.
+- [cert-manager](https://github.com/cert-manager/cert-manager): Automated TLS certificate management with Google Trust Services.
+- [cilium](https://github.com/cilium/cilium): eBPF-based networking, security, and Gateway API implementation with L2 announcements.
+- [cloudflared](https://github.com/cloudflare/cloudflared): Secure tunnels to Cloudflare for external access via Cloudflare Tunnel.
+- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare integration.
+- [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
+- [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
+- [k8s-gateway](https://github.com/ori-edge/k8s_gateway): Internal DNS resolution for cluster services and HTTPRoutes.
+- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
+- [rook-ceph](https://github.com/rook/rook): Distributed block storage with Ceph for persistent storage and data resilience.
+- [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
+- [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
+- [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
+- [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Restic.
 
 ### GitOps
 
-[Flux](https://github.com/fluxcd/flux2) watches the clusters in my [kubernetes](./kubernetes/) folder (see Directories below) and makes the changes to my clusters based on the state of my Git repository.
+[Flux](https://github.com/fluxcd/flux2) v2.6.4 provides GitOps continuous delivery, watching the [kubernetes](./kubernetes/) folder and applying changes based on Git repository state. The setup includes:
 
-The way Flux works for me here is it will recursively search the `kubernetes/apps` folder until it finds the most top level `kustomization.yaml` per directory and then apply all the resources listed in it. That aforementioned `kustomization.yaml` will generally only have a namespace resource and one or many Flux kustomizations (`ks.yaml`). Under the control of those Flux kustomizations there will be a `HelmRelease` or other resources related to the application which will be applied.
+- **SOPS Integration**: Automatic decryption of secrets using age encryption
+- **Dependency Management**: HelmReleases and Kustomizations with explicit dependencies
+- **Multi-tenancy**: Namespace isolation with proper RBAC
+- **Webhook Integration**: GitHub webhook receiver for immediate sync on push
 
-[Renovate](https://github.com/renovatebot/renovate) watches my **entire** repository looking for dependency updates, when they are found a PR is automatically created. When some PRs are merged Flux applies the changes to my cluster.
+The workflow recursively searches the `kubernetes/apps` folder for `kustomization.yaml` files, which typically contain namespace resources and Flux Kustomizations (`ks.yaml`). Each Kustomization manages HelmReleases or other Kubernetes resources for applications.
 
-### Directories
+[Renovate](https://github.com/renovatebot/renovate) provides automated dependency management across the entire repository, creating pull requests for updates to:
+- Container images with digest pinning
+- Helm chart versions
+- Kubernetes manifests
+- GitHub Actions workflows
 
-This Git repository contains the following directories under [Kubernetes](./kubernetes/).
+### Repository Structure
+
+This Git repository is organized for GitOps workflows and infrastructure management:
 
 ```sh
-📁 kubernetes
-├── 📁 apps       # applications
-├── 📁 components # re-useable kustomize components
-└── 📁 flux       # flux system configuration
+📁 home-ops
+├── 📁 bootstrap          # Initial cluster bootstrap resources
+├── 📁 kubernetes
+│   ├── 📁 apps          # Application deployments by namespace
+│   │   ├── 📁 default   # Media stack and productivity apps
+│   │   ├── 📁 external-secrets # Secret management
+│   │   ├── 📁 flux-system      # Flux controllers
+│   │   ├── 📁 kube-system      # Core Kubernetes components
+│   │   ├── 📁 network          # Networking applications
+│   │   ├── 📁 observability    # Monitoring and logging
+│   │   ├── 📁 openebs-system   # Local storage provisioner
+│   │   ├── 📁 rook-ceph        # Distributed storage
+│   │   └── 📁 system-upgrade   # Automated upgrades
+│   ├── 📁 components    # Reusable Kustomize components
+│   │   ├── 📁 common    # Shared configurations
+│   │   ├── 📁 gateway   # Gateway API templates
+│   │   ├── 📁 keda      # Autoscaling components
+│   │   └── 📁 volsync   # Backup and recovery
+│   └── 📁 flux          # Flux system configuration
+├── 📁 scripts           # Automation and utility scripts
+├── 📁 talos             # Talos Linux configuration templates
+└── 📁 .taskfiles        # Task automation definitions
 ```
 
 ### Flux Workflow
@@ -73,6 +107,17 @@ graph TD
     D>Kustomization: atuin] -->|Creates| E(HelmRelease: atuin)
     E>HelmRelease: atuin] -->|Depends on| C>HelmRelease: rook-ceph-cluster]
 ```
+
+### Automation & Tooling
+
+The repository includes comprehensive automation for cluster management:
+
+- **Task Automation**: [Task](https://taskfile.dev/) for common operations (bootstrap, upgrades, maintenance)
+- **Template Rendering**: [minijinja-cli](https://github.com/mitsuhiko/minijinja) for Jinja2 template processing
+- **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) for secure secret injection
+- **Environment Management**: [mise](https://github.com/jdx/mise) for tool and environment variable management
+- **Configuration Validation**: Pre-commit hooks with kubeconform and YAML linting
+- **CI/CD**: GitHub Actions for automated testing, schema validation, and deployment
 
 ---
 
@@ -94,9 +139,63 @@ Alternative solutions would involve running a separate cloud-hosted Kubernetes c
 
 ---
 
-## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f30e/512.gif" alt="🌎" width="20" height="20"> DNS
+## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f30e/512.gif" alt="🌎" width="20" height="20"> DNS & Networking
 
-The cluster uses [ExternalDNS](https://github.com/kubernetes-sigs/external-dns) to automatically sync public DNS records to Cloudflare. For internal DNS resolution, [k8s-gateway](https://github.com/ori-edge/k8s_gateway) provides cluster-internal DNS services, eliminating the need for external DNS providers for private network resolution.
+The cluster implements a sophisticated networking architecture using Cilium and Gateway API:
+
+### External Access
+- **Cloudflare Tunnel**: Secure external access via `cloudflared` without port forwarding
+- **External DNS**: Automatic DNS record management in Cloudflare for public services
+- **Gateway API**: Cilium-based ingress with dedicated LoadBalancer IPs per application
+
+### Internal Resolution
+- **k8s-gateway**: Internal DNS resolution for cluster services and HTTPRoutes
+- **CoreDNS**: Kubernetes cluster DNS with custom configurations
+- **L2 Announcements**: Cilium L2 announcements for LoadBalancer IP allocation
+
+### Network Architecture
+- **CNI**: Cilium with eBPF datapath for high-performance networking
+- **Load Balancing**: Maglev algorithm with DSR (Direct Server Return) mode
+- **IP Management**: Kubernetes IPAM with native routing (10.42.0.0/16)
+- **Gateway IPs**: Dedicated IP range (192.168.120.101-116) for application access
+
+---
+
+## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4f1/512.gif" alt="📱" width="20" height="20"> Applications
+
+The cluster hosts a variety of self-hosted applications organized by namespace and function:
+
+### Productivity & Tools (default namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Atuin](https://github.com/atuinsh/atuin) | Shell history sync | `sh.${SECRET_DOMAIN}` |
+| [Fusion](https://github.com/0x2E/fusion) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
+
+### Observability Stack (observability namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Grafana](https://github.com/grafana/grafana) | Metrics visualization and dashboards | `grafana.${SECRET_DOMAIN}` |
+| [Prometheus](https://github.com/prometheus/prometheus) | Metrics collection and alerting | `prometheus.${SECRET_DOMAIN}` |
+| [Loki](https://github.com/grafana/loki) | Log aggregation and querying | Internal only |
+| [Alloy](https://github.com/grafana/alloy) | Telemetry data collection | Internal only |
+| [Alertmanager](https://github.com/prometheus/alertmanager) | Alert routing and management | Internal only |
+| [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | Endpoint monitoring | Internal only |
+| [Node Exporter](https://github.com/prometheus/node_exporter) | System metrics collection | Internal only |
+| [Kube State Metrics](https://github.com/kubernetes/kube-state-metrics) | Kubernetes metrics | Internal only |
+| [KEDA](https://github.com/kedacore/keda) | Kubernetes event-driven autoscaling | Internal only |
+| [Kromgo](https://github.com/kashalls/kromgo) | Kubernetes resource metrics API | Internal only |
+| [Silence Operator](https://github.com/giantswarm/silence-operator) | Automated alert silencing | Internal only |
+
+### Storage & Infrastructure
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Rook Ceph](https://github.com/rook/rook) | Distributed storage cluster | `rook-ceph-cluster.${SECRET_DOMAIN}` |
+| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
+
+All applications use Cilium Gateway API for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
 
 ---
 
