@@ -16,7 +16,9 @@ type Config struct {
 	Name          string
 	Memory        int
 	VCPUs         int
-	DiskSize      int
+	DiskSize      int      // Boot disk size in GB
+	OpenEBSSize   int      // OpenEBS disk size in GB
+	RookSize      int      // Rook disk size in GB
 	TrueNASHost   string
 	TrueNASAPIKey string
 	TrueNASPort   int
@@ -41,7 +43,9 @@ func main() {
 	flag.StringVar(&config.Name, "name", "", "VM name (required)")
 	flag.IntVar(&config.Memory, "memory", 4096, "Memory in MB")
 	flag.IntVar(&config.VCPUs, "vcpus", 2, "Number of vCPUs")
-	flag.IntVar(&config.DiskSize, "disk-size", 20, "Disk size in GB")
+	flag.IntVar(&config.DiskSize, "disk-size", 250, "Boot disk size in GB")
+	flag.IntVar(&config.OpenEBSSize, "openebs-size", 1024, "OpenEBS disk size in GB (1TB)")
+	flag.IntVar(&config.RookSize, "rook-size", 800, "Rook disk size in GB")
 	flag.StringVar(&config.TrueNASHost, "truenas-host", "", "TrueNAS hostname or IP (required)")
 	flag.StringVar(&config.TrueNASAPIKey, "truenas-api-key", "", "TrueNAS API key (required)")
 	flag.IntVar(&config.TrueNASPort, "truenas-port", 443, "TrueNAS port")
@@ -103,11 +107,14 @@ func deployVM(client *truenas.WorkingClient, config Config) error {
 	}
 
 	// Create or verify ZVols
+	log.Printf("ZVol configuration: Boot=%dGB, OpenEBS=%dGB, Rook=%dGB", config.DiskSize, config.OpenEBSSize, config.RookSize)
 	if !config.SkipZVolCreate {
+		log.Printf("Creating thin provisioned ZVols for VM: %s", config.Name)
 		if err := createZVols(client, config); err != nil {
 			return fmt.Errorf("failed to create ZVols: %w", err)
 		}
 	} else {
+		log.Printf("Skipping ZVol creation, verifying existing ZVols...")
 		if err := verifyZVols(client, config); err != nil {
 			return fmt.Errorf("failed to verify ZVols: %w", err)
 		}
@@ -159,7 +166,20 @@ func createZVols(client *truenas.WorkingClient, config Config) error {
 			continue
 		}
 
-		if err := createSingleZVol(client, path, config.DiskSize, name); err != nil {
+		// Determine size based on ZVol type
+		var size int
+		switch name {
+		case "boot":
+			size = config.DiskSize
+		case "openebs":
+			size = config.OpenEBSSize
+		case "rook":
+			size = config.RookSize
+		default:
+			size = config.DiskSize
+		}
+
+		if err := createSingleZVol(client, path, size, name); err != nil {
 			return fmt.Errorf("failed to create %s ZVol: %w", name, err)
 		}
 	}
@@ -278,30 +298,26 @@ func createSingleZVol(client *truenas.WorkingClient, zvolPath string, sizeGB int
 		}
 	}
 
-	// Determine size based on ZVol type
-	var volsize int64
-	switch zvolType {
-	case "boot":
-		volsize = int64(sizeGB) * 1024 * 1024 * 1024 // Use specified size for boot disk
-	case "openebs":
-		volsize = int64(100) * 1024 * 1024 * 1024 // 100GB for OpenEBS
-	case "rook":
-		volsize = int64(200) * 1024 * 1024 * 1024 // 200GB for Rook
-	default:
-		volsize = int64(sizeGB) * 1024 * 1024 * 1024 // Default to specified size
+	// Use the specified size
+	volsize := int64(sizeGB) * 1024 * 1024 * 1024 // Convert GB to bytes
+
+	log.Printf("Creating thin provisioned %s ZVol: %s (%.1fGB)", zvolType, zvolPath, float64(volsize)/(1024*1024*1024))
+
+	// Create thin provisioned ZVol with basic parameters
+	zvolConfig := map[string]interface{}{
+		"name":    zvolPath,
+		"type":    "VOLUME",
+		"volsize": volsize,
+		"sparse":  true,   // Enable thin provisioning
 	}
 
-	log.Printf("Creating %s ZVol: %s (%.1fGB)", zvolType, zvolPath, float64(volsize)/(1024*1024*1024))
-
-	_, err = client.CreateDataset(truenas.DatasetCreateRequest{
-		Name:         zvolPath,
-		Type:         "VOLUME",
-		Volsize:      &volsize,
-		Volblocksize: "16K",
-	})
+	_, err = client.Call("pool.dataset.create", []interface{}{zvolConfig}, 60)
 	if err != nil {
-		return fmt.Errorf("failed to create ZVol: %w", err)
+		return fmt.Errorf("failed to create thin provisioned ZVol: %w", err)
 	}
+
+	log.Printf("Successfully created thin provisioned ZVol")
+	log.Printf("Created thin provisioned %s ZVol: %s", zvolType, zvolPath)
 
 	log.Printf("Created %s ZVol: %s", zvolType, zvolPath)
 	return nil
