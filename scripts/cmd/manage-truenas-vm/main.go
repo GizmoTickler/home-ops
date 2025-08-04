@@ -197,24 +197,84 @@ func deleteVM(client *truenas.WorkingClient, name string, deleteZVol bool, stora
 		time.Sleep(2 * time.Second)
 	}
 
+	// Discover and collect ZVol paths BEFORE deleting the VM
+	var zvolPaths []string
+	if deleteZVol {
+		var err error
+		zvolPaths, err = discoverVMZVols(client, vm)
+		if err != nil {
+			log.Printf("Warning: Failed to discover ZVols: %v", err)
+		}
+	}
+
 	// Delete the VM
 	log.Printf("Deleting VM %s (ID: %d)", name, vm.ID)
 	if err := client.DeleteVM(vm.ID); err != nil {
 		return fmt.Errorf("failed to delete VM %s: %w", name, err)
 	}
 
-	// Delete associated ZVol if requested
-	if deleteZVol {
-		zvolName := fmt.Sprintf("%s/vms/%s", storagePool, name)
-		log.Printf("Deleting ZVol %s", zvolName)
-		if err := client.DeleteDataset(zvolName, true); err != nil {
-			log.Printf("Warning: Failed to delete ZVol %s: %v", zvolName, err)
-		} else {
-			log.Printf("Deleted ZVol %s", zvolName)
+	// Delete associated ZVols if requested
+	if deleteZVol && len(zvolPaths) > 0 {
+		if err := deleteZVolsByPaths(client, zvolPaths, name); err != nil {
+			log.Printf("Warning: Failed to delete some ZVols: %v", err)
 		}
 	}
 
 	log.Printf("Successfully deleted VM %s", name)
+	return nil
+}
+
+func discoverVMZVols(client *truenas.WorkingClient, vm *truenas.VM) ([]string, error) {
+	log.Printf("Discovering ZVols associated with VM %s", vm.Name)
+
+	// Get VM devices to find all disk devices
+	devices, err := client.QueryVMDevices(vm.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query VM devices: %w", err)
+	}
+
+	var zvolPaths []string
+
+	// Extract ZVol paths from disk devices
+	for _, device := range devices {
+		if attributes, ok := device["attributes"].(map[string]interface{}); ok {
+			if dtype, ok := attributes["dtype"].(string); ok && dtype == "DISK" {
+				if path, ok := attributes["path"].(string); ok {
+					// Convert device path to ZVol path
+					// /dev/zvol/flashstor/VM/test4-boot -> flashstor/VM/test4-boot
+					if strings.HasPrefix(path, "/dev/zvol/") {
+						zvolPath := strings.TrimPrefix(path, "/dev/zvol/")
+						zvolPaths = append(zvolPaths, zvolPath)
+						log.Printf("Found ZVol: %s", zvolPath)
+					}
+				}
+			}
+		}
+	}
+
+	if len(zvolPaths) == 0 {
+		log.Printf("No ZVols found associated with VM %s", vm.Name)
+	} else {
+		log.Printf("Discovered %d ZVols for VM %s", len(zvolPaths), vm.Name)
+	}
+
+	return zvolPaths, nil
+}
+
+func deleteZVolsByPaths(client *truenas.WorkingClient, zvolPaths []string, vmName string) error {
+	log.Printf("Deleting %d ZVols for VM %s", len(zvolPaths), vmName)
+
+	// Delete each discovered ZVol
+	for _, zvolPath := range zvolPaths {
+		log.Printf("Deleting ZVol %s", zvolPath)
+		if err := client.DeleteDataset(zvolPath, true); err != nil {
+			log.Printf("Warning: Failed to delete ZVol %s: %v", zvolPath, err)
+		} else {
+			log.Printf("Deleted ZVol %s", zvolPath)
+		}
+	}
+
+	log.Printf("Completed ZVol deletion for VM %s", vmName)
 	return nil
 }
 

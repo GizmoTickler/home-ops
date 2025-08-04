@@ -192,6 +192,41 @@ func (c *WorkingClient) DeleteVM(vmID int) error {
 	return err
 }
 
+func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, error) {
+	params := []interface{}{[]interface{}{[]interface{}{"vm", "=", vmID}}}
+
+	result, err := c.Call("vm.device.query", params, 30)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse JSON-RPC response
+	var jsonRPCResponse map[string]interface{}
+	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
+	}
+
+	// Extract result
+	resultData, ok := jsonRPCResponse["result"]
+	if !ok {
+		return nil, fmt.Errorf("no result field in response")
+	}
+
+	// Convert to devices array
+	var devices []map[string]interface{}
+	if resultArray, ok := resultData.([]interface{}); ok {
+		for _, item := range resultArray {
+			if deviceMap, ok := item.(map[string]interface{}); ok {
+				devices = append(devices, deviceMap)
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("result is not an array")
+	}
+
+	return devices, nil
+}
+
 // QueryDatasets queries datasets with optional filters
 func (c *WorkingClient) QueryDatasets(filters interface{}) ([]Dataset, error) {
 	params := []interface{}{}
