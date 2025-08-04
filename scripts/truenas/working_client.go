@@ -133,8 +133,26 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 		return nil, err
 	}
 
+	// Parse JSON-RPC response
+	var jsonRPCResponse map[string]interface{}
+	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
+	}
+
+	// Extract the result field
+	resultField, exists := jsonRPCResponse["result"]
+	if !exists {
+		return nil, fmt.Errorf("no result field in response")
+	}
+
+	// Convert result to JSON and then unmarshal as VM array
+	resultJSON, err := json.Marshal(resultField)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result field: %w", err)
+	}
+
 	var vms []VM
-	if err := json.Unmarshal(result, &vms); err != nil {
+	if err := json.Unmarshal(resultJSON, &vms); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal VMs: %w", err)
 	}
 
@@ -186,8 +204,26 @@ func (c *WorkingClient) QueryDatasets(filters interface{}) ([]Dataset, error) {
 		return nil, err
 	}
 
+	// Parse JSON-RPC response
+	var jsonRPCResponse map[string]interface{}
+	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
+	}
+
+	// Extract the result field
+	resultField, exists := jsonRPCResponse["result"]
+	if !exists {
+		return nil, fmt.Errorf("no result field in response")
+	}
+
+	// Convert result to JSON and then unmarshal as dataset array
+	resultJSON, err := json.Marshal(resultField)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal result field: %w", err)
+	}
+
 	var datasets []Dataset
-	if err := json.Unmarshal(result, &datasets); err != nil {
+	if err := json.Unmarshal(resultJSON, &datasets); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal datasets: %w", err)
 	}
 

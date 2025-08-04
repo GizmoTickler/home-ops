@@ -54,8 +54,8 @@ func main() {
 		log.Fatalf("VM name is required for %s action", config.Action)
 	}
 
-	// Create TrueNAS client
-	client := truenas.NewSimpleClient(config.TrueNASHost, config.TrueNASAPIKey, !config.NoSSL)
+	// Create TrueNAS client using the working client
+	client := truenas.NewWorkingClient(config.TrueNASHost, config.TrueNASAPIKey, config.TrueNASPort, !config.NoSSL)
 
 	// Connect to TrueNAS
 	if err := client.Connect(); err != nil {
@@ -85,7 +85,7 @@ func main() {
 	}
 }
 
-func listVMs(client *truenas.SimpleClient) error {
+func listVMs(client *truenas.WorkingClient) error {
 	vms, err := client.QueryVMs(nil)
 	if err != nil {
 		return fmt.Errorf("failed to query VMs: %w", err)
@@ -117,18 +117,24 @@ func listVMs(client *truenas.SimpleClient) error {
 	return nil
 }
 
-func getVMByName(client *truenas.SimpleClient, name string) (*truenas.VM, error) {
-	vms, err := client.QueryVMs(map[string]string{"name": name})
+func getVMByName(client *truenas.WorkingClient, name string) (*truenas.VM, error) {
+	// Query all VMs and filter by name
+	allVMs, err := client.QueryVMs(nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query VM %s: %w", name, err)
+		return nil, fmt.Errorf("failed to query VMs: %w", err)
 	}
-	if len(vms) == 0 {
-		return nil, fmt.Errorf("VM %s not found", name)
+
+	// Find VM with matching name
+	for _, vm := range allVMs {
+		if vm.Name == name {
+			return &vm, nil
+		}
 	}
-	return &vms[0], nil
+
+	return nil, fmt.Errorf("VM %s not found", name)
 }
 
-func startVM(client *truenas.SimpleClient, name string) error {
+func startVM(client *truenas.WorkingClient, name string) error {
 	vm, err := getVMByName(client, name)
 	if err != nil {
 		return err
@@ -149,7 +155,7 @@ func startVM(client *truenas.SimpleClient, name string) error {
 	return nil
 }
 
-func stopVM(client *truenas.SimpleClient, name string, force bool) error {
+func stopVM(client *truenas.WorkingClient, name string, force bool) error {
 	vm, err := getVMByName(client, name)
 	if err != nil {
 		return err
@@ -175,7 +181,7 @@ func stopVM(client *truenas.SimpleClient, name string, force bool) error {
 	return nil
 }
 
-func deleteVM(client *truenas.SimpleClient, name string, deleteZVol bool, storagePool string) error {
+func deleteVM(client *truenas.WorkingClient, name string, deleteZVol bool, storagePool string) error {
 	vm, err := getVMByName(client, name)
 	if err != nil {
 		return err
@@ -212,7 +218,7 @@ func deleteVM(client *truenas.SimpleClient, name string, deleteZVol bool, storag
 	return nil
 }
 
-func getVMInfo(client *truenas.SimpleClient, name string) error {
+func getVMInfo(client *truenas.WorkingClient, name string) error {
 	vm, err := getVMByName(client, name)
 	if err != nil {
 		return err
