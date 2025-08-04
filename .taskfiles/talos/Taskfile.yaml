@@ -96,3 +96,129 @@ tasks:
     preconditions:
       - talosctl --nodes {{.NODE}} get machineconfig
       - which jq talosctl
+
+  deploy-vm:
+    desc: Deploy Talos VM to TrueNAS Scale [NAME=required] [MEMORY=4096] [VCPUS=2] [DISK_SIZE=20] [MAC_ADDRESS=optional] [BOOT_ZVOL=optional] [OPENEBS_ZVOL=optional] [ROOK_ZVOL=optional] [SKIP_ZVOL_CREATE=false] [USE_SPICE=false]
+    cmd: |
+      echo '{{.SCRIPTS_DIR}}/deploy-truenas-vm \
+        -name "{{.NAME}}" \
+        -memory {{.MEMORY}} \
+        -vcpus {{.VCPUS}} \
+        -disk-size {{.DISK_SIZE}} \
+        -truenas-host "op://Infrastructure/talosdeploy/TRUENAS_HOST" \
+        -truenas-api-key "op://Infrastructure/talosdeploy/TRUENAS_API" \
+        -talos-iso "{{.TALOS_ISO}}" \
+        -network-bridge "{{.NETWORK_BRIDGE}}" \
+        {{if .MAC_ADDRESS}}-mac-address "{{.MAC_ADDRESS}}"{{end}} \
+        {{if .BOOT_ZVOL}}-boot-zvol "{{.BOOT_ZVOL}}"{{end}} \
+        {{if .OPENEBS_ZVOL}}-openebs-zvol "{{.OPENEBS_ZVOL}}"{{end}} \
+        {{if .ROOK_ZVOL}}-rook-zvol "{{.ROOK_ZVOL}}"{{end}} \
+        {{if .SKIP_ZVOL_CREATE}}-skip-zvol-create{{end}} \
+        {{if .USE_SPICE}}-use-spice -spice-password "op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS"{{end}}' | op inject | bash
+    vars:
+      MEMORY: '{{.MEMORY | default "4096"}}'
+      VCPUS: '{{.VCPUS | default "2"}}'
+      DISK_SIZE: '{{.DISK_SIZE | default "20"}}'
+      TALOS_ISO: '{{.TALOS_ISO | default "https://github.com/siderolabs/talos/releases/latest/download/metal-amd64.iso"}}'
+      NETWORK_BRIDGE: '{{.NETWORK_BRIDGE | default "br0"}}'
+    requires:
+      vars: [NAME]
+    preconditions:
+      - test -f {{.SCRIPTS_DIR}}/deploy-truenas-vm
+      - which op
+
+  list-vms:
+    desc: List all VMs on TrueNAS Scale
+    cmd: |
+      echo '{{.SCRIPTS_DIR}}/manage-truenas-vm \
+        -action list \
+        -truenas-host "op://Infrastructure/talosdeploy/TRUENAS_HOST" \
+        -truenas-api-key "op://Infrastructure/talosdeploy/TRUENAS_API"' | op inject | bash
+    preconditions:
+      - test -f {{.SCRIPTS_DIR}}/manage-truenas-vm
+      - which op
+
+  start-vm:
+    desc: Start a VM on TrueNAS Scale [NAME=required]
+    cmd: |
+      echo '{{.SCRIPTS_DIR}}/manage-truenas-vm \
+        -action start \
+        -name "{{.NAME}}" \
+        -truenas-host "op://Infrastructure/talosdeploy/TRUENAS_HOST" \
+        -truenas-api-key "op://Infrastructure/talosdeploy/TRUENAS_API"' | op inject | bash
+    requires:
+      vars: [NAME]
+    preconditions:
+      - test -f {{.SCRIPTS_DIR}}/manage-truenas-vm
+      - which op
+
+  stop-vm:
+    desc: Stop a VM on TrueNAS Scale [NAME=required]
+    cmd: |
+      echo '{{.SCRIPTS_DIR}}/manage-truenas-vm \
+        -action stop \
+        -name "{{.NAME}}" \
+        -truenas-host "op://Infrastructure/talosdeploy/TRUENAS_HOST" \
+        -truenas-api-key "op://Infrastructure/talosdeploy/TRUENAS_API"' | op inject | bash
+    requires:
+      vars: [NAME]
+    preconditions:
+      - test -f {{.SCRIPTS_DIR}}/manage-truenas-vm
+      - which op
+
+  delete-vm:
+    desc: Delete a VM on TrueNAS Scale [NAME=required]
+    prompt: Delete VM '{{.NAME}}' from TrueNAS ... continue?
+    cmd: |
+      echo '{{.SCRIPTS_DIR}}/manage-truenas-vm \
+        -action delete \
+        -name "{{.NAME}}" \
+        -truenas-host "op://Infrastructure/talosdeploy/TRUENAS_HOST" \
+        -truenas-api-key "op://Infrastructure/talosdeploy/TRUENAS_API"' | op inject | bash
+    requires:
+      vars: [NAME]
+    preconditions:
+      - test -f {{.SCRIPTS_DIR}}/manage-truenas-vm
+      - which op
+
+  deploy-vm-with-pattern:
+    desc: Deploy VM with standardized ZVol naming pattern [NAME=required] [POOL=tank] [MEMORY=4096] [VCPUS=2] [DISK_SIZE=20] [MAC_ADDRESS=optional] [USE_SPICE=false]
+    cmd: |
+      task talos:deploy-vm \
+        NAME={{.NAME}} \
+        MEMORY={{.MEMORY}} \
+        VCPUS={{.VCPUS}} \
+        DISK_SIZE={{.DISK_SIZE}} \
+        MAC_ADDRESS={{.MAC_ADDRESS}} \
+        BOOT_ZVOL={{.POOL}}/vms/{{.NAME}}-boot \
+        OPENEBS_ZVOL={{.POOL}}/vms/{{.NAME}}-openebs \
+        ROOK_ZVOL={{.POOL}}/vms/{{.NAME}}-rook \
+        SKIP_ZVOL_CREATE={{.SKIP_ZVOL_CREATE}} \
+        USE_SPICE={{.USE_SPICE}}
+    vars:
+      POOL: '{{.POOL | default "tank"}}'
+      MEMORY: '{{.MEMORY | default "4096"}}'
+      VCPUS: '{{.VCPUS | default "2"}}'
+      DISK_SIZE: '{{.DISK_SIZE | default "20"}}'
+      SKIP_ZVOL_CREATE: '{{.SKIP_ZVOL_CREATE | default "true"}}'
+    requires:
+      vars: [NAME]
+
+  show-zvol-pattern:
+    desc: Show ZVol naming pattern for a VM [NAME=required] [POOL=tank]
+    cmd: |
+      echo "ZVol naming pattern for VM: {{.NAME}}"
+      echo "Pool: {{.POOL}}"
+      echo ""
+      echo "Boot disk:    {{.POOL}}/vms/{{.NAME}}-boot"
+      echo "OpenEBS disk: {{.POOL}}/vms/{{.NAME}}-openebs"
+      echo "Rook disk:    {{.POOL}}/vms/{{.NAME}}-rook"
+      echo ""
+      echo "Device paths:"
+      echo "Boot disk:    /dev/zvol/{{.POOL}}/vms/{{.NAME}}-boot"
+      echo "OpenEBS disk: /dev/zvol/{{.POOL}}/vms/{{.NAME}}-openebs"
+      echo "Rook disk:    /dev/zvol/{{.POOL}}/vms/{{.NAME}}-rook"
+    vars:
+      POOL: '{{.POOL | default "tank"}}'
+    requires:
+      vars: [NAME]
