@@ -170,19 +170,17 @@ spec:
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
-      config-file:
-        type: configMap
-        name: "{{ .Release.Name }}"
-        globalMounts:
-          - path: /config/.qbt.toml
-            subPath: .qbt.toml
-            readOnly: true
-      empty-config:
-        type: emptyDir
         advancedMounts:
           qbittorrent:
-            port-forward:
+            app:
               - path: /config
+      gluetun:
+        existingClaim: gluetun-update
+        advancedMounts:
+          qbittorrent:
+            gluetun:
+              - path: /gluetun
+                readOnly: true
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
