@@ -13,7 +13,7 @@ spec:
       static:
         - sc01.${SECRET_DOMAIN}
         - ewlc01.${SECRET_DOMAIN}
-        - nas01.{SECRET_DOMAIN}
+        - nas01.${SECRET_DOMAIN}
         - nas01-console.${SECRET_DOMAIN}
         - unifi.${SECRET_DOMAIN}
         - jellyfin.${SECRET_DOMAIN}
