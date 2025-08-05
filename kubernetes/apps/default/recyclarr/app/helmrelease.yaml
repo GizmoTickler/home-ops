@@ -42,9 +42,10 @@ spec:
               capabilities: { drop: ["ALL"] }
             resources:
               requests:
-                cpu: 10m
+                cpu: 5m
+                memory: 36M
               limits:
-                memory: 128Mi
+                memory: 128M
         pod:
           restartPolicy: Never
     defaultPodOptions:
