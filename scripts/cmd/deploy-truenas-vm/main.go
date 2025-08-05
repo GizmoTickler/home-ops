@@ -229,17 +229,23 @@ func getZVolPaths(config Config) map[string]string {
 		// Backward compatibility
 		zvols["boot"] = config.ZVolPath
 	} else {
-		// Legacy format
-		zvols["boot"] = fmt.Sprintf("%s/vms/%s-boot", config.StoragePool, config.Name)
+		// Use modern format: flashstor/VM/{name}-boot
+		zvols["boot"] = fmt.Sprintf("flashstor/VM/%s-boot", config.Name)
 	}
 
 	// Additional storage ZVols
 	if config.OpenEBSZVol != "" {
 		zvols["openebs"] = config.OpenEBSZVol
+	} else {
+		// Use modern format: flashstor/VM/{name}-ebs
+		zvols["openebs"] = fmt.Sprintf("flashstor/VM/%s-ebs", config.Name)
 	}
 
 	if config.RookZVol != "" {
 		zvols["rook"] = config.RookZVol
+	} else {
+		// Use modern format: flashstor/VM/{name}-rook
+		zvols["rook"] = fmt.Sprintf("flashstor/VM/%s-rook", config.Name)
 	}
 
 	return zvols
