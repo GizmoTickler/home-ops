@@ -6,6 +6,11 @@ source "$(dirname "${0}")/lib/common.sh"
 export LOG_LEVEL="debug"
 export ROOT_DIR="$(git rev-parse --show-toplevel)"
 
+# Source versions environment file
+if [[ -f "${ROOT_DIR}/kubernetes/apps/system-upgrade/versions/versions.env" ]]; then
+    source "${ROOT_DIR}/kubernetes/apps/system-upgrade/versions/versions.env"
+fi
+
 # Apply the Talos configuration to all the nodes
 function apply_talos_config() {
     log debug "Applying Talos configuration"
