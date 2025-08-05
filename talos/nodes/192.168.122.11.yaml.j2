@@ -2,6 +2,9 @@ machine:
   type: controlplane
   network:
     hostname: k8s-1
+    interfaces:
+      - deviceSelector:
+          hardwareAddr: 00:a0:98:1a:f3:72
   disks:
     - device: /dev/vdb
       partitions:
