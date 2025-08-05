@@ -7,13 +7,17 @@ components:
   - ../../components/common
 resources:
   - ./atuin/ks.yaml
+  - ./autobrr/ks.yaml
   - ./bazarr/ks.yaml
+  - ./cross-seed/ks.yaml
   - ./fusion/ks.yaml
   - ./jellyseerr/ks.yaml
-  - ./prowlarr/ks.yaml
   - ./pinchflat/ks.yaml
+  - ./prowlarr/ks.yaml
+  - ./qbittorrent/ks.yaml
   - ./radarr/ks.yaml
   - ./recyclarr/ks.yaml
   - ./sabnzbd/ks.yaml
   - ./sonarr/ks.yaml
+  - ./thelounge/ks.yaml
   - ./webhook/ks.yaml
