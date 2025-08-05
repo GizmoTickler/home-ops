@@ -43,9 +43,9 @@ spec:
             resources:
               requests:
                 cpu: 5m
-                memory: 36M
+                memory: 36Mi
               limits:
-                memory: 128M
+                memory: 128Mi
         pod:
           restartPolicy: Never
     defaultPodOptions:
