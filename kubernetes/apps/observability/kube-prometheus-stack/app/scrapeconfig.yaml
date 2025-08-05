@@ -37,7 +37,7 @@ metadata:
 spec:
   staticConfigs:
     - targets:
-        - passwords.${SECRET_DOMAIN}
+        - passwords.${SECRET_DOMAIN}:443
   metricsPath: /metrics
   relabelings:
     - action: replace
