@@ -1,0 +1,116 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: &app qbittorrent
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    controllers:
+      qbittorrent:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/qbittorrent
+              tag: 5.1.2@sha256:9dd0164cc23e9c937e0af27fd7c3f627d1df30c182cf62ed34d3f129c55dc0e8
+            env:
+              TZ: America/New_York
+              QBT_WEBUI_PORT: &port 80
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v2/app/version
+                    port: *port
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                spec:
+                  failureThreshold: 30
+                  periodSeconds: 10
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+            resources:
+              requests:
+                cpu: 100m
+              limits:
+                memory: 18Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        forceRename: "{{ .Release.Name }}"
+        primary: true
+        ports:
+          http:
+            port: *port
+      bittorrent:
+        type: LoadBalancer
+        annotations:
+          lbipam.cilium.io/ips: 192.168.120.150
+    route:
+      app:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: qbittorrent-gateway
+            namespace: default
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+    configMaps:
+      config:
+        data:
+          .qbt.toml: |
+            [qbittorrent]
+            addr = "http://localhost:80"
+    persistence:
+      config:
+        existingClaim: "{{ .Release.Name }}"
+      config-file:
+        type: configMap
+        name: "{{ .Release.Name }}"
+        globalMounts:
+          - path: /config/.qbt.toml
+            subPath: .qbt.toml
+            readOnly: true
+      media:
+        type: nfs
+        server: nas01.${SECRET_DOMAIN}
+        path: /mnt/flashstor/data
+        globalMounts:
+          - path: /media/torrents
+            subPath: torrents
+      qbrr:
+        type: image
+        image: ghcr.io/buroa/qbrr:0.0.28@sha256:4c86e047a3da5b18a1b5af840d38c11a820d2e07a4155f63865ea3225a222553
+      tmp:
+        type: emptyDir
