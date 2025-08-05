@@ -39,7 +39,7 @@ type VMDevice map[string]interface{}
 
 // Dataset represents a TrueNAS dataset
 type Dataset struct {
-	ID       string                 `json:"id"`
+	ID       interface{}            `json:"id"`       // Can be string or number
 	Name     string                 `json:"name"`
 	Type     string                 `json:"type"`
 	Pool     string                 `json:"pool"`
