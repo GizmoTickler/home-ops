@@ -278,12 +278,10 @@ spec:
           - path: /media/torrents
             subPath: torrents
       qbrr:
-        image:
-          repository: ghcr.io/buroa/qbrr
-          tag: 0.0.28@sha256:4c86e047a3da5b18a1b5af840d38c11a820d2e07a4155f63865ea3225a222553
+        type: image
+        image: ghcr.io/buroa/qbrr:0.0.28@sha256:4c86e047a3da5b18a1b5af840d38c11a820d2e07a4155f63865ea3225a222553
         advancedMounts:
-          qbittorrent:
+          *app :
             app:
               - path: /config/qbrr
                 subPath: qbrr
-                readOnly: true
