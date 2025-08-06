@@ -34,10 +34,11 @@ spec:
               FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16 # Allow access to k8s subnets
               HEALTH_SERVER_ADDRESS: :9999
               HEALTH_SUCCESS_WAIT_DURATION: 10s
-              VPN_PORT_FORWARDING: "on"
-              VPN_SERVICE_PROVIDER: custom
               VPN_TYPE: wireguard
+              VPN_PORT_FORWARDING: "on"
+              PORT_FORWARD_ONLY: "on"
               VPN_INTERFACE: tun0
+              VPN_SERVICE_PROVIDER: custom
               WIREGUARD_ENDPOINT_PORT: 51820
               VPN_PORT_FORWARDING_PROVIDER: protonvpn
               UPDATER_PERIOD: 24h
