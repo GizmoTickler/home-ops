@@ -91,11 +91,8 @@ spec:
               capabilities:
                 add: [NET_ADMIN]
             resources:
-              requests:
-                cpu: 20m
               limits:
                 squat.ai/tun: 1
-                memory: 100Mi
           # TODO: Replace once gluetun supports socks5, nothing supports shadowsocks
           socks5:
             restartPolicy: Always
