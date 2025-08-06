@@ -1,0 +1,46 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/cert-manager.io/clusterissuer_v1.json
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: gts-production
+spec:
+  acme:
+    server: https://dv.acme-v02.api.pki.goog/directory
+    email: "${ACME_EMAIL}"
+    privateKeySecretRef:
+      name: gts-prod-secret
+    externalAccountBinding:
+      keyID: "${EAB_KEY_ID}"
+      keySecretRef:
+        name: cert-manager-config-secret
+        key: secret
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cert-manager-config-secret
+              key: CLOUDFLARE_DNS_TOKEN
+        selector:
+          dnsZones:
+            - "${SECRET_DOMAIN}"
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: "${ACME_EMAIL}"
+    privateKeySecretRef:
+      name: letsencrypt-production
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cert-manager-config-secret
+              key: CLOUDFLARE_DNS_TOKEN
+        selector:
+          dnsZones:
+            - "${SECRET_DOMAIN}"
