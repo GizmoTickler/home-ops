@@ -38,7 +38,6 @@ spec:
               - /bin/sh
               - -c
               - |
-                apk add --no-cache wget tar
                 cd /tmp
                 wget https://github.com/buroa/qbrr/releases/download/0.0.28/qbrr_0.0.28_linux_amd64.tar.gz
                 tar -xzf qbrr_0.0.28_linux_amd64.tar.gz
