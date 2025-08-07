@@ -2,7 +2,7 @@ module truenas-vm-tools
 
 go 1.22.2
 
-toolchain go1.24.5
+toolchain go1.24.6
 
 require (
 	github.com/google/uuid v1.6.0
