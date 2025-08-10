@@ -105,8 +105,8 @@ func newNodeShellCommand() *cobra.Command {
 	cmd.Flags().StringVar(&node, "node", "", "Node name (required)")
 	_ = cmd.MarkFlagRequired("node")
 
-	// Add completion for node flag - could be enhanced to get actual node names
-	_ = cmd.RegisterFlagCompletionFunc("node", cobra.NoFileCompletions)
+	// Add completion for node flag
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 
 	return cmd
 }

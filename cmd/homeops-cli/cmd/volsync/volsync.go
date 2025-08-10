@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
 )
@@ -126,6 +127,10 @@ func newSnapshotCommand() *cobra.Command {
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for snapshot completion")
 	_ = cmd.MarkFlagRequired("app")
 
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("app", completion.ValidApplications)
+
 	return cmd
 }
 
@@ -211,6 +216,9 @@ func newSnapshotAllCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for all snapshots to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for each snapshot completion")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be snapshotted without actually triggering snapshots")
+
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 
 	return cmd
 }
@@ -358,6 +366,10 @@ func newRestoreCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
 	_ = cmd.MarkFlagRequired("app")
 	_ = cmd.MarkFlagRequired("previous")
+
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("app", completion.ValidApplications)
 
 	return cmd
 }
@@ -552,6 +564,9 @@ func newRestoreAllCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be restored without actually triggering restores")
 	_ = cmd.MarkFlagRequired("previous")
 
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
+
 	return cmd
 }
 
@@ -645,6 +660,10 @@ func newListSnapshotsCommand() *cobra.Command {
 		}
 		return nil
 	}
+
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
+	_ = cmd.RegisterFlagCompletionFunc("app", completion.ValidApplications)
 
 	return cmd
 }
