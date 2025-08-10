@@ -737,6 +737,9 @@ func newStartVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	_ = cmd.MarkFlagRequired("name")
 
+	// Add completion for name flag
+	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+
 	return cmd
 }
 
@@ -774,6 +777,9 @@ func newStopVMCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	_ = cmd.MarkFlagRequired("name")
+
+	// Add completion for name flag
+	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
 
 	return cmd
 }
@@ -825,6 +831,9 @@ func newDeleteVMCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 	_ = cmd.MarkFlagRequired("name")
 
+	// Add completion for name flag
+	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+
 	return cmd
 }
 
@@ -864,6 +873,9 @@ func newInfoVMCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	_ = cmd.MarkFlagRequired("name")
+
+	// Add completion for name flag
+	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
 
 	return cmd
 }
