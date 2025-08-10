@@ -22,4 +22,6 @@ talosconfig
 # Template config files
 /cluster.yaml
 /nodes.yaml
+truenas-deep-explorer/truenas-deep-explorer
+cmd/homeops-cli/homeops-cli
 
