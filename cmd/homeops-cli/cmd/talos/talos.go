@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/truenas"
 )
 
 func NewCommand() *cobra.Command {
@@ -36,6 +36,58 @@ func NewCommand() *cobra.Command {
 	)
 
 	return cmd
+}
+
+// getEnvOrDefault returns the value of an environment variable or a default value
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// getTrueNASCredentials retrieves TrueNAS credentials from 1Password or environment variables
+func getTrueNASCredentials() (host, apiKey string, err error) {
+	// Try 1Password first
+	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
+	
+	// Fall back to environment variables if 1Password fails
+	if host == "" {
+		host = os.Getenv("TRUENAS_HOST")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("TRUENAS_API_KEY")
+	}
+	
+	// Check if we have both credentials
+	if host == "" || apiKey == "" {
+		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set TRUENAS_HOST and TRUENAS_API_KEY environment variables or configure 1Password with 'op://Infrastructure/talosdeploy/TRUENAS_HOST' and 'op://Infrastructure/talosdeploy/TRUENAS_API'")
+	}
+	
+	return host, apiKey, nil
+}
+
+// get1PasswordSecret retrieves a secret from 1Password using the op CLI
+func get1PasswordSecret(reference string) string {
+	cmd := exec.Command("op", "read", reference)
+	output, err := cmd.Output()
+	if err != nil {
+		// Silently fail and return empty string to allow fallback to env vars
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getSpicePassword retrieves SPICE password from 1Password or environment variables
+func getSpicePassword() string {
+	// Try 1Password first
+	password := get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS")
+	if password != "" {
+		return password
+	}
+	// Fall back to environment variable
+	return os.Getenv("SPICE_PASSWORD")
 }
 
 func newApplyNodeCommand() *cobra.Command {
@@ -559,7 +611,7 @@ func newDeployVMCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.Flags().StringVar(&pool, "pool", "flashstor", "Storage pool")
+	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (default: flashstor/VM)")
 	cmd.Flags().IntVar(&memory, "memory", 4096, "Memory in MB")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 2, "Number of vCPUs")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB")
@@ -572,50 +624,78 @@ func newDeployVMCommand() *cobra.Command {
 	return cmd
 }
 
+// validateVMName checks if the VM name contains invalid characters
+func validateVMName(name string) error {
+	if strings.Contains(name, "-") {
+		return fmt.Errorf("VM name '%s' cannot contain dashes (-). Use underscores (_) or alphanumeric characters only", name)
+	}
+	if name == "" {
+		return fmt.Errorf("VM name cannot be empty")
+	}
+	return nil
+}
+
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate bool) error {
 	logger := common.NewColorLogger()
+	logger.Info("Deploying VM: %s", name)
 
-	// Generate ZVol paths
-	bootZVol := fmt.Sprintf("%s/VM/%s-boot", pool, name)
-	openebsZVol := fmt.Sprintf("%s/VM/%s-ebs", pool, name)
-	rookZVol := fmt.Sprintf("%s/VM/%s-rook", pool, name)
-
-	logger.Info("Deploying VM %s with pattern:", name)
-	logger.Info("  Boot ZVol: %s (%dGB)", bootZVol, diskSize)
-	logger.Info("  OpenEBS ZVol: %s (%dGB)", openebsZVol, openebsSize)
-	logger.Info("  Rook ZVol: %s (%dGB)", rookZVol, rookSize)
-
-	// Build the command
-	args := []string{
-		"NAME=" + name,
-		fmt.Sprintf("MEMORY=%d", memory),
-		fmt.Sprintf("VCPUS=%d", vcpus),
-		fmt.Sprintf("DISK_SIZE=%d", diskSize),
-		fmt.Sprintf("OPENEBS_SIZE=%d", openebsSize),
-		fmt.Sprintf("ROOK_SIZE=%d", rookSize),
-		"BOOT_ZVOL=" + bootZVol,
-		"OPENEBS_ZVOL=" + openebsZVol,
-		"ROOK_ZVOL=" + rookZVol,
+	// Validate VM name - no dashes allowed
+	if err := validateVMName(name); err != nil {
+		return err
 	}
 
-	if macAddress != "" {
-		args = append(args, "MAC_ADDRESS="+macAddress)
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
 	}
 
-	if skipZVolCreate {
-		args = append(args, "SKIP_ZVOL_CREATE=true")
+	// Get SPICE password
+	spicePassword := getSpicePassword()
+	if spicePassword == "" {
+		return fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
 	}
 
-	// Use the existing deploy script
-	cmd := exec.Command("task", "talos:deploy-vm", args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
 
-	if err := cmd.Run(); err != nil {
+	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
+	config := truenas.VMConfig{
+		Name:           name,
+		Memory:         memory,
+		VCPUs:          vcpus,
+		DiskSize:       diskSize,
+		OpenEBSSize:    openebsSize,
+		RookSize:       rookSize,
+		TrueNASHost:    host,
+		TrueNASAPIKey:  apiKey,
+		TrueNASPort:    443,
+		NoSSL:          false,
+		TalosISO:       getEnvOrDefault("TALOS_ISO", "https://github.com/siderolabs/talos/releases/latest/download/metal-amd64.iso"),
+		NetworkBridge:  getEnvOrDefault("NETWORK_BRIDGE", "br0"),
+		StoragePool:    pool,
+		MacAddress:     macAddress,
+		// Let getZVolPaths handle path construction to avoid duplication
+		// BootZVol, OpenEBSZVol, RookZVol will be auto-generated
+		SkipZVolCreate: skipZVolCreate,
+		SpicePassword:  spicePassword,
+		UseSpice:       true, // Always use SPICE as per working scripts
+	}
+
+	// Deploy the VM
+	if err := vmManager.DeployVM(config); err != nil {
 		return fmt.Errorf("VM deployment failed: %w", err)
 	}
 
 	logger.Success("VM %s deployed successfully", name)
+	logger.Info("ZVol naming pattern:")
+	logger.Info("  Boot disk:    %s/%s-boot (%dGB)", pool, name, diskSize)
+	logger.Info("  OpenEBS disk: %s/%s-ebs (%dGB)", pool, name, openebsSize)
+	logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
 	return nil
 }
 
@@ -648,10 +728,20 @@ func newListVMsCommand() *cobra.Command {
 }
 
 func listVMs() error {
-	cmd := exec.Command("task", "talos:list-vms")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.ListVMs()
 }
 
 func newStartVMCommand() *cobra.Command {
@@ -672,10 +762,20 @@ func newStartVMCommand() *cobra.Command {
 }
 
 func startVM(name string) error {
-	cmd := exec.Command("task", "talos:start-vm", "NAME="+name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.StartVM(name)
 }
 
 func newStopVMCommand() *cobra.Command {
@@ -696,10 +796,20 @@ func newStopVMCommand() *cobra.Command {
 }
 
 func stopVM(name string) error {
-	cmd := exec.Command("task", "talos:stop-vm", "NAME="+name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.StopVM(name, false)
 }
 
 func newDeleteVMCommand() *cobra.Command {
@@ -732,10 +842,22 @@ func newDeleteVMCommand() *cobra.Command {
 }
 
 func deleteVM(name string) error {
-	cmd := exec.Command("task", "talos:delete-vm", "NAME="+name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	// Delete VM and ZVols
+	storagePool := getEnvOrDefault("STORAGE_POOL", "tank")
+	return vmManager.DeleteVM(name, true, storagePool)
 }
 
 func newInfoVMCommand() *cobra.Command {
@@ -756,8 +878,18 @@ func newInfoVMCommand() *cobra.Command {
 }
 
 func infoVM(name string) error {
-	cmd := exec.Command("task", "talos:info-vm", "NAME="+name)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.GetVMInfo(name)
 }

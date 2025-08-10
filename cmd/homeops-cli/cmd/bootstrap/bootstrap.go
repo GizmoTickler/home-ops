@@ -12,11 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
-	"homeops-cli/internal/talos"
 )
 
 type BootstrapConfig struct {

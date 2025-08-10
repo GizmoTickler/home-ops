@@ -3,6 +3,7 @@ package common
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/fatih/color"
@@ -87,7 +88,7 @@ func CheckCLI(tools ...string) error {
 	var missing []string
 	for _, tool := range tools {
 		if _, err := os.Stat(tool); err != nil {
-			if _, err := os.LookPath(tool); err != nil {
+			if _, err := exec.LookPath(tool); err != nil {
 				missing = append(missing, tool)
 			}
 		}
