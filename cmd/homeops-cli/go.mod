@@ -5,10 +5,11 @@ go 1.22.2
 toolchain go1.23.3
 
 require (
+	dario.cat/mergo v1.0.2
 	github.com/1Password/connect-sdk-go v1.5.3
 	github.com/fatih/color v1.16.0
 	github.com/flosch/pongo2/v6 v6.0.0
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.17.0
 	github.com/truenas/api_client_golang v0.0.0-20250422141409-de238c6da9c4
 	go.uber.org/zap v1.21.0
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.2 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -36,7 +36,7 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.10.0 // indirect
 	github.com/spf13/cast v1.5.1 // indirect
-	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
