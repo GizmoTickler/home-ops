@@ -12,7 +12,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.20.1
 	github.com/truenas/api_client_golang v0.0.0-20250422141409-de238c6da9c4
-	go.uber.org/zap v1.21.0
+	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
