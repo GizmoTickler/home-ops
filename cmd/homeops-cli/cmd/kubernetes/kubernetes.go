@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 )
 
@@ -49,6 +50,11 @@ func newBrowsePVCCommand() *cobra.Command {
 	cmd.Flags().StringVar(&claim, "claim", "", "PVC name (required)")
 	cmd.Flags().StringVar(&image, "image", "docker.io/library/alpine:latest", "Container image to use")
 	cmd.MarkFlagRequired("claim")
+
+	// Add completion for namespace flag
+	if err := cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces); err != nil {
+		// Silently ignore completion registration errors
+	}
 
 	return cmd
 }
@@ -100,6 +106,11 @@ func newNodeShellCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&node, "node", "", "Node name (required)")
 	cmd.MarkFlagRequired("node")
+
+	// Add completion for node flag - could be enhanced to get actual node names
+	if err := cmd.RegisterFlagCompletionFunc("node", cobra.NoFileCompletions); err != nil {
+		// Silently ignore completion registration errors
+	}
 
 	return cmd
 }
@@ -225,6 +236,11 @@ func newCleansePodsCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be deleted without making changes")
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Limit to specific namespace (default: all namespaces)")
+
+	// Add completion for namespace flag
+	if err := cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces); err != nil {
+		// Silently ignore completion registration errors
+	}
 
 	return cmd
 }
