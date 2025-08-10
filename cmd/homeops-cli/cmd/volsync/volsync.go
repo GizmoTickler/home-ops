@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/templates"
 )
 
 // VolsyncConfig holds configuration for volsync operations
@@ -19,13 +19,7 @@ type VolsyncConfig struct {
 	NFSPath   string
 }
 
-// getVolsyncConfig returns configuration with defaults from environment variables
-func getVolsyncConfig() *VolsyncConfig {
-	return &VolsyncConfig{
-		NFSServer: getEnvOrDefault("VOLSYNC_NFS_SERVER", "192.168.120.10"),
-		NFSPath:   getEnvOrDefault("VOLSYNC_NFS_PATH", "/mnt/flashstor/Volsync"),
-	}
-}
+
 
 // getEnvOrDefault returns environment variable value or default
 func getEnvOrDefault(key, defaultValue string) string {
@@ -68,7 +62,7 @@ func newStateCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&state, "action", "", "Action to perform: suspend or resume (required)")
-	cmd.MarkFlagRequired("action")
+	_ = cmd.MarkFlagRequired("action")
 
 	return cmd
 }
@@ -126,7 +120,7 @@ func newSnapshotCommand() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for snapshot to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for snapshot completion")
-	cmd.MarkFlagRequired("app")
+	_ = cmd.MarkFlagRequired("app")
 
 	return cmd
 }
@@ -208,7 +202,7 @@ func newRestoreCommand() *cobra.Command {
 			if !force {
 				fmt.Printf("This will restore %s from snapshot %s. Data will be overwritten. Continue? (y/N): ", app, previous)
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("restore cancelled")
 				}
@@ -221,8 +215,8 @@ func newRestoreCommand() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
-	cmd.MarkFlagRequired("app")
-	cmd.MarkFlagRequired("previous")
+	_ = cmd.MarkFlagRequired("app")
+	_ = cmd.MarkFlagRequired("previous")
 
 	return cmd
 }
@@ -311,14 +305,11 @@ func restoreApp(namespace, app, previous string) error {
 	// Step 4: Create ReplicationDestination
 	logger.Info("Creating ReplicationDestination...")
 	
-	// Render the template
-	templatePath := filepath.Join(".taskfiles", "volsync", "resources", "replicationdestination.yaml.j2")
-	if !common.FileExists(templatePath) {
-		return fmt.Errorf("template not found: %s", templatePath)
+	// Create the ReplicationDestination YAML using embedded template
+	rdYAML, err := templates.RenderVolsyncTemplate("replicationdestination.yaml.j2", env)
+	if err != nil {
+		return fmt.Errorf("failed to render ReplicationDestination template: %w", err)
 	}
-
-	// Create the ReplicationDestination YAML
-	rdYAML := renderReplicationDestination(env)
 	
 	cmd = exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
 	cmd.Stdin = bytes.NewReader([]byte(rdYAML))
@@ -387,37 +378,7 @@ func restoreApp(namespace, app, previous string) error {
 	return nil
 }
 
-func renderReplicationDestination(env map[string]string) string {
-	// This is a simplified version - in production you'd use minijinja
-	template := `---
-apiVersion: volsync.backube/v1alpha1
-kind: ReplicationDestination
-metadata:
-  name: %s-manual
-  namespace: %s
-spec:
-  trigger:
-    manual: restore-once
-  restic:
-    repository: %s-volsync-secret
-    destinationPVC: %s
-    copyMethod: Direct
-    storageClassName: %s
-    accessModes: %s
-    previous: %s
-    moverSecurityContext:
-      runAsUser: %s
-      runAsGroup: %s
-      fsGroup: %s
-    enableFileDeletion: true
-    cleanupCachePVC: true
-    cleanupTempPVC: true
-`
-	return fmt.Sprintf(template,
-		env["APP"], env["NS"], env["APP"], env["CLAIM"],
-		env["STORAGE_CLASS_NAME"], env["ACCESS_MODES"], env["PREVIOUS"],
-		env["PUID"], env["PGID"], env["PGID"])
-}
+// renderReplicationDestination function removed - now using embedded templates
 
 func newUnlockCommand() *cobra.Command {
 	var (
@@ -450,7 +411,7 @@ func newUnlockCommand() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
 	cmd.Flags().StringVar(&nfsServer, "nfs-server", "", "NFS server address (default: 192.168.120.10 or VOLSYNC_NFS_SERVER env var)")
 	cmd.Flags().StringVar(&nfsPath, "nfs-path", "", "NFS path (default: /mnt/flashstor/Volsync or VOLSYNC_NFS_PATH env var)")
-	cmd.MarkFlagRequired("app")
+	_ = cmd.MarkFlagRequired("app")
 
 	return cmd
 }
@@ -459,36 +420,19 @@ func unlockRepositoryWithConfig(namespace, app string, config *VolsyncConfig) er
 	logger := common.NewColorLogger()
 	logger.Info("Unlocking repository for %s/%s...", namespace, app)
 
-	// Create unlock job YAML
-	unlockYAML := fmt.Sprintf(`---
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: volsync-unlock-%s
-  namespace: %s
-spec:
-  ttlSecondsAfterFinished: 3600
-  template:
-    spec:
-      automountServiceAccountToken: false
-      restartPolicy: OnFailure
-      containers:
-        - name: unlock
-          image: docker.io/restic/restic:latest
-          args: ["unlock", "--remove-all"]
-          envFrom:
-            - secretRef:
-                name: %s-volsync-secret
-          volumeMounts:
-            - name: repository
-              mountPath: /repository
-          resources: {}
-      volumes:
-        - name: repository
-          nfs:
-            server: %s
-            path: %s
-`, app, namespace, app, config.NFSServer, config.NFSPath)
+	// Create unlock job YAML using embedded template
+	env := map[string]string{
+		"APP": app,
+		"NS":  namespace,
+	}
+	unlockYAML, err := templates.RenderVolsyncTemplate("unlock.yaml.j2", env)
+	if err != nil {
+		return fmt.Errorf("failed to render unlock template: %w", err)
+	}
+
+	// Replace NFS server and path (these are not in the template as ENV vars)
+	unlockYAML = strings.ReplaceAll(unlockYAML, "192.168.120.10", config.NFSServer)
+	unlockYAML = strings.ReplaceAll(unlockYAML, "/mnt/flashstor/Volsync", config.NFSPath)
 
 	// Apply the job
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")

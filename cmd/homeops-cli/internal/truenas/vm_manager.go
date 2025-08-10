@@ -431,12 +431,6 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 }
 
 func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
-	macAddress := config.MacAddress
-	if macAddress == "" {
-		// Generate random MAC address
-		macAddress = vm.generateRandomMAC()
-	}
-
 	// Build VM configuration based on real TrueNAS API structure
 	vmConfig := map[string]interface{}{
 		"name":                           config.Name,
@@ -469,17 +463,17 @@ func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 
 func (vm *VMManager) generateRandomMAC() string {
 	// Generate a random MAC address with VMware OUI prefix
-	rand.Seed(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return fmt.Sprintf("00:0c:29:%02x:%02x:%02x",
-		rand.Intn(256), rand.Intn(256), rand.Intn(256))
+		r.Intn(256), r.Intn(256), r.Intn(256))
 }
 
 func (vm *VMManager) generateRandomSerial() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	rand.Seed(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	serial := make([]byte, 8)
 	for i := range serial {
-		serial[i] = charset[rand.Intn(len(charset))]
+		serial[i] = charset[r.Intn(len(charset))]
 	}
 	return string(serial)
 }

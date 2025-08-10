@@ -62,7 +62,10 @@ func setEnvironment() {
 
 	for key, defaultValue := range envDefaults {
 		if os.Getenv(key) == "" {
-			os.Setenv(key, defaultValue)
+			if err := os.Setenv(key, defaultValue); err != nil {
+				// Log the error but continue execution
+				fmt.Fprintf(os.Stderr, "Warning: failed to set environment variable %s: %v\n", key, err)
+			}
 		}
 	}
 }
