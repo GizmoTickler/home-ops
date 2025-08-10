@@ -9,7 +9,7 @@ require (
 	github.com/1Password/connect-sdk-go v1.5.3
 	github.com/fatih/color v1.16.0
 	github.com/flosch/pongo2/v6 v6.0.0
-	github.com/spf13/cobra v1.8.0
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
 	github.com/truenas/api_client_golang v0.0.0-20250422141409-de238c6da9c4
 	go.uber.org/zap v1.21.0
