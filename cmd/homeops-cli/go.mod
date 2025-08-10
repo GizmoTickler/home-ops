@@ -5,8 +5,9 @@ go 1.22.2
 toolchain go1.23.3
 
 require (
+	dario.cat/mergo v1.0.2
 	github.com/1Password/connect-sdk-go v1.5.3
-	github.com/fatih/color v1.16.0
+	github.com/fatih/color v1.18.0
 	github.com/flosch/pongo2/v6 v6.0.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.17.0
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.2 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -45,7 +45,7 @@ require (
 	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
-	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
