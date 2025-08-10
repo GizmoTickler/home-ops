@@ -14,6 +14,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/template"
+	"homeops-cli/internal/yaml"
 )
 
 type BootstrapConfig struct {
@@ -128,7 +131,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 func validatePrerequisites(config *BootstrapConfig) error {
 	// Check for required binaries
-	requiredBins := []string{"talosctl", "kubectl", "kustomize", "minijinja-cli", "op", "yq", "helmfile"}
+	requiredBins := []string{"talosctl", "kubectl", "kustomize", "op", "helmfile"}
 	for _, bin := range requiredBins {
 		if _, err := exec.LookPath(bin); err != nil {
 			return fmt.Errorf("required binary '%s' not found in PATH", bin)
@@ -269,13 +272,11 @@ func getTalosNodes() ([]string, error) {
 }
 
 func getMachineType(nodeFile string) (string, error) {
-	cmd := exec.Command("yq", ".machine.type", nodeFile)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to get machine type: %w", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
+	// Use Go YAML processor instead of yq command
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	return processor.GetMachineType(nodeFile)
 }
 
 func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
@@ -290,62 +291,41 @@ func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to render patch config: %w", err)
 	}
 
-	// Apply patch using talosctl
-	return applyTalosPatch(baseConfig, patchConfig)
+	// Use Go YAML processor to merge instead of talosctl
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	return processor.MergeYAML(baseConfig, patchConfig)
 }
 
 func renderTemplate(file string) ([]byte, error) {
-	// First render with minijinja
-	cmd := exec.Command("minijinja-cli", file)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("minijinja render failed: %w", err)
+	// Use Go template renderer instead of minijinja-cli and op inject
+	metrics := metrics.NewPerformanceCollector()
+	
+	// Get 1Password configuration from environment
+	opToken := os.Getenv("OP_CONNECT_TOKEN")
+	opURL := os.Getenv("OP_CONNECT_HOST")
+	vault := os.Getenv("OP_VAULT") // Default vault
+	if vault == "" {
+		vault = "homelab"
 	}
-
-	// Then inject secrets with op
-	cmd = exec.Command("op", "inject")
-	cmd.Stdin = bytes.NewReader(output)
-	result, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("op inject failed: %w", err)
+	
+	config := template.RendererConfig{
+		OnePasswordToken: opToken,
+		ServerURL:        opURL,
+		OnePasswordVault: vault,
 	}
-
-	return result, nil
+	
+	renderer, err := template.NewRenderer(config, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create template renderer: %w", err)
+	}
+	
+	// Render template with secret injection
+	return renderer.RenderFile(file, nil)
 }
 
-func applyTalosPatch(base, patch []byte) ([]byte, error) {
-	// Write temporary files
-	baseFile, err := os.CreateTemp("", "talos-base-*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(baseFile.Name())
-
-	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(patchFile.Name())
-
-	if _, err := baseFile.Write(base); err != nil {
-		return nil, err
-	}
-	if _, err := patchFile.Write(patch); err != nil {
-		return nil, err
-	}
-
-	baseFile.Close()
-	patchFile.Close()
-
-	// Apply patch
-	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to patch config: %w", err)
-	}
-
-	return output, nil
-}
+// applyTalosPatch function removed - now using Go YAML processor in renderMachineConfig
 
 func applyNodeConfig(node string, config []byte) error {
 	cmd := exec.Command("talosctl", "--nodes", node, "apply-config", "--insecure", "--file", "/dev/stdin")

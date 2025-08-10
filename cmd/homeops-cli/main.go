@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/bootstrap"
+	"homeops-cli/cmd/completion"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
@@ -33,11 +34,15 @@ Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 	// Add subcommands
 	rootCmd.AddCommand(
 		bootstrap.NewCommand(),
+		completion.NewCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),
 	)
+
+	// Enable completion for all commands
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// Execute
 	if err := rootCmd.Execute(); err != nil {

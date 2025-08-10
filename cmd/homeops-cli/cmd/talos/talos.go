@@ -10,8 +10,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/template"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/yaml"
 )
 
 func NewCommand() *cobra.Command {
@@ -108,6 +112,11 @@ func newApplyNodeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", "auto", "Apply mode (auto, interactive, etc.)")
 	cmd.MarkFlagRequired("ip")
 
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
 	return cmd
 }
 
@@ -164,38 +173,49 @@ func getMachineTypeFromNode(nodeIP string) (string, error) {
 }
 
 func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
-	// Render base config
-	baseCmd := exec.Command("minijinja-cli", baseFile)
-	baseOutput, err := baseCmd.Output()
+	// Use Go template renderer instead of minijinja-cli and op inject
+	baseConfig, err := renderTemplate(baseFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render base config: %w", err)
 	}
 
-	// Inject secrets
-	baseCmd = exec.Command("op", "inject")
-	baseCmd.Stdin = bytes.NewReader(baseOutput)
-	baseConfig, err := baseCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject secrets in base: %w", err)
-	}
-
-	// Render patch config
-	patchCmd := exec.Command("minijinja-cli", patchFile)
-	patchOutput, err := patchCmd.Output()
+	patchConfig, err := renderTemplate(patchFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render patch config: %w", err)
 	}
 
-	// Inject secrets
-	patchCmd = exec.Command("op", "inject")
-	patchCmd.Stdin = bytes.NewReader(patchOutput)
-	patchConfig, err := patchCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to inject secrets in patch: %w", err)
-	}
+	// Use Go YAML processor to merge instead of talosctl
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	return processor.MergeYAML(baseConfig, patchConfig)
+}
 
-	// Apply patch using talosctl
-	return applyTalosPatch(baseConfig, patchConfig)
+func renderTemplate(file string) ([]byte, error) {
+	// Use Go template renderer instead of minijinja-cli and op inject
+	metrics := metrics.NewPerformanceCollector()
+	
+	// Get 1Password configuration from environment
+	opToken := os.Getenv("OP_CONNECT_TOKEN")
+	opURL := os.Getenv("OP_CONNECT_HOST")
+	vault := os.Getenv("OP_VAULT") // Default vault
+	if vault == "" {
+		vault = "homelab"
+	}
+	
+	config := template.RendererConfig{
+		OnePasswordToken: opToken,
+		ServerURL:        opURL,
+		OnePasswordVault: vault,
+	}
+	
+	renderer, err := template.NewRenderer(config, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create template renderer: %w", err)
+	}
+	
+	// Render template with secret injection
+	return renderer.RenderFile(file, nil)
 }
 
 func applyTalosPatch(base, patch []byte) ([]byte, error) {
@@ -251,6 +271,11 @@ func newUpgradeNodeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
 	cmd.MarkFlagRequired("ip")
 
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
 	return cmd
 }
 
@@ -263,34 +288,37 @@ func upgradeNode(nodeIP, mode string) error {
 		return fmt.Errorf("node config not found: %s", nodeFile)
 	}
 
-	// Render node config to get image
-	cmd := exec.Command("minijinja-cli", nodeFile)
-	output, err := cmd.Output()
+	// Render node config using Go template renderer
+	configOutput, err := renderTemplate(nodeFile)
 	if err != nil {
 		return fmt.Errorf("failed to render node config: %w", err)
 	}
 
-	// Inject secrets
-	cmd = exec.Command("op", "inject")
-	cmd.Stdin = bytes.NewReader(output)
-	configOutput, err := cmd.Output()
+	// Extract factory image using Go YAML processor
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	// Parse YAML content into a map
+	configData, err := processor.ParseString(string(configOutput))
 	if err != nil {
-		return fmt.Errorf("failed to inject secrets: %w", err)
+		return fmt.Errorf("failed to parse node config: %w", err)
 	}
-
-	// Extract factory image using yq
-	cmd = exec.Command("yq", ".machine.install.image")
-	cmd.Stdin = bytes.NewReader(configOutput)
-	imageOutput, err := cmd.Output()
+	
+	// Extract factory image using GetValue
+	factoryImageValue, err := processor.GetValue(configData, "machine.install.image")
 	if err != nil {
 		return fmt.Errorf("failed to get factory image: %w", err)
 	}
+	
+	factoryImage, ok := factoryImageValue.(string)
+	if !ok {
+		return fmt.Errorf("factory image is not a string: %v", factoryImageValue)
+	}
 
-	factoryImage := strings.TrimSpace(string(imageOutput))
 	logger.Info("Upgrading node %s to image: %s", nodeIP, factoryImage)
 
 	// Perform upgrade
-	cmd = exec.Command("talosctl", "--nodes", nodeIP, "upgrade", 
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "upgrade", 
 		"--image", factoryImage, 
 		"--reboot-mode", mode,
 		"--timeout", "10m")
@@ -384,6 +412,11 @@ func newRebootNodeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
 	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
 
 	return cmd
 }
@@ -489,6 +522,11 @@ func newResetNodeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force reset without confirmation")
 	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
 
 	return cmd
 }
