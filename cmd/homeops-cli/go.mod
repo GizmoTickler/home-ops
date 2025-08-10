@@ -2,9 +2,10 @@ module homeops-cli
 
 go 1.22.2
 
-toolchain go1.23.3
+toolchain go1.24.6
 
 require (
+	dario.cat/mergo v1.0.2
 	github.com/1Password/connect-sdk-go v1.5.3
 	github.com/fatih/color v1.16.0
 	github.com/flosch/pongo2/v6 v6.0.0
@@ -16,7 +17,6 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.2 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
