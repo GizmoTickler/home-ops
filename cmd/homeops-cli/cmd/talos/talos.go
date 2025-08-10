@@ -1,0 +1,933 @@
+package talos
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/spf13/cobra"
+	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/template"
+	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/yaml"
+)
+
+func NewCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "talos",
+		Short: "Manage Talos Linux nodes and clusters",
+		Long:  `Commands for managing Talos Linux nodes, including configuration, upgrades, and VM deployments`,
+	}
+
+	// Add subcommands
+	cmd.AddCommand(
+		newApplyNodeCommand(),
+		newUpgradeNodeCommand(),
+		newUpgradeK8sCommand(),
+		newRebootNodeCommand(),
+		newShutdownClusterCommand(),
+		newResetNodeCommand(),
+		newResetClusterCommand(),
+		newKubeconfigCommand(),
+		newDeployVMCommand(),
+		newManageVMCommand(),
+	)
+
+	return cmd
+}
+
+// getEnvOrDefault returns the value of an environment variable or a default value
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+// getTrueNASCredentials retrieves TrueNAS credentials from 1Password or environment variables
+func getTrueNASCredentials() (host, apiKey string, err error) {
+	// Try 1Password first
+	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
+	
+	// Fall back to environment variables if 1Password fails
+	if host == "" {
+		host = os.Getenv("TRUENAS_HOST")
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv("TRUENAS_API_KEY")
+	}
+	
+	// Check if we have both credentials
+	if host == "" || apiKey == "" {
+		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set TRUENAS_HOST and TRUENAS_API_KEY environment variables or configure 1Password with 'op://Infrastructure/talosdeploy/TRUENAS_HOST' and 'op://Infrastructure/talosdeploy/TRUENAS_API'")
+	}
+	
+	return host, apiKey, nil
+}
+
+// get1PasswordSecret retrieves a secret from 1Password using the op CLI
+func get1PasswordSecret(reference string) string {
+	cmd := exec.Command("op", "read", reference)
+	output, err := cmd.Output()
+	if err != nil {
+		// Silently fail and return empty string to allow fallback to env vars
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+// getSpicePassword retrieves SPICE password from 1Password or environment variables
+func getSpicePassword() string {
+	// Try 1Password first
+	password := get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS")
+	if password != "" {
+		return password
+	}
+	// Fall back to environment variable
+	return os.Getenv("SPICE_PASSWORD")
+}
+
+func newApplyNodeCommand() *cobra.Command {
+	var (
+		nodeIP string
+		mode   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "apply-node",
+		Short: "Apply Talos config to a node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return applyNodeConfig(nodeIP, mode)
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
+	cmd.Flags().StringVar(&mode, "mode", "auto", "Apply mode (auto, interactive, etc.)")
+	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
+	return cmd
+}
+
+func applyNodeConfig(nodeIP, mode string) error {
+	logger := common.NewColorLogger()
+	
+	// Get machine type
+	machineType, err := getMachineTypeFromNode(nodeIP)
+	if err != nil {
+		return fmt.Errorf("failed to get machine type: %w", err)
+	}
+
+	logger.Info("Applying configuration to node %s (type: %s)", nodeIP, machineType)
+
+	// Render machine config
+	talosDir := "./talos"
+	machineConfigPath := filepath.Join(talosDir, fmt.Sprintf("%s.yaml.j2", machineType))
+	nodeConfigPath := filepath.Join(talosDir, "nodes", fmt.Sprintf("%s.yaml.j2", nodeIP))
+
+	// Check files exist
+	if !common.FileExists(machineConfigPath) {
+		return fmt.Errorf("machine config not found: %s", machineConfigPath)
+	}
+	if !common.FileExists(nodeConfigPath) {
+		return fmt.Errorf("node config not found: %s", nodeConfigPath)
+	}
+
+	// Render the configuration
+	renderedConfig, err := renderMachineConfig(machineConfigPath, nodeConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to render config: %w", err)
+	}
+
+	// Apply the configuration
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
+	cmd.Stdin = bytes.NewReader(renderedConfig)
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to apply config: %w\n%s", err, output)
+	}
+
+	logger.Success("Configuration applied successfully to %s", nodeIP)
+	return nil
+}
+
+func getMachineTypeFromNode(nodeIP string) (string, error) {
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "get", "machinetypes", "--output=jsonpath={.spec}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get machine type: %w", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
+	// Use Go template renderer instead of minijinja-cli and op inject
+	baseConfig, err := renderTemplate(baseFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render base config: %w", err)
+	}
+
+	patchConfig, err := renderTemplate(patchFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render patch config: %w", err)
+	}
+
+	// Use Go YAML processor to merge instead of talosctl
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	return processor.MergeYAML(baseConfig, patchConfig)
+}
+
+func renderTemplate(file string) ([]byte, error) {
+	// Use Go template renderer instead of minijinja-cli and op inject
+	metrics := metrics.NewPerformanceCollector()
+	
+	// Get 1Password configuration from environment
+	opToken := os.Getenv("OP_CONNECT_TOKEN")
+	opURL := os.Getenv("OP_CONNECT_HOST")
+	vault := os.Getenv("OP_VAULT") // Default vault
+	if vault == "" {
+		vault = "homelab"
+	}
+	
+	config := template.RendererConfig{
+		OnePasswordToken: opToken,
+		ServerURL:        opURL,
+		OnePasswordVault: vault,
+	}
+	
+	renderer, err := template.NewRenderer(config, metrics)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create template renderer: %w", err)
+	}
+	
+	// Render template with secret injection
+	return renderer.RenderFile(file, nil)
+}
+
+func applyTalosPatch(base, patch []byte) ([]byte, error) {
+	// Create temp files
+	baseFile, err := os.CreateTemp("", "talos-base-*.yaml")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(baseFile.Name())
+
+	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(patchFile.Name())
+
+	// Write configs
+	if _, err := baseFile.Write(base); err != nil {
+		return nil, err
+	}
+	if _, err := patchFile.Write(patch); err != nil {
+		return nil, err
+	}
+
+	baseFile.Close()
+	patchFile.Close()
+
+	// Apply patch
+	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to patch config: %w", err)
+	}
+
+	return output, nil
+}
+
+func newUpgradeNodeCommand() *cobra.Command {
+	var (
+		nodeIP string
+		mode   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "upgrade-node",
+		Short: "Upgrade Talos on a single node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return upgradeNode(nodeIP, mode)
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
+	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
+	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
+	return cmd
+}
+
+func upgradeNode(nodeIP, mode string) error {
+	logger := common.NewColorLogger()
+
+	// Get factory image from node config
+	nodeFile := filepath.Join("./talos/nodes", fmt.Sprintf("%s.yaml.j2", nodeIP))
+	if !common.FileExists(nodeFile) {
+		return fmt.Errorf("node config not found: %s", nodeFile)
+	}
+
+	// Render node config using Go template renderer
+	configOutput, err := renderTemplate(nodeFile)
+	if err != nil {
+		return fmt.Errorf("failed to render node config: %w", err)
+	}
+
+	// Extract factory image using Go YAML processor
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	// Parse YAML content into a map
+	configData, err := processor.ParseString(string(configOutput))
+	if err != nil {
+		return fmt.Errorf("failed to parse node config: %w", err)
+	}
+	
+	// Extract factory image using GetValue
+	factoryImageValue, err := processor.GetValue(configData, "machine.install.image")
+	if err != nil {
+		return fmt.Errorf("failed to get factory image: %w", err)
+	}
+	
+	factoryImage, ok := factoryImageValue.(string)
+	if !ok {
+		return fmt.Errorf("factory image is not a string: %v", factoryImageValue)
+	}
+
+	logger.Info("Upgrading node %s to image: %s", nodeIP, factoryImage)
+
+	// Perform upgrade
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "upgrade", 
+		"--image", factoryImage, 
+		"--reboot-mode", mode,
+		"--timeout", "10m")
+	
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("upgrade failed: %w", err)
+	}
+
+	logger.Success("Node %s upgraded successfully", nodeIP)
+	return nil
+}
+
+func newUpgradeK8sCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "upgrade-k8s",
+		Short: "Upgrade Kubernetes across the whole cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return upgradeK8s()
+		},
+	}
+
+	return cmd
+}
+
+func upgradeK8s() error {
+	logger := common.NewColorLogger()
+
+	// Get a random node
+	node, err := getRandomNode()
+	if err != nil {
+		return err
+	}
+
+	k8sVersion := os.Getenv("KUBERNETES_VERSION")
+	if k8sVersion == "" {
+		return fmt.Errorf("KUBERNETES_VERSION environment variable not set")
+	}
+
+	logger.Info("Upgrading Kubernetes to version %s via node %s", k8sVersion, node)
+
+	cmd := exec.Command("talosctl", "--nodes", node, "upgrade-k8s", "--to", k8sVersion)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("Kubernetes upgrade failed: %w", err)
+	}
+
+	logger.Success("Kubernetes upgraded successfully to %s", k8sVersion)
+	return nil
+}
+
+func getRandomNode() (string, error) {
+	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	var configInfo struct {
+		Endpoints []string `json:"endpoints"`
+	}
+	if err := json.Unmarshal(output, &configInfo); err != nil {
+		return "", err
+	}
+
+	if len(configInfo.Endpoints) == 0 {
+		return "", fmt.Errorf("no endpoints found")
+	}
+
+	return configInfo.Endpoints[0], nil
+}
+
+func newRebootNodeCommand() *cobra.Command {
+	var (
+		nodeIP string
+		mode   string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "reboot-node",
+		Short: "Reboot Talos on a single node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return rebootNode(nodeIP, mode)
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
+	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
+	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
+	return cmd
+}
+
+func rebootNode(nodeIP, mode string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Rebooting node %s with mode %s", nodeIP, mode)
+
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "reboot", "--mode", mode)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("reboot failed: %w\n%s", err, output)
+	}
+
+	logger.Success("Node %s reboot initiated", nodeIP)
+	return nil
+}
+
+func newShutdownClusterCommand() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "shutdown-cluster",
+		Short: "Shutdown Talos across the whole cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Print("Shutdown the Talos cluster ... continue? (y/N): ")
+				var response string
+				fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("shutdown cancelled")
+				}
+			}
+			return shutdownCluster()
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Force shutdown without confirmation")
+
+	return cmd
+}
+
+func shutdownCluster() error {
+	logger := common.NewColorLogger()
+
+	// Get all nodes
+	nodes, err := getAllNodes()
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Shutting down cluster nodes: %s", strings.Join(nodes, ", "))
+
+	cmd := exec.Command("talosctl", "shutdown", "--nodes", strings.Join(nodes, ","), "--force")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("shutdown failed: %w\n%s", err, output)
+	}
+
+	logger.Success("Cluster shutdown initiated")
+	return nil
+}
+
+func getAllNodes() ([]string, error) {
+	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var configInfo struct {
+		Nodes []string `json:"nodes"`
+	}
+	if err := json.Unmarshal(output, &configInfo); err != nil {
+		return nil, err
+	}
+
+	return configInfo.Nodes, nil
+}
+
+func newResetNodeCommand() *cobra.Command {
+	var (
+		nodeIP string
+		force  bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "reset-node",
+		Short: "Reset Talos on a single node",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Printf("Reset Talos node '%s' ... continue? (y/N): ", nodeIP)
+				var response string
+				fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("reset cancelled")
+				}
+			}
+			return resetNode(nodeIP)
+		},
+	}
+
+	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force reset without confirmation")
+	cmd.MarkFlagRequired("ip")
+
+	// Add completion for IP flag
+	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
+		// Silently ignore completion registration errors
+	}
+
+	return cmd
+}
+
+func resetNode(nodeIP string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Resetting node %s", nodeIP)
+
+	cmd := exec.Command("talosctl", "reset", "--nodes", nodeIP, "--graceful=false")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("reset failed: %w\n%s", err, output)
+	}
+
+	logger.Success("Node %s reset initiated", nodeIP)
+	return nil
+}
+
+func newResetClusterCommand() *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "reset-cluster",
+		Short: "Reset Talos across the whole cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Print("Reset the Talos cluster ... continue? (y/N): ")
+				var response string
+				fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("reset cancelled")
+				}
+			}
+			return resetCluster()
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "Force reset without confirmation")
+
+	return cmd
+}
+
+func resetCluster() error {
+	logger := common.NewColorLogger()
+
+	// Get all nodes
+	nodes, err := getAllNodes()
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Resetting cluster nodes: %s", strings.Join(nodes, ", "))
+
+	cmd := exec.Command("talosctl", "reset", "--nodes", strings.Join(nodes, ","), "--graceful=false")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("reset failed: %w\n%s", err, output)
+	}
+
+	logger.Success("Cluster reset initiated")
+	return nil
+}
+
+func newKubeconfigCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "kubeconfig",
+		Short: "Generate the kubeconfig for a Talos cluster",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return generateKubeconfig()
+		},
+	}
+
+	return cmd
+}
+
+func generateKubeconfig() error {
+	logger := common.NewColorLogger()
+
+	// Get a random node
+	node, err := getRandomNode()
+	if err != nil {
+		return err
+	}
+
+	rootDir := "."
+	logger.Info("Generating kubeconfig from node %s", node)
+
+	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node, 
+		"--force", "--force-context-name", "main", rootDir)
+	
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to generate kubeconfig: %w\n%s", err, output)
+	}
+
+	logger.Success("Kubeconfig generated successfully")
+	return nil
+}
+
+func newDeployVMCommand() *cobra.Command {
+	var (
+		name         string
+		memory       int
+		vcpus        int
+		diskSize     int
+		openebsSize  int
+		rookSize     int
+		macAddress   string
+		pool         string
+		skipZVolCreate bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "deploy-vm",
+		Short: "Deploy Talos VM on TrueNAS with auto-generated ZVol paths",
+		Long:  `Deploy a new Talos VM on TrueNAS with proper ZVol naming convention`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (default: flashstor/VM)")
+	cmd.Flags().IntVar(&memory, "memory", 4096, "Memory in MB")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 2, "Number of vCPUs")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1024, "OpenEBS disk size in GB")
+	cmd.Flags().IntVar(&rookSize, "rook-size", 800, "Rook disk size in GB")
+	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
+	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// validateVMName checks if the VM name contains invalid characters
+func validateVMName(name string) error {
+	if strings.Contains(name, "-") {
+		return fmt.Errorf("VM name '%s' cannot contain dashes (-). Use underscores (_) or alphanumeric characters only", name)
+	}
+	if name == "" {
+		return fmt.Errorf("VM name cannot be empty")
+	}
+	return nil
+}
+
+func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate bool) error {
+	logger := common.NewColorLogger()
+	logger.Info("Deploying VM: %s", name)
+
+	// Validate VM name - no dashes allowed
+	if err := validateVMName(name); err != nil {
+		return err
+	}
+
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Get SPICE password
+	spicePassword := getSpicePassword()
+	if spicePassword == "" {
+		return fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
+	config := truenas.VMConfig{
+		Name:           name,
+		Memory:         memory,
+		VCPUs:          vcpus,
+		DiskSize:       diskSize,
+		OpenEBSSize:    openebsSize,
+		RookSize:       rookSize,
+		TrueNASHost:    host,
+		TrueNASAPIKey:  apiKey,
+		TrueNASPort:    443,
+		NoSSL:          false,
+		TalosISO:       getEnvOrDefault("TALOS_ISO", "https://github.com/siderolabs/talos/releases/latest/download/metal-amd64.iso"),
+		NetworkBridge:  getEnvOrDefault("NETWORK_BRIDGE", "br0"),
+		StoragePool:    pool,
+		MacAddress:     macAddress,
+		// Let getZVolPaths handle path construction to avoid duplication
+		// BootZVol, OpenEBSZVol, RookZVol will be auto-generated
+		SkipZVolCreate: skipZVolCreate,
+		SpicePassword:  spicePassword,
+		UseSpice:       true, // Always use SPICE as per working scripts
+	}
+
+	// Deploy the VM
+	if err := vmManager.DeployVM(config); err != nil {
+		return fmt.Errorf("VM deployment failed: %w", err)
+	}
+
+	logger.Success("VM %s deployed successfully", name)
+	logger.Info("ZVol naming pattern:")
+	logger.Info("  Boot disk:    %s/%s-boot (%dGB)", pool, name, diskSize)
+	logger.Info("  OpenEBS disk: %s/%s-ebs (%dGB)", pool, name, openebsSize)
+	logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
+	return nil
+}
+
+func newManageVMCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "manage-vm",
+		Short: "Manage VMs on TrueNAS",
+		Long:  `Commands for managing VMs on TrueNAS Scale`,
+	}
+
+	cmd.AddCommand(
+		newListVMsCommand(),
+		newStartVMCommand(),
+		newStopVMCommand(),
+		newDeleteVMCommand(),
+		newInfoVMCommand(),
+	)
+
+	return cmd
+}
+
+func newListVMsCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all VMs on TrueNAS",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return listVMs()
+		},
+	}
+}
+
+func listVMs() error {
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.ListVMs()
+}
+
+func newStartVMCommand() *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "start",
+		Short: "Start a VM on TrueNAS",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return startVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func startVM(name string) error {
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.StartVM(name)
+}
+
+func newStopVMCommand() *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "stop",
+		Short: "Stop a VM on TrueNAS",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return stopVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func stopVM(name string) error {
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.StopVM(name, false)
+}
+
+func newDeleteVMCommand() *cobra.Command {
+	var (
+		name  string
+		force bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a VM and all associated ZVols on TrueNAS",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Printf("Delete VM '%s' and all its ZVols ... continue? (y/N): ", name)
+				var response string
+				fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("deletion cancelled")
+				}
+			}
+			return deleteVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func deleteVM(name string) error {
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	// Delete VM and ZVols
+	storagePool := getEnvOrDefault("STORAGE_POOL", "tank")
+	return vmManager.DeleteVM(name, true, storagePool)
+}
+
+func newInfoVMCommand() *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "info",
+		Short: "Get detailed information about a VM on TrueNAS",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return infoVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func infoVM(name string) error {
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer vmManager.Close()
+
+	return vmManager.GetVMInfo(name)
+}
