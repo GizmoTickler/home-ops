@@ -89,7 +89,11 @@ func (tf *TestFramework) CreateTempFile(name, content string) (string, error) {
 		return "", errors.NewFileSystemError("TEST_FILE_CREATE_ERROR",
 			fmt.Sprintf("failed to create test file: %s", filePath), err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := file.WriteString(content); err != nil {
 		return "", errors.NewFileSystemError("TEST_FILE_WRITE_ERROR",
