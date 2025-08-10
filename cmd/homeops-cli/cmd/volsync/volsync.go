@@ -213,7 +213,7 @@ func newSnapshotAllCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (if empty, searches all namespaces)")
-	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for all snapshots to complete")
+	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for all snapshots to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for each snapshot completion")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be snapshotted without actually triggering snapshots")
 
