@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/templates"
 )
 
 // NewCommand creates the workstation command
@@ -51,47 +51,45 @@ func newKrewCommand() *cobra.Command {
 	}
 }
 
-// installBrewPackages installs packages from Brewfile
+// installBrewPackages installs packages from embedded Brewfile
 func installBrewPackages() error {
 	logger := common.NewColorLogger()
 	logger.Info("Installing Homebrew packages from Brewfile...")
 
 	// Check if Homebrew is installed
 	if err := common.CheckCLI("brew"); err != nil {
-		return fmt.Errorf("Homebrew is not installed. Please install Homebrew first: %w", err)
+		return fmt.Errorf("homebrew is not installed. Please install Homebrew first: %w", err)
 	}
 
-	// Find Brewfile
-	brewfilePath := "./Brewfile"
-	if !common.FileExists(brewfilePath) {
-		// Try alternative locations
-		alternatives := []string{
-			"../Brewfile",
-			"../../Brewfile",
-			"./.taskfiles/workstation/resources/Brewfile",
-			"../.taskfiles/workstation/resources/Brewfile",
-		}
-		for _, alt := range alternatives {
-			if common.FileExists(alt) {
-				brewfilePath = alt
-				break
-			}
-		}
-		if !common.FileExists(brewfilePath) {
-			return fmt.Errorf("Brewfile not found in current directory or common locations")
-		}
-	}
-
-	logger.Info("Found Brewfile: %s", brewfilePath)
-
-	// Get absolute path
-	absPath, err := filepath.Abs(brewfilePath)
+	// Get Brewfile content from embedded templates
+	brewfileContent, err := templates.GetBrewfile()
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+		return fmt.Errorf("failed to get embedded Brewfile: %w", err)
 	}
+
+	// Create temporary Brewfile
+	tempFile, err := os.CreateTemp("", "Brewfile")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary Brewfile: %w", err)
+	}
+	defer func() {
+		if closeErr := tempFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close temp file: %v\n", closeErr)
+		}
+		if removeErr := os.Remove(tempFile.Name()); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file: %v\n", removeErr)
+		}
+	}()
+
+	// Write Brewfile content to temporary file
+	if _, err := tempFile.WriteString(brewfileContent); err != nil {
+		return fmt.Errorf("failed to write Brewfile content: %w", err)
+	}
+
+	logger.Info("Using embedded Brewfile")
 
 	// Run brew bundle install
-	cmd := exec.Command("brew", "bundle", "install", "--file", absPath)
+	cmd := exec.Command("brew", "bundle", "install", "--file", tempFile.Name())
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

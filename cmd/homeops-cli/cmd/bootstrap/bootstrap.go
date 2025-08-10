@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/metrics"
-	"homeops-cli/internal/template"
+	"homeops-cli/internal/templates"
 	"homeops-cli/internal/yaml"
 )
 
@@ -50,7 +51,7 @@ func NewCommand() *cobra.Command {
 	// Add flags
 	cmd.Flags().StringVar(&config.RootDir, "root-dir", ".", "Root directory of the project")
 	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", "./kubeconfig", "Path to kubeconfig file")
-	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", "./talosconfig", "Path to talosconfig file")
+	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", "talosconfig", "Path to talosconfig file")
 	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv("KUBERNETES_VERSION"), "Kubernetes version")
 	cmd.Flags().StringVar(&config.TalosVersion, "talos-version", os.Getenv("TALOS_VERSION"), "Talos version")
 	cmd.Flags().BoolVar(&config.DryRun, "dry-run", false, "Perform a dry run without making changes")
@@ -66,6 +67,11 @@ func runBootstrap(config *BootstrapConfig) error {
 	logger := common.NewColorLogger()
 
 	logger.Info("Starting cluster bootstrap process")
+
+	// Load versions from versions.env file if not provided
+	if err := loadVersionsFromFile(config); err != nil {
+		return fmt.Errorf("failed to load versions: %w", err)
+	}
 
 	// Validate prerequisites
 	if err := validatePrerequisites(config); err != nil {
@@ -146,10 +152,9 @@ func validatePrerequisites(config *BootstrapConfig) error {
 		return fmt.Errorf("TALOS_VERSION environment variable not set")
 	}
 
-	// Check for required files
+	// Check for required files (only talosconfig since templates are now embedded)
 	requiredFiles := []string{
 		config.TalosConfig,
-		filepath.Join(config.RootDir, "talos", "controlplane.yaml.j2"),
 	}
 	for _, file := range requiredFiles {
 		if _, err := os.Stat(file); os.IsNotExist(err) {
@@ -161,18 +166,42 @@ func validatePrerequisites(config *BootstrapConfig) error {
 }
 
 func check1PasswordAuth() error {
+	// First, check if already authenticated
 	cmd := exec.Command("op", "whoami", "--format=json")
 	output, err := cmd.Output()
+	if err == nil {
+		// Verify we got valid JSON response
+		var result map[string]interface{}
+		if err := json.Unmarshal(output, &result); err == nil {
+			return nil // Already authenticated
+		}
+	}
+
+	// Not authenticated, attempt to sign in
+	fmt.Println("1Password CLI not authenticated. Attempting to sign in...")
+	signinCmd := exec.Command("op", "signin")
+	signinCmd.Stdin = os.Stdin
+	signinCmd.Stdout = os.Stdout
+	signinCmd.Stderr = os.Stderr
+
+	if err := signinCmd.Run(); err != nil {
+		return fmt.Errorf("failed to sign in to 1Password: %w", err)
+	}
+
+	// Verify authentication after signin
+	verifyCmd := exec.Command("op", "whoami", "--format=json")
+	verifyOutput, err := verifyCmd.Output()
 	if err != nil {
-		return fmt.Errorf("failed to authenticate with 1Password CLI: %w", err)
+		return fmt.Errorf("authentication verification failed: %w", err)
 	}
 
 	// Verify we got valid JSON response
 	var result map[string]interface{}
-	if err := json.Unmarshal(output, &result); err != nil {
-		return fmt.Errorf("invalid 1Password response: %w", err)
+	if err := json.Unmarshal(verifyOutput, &result); err != nil {
+		return fmt.Errorf("invalid 1Password response after signin: %w", err)
 	}
 
+	fmt.Println("Successfully authenticated with 1Password CLI")
 	return nil
 }
 
@@ -183,48 +212,31 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 		return err
 	}
 
-	controlplanePath := filepath.Join(config.RootDir, "talos", "controlplane.yaml.j2")
-	workerPath := filepath.Join(config.RootDir, "talos", "worker.yaml.j2")
-
-	// Check files exist
-	if _, err := os.Stat(controlplanePath); os.IsNotExist(err) {
-		return fmt.Errorf("controlplane configuration not found: %s", controlplanePath)
-	}
-
-	// Worker file is optional
-	hasWorker := false
-	if _, err := os.Stat(workerPath); err == nil {
-		hasWorker = true
-	}
-
 	// Apply configuration to each node
 	for _, node := range nodes {
-		nodeFile := filepath.Join(config.RootDir, "talos", "nodes", fmt.Sprintf("%s.yaml.j2", node))
+		nodeTemplate := fmt.Sprintf("nodes/%s.yaml.j2", node)
 		
-		if _, err := os.Stat(nodeFile); os.IsNotExist(err) {
-			return fmt.Errorf("node configuration not found: %s", nodeFile)
-		}
-
-		// Get machine type from node file
-		machineType, err := getMachineType(nodeFile)
+		// Get machine type from embedded node template
+		machineType, err := getMachineTypeFromEmbedded(nodeTemplate)
 		if err != nil {
 			return err
 		}
 
 		logger.Debug(fmt.Sprintf("Applying Talos configuration to %s (type: %s)", node, machineType))
 
-		// Render the configuration
-		var basePath string
-		if machineType == "controlplane" {
-			basePath = controlplanePath
-		} else if machineType == "worker" && hasWorker {
-			basePath = workerPath
-		} else {
+		// Determine base template
+		var baseTemplate string
+		switch machineType {
+		case "controlplane":
+			baseTemplate = "controlplane.yaml.j2"
+		case "worker":
+			baseTemplate = "worker.yaml.j2"
+		default:
 			return fmt.Errorf("unknown machine type: %s", machineType)
 		}
 
-		// Render machine config
-		renderedConfig, err := renderMachineConfig(basePath, nodeFile)
+		// Render machine config using embedded templates
+		renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate)
 		if err != nil {
 			return fmt.Errorf("failed to render config for %s: %w", node, err)
 		}
@@ -271,59 +283,7 @@ func getTalosNodes() ([]string, error) {
 	return configInfo.Nodes, nil
 }
 
-func getMachineType(nodeFile string) (string, error) {
-	// Use Go YAML processor instead of yq command
-	metrics := metrics.NewPerformanceCollector()
-	processor := yaml.NewProcessor(nil, metrics)
-	
-	return processor.GetMachineType(nodeFile)
-}
 
-func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
-	// Use the Go implementation instead of shell script
-	baseConfig, err := renderTemplate(baseFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render base config: %w", err)
-	}
-
-	patchConfig, err := renderTemplate(patchFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render patch config: %w", err)
-	}
-
-	// Use Go YAML processor to merge instead of talosctl
-	metrics := metrics.NewPerformanceCollector()
-	processor := yaml.NewProcessor(nil, metrics)
-	
-	return processor.MergeYAML(baseConfig, patchConfig)
-}
-
-func renderTemplate(file string) ([]byte, error) {
-	// Use Go template renderer instead of minijinja-cli and op inject
-	metrics := metrics.NewPerformanceCollector()
-	
-	// Get 1Password configuration from environment
-	opToken := os.Getenv("OP_CONNECT_TOKEN")
-	opURL := os.Getenv("OP_CONNECT_HOST")
-	vault := os.Getenv("OP_VAULT") // Default vault
-	if vault == "" {
-		vault = "homelab"
-	}
-	
-	config := template.RendererConfig{
-		OnePasswordToken: opToken,
-		ServerURL:        opURL,
-		OnePasswordVault: vault,
-	}
-	
-	renderer, err := template.NewRenderer(config, metrics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create template renderer: %w", err)
-	}
-	
-	// Render template with secret injection
-	return renderer.RenderFile(file, nil)
-}
 
 // applyTalosPatch function removed - now using Go YAML processor in renderMachineConfig
 
@@ -337,6 +297,106 @@ func applyNodeConfig(node string, config []byte) error {
 	}
 
 	return nil
+}
+
+func loadVersionsFromFile(config *BootstrapConfig) error {
+	// Load versions from versions.env file if not already set
+	versionsFile := filepath.Join(config.RootDir, "kubernetes", "apps", "system-upgrade", "versions", "versions.env")
+	if _, err := os.Stat(versionsFile); err == nil {
+		file, err := os.Open(versionsFile)
+		if err != nil {
+			return fmt.Errorf("failed to open versions.env: %w", err)
+		}
+		defer func() {
+			if closeErr := file.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+			}
+		}()
+
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			// Only set if not already provided via environment or flags
+			switch key {
+			case "KUBERNETES_VERSION":
+				if config.K8sVersion == "" || config.K8sVersion == "v1.33.3" {
+					config.K8sVersion = value
+				}
+			case "TALOS_VERSION":
+				if config.TalosVersion == "" || config.TalosVersion == "v1.10.6" {
+					config.TalosVersion = value
+				}
+			}
+		}
+
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("error reading versions.env: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
+	// Get the node template content with proper talos/ prefix
+	fullTemplatePath := fmt.Sprintf("talos/%s", nodeTemplate)
+	content, err := templates.GetTalosTemplate(fullTemplatePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get node template: %w", err)
+	}
+	
+	// Parse machine type from template content
+	if strings.Contains(content, "type: controlplane") {
+		return "controlplane", nil
+	}
+	return "worker", nil
+}
+
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
+	// Get environment variables for template rendering
+	env := map[string]string{
+		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
+		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
+	}
+	
+	// Render base config from embedded template with proper talos/ prefix
+	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
+	baseConfig, err := templates.RenderTalosTemplate(fullBaseTemplatePath, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render base config: %w", err)
+	}
+	
+	// Render patch config from embedded template with proper talos/ prefix
+	fullPatchTemplatePath := fmt.Sprintf("talos/%s", patchTemplate)
+	patchConfig, err := templates.RenderTalosTemplate(fullPatchTemplatePath, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render patch config: %w", err)
+	}
+	
+	// Use Go YAML processor to merge
+	metrics := metrics.NewPerformanceCollector()
+	processor := yaml.NewProcessor(nil, metrics)
+	
+	return processor.MergeYAML([]byte(baseConfig), []byte(patchConfig))
 }
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -483,7 +543,11 @@ func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 		if err != nil {
 			return fmt.Errorf("failed to download CRD %s: %w", crd.name, err)
 		}
-		defer resp.Body.Close()
+		defer func() {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close response body: %v\n", closeErr)
+			}
+		}()
 
 		crdContent, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -505,27 +569,25 @@ func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 }
 
 func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
-	resourcesFile := filepath.Join(config.RootDir, "bootstrap", "resources.yaml.j2")
-	
-	if _, err := os.Stat(resourcesFile); os.IsNotExist(err) {
-		logger.Warn("Resources file not found, skipping")
-		return nil
-	}
-
 	if config.DryRun {
 		logger.Info("[DRY RUN] Would apply resources")
 		return nil
 	}
 
-	// Render resources
-	resources, err := renderTemplate(resourcesFile)
+	// Render resources from embedded template
+	env := map[string]string{
+		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
+		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
+	}
+	
+	resources, err := templates.RenderBootstrapTemplate("resources.yaml.j2", env)
 	if err != nil {
 		return fmt.Errorf("failed to render resources: %w", err)
 	}
 
 	// Apply resources
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
-	cmd.Stdin = bytes.NewReader(resources)
+	cmd.Stdin = bytes.NewReader([]byte(resources))
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply resources: %w\n%s", err, output)
@@ -536,19 +598,43 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 }
 
 func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error {
-	helmfileFile := filepath.Join(config.RootDir, "bootstrap", "helmfile.yaml")
-	
-	if _, err := os.Stat(helmfileFile); os.IsNotExist(err) {
-		logger.Warn("Helmfile not found, skipping")
-		return nil
-	}
-
 	if config.DryRun {
 		logger.Info("[DRY RUN] Would sync Helm releases")
 		return nil
 	}
 
-	cmd := exec.Command("helmfile", "--file", helmfileFile, "sync", "--hide-notes")
+	// Get embedded helmfile content
+	helmfileContent, err := templates.GetBootstrapFile("helmfile.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to get embedded helmfile: %w", err)
+	}
+
+	// Create temporary file for helmfile
+	tempFile, err := os.CreateTemp("", "helmfile-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer func() {
+		if removeErr := os.Remove(tempFile.Name()); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file: %v\n", removeErr)
+		}
+	}()
+	defer func() {
+		if closeErr := tempFile.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close temp file: %v\n", closeErr)
+		}
+	}()
+
+	// Write helmfile content to temp file
+	if _, err := tempFile.WriteString(helmfileContent); err != nil {
+		return fmt.Errorf("failed to write helmfile content: %w", err)
+	}
+	// Close the file explicitly before using it
+	if err := tempFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temp file: %w", err)
+	}
+
+	cmd := exec.Command("helmfile", "--file", tempFile.Name(), "sync", "--hide-notes")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	

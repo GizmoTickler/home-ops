@@ -49,12 +49,10 @@ func newBrowsePVCCommand() *cobra.Command {
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
 	cmd.Flags().StringVar(&claim, "claim", "", "PVC name (required)")
 	cmd.Flags().StringVar(&image, "image", "docker.io/library/alpine:latest", "Container image to use")
-	cmd.MarkFlagRequired("claim")
+	_ = cmd.MarkFlagRequired("claim")
 
 	// Add completion for namespace flag
-	if err := cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 
 	return cmd
 }
@@ -105,12 +103,10 @@ func newNodeShellCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&node, "node", "", "Node name (required)")
-	cmd.MarkFlagRequired("node")
+	_ = cmd.MarkFlagRequired("node")
 
 	// Add completion for node flag - could be enhanced to get actual node names
-	if err := cmd.RegisterFlagCompletionFunc("node", cobra.NoFileCompletions); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("node", cobra.NoFileCompletions)
 
 	return cmd
 }
@@ -238,9 +234,7 @@ func newCleansePodsCommand() *cobra.Command {
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Limit to specific namespace (default: all namespaces)")
 
 	// Add completion for namespace flag
-	if err := cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 
 	return cmd
 }
@@ -333,7 +327,7 @@ func newUpgradeARCCommand() *cobra.Command {
 			if !force {
 				fmt.Print("This will uninstall and reinstall ARC. Continue? (y/N): ")
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("upgrade cancelled")
 				}

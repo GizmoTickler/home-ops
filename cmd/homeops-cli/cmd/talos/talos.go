@@ -13,7 +13,7 @@ import (
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/metrics"
-	"homeops-cli/internal/template"
+	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/yaml"
 )
@@ -110,12 +110,10 @@ func newApplyNodeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().StringVar(&mode, "mode", "auto", "Apply mode (auto, interactive, etc.)")
-	cmd.MarkFlagRequired("ip")
+	_ = cmd.MarkFlagRequired("ip")
 
 	// Add completion for IP flag
-	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs)
 
 	return cmd
 }
@@ -131,21 +129,12 @@ func applyNodeConfig(nodeIP, mode string) error {
 
 	logger.Info("Applying configuration to node %s (type: %s)", nodeIP, machineType)
 
-	// Render machine config
-	talosDir := "./talos"
-	machineConfigPath := filepath.Join(talosDir, fmt.Sprintf("%s.yaml.j2", machineType))
-	nodeConfigPath := filepath.Join(talosDir, "nodes", fmt.Sprintf("%s.yaml.j2", nodeIP))
-
-	// Check files exist
-	if !common.FileExists(machineConfigPath) {
-		return fmt.Errorf("machine config not found: %s", machineConfigPath)
-	}
-	if !common.FileExists(nodeConfigPath) {
-		return fmt.Errorf("node config not found: %s", nodeConfigPath)
-	}
+	// Render machine config using embedded templates
+	machineConfigTemplate := fmt.Sprintf("%s.yaml.j2", machineType)
+	nodeConfigTemplate := fmt.Sprintf("nodes/%s.yaml.j2", nodeIP)
 
 	// Render the configuration
-	renderedConfig, err := renderMachineConfig(machineConfigPath, nodeConfigPath)
+	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to render config: %w", err)
 	}
@@ -172,86 +161,35 @@ func getMachineTypeFromNode(nodeIP string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-func renderMachineConfig(baseFile, patchFile string) ([]byte, error) {
-	// Use Go template renderer instead of minijinja-cli and op inject
-	baseConfig, err := renderTemplate(baseFile)
+
+
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
+	// Get environment variables for template rendering
+	env := map[string]string{
+		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
+		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
+	}
+	
+	// Render base config from embedded template
+	baseConfig, err := templates.RenderTalosTemplate(baseTemplate, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render base config: %w", err)
 	}
-
-	patchConfig, err := renderTemplate(patchFile)
+	
+	// Render patch config from embedded template
+	patchConfig, err := templates.RenderTalosTemplate(patchTemplate, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render patch config: %w", err)
 	}
-
-	// Use Go YAML processor to merge instead of talosctl
+	
+	// Use Go YAML processor to merge
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
 	
-	return processor.MergeYAML(baseConfig, patchConfig)
+	return processor.MergeYAML([]byte(baseConfig), []byte(patchConfig))
 }
 
-func renderTemplate(file string) ([]byte, error) {
-	// Use Go template renderer instead of minijinja-cli and op inject
-	metrics := metrics.NewPerformanceCollector()
-	
-	// Get 1Password configuration from environment
-	opToken := os.Getenv("OP_CONNECT_TOKEN")
-	opURL := os.Getenv("OP_CONNECT_HOST")
-	vault := os.Getenv("OP_VAULT") // Default vault
-	if vault == "" {
-		vault = "homelab"
-	}
-	
-	config := template.RendererConfig{
-		OnePasswordToken: opToken,
-		ServerURL:        opURL,
-		OnePasswordVault: vault,
-	}
-	
-	renderer, err := template.NewRenderer(config, metrics)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create template renderer: %w", err)
-	}
-	
-	// Render template with secret injection
-	return renderer.RenderFile(file, nil)
-}
 
-func applyTalosPatch(base, patch []byte) ([]byte, error) {
-	// Create temp files
-	baseFile, err := os.CreateTemp("", "talos-base-*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(baseFile.Name())
-
-	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(patchFile.Name())
-
-	// Write configs
-	if _, err := baseFile.Write(base); err != nil {
-		return nil, err
-	}
-	if _, err := patchFile.Write(patch); err != nil {
-		return nil, err
-	}
-
-	baseFile.Close()
-	patchFile.Close()
-
-	// Apply patch
-	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to patch config: %w", err)
-	}
-
-	return output, nil
-}
 
 func newUpgradeNodeCommand() *cobra.Command {
 	var (
@@ -269,12 +207,10 @@ func newUpgradeNodeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
-	cmd.MarkFlagRequired("ip")
+	_ = cmd.MarkFlagRequired("ip")
 
 	// Add completion for IP flag
-	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs)
 
 	return cmd
 }
@@ -288,10 +224,11 @@ func upgradeNode(nodeIP, mode string) error {
 		return fmt.Errorf("node config not found: %s", nodeFile)
 	}
 
-	// Render node config using Go template renderer
-	configOutput, err := renderTemplate(nodeFile)
+	// Get node config from embedded templates
+	nodeTemplate := fmt.Sprintf("talos/nodes/%s.yaml.j2", nodeIP)
+	configOutput, err := templates.GetTalosTemplate(nodeTemplate)
 	if err != nil {
-		return fmt.Errorf("failed to render node config: %w", err)
+		return fmt.Errorf("failed to get node config: %w", err)
 	}
 
 	// Extract factory image using Go YAML processor
@@ -367,7 +304,7 @@ func upgradeK8s() error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("Kubernetes upgrade failed: %w", err)
+		return fmt.Errorf("kubernetes upgrade failed: %w", err)
 	}
 
 	logger.Success("Kubernetes upgraded successfully to %s", k8sVersion)
@@ -411,12 +348,10 @@ func newRebootNodeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
-	cmd.MarkFlagRequired("ip")
+	_ = cmd.MarkFlagRequired("ip")
 
 	// Add completion for IP flag
-	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs)
 
 	return cmd
 }
@@ -445,7 +380,7 @@ func newShutdownClusterCommand() *cobra.Command {
 			if !force {
 				fmt.Print("Shutdown the Talos cluster ... continue? (y/N): ")
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("shutdown cancelled")
 				}
@@ -510,7 +445,7 @@ func newResetNodeCommand() *cobra.Command {
 			if !force {
 				fmt.Printf("Reset Talos node '%s' ... continue? (y/N): ", nodeIP)
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("reset cancelled")
 				}
@@ -521,12 +456,10 @@ func newResetNodeCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force reset without confirmation")
-	cmd.MarkFlagRequired("ip")
+	_ = cmd.MarkFlagRequired("ip")
 
 	// Add completion for IP flag
-	if err := cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs); err != nil {
-		// Silently ignore completion registration errors
-	}
+	_ = cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs)
 
 	return cmd
 }
@@ -555,7 +488,7 @@ func newResetClusterCommand() *cobra.Command {
 			if !force {
 				fmt.Print("Reset the Talos cluster ... continue? (y/N): ")
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("reset cancelled")
 				}
@@ -657,7 +590,7 @@ func newDeployVMCommand() *cobra.Command {
 	cmd.Flags().IntVar(&rookSize, "rook-size", 800, "Rook disk size in GB")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation")
-	cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -699,7 +632,11 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
 	config := truenas.VMConfig{
@@ -777,7 +714,11 @@ func listVMs() error {
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	return vmManager.ListVMs()
 }
@@ -794,7 +735,7 @@ func newStartVMCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -811,7 +752,11 @@ func startVM(name string) error {
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	return vmManager.StartVM(name)
 }
@@ -828,7 +773,7 @@ func newStopVMCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -845,7 +790,11 @@ func stopVM(name string) error {
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	return vmManager.StopVM(name, false)
 }
@@ -863,7 +812,7 @@ func newDeleteVMCommand() *cobra.Command {
 			if !force {
 				fmt.Printf("Delete VM '%s' and all its ZVols ... continue? (y/N): ", name)
 				var response string
-				fmt.Scanln(&response)
+				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("deletion cancelled")
 				}
@@ -874,7 +823,7 @@ func newDeleteVMCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
-	cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -891,7 +840,11 @@ func deleteVM(name string) error {
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	// Delete VM and ZVols
 	storagePool := getEnvOrDefault("STORAGE_POOL", "tank")
@@ -910,7 +863,7 @@ func newInfoVMCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -927,7 +880,11 @@ func infoVM(name string) error {
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer vmManager.Close()
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+		}
+	}()
 
 	return vmManager.GetVMInfo(name)
 }

@@ -68,7 +68,7 @@ func (er *ErrorReporter) ReportError(ctx context.Context, err *HomeOpsError) err
 	
 	// Add context if missing
 	if err.Context == nil {
-		err.WithContext("unknown", "error_reporter")
+		_ = err.WithContext("unknown", "error_reporter")
 	}
 	
 	// Log the error
@@ -146,14 +146,14 @@ func (er *ErrorReporter) updateMetrics(err *HomeOpsError) {
 	
 	// Track error by type
 	metricName := fmt.Sprintf("error_%s", string(err.Type))
-	er.metrics.TrackOperation(metricName, func() error {
+	_ = er.metrics.TrackOperation(metricName, func() error {
 		return err // This will increment error count
 	})
 	
 	// Track error by code
 	if err.Code != "" {
 		codeMetricName := fmt.Sprintf("error_code_%s", err.Code)
-		er.metrics.TrackOperation(codeMetricName, func() error {
+		_ = er.metrics.TrackOperation(codeMetricName, func() error {
 			return err
 		})
 	}
