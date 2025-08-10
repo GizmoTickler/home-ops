@@ -7,7 +7,7 @@ toolchain go1.23.3
 require (
 	dario.cat/mergo v1.0.2
 	github.com/1Password/connect-sdk-go v1.5.3
-	github.com/fatih/color v1.16.0
+	github.com/fatih/color v1.18.0
 	github.com/flosch/pongo2/v6 v6.0.0
 	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.20.1
