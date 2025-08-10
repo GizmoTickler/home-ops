@@ -130,7 +130,11 @@ func (mt *MigrationTool) analyzeShellFile(filePath string) ([]ShellCommand, erro
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 
 	var commands []ShellCommand
 	scanner := bufio.NewScanner(file)
@@ -319,7 +323,7 @@ func (mt *MigrationTool) GenerateMigrationPlan(report *MigrationReport) string {
 	plan := fmt.Sprintf(`# Migration Plan Generated at %s
 
 `, report.GeneratedAt.Format(time.RFC3339))
-	plan += fmt.Sprintf("## Summary\n")
+	plan += "## Summary\n"
 	plan += fmt.Sprintf("- Scripts analyzed: %d\n", report.ScriptsAnalyzed)
 	plan += fmt.Sprintf("- Total commands found: %d\n", len(report.CommandsFound))
 	plan += fmt.Sprintf("- Estimated effort: %s\n\n", report.EstimatedEffort)

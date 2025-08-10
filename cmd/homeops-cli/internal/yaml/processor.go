@@ -34,7 +34,11 @@ func (p *Processor) ParseFile(filename string) (map[string]interface{}, error) {
 		return nil, errors.NewFileSystemError("YAML_FILE_READ_ERROR", 
 			fmt.Sprintf("failed to open YAML file: %s", filename), err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 
 	return p.Parse(file)
 }
@@ -64,7 +68,11 @@ func (p *Processor) WriteFile(filename string, data interface{}) error {
 		return errors.NewFileSystemError("YAML_FILE_WRITE_ERROR", 
 			fmt.Sprintf("failed to create YAML file: %s", filename), err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close file: %v\n", closeErr)
+		}
+	}()
 
 	return p.Write(file, data)
 }
@@ -73,7 +81,11 @@ func (p *Processor) WriteFile(filename string, data interface{}) error {
 func (p *Processor) Write(writer io.Writer, data interface{}) error {
 	encoder := yaml.NewEncoder(writer)
 	encoder.SetIndent(2)
-	defer encoder.Close()
+	defer func() {
+		if closeErr := encoder.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close encoder: %v\n", closeErr)
+		}
+	}()
 
 	if err := encoder.Encode(data); err != nil {
 		return errors.NewValidationError("YAML_ENCODE_ERROR", 
