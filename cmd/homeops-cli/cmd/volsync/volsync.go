@@ -2,6 +2,7 @@ package volsync
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -39,7 +40,10 @@ func NewCommand() *cobra.Command {
 	cmd.AddCommand(
 		newStateCommand(),
 		newSnapshotCommand(),
+		newSnapshotAllCommand(),
 		newRestoreCommand(),
+		newRestoreAllCommand(),
+		newListSnapshotsCommand(),
 		newUnlockCommand(),
 	)
 
@@ -184,6 +188,143 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 	logger.Success("Snapshot completed successfully for %s/%s", namespace, app)
 	return nil
+}
+
+func newSnapshotAllCommand() *cobra.Command {
+	var (
+		wait      bool
+		timeout   time.Duration
+		namespace string
+		dryRun    bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "snapshot-all",
+		Short: "Trigger snapshots for all eligible VolSync configured PVCs",
+		Long:  `Discovers all ReplicationSources across all namespaces and triggers snapshots for them`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return snapshotAllApps(namespace, wait, timeout, dryRun)
+		},
+	}
+
+	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (if empty, searches all namespaces)")
+	cmd.Flags().BoolVar(&wait, "wait", false, "Wait for all snapshots to complete")
+	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for each snapshot completion")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be snapshotted without actually triggering snapshots")
+
+	return cmd
+}
+
+func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun bool) error {
+	logger := common.NewColorLogger()
+
+	// Discover all ReplicationSources
+	replicationSources, err := discoverReplicationSources(namespace)
+	if err != nil {
+		return fmt.Errorf("failed to discover ReplicationSources: %w", err)
+	}
+
+	if len(replicationSources) == 0 {
+		logger.Info("No ReplicationSources found")
+		return nil
+	}
+
+	logger.Info("Found %d ReplicationSources to snapshot", len(replicationSources))
+
+	if dryRun {
+		logger.Info("Dry run mode - showing what would be snapshotted:")
+		for _, rs := range replicationSources {
+			logger.Info("  - %s/%s", rs.Namespace, rs.Name)
+		}
+		return nil
+	}
+
+	// Track results
+	var successful, failed []string
+
+	// Trigger snapshots for all ReplicationSources
+	for _, rs := range replicationSources {
+		logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
+		
+		err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
+		if err != nil {
+			logger.Error("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
+			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+		} else {
+			successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+		}
+	}
+
+	// Report results
+	logger.Info("Snapshot operation completed:")
+	logger.Success("Successful: %d", len(successful))
+	if len(successful) > 0 {
+		for _, app := range successful {
+			logger.Success("  ✓ %s", app)
+		}
+	}
+
+	if len(failed) > 0 {
+		logger.Error("Failed: %d", len(failed))
+		for _, app := range failed {
+			logger.Error("  ✗ %s", app)
+		}
+		return fmt.Errorf("%d snapshots failed", len(failed))
+	}
+
+	return nil
+}
+
+type ReplicationSource struct {
+	Name      string
+	Namespace string
+}
+
+func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
+	var cmd *exec.Cmd
+	if namespace == "" {
+		// Search all namespaces
+		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces", 
+			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
+	} else {
+		// Search specific namespace
+		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources", 
+			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If no ReplicationSources found, kubectl returns an error
+		outputStr := string(output)
+		if strings.Contains(outputStr, "No resources found") || 
+		   strings.Contains(err.Error(), "No resources found") ||
+		   strings.Contains(outputStr, "the server doesn't have a resource type") {
+			return []ReplicationSource{}, nil
+		}
+		return nil, fmt.Errorf("failed to get ReplicationSources: %w\nOutput: %s", err, outputStr)
+	}
+
+	var replicationSources []ReplicationSource
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		
+		// Split by whitespace and take first two fields
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		
+		replicationSources = append(replicationSources, ReplicationSource{
+			Namespace: fields[0],
+			Name:      fields[1],
+		})
+	}
+
+	return replicationSources, nil
 }
 
 func newRestoreCommand() *cobra.Command {
@@ -379,6 +520,297 @@ func restoreApp(namespace, app, previous string) error {
 }
 
 // renderReplicationDestination function removed - now using embedded templates
+
+func newRestoreAllCommand() *cobra.Command {
+	var (
+		namespace string
+		previous  string
+		force     bool
+		dryRun    bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "restore-all",
+		Short: "Restore all applications from VolSync snapshots in a namespace",
+		Long:  `Discovers all ReplicationSources in a namespace and restores them from specified snapshots`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force && !dryRun {
+				fmt.Printf("This will restore ALL applications in namespace '%s' from snapshot %s. Data will be overwritten. Continue? (y/N): ", namespace, previous)
+				var response string
+				_, _ = fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("restore cancelled")
+				}
+			}
+			return restoreAllApps(namespace, previous, dryRun)
+		},
+	}
+
+	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace (required)")
+	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be restored without actually triggering restores")
+	_ = cmd.MarkFlagRequired("previous")
+
+	return cmd
+}
+
+func restoreAllApps(namespace, previous string, dryRun bool) error {
+	logger := common.NewColorLogger()
+
+	// Discover all ReplicationSources in the specified namespace
+	replicationSources, err := discoverReplicationSources(namespace)
+	if err != nil {
+		return fmt.Errorf("failed to discover ReplicationSources: %w", err)
+	}
+
+	if len(replicationSources) == 0 {
+		logger.Info("No ReplicationSources found in namespace %s", namespace)
+		return nil
+	}
+
+	logger.Info("Found %d ReplicationSources to restore in namespace %s", len(replicationSources), namespace)
+
+	if dryRun {
+		logger.Info("Dry run mode - showing what would be restored:")
+		for _, rs := range replicationSources {
+			logger.Info("  - %s/%s (snapshot: %s)", rs.Namespace, rs.Name, previous)
+		}
+		return nil
+	}
+
+	// Track results
+	var successful, failed []string
+
+	// Restore all ReplicationSources
+	for _, rs := range replicationSources {
+		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
+		
+		err := restoreApp(rs.Namespace, rs.Name, previous)
+		if err != nil {
+			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
+			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+		} else {
+			logger.Success("✓ Successfully restored %s/%s", rs.Namespace, rs.Name)
+			successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+		}
+	}
+
+	// Report results
+	logger.Info("\nRestore Summary:")
+	logger.Info("  Successful: %d", len(successful))
+	for _, app := range successful {
+		logger.Info("    ✓ %s", app)
+	}
+	
+	if len(failed) > 0 {
+		logger.Info("  Failed: %d", len(failed))
+		for _, app := range failed {
+			logger.Error("    ✗ %s", app)
+		}
+		return fmt.Errorf("%d restore(s) failed", len(failed))
+	}
+
+	logger.Success("All restores completed successfully!")
+	return nil
+}
+
+func newListSnapshotsCommand() *cobra.Command {
+	var (
+		namespace string
+		app       string
+		allApps   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "list-snapshots",
+		Short: "List available snapshots for VolSync applications",
+		Long:  `Lists available snapshots from Restic repositories for VolSync applications`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if allApps {
+				return listAllSnapshots(namespace)
+			}
+			return listAppSnapshots(namespace, app)
+		},
+	}
+
+	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
+	cmd.Flags().StringVar(&app, "app", "", "Application name (if not specified with --all, this is required)")
+	cmd.Flags().BoolVar(&allApps, "all", false, "List snapshots for all applications in the namespace")
+
+	// Make app required when --all is not used
+	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if !allApps && app == "" {
+			return fmt.Errorf("either --app or --all flag must be specified")
+		}
+		return nil
+	}
+
+	return cmd
+}
+
+func listAppSnapshots(namespace, app string) error {
+	logger := common.NewColorLogger()
+
+	logger.Info("Listing snapshots for %s/%s...", namespace, app)
+
+	// Get VolSync configuration
+	config := &VolsyncConfig{
+		NFSServer: getEnvOrDefault("NFS_SERVER", "192.168.120.10"),
+		NFSPath:   getEnvOrDefault("NFS_PATH", "/mnt/flashstor/Volsync"),
+	}
+
+	snapshots, err := getAppSnapshots(namespace, app, config)
+	if err != nil {
+		return fmt.Errorf("failed to get snapshots for %s/%s: %w", namespace, app, err)
+	}
+
+	if len(snapshots) == 0 {
+		logger.Info("No snapshots found for %s/%s", namespace, app)
+		return nil
+	}
+
+	logger.Info("Found %d snapshots for %s/%s:", len(snapshots), namespace, app)
+	for _, snapshot := range snapshots {
+		logger.Info("  %s", snapshot)
+	}
+
+	return nil
+}
+
+func listAllSnapshots(namespace string) error {
+	logger := common.NewColorLogger()
+
+	// Discover all ReplicationSources in the namespace
+	replicationSources, err := discoverReplicationSources(namespace)
+	if err != nil {
+		return fmt.Errorf("failed to discover ReplicationSources: %w", err)
+	}
+
+	if len(replicationSources) == 0 {
+		logger.Info("No ReplicationSources found in namespace %s", namespace)
+		return nil
+	}
+
+	logger.Info("Listing snapshots for %d applications in namespace %s:\n", len(replicationSources), namespace)
+
+	// Get VolSync configuration
+	config := &VolsyncConfig{
+		NFSServer: getEnvOrDefault("NFS_SERVER", "192.168.120.10"),
+		NFSPath:   getEnvOrDefault("NFS_PATH", "/mnt/flashstor/Volsync"),
+	}
+
+	for _, rs := range replicationSources {
+		logger.Info("📦 %s/%s:", rs.Namespace, rs.Name)
+		
+		snapshots, err := getAppSnapshots(rs.Namespace, rs.Name, config)
+		if err != nil {
+			logger.Error("  ✗ Failed to get snapshots: %v", err)
+			continue
+		}
+
+		if len(snapshots) == 0 {
+			logger.Warn("  ⚠ No snapshots found")
+		} else {
+			logger.Info("  Found %d snapshots:", len(snapshots))
+			for _, snapshot := range snapshots {
+				logger.Info("    %s", snapshot)
+			}
+		}
+		logger.Info("") // Empty line for readability
+	}
+
+	return nil
+}
+
+func getAppSnapshots(namespace, app string, config *VolsyncConfig) ([]string, error) {
+	// Create a temporary pod to run restic commands
+	podName := fmt.Sprintf("volsync-list-%s", app)
+	repositoryPath := fmt.Sprintf("%s/%s", config.NFSPath, app)
+
+	// Create pod YAML for listing snapshots
+	podYAML := fmt.Sprintf(`apiVersion: v1
+kind: Pod
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  restartPolicy: Never
+  containers:
+  - name: restic
+    image: restic/restic:0.16.4
+    command: ["/bin/sh"]
+    args: ["-c", "sleep 3600"]
+    env:
+    - name: RESTIC_REPOSITORY
+      value: "/repository"
+    - name: RESTIC_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: %s-volsync-secret
+          key: RESTIC_PASSWORD
+    volumeMounts:
+    - name: nfs-volume
+      mountPath: /repository
+  volumes:
+  - name: nfs-volume
+    nfs:
+      server: %s
+      path: %s`, podName, namespace, app, config.NFSServer, repositoryPath)
+
+	// Apply the pod
+	cmd := exec.Command("kubectl", "apply", "--filename", "-")
+	cmd.Stdin = bytes.NewReader([]byte(podYAML))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("failed to create listing pod: %w\n%s", err, output)
+	}
+
+	// Wait for pod to be ready
+	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", fmt.Sprintf("pod/%s", podName), "--for=condition=ready", "--timeout=60s")
+	if err := cmd.Run(); err != nil {
+		// Clean up pod
+		cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
+		_ = cleanupCmd.Run() // Ignore cleanup errors
+		return nil, fmt.Errorf("pod failed to become ready: %w", err)
+	}
+
+	// List snapshots using restic
+	cmd = exec.Command("kubectl", "--namespace", namespace, "exec", podName, "--", "restic", "snapshots", "--json")
+	output, err := cmd.Output()
+	if err != nil {
+		// Clean up pod
+		cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
+		_ = cleanupCmd.Run() // Ignore cleanup errors
+		return nil, fmt.Errorf("failed to list snapshots: %w", err)
+	}
+
+	// Clean up pod
+	cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
+	_ = cleanupCmd.Run() // Ignore cleanup errors
+
+	// Parse JSON output to extract snapshot information
+	var snapshots []map[string]interface{}
+	if err := json.Unmarshal(output, &snapshots); err != nil {
+		return nil, fmt.Errorf("failed to parse snapshots JSON: %w", err)
+	}
+
+	var result []string
+	for i, snapshot := range snapshots {
+		if timeStr, ok := snapshot["time"].(string); ok {
+			if shortID, ok := snapshot["short_id"].(string); ok {
+				// Parse time and format it nicely
+				if parsedTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
+					formatted := fmt.Sprintf("%d: %s (%s)", i, parsedTime.Format("2006-01-02 15:04:05"), shortID)
+					result = append(result, formatted)
+				} else {
+					result = append(result, fmt.Sprintf("%d: %s (%s)", i, timeStr, shortID))
+				}
+			}
+		}
+	}
+
+	return result, nil
+}
 
 func newUnlockCommand() *cobra.Command {
 	var (
