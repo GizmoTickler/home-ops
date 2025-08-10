@@ -13,6 +13,28 @@ import (
 	"homeops-cli/internal/common"
 )
 
+// VolsyncConfig holds configuration for volsync operations
+type VolsyncConfig struct {
+	NFSServer string
+	NFSPath   string
+}
+
+// getVolsyncConfig returns configuration with defaults from environment variables
+func getVolsyncConfig() *VolsyncConfig {
+	return &VolsyncConfig{
+		NFSServer: getEnvOrDefault("VOLSYNC_NFS_SERVER", "192.168.120.10"),
+		NFSPath:   getEnvOrDefault("VOLSYNC_NFS_PATH", "/mnt/flashstor/Volsync"),
+	}
+}
+
+// getEnvOrDefault returns environment variable value or default
+func getEnvOrDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volsync",
@@ -401,6 +423,8 @@ func newUnlockCommand() *cobra.Command {
 	var (
 		namespace string
 		app       string
+		nfsServer string
+		nfsPath   string
 	)
 
 	cmd := &cobra.Command{
@@ -408,21 +432,32 @@ func newUnlockCommand() *cobra.Command {
 		Short: "Unlock a Restic repository",
 		Long:  `Removes stale locks from a Restic repository when a backup job was interrupted`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return unlockRepository(namespace, app)
+			config := &VolsyncConfig{
+				NFSServer: nfsServer,
+				NFSPath:   nfsPath,
+			}
+			if nfsServer == "" {
+				config.NFSServer = getEnvOrDefault("VOLSYNC_NFS_SERVER", "192.168.120.10")
+			}
+			if nfsPath == "" {
+				config.NFSPath = getEnvOrDefault("VOLSYNC_NFS_PATH", "/mnt/flashstor/Volsync")
+			}
+			return unlockRepositoryWithConfig(namespace, app, config)
 		},
 	}
 
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
 	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
+	cmd.Flags().StringVar(&nfsServer, "nfs-server", "", "NFS server address (default: 192.168.120.10 or VOLSYNC_NFS_SERVER env var)")
+	cmd.Flags().StringVar(&nfsPath, "nfs-path", "", "NFS path (default: /mnt/flashstor/Volsync or VOLSYNC_NFS_PATH env var)")
 	cmd.MarkFlagRequired("app")
 
 	return cmd
 }
 
-func unlockRepository(namespace, app string) error {
+func unlockRepositoryWithConfig(namespace, app string, config *VolsyncConfig) error {
 	logger := common.NewColorLogger()
-
-	logger.Info("Unlocking Restic repository for %s/%s", namespace, app)
+	logger.Info("Unlocking repository for %s/%s...", namespace, app)
 
 	// Create unlock job YAML
 	unlockYAML := fmt.Sprintf(`---
@@ -451,9 +486,9 @@ spec:
       volumes:
         - name: repository
           nfs:
-            server: 192.168.120.10
-            path: /mnt/flashstor/Volsync
-`, app, namespace, app)
+            server: %s
+            path: %s
+`, app, namespace, app, config.NFSServer, config.NFSPath)
 
 	// Apply the job
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")

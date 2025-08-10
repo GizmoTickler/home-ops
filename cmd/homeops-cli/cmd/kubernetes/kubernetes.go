@@ -1,7 +1,6 @@
 package kubernetes
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -64,7 +63,7 @@ func browsePVC(namespace, claim, image string) error {
 	}
 
 	// Check if kubectl browse-pvc plugin is installed
-	if _, err := exec.LookPath("kubectl-browse_pvc"); err != nil {
+	if _, err := exec.LookPath("kubectl-browse-pvc"); err != nil {
 		logger.Warn("kubectl browse-pvc plugin not installed, installing via krew...")
 		installCmd := exec.Command("kubectl", "krew", "install", "browse-pvc")
 		if err := installCmd.Run(); err != nil {
@@ -115,7 +114,7 @@ func nodeShell(node string) error {
 	}
 
 	// Check if kubectl node-shell plugin is installed
-	if _, err := exec.LookPath("kubectl-node_shell"); err != nil {
+	if _, err := exec.LookPath("kubectl-node-shell"); err != nil {
 		logger.Warn("kubectl node-shell plugin not installed, installing via krew...")
 		installCmd := exec.Command("kubectl", "krew", "install", "node-shell")
 		if err := installCmd.Run(); err != nil {
