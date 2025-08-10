@@ -24,6 +24,7 @@ talosconfig
 /nodes.yaml
 cmd/truenas-deep-explorer/truenas-deep-explorer
 cmd/homeops-cli/homeops-cli
+cmd/homeops-cli/homeops
 # Documentation files
 REFACTORING_STATUS.md
 SHELL_TO_GO_REFACTORING_PLAN.md
