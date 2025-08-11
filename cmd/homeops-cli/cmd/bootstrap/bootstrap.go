@@ -156,9 +156,21 @@ func runBootstrap(config *BootstrapConfig) error {
 func validateBootstrapTemplate(templateName, renderedContent string, logger *common.ColorLogger) error {
 	logger.Info(fmt.Sprintf("Validating template: %s", templateName))
 	
-	// Check for unresolved Jinja2 variables
-	if strings.Contains(renderedContent, "{{ ENV.") {
-		return fmt.Errorf("template contains unresolved environment variables")
+	// Get the original template for comparison
+	originalTemplate, err := templates.GetBootstrapTemplate(templateName)
+	if err != nil {
+		return fmt.Errorf("failed to get original template: %w", err)
+	}
+	
+	// Validate that Jinja2 template substitution worked correctly
+	if err := templates.ValidateTemplateSubstitution(templateName, originalTemplate, renderedContent); err != nil {
+		return fmt.Errorf("Jinja2 template substitution validation failed: %w", err)
+	}
+	logger.Info("Jinja2 template substitution validation passed")
+	
+	// Verify that expected content was properly rendered
+	if err := validateRenderedContent(renderedContent, logger); err != nil {
+		return fmt.Errorf("rendered content validation failed: %w", err)
 	}
 	
 	// Validate YAML syntax by parsing the rendered content
@@ -312,6 +324,40 @@ func test1PasswordConnectivity(logger *common.ColorLogger) error {
 func validateYAMLSyntax(content []byte) error {
 	var result interface{}
 	return yamlv3.Unmarshal(content, &result)
+}
+
+// validateRenderedContent verifies that the template was properly rendered
+func validateRenderedContent(renderedContent string, logger *common.ColorLogger) error {
+	// Check that expected namespaces were created
+	expectedNamespaces := []string{"external-secrets", "flux-system", "network"}
+	for _, ns := range expectedNamespaces {
+		if !strings.Contains(renderedContent, fmt.Sprintf("name: %s", ns)) {
+			return fmt.Errorf("expected namespace '%s' not found in rendered content", ns)
+		}
+	}
+	logger.Debug("All expected namespaces found in rendered content")
+	
+	// Check that expected secrets were created
+	expectedSecrets := []string{"onepassword-secret", "sops-age", "home-ops-wc-tls", "cloudflare-tunnel-id-secret"}
+	for _, secret := range expectedSecrets {
+		if !strings.Contains(renderedContent, fmt.Sprintf("name: %s", secret)) {
+			return fmt.Errorf("expected secret '%s' not found in rendered content", secret)
+		}
+	}
+	logger.Debug("All expected secrets found in rendered content")
+	
+	// Verify that the content contains proper Kubernetes resources
+	if !strings.Contains(renderedContent, "apiVersion: v1") {
+		return fmt.Errorf("rendered content does not contain valid Kubernetes resources")
+	}
+	if !strings.Contains(renderedContent, "kind: Namespace") {
+		return fmt.Errorf("rendered content does not contain Namespace resources")
+	}
+	if !strings.Contains(renderedContent, "kind: Secret") {
+		return fmt.Errorf("rendered content does not contain Secret resources")
+	}
+	
+	return nil
 }
 
 func validatePrerequisites(config *BootstrapConfig) error {
