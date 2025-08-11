@@ -11,15 +11,11 @@ spec:
     name: app-template
   install:
     remediation:
-      retries: 3
+      retries: -1
   upgrade:
     cleanupOnFail: true
     remediation:
-      strategy: rollback
       retries: 3
-  dependsOn:
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
   values:
     controllers:
       n8n:
@@ -39,7 +35,7 @@ spec:
             env:
               DB_SQLITE_VACUUM_ON_STARTUP: true
               EXECUTIONS_DATA_PRUNE: true
-              EXECUTIONS_DATA_MAX_AGE: 7
+              EXECUTIONS_DATA_MAX_AGE: 14
               EXECUTIONS_DATA_PRUNE_MAX_COUNT: 50000
               GENERIC_TIMEZONE: "America/New_York"
               N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: false
@@ -64,16 +60,6 @@ spec:
         ports:
           http:
             port: *port
-    defaultPodOptions:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
-        supplementalGroups: [10000]
-        seccompProfile:
-          type: RuntimeDefault
     persistence:
       data:
         existingClaim: "{{ .Release.Name }}"
