@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	yamlv3 "gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/templates"
@@ -149,6 +150,168 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	logger.Success("Congrats! The cluster is bootstrapped and Flux is syncing the Git repository")
 	return nil
+}
+
+// validateBootstrapTemplate validates template rendering and 1Password references without exposing secrets
+func validateBootstrapTemplate(templateName, renderedContent string, logger *common.ColorLogger) error {
+	logger.Info(fmt.Sprintf("Validating template: %s", templateName))
+	
+	// Check for unresolved Jinja2 variables
+	if strings.Contains(renderedContent, "{{ ENV.") {
+		return fmt.Errorf("template contains unresolved environment variables")
+	}
+	
+	// Validate YAML syntax by parsing the rendered content
+	if err := validateYAMLSyntax([]byte(renderedContent)); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+	
+	// Check for 1Password references and validate format
+	opRefs := extractOnePasswordReferences(renderedContent)
+	if len(opRefs) == 0 {
+		logger.Warn("No 1Password references found in template")
+	} else {
+		logger.Info(fmt.Sprintf("Found %d 1Password references", len(opRefs)))
+		for _, ref := range opRefs {
+			if err := validate1PasswordReference(ref); err != nil {
+				return fmt.Errorf("invalid 1Password reference '%s': %w", ref, err)
+			}
+		}
+		logger.Info("All 1Password references are valid")
+	}
+	
+	// Test 1Password connectivity without exposing secrets
+	if err := test1PasswordConnectivity(logger); err != nil {
+		return fmt.Errorf("1Password connectivity test failed: %w", err)
+	}
+	
+	logger.Info("Template validation completed successfully")
+	return nil
+}
+
+// validateClusterSecretStoreTemplate validates the clustersecretstore template
+func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
+	logger.Info("Validating clustersecretstore.yaml.j2 template")
+	
+	// Get the template content
+	templateContent, err := templates.GetBootstrapTemplate("clustersecretstore.yaml.j2")
+	if err != nil {
+		return fmt.Errorf("failed to get clustersecretstore template: %w", err)
+	}
+	
+	// Validate YAML syntax
+	if err := validateYAMLSyntax([]byte(templateContent)); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+	
+	// Check for 1Password references
+	opRefs := extractOnePasswordReferences(templateContent)
+	if len(opRefs) == 0 {
+		logger.Warn("No 1Password references found in clustersecretstore template")
+	} else {
+		logger.Info(fmt.Sprintf("Found %d 1Password references in clustersecretstore", len(opRefs)))
+		for _, ref := range opRefs {
+			if err := validate1PasswordReference(ref); err != nil {
+				return fmt.Errorf("invalid 1Password reference '%s': %w", ref, err)
+			}
+		}
+		logger.Info("All 1Password references in clustersecretstore are valid")
+	}
+	
+	logger.Info("ClusterSecretStore template validation completed successfully")
+	return nil
+}
+
+// extractOnePasswordReferences finds all 1Password references in the content
+func extractOnePasswordReferences(content string) []string {
+	var refs []string
+	
+	// Find op:// references
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "op://") {
+			// Extract the op:// reference
+			start := strings.Index(line, "op://")
+			if start != -1 {
+				// Find the end of the reference (space, quote, or end of line)
+				end := len(line)
+				for i := start; i < len(line); i++ {
+					if line[i] == ' ' || line[i] == '"' || line[i] == '\'' || line[i] == '}' {
+						if i > start+5 { // Ensure we have more than just "op://"
+							end = i
+							break
+						}
+					}
+				}
+				ref := line[start:end]
+				refs = append(refs, ref)
+			}
+		}
+	}
+	
+	return refs
+}
+
+// validate1PasswordReference validates the format of a 1Password reference
+func validate1PasswordReference(ref string) error {
+	if !strings.HasPrefix(ref, "op://") {
+		return fmt.Errorf("reference must start with 'op://'")
+	}
+	
+	// Remove the op:// prefix
+	path := strings.TrimPrefix(ref, "op://")
+	parts := strings.Split(path, "/")
+	
+	// Should have at least vault/item format
+	if len(parts) < 2 {
+		return fmt.Errorf("reference must have format 'op://vault/item' or 'op://vault/item/field'")
+	}
+	
+	// Validate vault name
+	if parts[0] == "" {
+		return fmt.Errorf("vault name cannot be empty")
+	}
+	
+	// Validate item name
+	if parts[1] == "" {
+		return fmt.Errorf("item name cannot be empty")
+	}
+	
+	return nil
+}
+
+// test1PasswordConnectivity tests 1Password CLI connectivity without exposing secrets
+func test1PasswordConnectivity(logger *common.ColorLogger) error {
+	logger.Info("Testing 1Password CLI connectivity...")
+	
+	// Test op CLI availability
+	cmd := exec.Command("op", "--version")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("1Password CLI not available: %w", err)
+	}
+	
+	// Test authentication status
+	cmd = exec.Command("op", "account", "list")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("1Password authentication failed: %w\n%s", err, output)
+	}
+	
+	// Test vault access (try to list items in Infrastructure vault without showing content)
+	cmd = exec.Command("op", "item", "list", "--vault", "Infrastructure", "--format", "json")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("cannot access Infrastructure vault: %w\n%s", err, output)
+	}
+	
+	logger.Info("1Password connectivity test passed")
+	return nil
+}
+
+// validateYAMLSyntax validates YAML syntax by attempting to parse it
+func validateYAMLSyntax(content []byte) error {
+	var result interface{}
+	return yamlv3.Unmarshal(content, &result)
 }
 
 func validatePrerequisites(config *BootstrapConfig) error {
@@ -1023,11 +1186,6 @@ func applySingleCRD(name, url string, config *BootstrapConfig, logger *common.Co
 }
 
 func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
-	if config.DryRun {
-		logger.Info("[DRY RUN] Would apply resources")
-		return nil
-	}
-
 	// Render resources from embedded template
 	env := map[string]string{
 		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
@@ -1037,6 +1195,15 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	resources, err := templates.RenderBootstrapTemplate("resources.yaml.j2", env)
 	if err != nil {
 		return fmt.Errorf("failed to render resources: %w", err)
+	}
+
+	if config.DryRun {
+		// Validate template rendering and 1Password references
+		if err := validateBootstrapTemplate("resources.yaml.j2", resources, logger); err != nil {
+			return fmt.Errorf("template validation failed: %w", err)
+		}
+		logger.Info("[DRY RUN] Template validation passed - would apply resources")
+		return nil
 	}
 
 	// Apply resources
@@ -1053,7 +1220,11 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error {
 	if config.DryRun {
-		logger.Info("[DRY RUN] Would sync Helm releases")
+		// Validate clustersecretstore template that would be applied via helmfile hook
+		if err := validateClusterSecretStoreTemplate(logger); err != nil {
+			return fmt.Errorf("clustersecretstore template validation failed: %w", err)
+		}
+		logger.Info("[DRY RUN] Template validation passed - would sync Helm releases")
 		return nil
 	}
 
