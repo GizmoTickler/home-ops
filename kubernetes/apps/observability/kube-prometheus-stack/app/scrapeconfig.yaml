@@ -35,9 +35,12 @@ kind: ScrapeConfig
 metadata:
   name: &name onepassword-connect
 spec:
+  scheme: https
+  tlsConfig:
+    insecureSkipVerify: true
   staticConfigs:
     - targets:
-        - passwords.${SECRET_DOMAIN}:443
+        - passwords.${SECRET_DOMAIN}
   metricsPath: /metrics
   relabelings:
     - action: replace
