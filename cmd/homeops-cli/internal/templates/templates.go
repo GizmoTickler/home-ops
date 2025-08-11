@@ -80,8 +80,15 @@ func RenderBootstrapTemplate(templateName string, env map[string]string) (string
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
 
-	// Simple Jinja2-style variable replacement
+	// Enhanced Jinja2-style template processing
 	result := string(content)
+	
+	// Handle for loops (simple case for namespaces)
+	if strings.Contains(result, "{% for namespace in") {
+		result = expandNamespaceLoop(result)
+	}
+	
+	// Handle environment variable replacement
 	for key, value := range env {
 		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
 		result = strings.ReplaceAll(result, placeholder, value)
@@ -117,4 +124,71 @@ func GetBrewfile() (string, error) {
 		return "", fmt.Errorf("failed to read Brewfile: %w", err)
 	}
 	return string(content), nil
+}
+
+// expandNamespaceLoop expands the Jinja2 for loop for namespaces
+func expandNamespaceLoop(content string) string {
+	// Find the for loop pattern
+	forPattern := `{% for namespace in ["external-secrets", "flux-system", "network"] %}`
+	endPattern := `{% endfor %}`
+	
+	forIndex := strings.Index(content, forPattern)
+	if forIndex == -1 {
+		return content // No for loop found
+	}
+	
+	endIndex := strings.Index(content[forIndex:], endPattern)
+	if endIndex == -1 {
+		return content // No matching endfor found
+	}
+	endIndex += forIndex + len(endPattern)
+	
+	// Extract the loop content
+	loopStart := forIndex + len(forPattern)
+	loopEnd := forIndex + endIndex - len(endPattern)
+	loopContent := content[loopStart:loopEnd]
+	
+	// Define the namespaces
+	namespaces := []string{"external-secrets", "flux-system", "network"}
+	
+	// Expand the loop
+	var expanded strings.Builder
+	for _, namespace := range namespaces {
+		expandedContent := strings.ReplaceAll(loopContent, "{{ namespace }}", namespace)
+		expanded.WriteString(expandedContent)
+	}
+	
+	// Replace the entire loop with the expanded content
+	result := content[:forIndex] + expanded.String() + content[endIndex:]
+	return result
+}
+
+// validateTemplateSubstitution verifies that Jinja2 template substitution worked correctly
+// by checking the rendered output against expected patterns
+func ValidateTemplateSubstitution(templateName, originalTemplate, renderedContent string) error {
+	// Check that all Jinja2 syntax has been resolved
+	if strings.Contains(renderedContent, "{% for") {
+		return fmt.Errorf("template '%s' contains unresolved for loops", templateName)
+	}
+	if strings.Contains(renderedContent, "{% endfor %}") {
+		return fmt.Errorf("template '%s' contains unresolved endfor tags", templateName)
+	}
+	if strings.Contains(renderedContent, "{{ namespace }}") {
+		return fmt.Errorf("template '%s' contains unresolved namespace variables", templateName)
+	}
+	if strings.Contains(renderedContent, "{{ ENV.") {
+		return fmt.Errorf("template '%s' contains unresolved environment variables", templateName)
+	}
+	
+	// For resources.yaml.j2, verify namespace expansion worked
+	if templateName == "resources.yaml.j2" {
+		expectedNamespaces := []string{"external-secrets", "flux-system", "network"}
+		for _, ns := range expectedNamespaces {
+			if !strings.Contains(renderedContent, fmt.Sprintf("name: %s", ns)) {
+				return fmt.Errorf("namespace '%s' not found in rendered template - Jinja2 loop expansion failed", ns)
+			}
+		}
+	}
+	
+	return nil
 }
