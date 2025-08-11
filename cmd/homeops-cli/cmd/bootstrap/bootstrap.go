@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -79,6 +80,15 @@ func runBootstrap(config *BootstrapConfig) error {
 	logger := common.NewColorLogger()
 
 	logger.Info("Starting cluster bootstrap process")
+
+	// Convert RootDir to absolute path if it's relative
+	if !filepath.IsAbs(config.RootDir) {
+		absPath, err := filepath.Abs(config.RootDir)
+		if err != nil {
+			return fmt.Errorf("failed to get absolute path for root directory: %w", err)
+		}
+		config.RootDir = absPath
+	}
 
 	// Load versions from versions.env file if not provided
 	if err := loadVersionsFromFile(config); err != nil {
@@ -238,25 +248,29 @@ func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
 func extractOnePasswordReferences(content string) []string {
 	var refs []string
 	
-	// Find op:// references
+	// Find all op:// references using a more comprehensive approach
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "op://") {
-			// Extract the op:// reference
-			start := strings.Index(line, "op://")
-			if start != -1 {
-				// Find the end of the reference (space, quote, or end of line)
-				end := len(line)
-				for i := start; i < len(line); i++ {
-					if line[i] == ' ' || line[i] == '"' || line[i] == '\'' || line[i] == '}' {
-						if i > start+5 { // Ensure we have more than just "op://"
-							end = i
+			// Find all op:// references in this line
+			for i := 0; i < len(line); i++ {
+				if strings.HasPrefix(line[i:], "op://") {
+					start := i
+					// Find the end of the reference
+					end := len(line)
+					for j := start + 5; j < len(line); j++ {
+						if line[j] == ' ' || line[j] == '"' || line[j] == '\'' || line[j] == '}' || line[j] == ',' || line[j] == '\n' || line[j] == '\t' {
+							end = j
 							break
 						}
 					}
+					ref := line[start:end]
+					if len(ref) > 5 { // Ensure we have more than just "op://"
+						refs = append(refs, ref)
+					}
+					// Move past this reference
+					i = end - 1
 				}
-				ref := line[start:end]
-				refs = append(refs, ref)
 			}
 		}
 	}
@@ -1243,18 +1257,25 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 		return fmt.Errorf("failed to render resources: %w", err)
 	}
 
+	// Resolve 1Password references in the rendered template
+	logger.Info("Resolving 1Password references in bootstrap resources...")
+	resolvedResources, err := resolve1PasswordReferences(resources, logger)
+	if err != nil {
+		return fmt.Errorf("failed to resolve 1Password references: %w", err)
+	}
+
 	if config.DryRun {
 		// Validate template rendering and 1Password references
-		if err := validateBootstrapTemplate("resources.yaml.j2", resources, logger); err != nil {
+		if err := validateBootstrapTemplate("resources.yaml.j2", resolvedResources, logger); err != nil {
 			return fmt.Errorf("template validation failed: %w", err)
 		}
 		logger.Info("[DRY RUN] Template validation passed - would apply resources")
 		return nil
 	}
 
-	// Apply resources
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
-	cmd.Stdin = bytes.NewReader([]byte(resources))
+	// Apply resources with force-conflicts to handle cert-manager managed fields
+	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "--filename", "-")
+	cmd.Stdin = bytes.NewReader([]byte(resolvedResources))
 	
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply resources: %w\n%s", err, output)
@@ -1264,9 +1285,90 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return nil
 }
 
+// get1PasswordSecret retrieves a secret from 1Password using the CLI
+func get1PasswordSecret(reference string) (string, error) {
+	cmd := exec.Command("op", "read", reference)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to read 1Password secret %s: %w", reference, err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+// resolve1PasswordReferences resolves all 1Password references in the content
+func resolve1PasswordReferences(content string, logger *common.ColorLogger) (string, error) {
+	// Extract all 1Password references
+	opRefs := extractOnePasswordReferences(content)
+	if len(opRefs) == 0 {
+		logger.Info("No 1Password references found to resolve")
+		return content, nil
+	}
+
+	logger.Info(fmt.Sprintf("Found %d 1Password references to resolve", len(opRefs)))
+	result := content
+
+	// Resolve each reference
+	for _, ref := range opRefs {
+		logger.Debug(fmt.Sprintf("Resolving 1Password reference: %s", ref))
+		
+		// Get the secret value
+		secretValue, err := get1PasswordSecret(ref)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve 1Password reference '%s': %w", ref, err)
+		}
+
+		// Replace the reference with the actual value
+		result = strings.ReplaceAll(result, ref, secretValue)
+		logger.Debug(fmt.Sprintf("Successfully resolved 1Password reference: %s", ref))
+	}
+
+	logger.Info("All 1Password references resolved successfully")
+	return result, nil
+}
+
+func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger) error {
+	// Render cluster secret store from embedded template
+	env := map[string]string{}
+	
+	clusterSecretStore, err := templates.RenderBootstrapTemplate("clustersecretstore.yaml.j2", env)
+	if err != nil {
+		return fmt.Errorf("failed to render cluster secret store: %w", err)
+	}
+
+	// Resolve 1Password references in the rendered template
+	logger.Info("Resolving 1Password references in cluster secret store...")
+	resolvedClusterSecretStore, err := resolve1PasswordReferences(clusterSecretStore, logger)
+	if err != nil {
+		return fmt.Errorf("failed to resolve 1Password references: %w", err)
+	}
+
+	if config.DryRun {
+		// Validate template rendering and 1Password references
+		if err := validateBootstrapTemplate("clustersecretstore.yaml.j2", resolvedClusterSecretStore, logger); err != nil {
+			return fmt.Errorf("cluster secret store template validation failed: %w", err)
+		}
+		logger.Info("[DRY RUN] Cluster secret store template validation passed - would apply cluster secret store")
+		return nil
+	}
+
+	// Apply cluster secret store with force-conflicts to handle field management conflicts
+	cmd := exec.Command("kubectl", "apply", "--namespace=external-secrets", "--server-side", "--force-conflicts", "--filename", "-", "--wait=true")
+	cmd.Stdin = bytes.NewReader([]byte(resolvedClusterSecretStore))
+	
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply cluster secret store: %w\n%s", err, output)
+	}
+
+	logger.Info("Cluster secret store applied successfully")
+	return nil
+}
+
 func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error {
 	if config.DryRun {
-		// Validate clustersecretstore template that would be applied via helmfile hook
+		// Validate clustersecretstore template that would be applied after helmfile
+		if err := applyClusterSecretStore(config, logger); err != nil {
+			return err
+		}
 		if err := validateClusterSecretStoreTemplate(logger); err != nil {
 			return fmt.Errorf("clustersecretstore template validation failed: %w", err)
 		}
@@ -1275,9 +1377,26 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 	}
 
 	// Get embedded helmfile content
-	helmfileContent, err := templates.GetBootstrapFile("helmfile.yaml")
+	helmfileTemplate, err := templates.GetBootstrapFile("helmfile.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get embedded helmfile: %w", err)
+	}
+
+	// Render the helmfile template with RootDir
+	tmpl, err := template.New("helmfile").Parse(helmfileTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse helmfile template: %w", err)
+	}
+
+	var helmfileContent bytes.Buffer
+	templateData := struct {
+		RootDir string
+	}{
+		RootDir: config.RootDir,
+	}
+
+	if err := tmpl.Execute(&helmfileContent, templateData); err != nil {
+		return fmt.Errorf("failed to render helmfile template: %w", err)
 	}
 
 	// Create temporary file for helmfile
@@ -1297,7 +1416,7 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 	}()
 
 	// Write helmfile content to temp file
-	if _, err := tempFile.WriteString(helmfileContent); err != nil {
+	if _, err := tempFile.WriteString(helmfileContent.String()); err != nil {
 		return fmt.Errorf("failed to write helmfile content: %w", err)
 	}
 	// Close the file explicitly before using it
@@ -1305,14 +1424,30 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
+	// Debug: log the working directory and check if values file exists
+	logger.Info(fmt.Sprintf("Setting working directory to: %s", config.RootDir))
+	valuesPath := filepath.Join(config.RootDir, "kubernetes/apps/kube-system/cilium/app/helm/values.yaml")
+	if _, err := os.Stat(valuesPath); err != nil {
+		logger.Info(fmt.Sprintf("Values file check failed: %s - %v", valuesPath, err))
+	} else {
+		logger.Info(fmt.Sprintf("Values file exists: %s", valuesPath))
+	}
+	
 	cmd := exec.Command("helmfile", "--file", tempFile.Name(), "sync", "--hide-notes")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Dir = config.RootDir // Set working directory to project root
 	
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to sync Helm releases: %w", err)
 	}
 
 	logger.Info("Helm releases synced successfully")
+
+	// Apply cluster secret store after external-secrets is deployed
+	if err := applyClusterSecretStore(config, logger); err != nil {
+		return fmt.Errorf("failed to apply cluster secret store: %w", err)
+	}
+
 	return nil
 }
