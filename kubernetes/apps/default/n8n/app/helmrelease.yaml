@@ -87,7 +87,7 @@ spec:
           - *hostName
         parentRefs:
           - name: n8n-gateway
-            namespace: "{{ .Release.Namespace }}"
+            namespace: default
             sectionName: https
       webhooks:
         hostnames:
