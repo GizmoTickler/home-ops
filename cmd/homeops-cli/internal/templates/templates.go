@@ -80,8 +80,15 @@ func RenderBootstrapTemplate(templateName string, env map[string]string) (string
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
 
-	// Simple Jinja2-style variable replacement
+	// Enhanced Jinja2-style template processing
 	result := string(content)
+	
+	// Handle for loops (simple case for namespaces)
+	if strings.Contains(result, "{% for namespace in") {
+		result = expandNamespaceLoop(result)
+	}
+	
+	// Handle environment variable replacement
 	for key, value := range env {
 		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
 		result = strings.ReplaceAll(result, placeholder, value)
@@ -117,4 +124,63 @@ func GetBrewfile() (string, error) {
 		return "", fmt.Errorf("failed to read Brewfile: %w", err)
 	}
 	return string(content), nil
+}
+
+// expandNamespaceLoop expands the Jinja2 for loop for namespaces
+func expandNamespaceLoop(content string) string {
+	// Find the for loop pattern
+	loopStart := strings.Index(content, "{% for namespace in")
+	if loopStart == -1 {
+		return content
+	}
+	
+	// Find the end of the for loop
+	loopEnd := strings.Index(content[loopStart:], "{% endfor %}")
+	if loopEnd == -1 {
+		return content
+	}
+	loopEnd += loopStart + len("{% endfor %}")
+	
+	// Extract the loop content
+	loopContent := content[loopStart:loopEnd]
+	
+	// Extract the namespaces list
+	listStart := strings.Index(loopContent, "[")
+	listEnd := strings.Index(loopContent, "]")
+	if listStart == -1 || listEnd == -1 {
+		return content
+	}
+	
+	namespacesStr := loopContent[listStart+1:listEnd]
+	namespaces := strings.Split(namespacesStr, ",")
+	
+	// Find the template inside the loop
+	templateStart := strings.Index(loopContent, "---")
+	templateEnd := strings.Index(loopContent, "{% endfor %}")
+	if templateStart == -1 || templateEnd == -1 {
+		return content
+	}
+	
+	template := loopContent[templateStart:templateEnd]
+	
+	// Generate the expanded content
+	var expanded strings.Builder
+	for i, namespace := range namespaces {
+		namespace = strings.Trim(strings.TrimSpace(namespace), `"`)
+		if namespace == "" {
+			continue
+		}
+		
+		expandedTemplate := strings.ReplaceAll(template, "{{ namespace }}", namespace)
+		expanded.WriteString(expandedTemplate)
+		
+		// Add separator between iterations (except for the last one)
+		if i < len(namespaces)-1 {
+			expanded.WriteString("\n")
+		}
+	}
+	
+	// Replace the loop with the expanded content
+	result := content[:loopStart] + expanded.String() + content[loopEnd:]
+	return result
 }
