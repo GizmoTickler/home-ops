@@ -1,0 +1,105 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ocis
+spec:
+  interval: 1h
+  chartRef:
+    kind: OCIRepository
+    name: app-template
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+  values:
+    controllers:
+      ocis:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-config:
+            image:
+              repository: docker.io/owncloud/ocis
+              tag: 7.2.0
+            command:
+              - /bin/sh
+              - -c
+            args:
+              - |
+                if [ ! -f /etc/ocis/ocis.yaml ]; then ocis init; else exit 0; fi
+            env:
+              OCIS_INSECURE: true
+        containers:
+          ocis:
+            image:
+              repository: docker.io/owncloud/ocis
+              tag: 7.2.0
+            env:
+              DEMO_USERS: false
+              OCIS_LOG_COLOR: true
+              OCIS_LOG_LEVEL: info
+              OCIS_LOG_PRETTY: true
+              OCIS_URL: https://{{ .Release.Name }}.${SECRET_DOMAIN}
+              PROXY_TLS: false
+            envFrom:
+              - secretRef:
+                  name: "{{ .Release.Name }}-secret"
+            probes:
+              liveness:
+                enabled: true
+              readiness:
+                enabled: true
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 1024Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: ["ALL"] }
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        ports:
+          http:
+            port: 9200
+    persistence:
+      config:
+        type: configMap
+        name: ocis
+        globalMounts:
+          - path: /etc/ocis/web.yaml
+            subPath: web.yaml
+            readOnly: true
+      data:
+        existingClaim: "{{ .Release.Name }}"
+        globalMounts:
+          - path: /var/lib/ocis
+            subPath: data
+          - path: /etc/ocis
+            subPath: config
+      tmpfs:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
+            subPath: tmp
+    route:
+      app:
+        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        parentRefs:
+          - name: ocis-gateway
+            namespace: default
+            sectionName: https
