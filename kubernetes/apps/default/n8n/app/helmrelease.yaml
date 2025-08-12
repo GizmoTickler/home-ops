@@ -89,3 +89,8 @@ spec:
               - path:
                   value: /webhook
             backendRefs: [{}]
+          - matches:
+              - path:
+                  type: PathPrefix
+                  value: /form
+            backendRefs: [{}]
