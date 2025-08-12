@@ -2,7 +2,7 @@ module homeops-cli
 
 go 1.22.2
 
-toolchain go1.24.6
+toolchain go1.25.0
 
 require (
 	dario.cat/mergo v1.0.2
