@@ -56,7 +56,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
-- [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Restic.
+- [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Kopia.
 
 ### GitOps
 
