@@ -1,8 +1,6 @@
 module homeops-cli
 
-go 1.22.2
-
-toolchain go1.25.0
+go 1.25.0
 
 require (
 	dario.cat/mergo v1.0.2
@@ -37,9 +35,7 @@ require (
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
 	go.uber.org/atomic v1.9.0 // indirect
-	go.uber.org/goleak v1.3.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
 )

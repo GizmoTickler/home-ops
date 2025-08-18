@@ -2,17 +2,17 @@ package volsync
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
+
+	"github.com/spf13/cobra"
 )
 
 // VolsyncConfig holds configuration for volsync operations
@@ -20,8 +20,6 @@ type VolsyncConfig struct {
 	NFSServer string
 	NFSPath   string
 }
-
-
 
 // getEnvOrDefault returns environment variable value or default
 func getEnvOrDefault(key, defaultValue string) string {
@@ -35,7 +33,7 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volsync",
 		Short: "Manage VolSync backup and restore operations",
-		Long:  `Commands for managing VolSync snapshots, restores, and Restic repository operations`,
+		Long:  `Commands for managing VolSync snapshots, restores, and Kopia repository operations`,
 	}
 
 	cmd.AddCommand(
@@ -44,8 +42,6 @@ func NewCommand() *cobra.Command {
 		newSnapshotAllCommand(),
 		newRestoreCommand(),
 		newRestoreAllCommand(),
-		newListSnapshotsCommand(),
-		newUnlockCommand(),
 	)
 
 	return cmd
@@ -148,10 +144,10 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 	// Trigger manual snapshot
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	patchJSON := fmt.Sprintf(`{"spec":{"trigger":{"manual":"%s"}}}`, timestamp)
-	
-	cmd := exec.Command("kubectl", "--namespace", namespace, "patch", "replicationsources", app, 
+
+	cmd := exec.Command("kubectl", "--namespace", namespace, "patch", "replicationsources", app,
 		"--type", "merge", "-p", patchJSON)
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to trigger snapshot: %w\n%s", err, output)
 	}
@@ -181,12 +177,12 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 	// Wait for job to complete
 	logger.Info("Waiting for snapshot to complete (timeout: %s)...", timeout)
-	
-	waitCmd := exec.Command("kubectl", "--namespace", namespace, "wait", 
-		fmt.Sprintf("job/%s", jobName), 
-		"--for=condition=complete", 
+
+	waitCmd := exec.Command("kubectl", "--namespace", namespace, "wait",
+		fmt.Sprintf("job/%s", jobName),
+		"--for=condition=complete",
 		fmt.Sprintf("--timeout=%ds", int(timeout.Seconds())))
-	
+
 	if err := waitCmd.Run(); err != nil {
 		return fmt.Errorf("snapshot job failed or timed out: %w", err)
 	}
@@ -253,7 +249,7 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 	// Trigger snapshots for all ReplicationSources
 	for _, rs := range replicationSources {
 		logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
-		
+
 		err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
 		if err != nil {
 			logger.Error("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
@@ -292,11 +288,11 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 	var cmd *exec.Cmd
 	if namespace == "" {
 		// Search all namespaces
-		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces", 
+		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
 	} else {
 		// Search specific namespace
-		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources", 
+		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
 	}
 
@@ -304,9 +300,9 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 	if err != nil {
 		// If no ReplicationSources found, kubectl returns an error
 		outputStr := string(output)
-		if strings.Contains(outputStr, "No resources found") || 
-		   strings.Contains(err.Error(), "No resources found") ||
-		   strings.Contains(outputStr, "the server doesn't have a resource type") {
+		if strings.Contains(outputStr, "No resources found") ||
+			strings.Contains(err.Error(), "No resources found") ||
+			strings.Contains(outputStr, "the server doesn't have a resource type") {
 			return []ReplicationSource{}, nil
 		}
 		return nil, fmt.Errorf("failed to get ReplicationSources: %w\nOutput: %s", err, outputStr)
@@ -314,18 +310,18 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 
 	var replicationSources []ReplicationSource
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	
+
 	for _, line := range lines {
 		if line == "" {
 			continue
 		}
-		
+
 		// Split by whitespace and take first two fields
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
 			continue
 		}
-		
+
 		replicationSources = append(replicationSources, ReplicationSource{
 			Namespace: fields[0],
 			Name:      fields[1],
@@ -388,7 +384,7 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Step 1: Suspend Flux resources
 	logger.Info("Suspending Flux resources...")
-	
+
 	cmd := exec.Command("flux", "--namespace", namespace, "suspend", "kustomization", app)
 	if err := cmd.Run(); err != nil {
 		logger.Warn("Failed to suspend kustomization: %v", err)
@@ -401,7 +397,7 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Step 2: Scale down application
 	logger.Info("Scaling down %s/%s...", controller, app)
-	
+
 	cmd = exec.Command("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to scale down: %w\n%s", err, output)
@@ -409,8 +405,8 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Wait for pods to be deleted
 	logger.Info("Waiting for pods to terminate...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod", 
-		"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app), 
+	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
+		"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
 		"--timeout=5m")
 	if err := cmd.Run(); err != nil {
 		logger.Warn("Some pods may still be terminating: %v", err)
@@ -418,10 +414,10 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Step 3: Get ReplicationSource details
 	logger.Info("Getting restore configuration...")
-	
+
 	// Get claim name
-	cmd = exec.Command("kubectl", "--namespace", namespace, "get", 
-		fmt.Sprintf("replicationsources/%s", app), 
+	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.sourcePVC}")
 	claimOutput, err := cmd.Output()
 	if err != nil {
@@ -431,10 +427,10 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Get other required fields
 	fields := map[string]string{
-		"ACCESS_MODES":        "{.spec.restic.accessModes}",
-		"STORAGE_CLASS_NAME":  "{.spec.restic.storageClassName}",
-		"PUID":                "{.spec.restic.moverSecurityContext.runAsUser}",
-		"PGID":                "{.spec.restic.moverSecurityContext.runAsGroup}",
+		"ACCESS_MODES":       "{.spec.kopia.accessModes}",
+		"STORAGE_CLASS_NAME": "{.spec.kopia.storageClassName}",
+		"PUID":               "{.spec.kopia.moverSecurityContext.runAsUser}",
+		"PGID":               "{.spec.kopia.moverSecurityContext.runAsGroup}",
 	}
 
 	env := map[string]string{
@@ -445,8 +441,8 @@ func restoreApp(namespace, app, previous string) error {
 	}
 
 	for envKey, jsonPath := range fields {
-		cmd = exec.Command("kubectl", "--namespace", namespace, "get", 
-			fmt.Sprintf("replicationsources/%s", app), 
+		cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+			fmt.Sprintf("replicationsources/%s", app),
 			fmt.Sprintf("--output=jsonpath=%s", jsonPath))
 		output, err := cmd.Output()
 		if err != nil {
@@ -457,13 +453,13 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Step 4: Create ReplicationDestination
 	logger.Info("Creating ReplicationDestination...")
-	
+
 	// Create the ReplicationDestination YAML using embedded template
 	rdYAML, err := templates.RenderVolsyncTemplate("replicationdestination.yaml.j2", env)
 	if err != nil {
 		return fmt.Errorf("failed to render ReplicationDestination template: %w", err)
 	}
-	
+
 	cmd = exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
 	cmd.Stdin = bytes.NewReader([]byte(rdYAML))
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -484,11 +480,11 @@ func restoreApp(namespace, app, previous string) error {
 	}
 
 	// Wait for completion
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", 
-		fmt.Sprintf("job/%s", jobName), 
-		"--for=condition=complete", 
+	cmd = exec.Command("kubectl", "--namespace", namespace, "wait",
+		fmt.Sprintf("job/%s", jobName),
+		"--for=condition=complete",
 		"--timeout=120m")
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("restore job failed: %w", err)
 	}
@@ -502,7 +498,7 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Step 7: Resume Flux resources
 	logger.Info("Resuming application...")
-	
+
 	cmd = exec.Command("flux", "--namespace", namespace, "resume", "kustomization", app)
 	if err := cmd.Run(); err != nil {
 		logger.Warn("Failed to resume kustomization: %v", err)
@@ -520,8 +516,8 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Wait for pods to be ready
 	logger.Info("Waiting for application to be ready...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod", 
-		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app), 
+	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
+		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
 		"--timeout=5m")
 	if err := cmd.Run(); err != nil {
 		logger.Warn("Application may still be starting: %v", err)
@@ -600,7 +596,7 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	// Restore all ReplicationSources
 	for _, rs := range replicationSources {
 		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
-		
+
 		err := restoreApp(rs.Namespace, rs.Name, previous)
 		if err != nil {
 			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
@@ -617,7 +613,7 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	for _, app := range successful {
 		logger.Info("    ✓ %s", app)
 	}
-	
+
 	if len(failed) > 0 {
 		logger.Info("  Failed: %d", len(failed))
 		for _, app := range failed {
@@ -627,308 +623,5 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	}
 
 	logger.Success("All restores completed successfully!")
-	return nil
-}
-
-func newListSnapshotsCommand() *cobra.Command {
-	var (
-		namespace string
-		app       string
-		allApps   bool
-	)
-
-	cmd := &cobra.Command{
-		Use:   "list-snapshots",
-		Short: "List available snapshots for VolSync applications",
-		Long:  `Lists available snapshots from Restic repositories for VolSync applications`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if allApps {
-				return listAllSnapshots(namespace)
-			}
-			return listAppSnapshots(namespace, app)
-		},
-	}
-
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
-	cmd.Flags().StringVar(&app, "app", "", "Application name (if not specified with --all, this is required)")
-	cmd.Flags().BoolVar(&allApps, "all", false, "List snapshots for all applications in the namespace")
-
-	// Make app required when --all is not used
-	cmd.PreRunE = func(cmd *cobra.Command, args []string) error {
-		if !allApps && app == "" {
-			return fmt.Errorf("either --app or --all flag must be specified")
-		}
-		return nil
-	}
-
-	// Register completion functions
-	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
-	_ = cmd.RegisterFlagCompletionFunc("app", completion.ValidApplications)
-
-	return cmd
-}
-
-func listAppSnapshots(namespace, app string) error {
-	logger := common.NewColorLogger()
-
-	logger.Info("Listing snapshots for %s/%s...", namespace, app)
-
-	// Get VolSync configuration
-	config := &VolsyncConfig{
-		NFSServer: getEnvOrDefault("NFS_SERVER", "192.168.120.10"),
-		NFSPath:   getEnvOrDefault("NFS_PATH", "/mnt/flashstor/Volsync"),
-	}
-
-	snapshots, err := getAppSnapshots(namespace, app, config)
-	if err != nil {
-		return fmt.Errorf("failed to get snapshots for %s/%s: %w", namespace, app, err)
-	}
-
-	if len(snapshots) == 0 {
-		logger.Info("No snapshots found for %s/%s", namespace, app)
-		return nil
-	}
-
-	logger.Info("Found %d snapshots for %s/%s:", len(snapshots), namespace, app)
-	for _, snapshot := range snapshots {
-		logger.Info("  %s", snapshot)
-	}
-
-	return nil
-}
-
-func listAllSnapshots(namespace string) error {
-	logger := common.NewColorLogger()
-
-	// Discover all ReplicationSources in the namespace
-	replicationSources, err := discoverReplicationSources(namespace)
-	if err != nil {
-		return fmt.Errorf("failed to discover ReplicationSources: %w", err)
-	}
-
-	if len(replicationSources) == 0 {
-		logger.Info("No ReplicationSources found in namespace %s", namespace)
-		return nil
-	}
-
-	logger.Info("Listing snapshots for %d applications in namespace %s:\n", len(replicationSources), namespace)
-
-	// Get VolSync configuration
-	config := &VolsyncConfig{
-		NFSServer: getEnvOrDefault("NFS_SERVER", "192.168.120.10"),
-		NFSPath:   getEnvOrDefault("NFS_PATH", "/mnt/flashstor/Volsync"),
-	}
-
-	for _, rs := range replicationSources {
-		logger.Info("📦 %s/%s:", rs.Namespace, rs.Name)
-		
-		snapshots, err := getAppSnapshots(rs.Namespace, rs.Name, config)
-		if err != nil {
-			logger.Error("  ✗ Failed to get snapshots: %v", err)
-			continue
-		}
-
-		if len(snapshots) == 0 {
-			logger.Warn("  ⚠ No snapshots found")
-		} else {
-			logger.Info("  Found %d snapshots:", len(snapshots))
-			for _, snapshot := range snapshots {
-				logger.Info("    %s", snapshot)
-			}
-		}
-		logger.Info("") // Empty line for readability
-	}
-
-	return nil
-}
-
-func getAppSnapshots(namespace, app string, config *VolsyncConfig) ([]string, error) {
-	// Create a temporary pod to run restic commands
-	podName := fmt.Sprintf("volsync-list-%s", app)
-	repositoryPath := fmt.Sprintf("%s/%s", config.NFSPath, app)
-
-	// Create pod YAML for listing snapshots
-	podYAML := fmt.Sprintf(`apiVersion: v1
-kind: Pod
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  restartPolicy: Never
-  containers:
-  - name: restic
-    image: restic/restic:0.16.4
-    command: ["/bin/sh"]
-    args: ["-c", "sleep 3600"]
-    env:
-    - name: RESTIC_REPOSITORY
-      value: "/repository"
-    - name: RESTIC_PASSWORD
-      valueFrom:
-        secretKeyRef:
-          name: %s-volsync-secret
-          key: RESTIC_PASSWORD
-    volumeMounts:
-    - name: nfs-volume
-      mountPath: /repository
-  volumes:
-  - name: nfs-volume
-    nfs:
-      server: %s
-      path: %s`, podName, namespace, app, config.NFSServer, repositoryPath)
-
-	// Apply the pod
-	cmd := exec.Command("kubectl", "apply", "--filename", "-")
-	cmd.Stdin = bytes.NewReader([]byte(podYAML))
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("failed to create listing pod: %w\n%s", err, output)
-	}
-
-	// Wait for pod to be ready
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", fmt.Sprintf("pod/%s", podName), "--for=condition=ready", "--timeout=60s")
-	if err := cmd.Run(); err != nil {
-		// Clean up pod
-		cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
-		_ = cleanupCmd.Run() // Ignore cleanup errors
-		return nil, fmt.Errorf("pod failed to become ready: %w", err)
-	}
-
-	// List snapshots using restic
-	cmd = exec.Command("kubectl", "--namespace", namespace, "exec", podName, "--", "restic", "snapshots", "--json")
-	output, err := cmd.Output()
-	if err != nil {
-		// Clean up pod
-		cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
-		_ = cleanupCmd.Run() // Ignore cleanup errors
-		return nil, fmt.Errorf("failed to list snapshots: %w", err)
-	}
-
-	// Clean up pod
-	cleanupCmd := exec.Command("kubectl", "--namespace", namespace, "delete", "pod", podName, "--ignore-not-found")
-	_ = cleanupCmd.Run() // Ignore cleanup errors
-
-	// Parse JSON output to extract snapshot information
-	var snapshots []map[string]interface{}
-	if err := json.Unmarshal(output, &snapshots); err != nil {
-		return nil, fmt.Errorf("failed to parse snapshots JSON: %w", err)
-	}
-
-	var result []string
-	for i, snapshot := range snapshots {
-		if timeStr, ok := snapshot["time"].(string); ok {
-			if shortID, ok := snapshot["short_id"].(string); ok {
-				// Parse time and format it nicely
-				if parsedTime, err := time.Parse(time.RFC3339, timeStr); err == nil {
-					formatted := fmt.Sprintf("%d: %s (%s)", i, parsedTime.Format("2006-01-02 15:04:05"), shortID)
-					result = append(result, formatted)
-				} else {
-					result = append(result, fmt.Sprintf("%d: %s (%s)", i, timeStr, shortID))
-				}
-			}
-		}
-	}
-
-	return result, nil
-}
-
-func newUnlockCommand() *cobra.Command {
-	var (
-		namespace string
-		app       string
-		nfsServer string
-		nfsPath   string
-	)
-
-	cmd := &cobra.Command{
-		Use:   "unlock",
-		Short: "Unlock a Restic repository",
-		Long:  `Removes stale locks from a Restic repository when a backup job was interrupted`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			config := &VolsyncConfig{
-				NFSServer: nfsServer,
-				NFSPath:   nfsPath,
-			}
-			if nfsServer == "" {
-				config.NFSServer = getEnvOrDefault("VOLSYNC_NFS_SERVER", "192.168.120.10")
-			}
-			if nfsPath == "" {
-				config.NFSPath = getEnvOrDefault("VOLSYNC_NFS_PATH", "/mnt/flashstor/Volsync")
-			}
-			return unlockRepositoryWithConfig(namespace, app, config)
-		},
-	}
-
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
-	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
-	cmd.Flags().StringVar(&nfsServer, "nfs-server", "", "NFS server address (default: 192.168.120.10 or VOLSYNC_NFS_SERVER env var)")
-	cmd.Flags().StringVar(&nfsPath, "nfs-path", "", "NFS path (default: /mnt/flashstor/Volsync or VOLSYNC_NFS_PATH env var)")
-	_ = cmd.MarkFlagRequired("app")
-
-	return cmd
-}
-
-func unlockRepositoryWithConfig(namespace, app string, config *VolsyncConfig) error {
-	logger := common.NewColorLogger()
-	logger.Info("Unlocking repository for %s/%s...", namespace, app)
-
-	// Create unlock job YAML using embedded template
-	env := map[string]string{
-		"APP": app,
-		"NS":  namespace,
-	}
-	unlockYAML, err := templates.RenderVolsyncTemplate("unlock.yaml.j2", env)
-	if err != nil {
-		return fmt.Errorf("failed to render unlock template: %w", err)
-	}
-
-	// Replace NFS server and path (these are not in the template as ENV vars)
-	unlockYAML = strings.ReplaceAll(unlockYAML, "192.168.120.10", config.NFSServer)
-	unlockYAML = strings.ReplaceAll(unlockYAML, "/mnt/flashstor/Volsync", config.NFSPath)
-
-	// Apply the job
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
-	cmd.Stdin = bytes.NewReader([]byte(unlockYAML))
-	
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create unlock job: %w\n%s", err, output)
-	}
-
-	// Wait for job to appear
-	jobName := fmt.Sprintf("volsync-unlock-%s", app)
-	logger.Info("Waiting for unlock job to start...")
-
-	for i := 0; i < 30; i++ {
-		checkJob := exec.Command("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName))
-		if err := checkJob.Run(); err == nil {
-			break
-		}
-		time.Sleep(2 * time.Second)
-	}
-
-	// Wait for job to complete
-	logger.Info("Waiting for unlock to complete...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", 
-		fmt.Sprintf("job/%s", jobName), 
-		"--for=condition=complete", 
-		"--timeout=5m")
-	
-	if err := cmd.Run(); err != nil {
-		logger.Warn("Unlock job may have failed: %v", err)
-	}
-
-	// Get job logs
-	cmd = exec.Command("stern", "--namespace", namespace, fmt.Sprintf("job/%s", jobName), "--no-follow")
-	output, _ := cmd.Output()
-	if len(output) > 0 {
-		logger.Info("Unlock job output:\n%s", string(output))
-	}
-
-	// Delete the job
-	cmd = exec.Command("kubectl", "--namespace", namespace, "delete", "job", jobName)
-	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to delete unlock job: %v", err)
-	}
-
-	logger.Success("Repository unlock completed for %s/%s", namespace, app)
 	return nil
 }
