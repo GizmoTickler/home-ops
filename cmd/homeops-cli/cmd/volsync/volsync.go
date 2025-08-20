@@ -2,9 +2,11 @@ package volsync
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,7 @@ func NewCommand() *cobra.Command {
 		newStateCommand(),
 		newSnapshotCommand(),
 		newSnapshotAllCommand(),
+		newSnapshotsCommand(),
 		newRestoreCommand(),
 		newRestoreAllCommand(),
 	)
@@ -714,4 +717,244 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 
 	logger.Success("All restores completed successfully!")
 	return nil
+}
+
+func newSnapshotsCommand() *cobra.Command {
+	var (
+		app    string
+		format string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "snapshots",
+		Short: "List snapshots for applications",
+		Long:  `Lists all available snapshots for applications from the Kopia repository`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return listSnapshots(app, format)
+		},
+	}
+
+	cmd.Flags().StringVar(&app, "app", "", "Filter snapshots for specific application")
+	cmd.Flags().StringVar(&format, "format", "table", "Output format: table, json, yaml")
+
+	// Register completion functions
+	_ = cmd.RegisterFlagCompletionFunc("app", completion.ValidApplications)
+
+	return cmd
+}
+
+func listSnapshots(appFilter, format string) error {
+	logger := common.NewColorLogger()
+
+	// Find kopia pod in volsync-system namespace
+	kopiaPod, err := findKopiaPod()
+	if err != nil {
+		return fmt.Errorf("failed to find kopia pod: %w", err)
+	}
+
+	// Get all snapshots from kopia
+	cmd := exec.Command("kubectl", "--namespace", "volsync-system", "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to get snapshots: %w\nOutput: %s", err, output)
+	}
+
+	snapshots, err := parseKopiaSnapshots(string(output), appFilter)
+	if err != nil {
+		return fmt.Errorf("failed to parse snapshots: %w", err)
+	}
+
+	if len(snapshots) == 0 {
+		if appFilter != "" {
+			logger.Info("No snapshots found for app: %s", appFilter)
+		} else {
+			logger.Info("No snapshots found")
+		}
+		return nil
+	}
+
+	switch format {
+	case "table":
+		displaySnapshotsTable(snapshots, logger)
+	case "json":
+		displaySnapshotsJSON(snapshots)
+	case "yaml":
+		displaySnapshotsYAML(snapshots)
+	default:
+		return fmt.Errorf("unsupported format: %s (supported: table, json, yaml)", format)
+	}
+
+	return nil
+}
+
+type AppSnapshot struct {
+	App           string    `json:"app" yaml:"app"`
+	Namespace     string    `json:"namespace" yaml:"namespace"`
+	Count         int       `json:"count" yaml:"count"`
+	LatestTime    string    `json:"latest_time" yaml:"latest_time"`
+	LatestID      string    `json:"latest_id" yaml:"latest_id"`
+	Size          string    `json:"size" yaml:"size"`
+	RetentionTags string    `json:"retention_tags" yaml:"retention_tags"`
+	AllSnapshots  []string  `json:"all_snapshots" yaml:"all_snapshots"`
+}
+
+func findKopiaPod() (string, error) {
+	cmd := exec.Command("kubectl", "--namespace", "volsync-system", "get", "pods", "-l", "app.kubernetes.io/name=kopia", "-o", "jsonpath={.items[0].metadata.name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	podName := strings.TrimSpace(string(output))
+	if podName == "" {
+		return "", fmt.Errorf("no kopia pod found")
+	}
+	return podName, nil
+}
+
+func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
+	var snapshots []AppSnapshot
+	lines := strings.Split(output, "\n")
+	
+	var currentApp AppSnapshot
+	var inSnapshotBlock bool
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check if this is an app header line (e.g., "fusion@default:/data")
+		if strings.Contains(line, "@") && strings.Contains(line, ":/data") {
+			// Save previous app if exists
+			if inSnapshotBlock && currentApp.App != "" {
+				snapshots = append(snapshots, currentApp)
+			}
+			
+			// Parse new app
+			parts := strings.Split(line, "@")
+			if len(parts) >= 2 {
+				app := parts[0]
+				nsParts := strings.Split(parts[1], ":")
+				if len(nsParts) >= 1 {
+					namespace := nsParts[0]
+					
+					// Filter by app if specified
+					if appFilter != "" && app != appFilter {
+						inSnapshotBlock = false
+						continue
+					}
+					
+					currentApp = AppSnapshot{
+						App:          app,
+						Namespace:    namespace,
+						AllSnapshots: []string{},
+					}
+					inSnapshotBlock = true
+				}
+			}
+		} else if inSnapshotBlock && strings.Contains(line, "EDT") && strings.Contains(line, "k") {
+			// This is a snapshot line
+			fields := strings.Fields(line)
+			if len(fields) >= 4 {
+				// Extract timestamp, snapshot ID, size
+				timestamp := strings.Join(fields[0:4], " ") // "2025-08-20 11:44:44 EDT"
+				snapshotID := fields[4]                     // "k5b070ce6951b490d1641ea00ecc2fb0b"
+				size := fields[5]                           // "190.3"
+				sizeUnit := fields[6]                       // "MB"
+				
+				fullSize := size + " " + sizeUnit
+				
+				// Extract retention tags (latest-1..3, hourly-1, etc.)
+				retentionStart := strings.Index(line, "(")
+				retentionEnd := strings.Index(line, ")")
+				var retentionTags string
+				if retentionStart > 0 && retentionEnd > retentionStart {
+					retentionTags = line[retentionStart+1 : retentionEnd]
+				}
+				
+				// If this is the first snapshot for this app, set as latest
+				if currentApp.Count == 0 {
+					currentApp.LatestTime = timestamp
+					currentApp.LatestID = snapshotID
+					currentApp.Size = fullSize
+					currentApp.RetentionTags = retentionTags
+				}
+				
+				currentApp.Count++
+				currentApp.AllSnapshots = append(currentApp.AllSnapshots, fmt.Sprintf("%s (%s)", timestamp, snapshotID))
+			}
+		} else if inSnapshotBlock && strings.HasPrefix(line, "+ ") {
+			// This indicates additional identical snapshots
+			// Parse the count from "+ X identical snapshots until..."
+			if strings.Contains(line, "identical snapshots") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					if additionalCount, err := strconv.Atoi(fields[1]); err == nil {
+						currentApp.Count += additionalCount
+					}
+				}
+				
+				// Extract the "until" timestamp if present
+				untilIdx := strings.Index(line, "until ")
+				if untilIdx > 0 {
+					untilTime := line[untilIdx+6:]
+					currentApp.AllSnapshots = append(currentApp.AllSnapshots, fmt.Sprintf("+ %d more until %s", currentApp.Count-1, untilTime))
+				}
+			}
+		}
+	}
+	
+	// Add the last app
+	if inSnapshotBlock && currentApp.App != "" {
+		snapshots = append(snapshots, currentApp)
+	}
+	
+	return snapshots, nil
+}
+
+func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) {
+	logger.Info("VolSync Snapshots Summary:")
+	logger.Info("")
+	
+	// Header
+	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "APP", "NAMESPACE", "COUNT", "LATEST", "SIZE", "RETENTION")
+	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "---", "---------", "-----", "------", "----", "---------")
+	
+	// Rows
+	for _, snap := range snapshots {
+		fmt.Printf("%-15s %-12s %-8d %-20s %-10s %s\n",
+			snap.App,
+			snap.Namespace,
+			snap.Count,
+			snap.LatestTime[0:19], // Trim to just date and time
+			snap.Size,
+			snap.RetentionTags)
+	}
+	
+	fmt.Printf("\nTotal applications: %d\n", len(snapshots))
+}
+
+func displaySnapshotsJSON(snapshots []AppSnapshot) {
+	output, _ := json.MarshalIndent(snapshots, "", "  ")
+	fmt.Println(string(output))
+}
+
+func displaySnapshotsYAML(snapshots []AppSnapshot) {
+	for i, snap := range snapshots {
+		fmt.Printf("- app: %s\n", snap.App)
+		fmt.Printf("  namespace: %s\n", snap.Namespace)
+		fmt.Printf("  count: %d\n", snap.Count)
+		fmt.Printf("  latest_time: %s\n", snap.LatestTime)
+		fmt.Printf("  latest_id: %s\n", snap.LatestID)
+		fmt.Printf("  size: %s\n", snap.Size)
+		fmt.Printf("  retention_tags: %s\n", snap.RetentionTags)
+		fmt.Printf("  all_snapshots:\n")
+		for _, snapshot := range snap.AllSnapshots {
+			fmt.Printf("    - %s\n", snapshot)
+		}
+		if i < len(snapshots)-1 {
+			fmt.Printf("\n")
+		}
+	}
 }
