@@ -27,4 +27,5 @@ cmd/homeops-cli/homeops-cli
 cmd/homeops-cli/homeops
 # Documentation files
 WARP.md
-
+#Talos Factory Schematic ISO Cache
+cmd/homeops-cli/.cache

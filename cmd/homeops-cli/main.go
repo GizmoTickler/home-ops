@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
-	"os"
-
-	"github.com/spf13/cobra"
 	"homeops-cli/cmd/bootstrap"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
+	"os"
+
+	"github.com/spf13/cobra"
 )
 
 var (

@@ -9,7 +9,7 @@ import (
 //go:embed volsync/*.j2
 var volsyncTemplates embed.FS
 
-//go:embed talos/*.j2 talos/nodes/*.j2
+//go:embed talos/*.j2 talos/nodes/*.j2 talos/*.yaml
 var talosTemplates embed.FS
 
 //go:embed bootstrap/*

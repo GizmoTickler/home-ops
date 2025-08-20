@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/yaml"
@@ -164,10 +166,25 @@ func getMachineTypeFromNode(nodeIP string) (string, error) {
 
 
 func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
+	return renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, "")
+}
+
+func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
 	// Get environment variables for template rendering
 	env := map[string]string{
 		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
 		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
+	}
+	
+	// Add schematic ID if provided
+	if schematicID != "" {
+		env["SCHEMATIC_ID"] = schematicID
+	} else if envSchematicID := os.Getenv("SCHEMATIC_ID"); envSchematicID != "" {
+		// Use schematic ID from environment variable if available
+		env["SCHEMATIC_ID"] = envSchematicID
+	} else {
+		// Use default schematic ID if none provided
+		env["SCHEMATIC_ID"] = "89b50c59f01a5ec3946078c1e4474c958b6f7fe9064654e15385ad1ad73f536c"
 	}
 	
 	// Render base config from embedded template
@@ -570,14 +587,15 @@ func newDeployVMCommand() *cobra.Command {
 		macAddress   string
 		pool         string
 		skipZVolCreate bool
+		generateISO  bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Talos VM on TrueNAS with auto-generated ZVol paths",
-		Long:  `Deploy a new Talos VM on TrueNAS with proper ZVol naming convention`,
+		Long:  `Deploy a new Talos VM on TrueNAS with proper ZVol naming convention. Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate)
+			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
 		},
 	}
 
@@ -590,6 +608,7 @@ func newDeployVMCommand() *cobra.Command {
 	cmd.Flags().IntVar(&rookSize, "rook-size", 800, "Rook disk size in GB")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation")
+	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
 	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
@@ -606,39 +625,158 @@ func validateVMName(name string) error {
 	return nil
 }
 
-func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate bool) error {
+func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate, generateISO bool) error {
 	logger := common.NewColorLogger()
-	logger.Info("Deploying VM: %s", name)
+	logger.Info("Starting VM deployment: %s", name)
+	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, openebsSize=%dGB, rookSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t", 
+		pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
+
+	// Validate input parameters
+	if name == "" {
+		return fmt.Errorf("VM name cannot be empty")
+	}
+	if pool == "" {
+		return fmt.Errorf("storage pool cannot be empty")
+	}
+	if memory <= 0 {
+		return fmt.Errorf("memory must be greater than 0, got %d", memory)
+	}
+	if vcpus <= 0 {
+		return fmt.Errorf("vCPUs must be greater than 0, got %d", vcpus)
+	}
+	if diskSize <= 0 {
+		return fmt.Errorf("disk size must be greater than 0, got %d", diskSize)
+	}
+	if openebsSize < 0 {
+		return fmt.Errorf("OpenEBS size cannot be negative, got %d", openebsSize)
+	}
+	if rookSize < 0 {
+		return fmt.Errorf("Rook size cannot be negative, got %d", rookSize)
+	}
 
 	// Validate VM name - no dashes allowed
+	logger.Debug("Validating VM name: %s", name)
 	if err := validateVMName(name); err != nil {
-		return err
+		return fmt.Errorf("VM name validation failed: %w", err)
 	}
 
 	// Get TrueNAS connection details
+	logger.Debug("Retrieving TrueNAS credentials")
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get TrueNAS credentials: %w", err)
+	}
+	logger.Debug("TrueNAS host: %s", host)
+
+	// FIRST STEP: ISO generation and download to TrueNAS (if requested)
+	var isoURL, schematicID, talosVersion string
+	var customISO bool
+	
+	logger.Debug("Determining ISO configuration (generateISO=%t)", generateISO)
+	if generateISO {
+		logger.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
+		
+		// Create factory client
+		logger.Debug("Creating Talos factory client")
+		factoryClient := talos.NewFactoryClient()
+		if factoryClient == nil {
+			return fmt.Errorf("failed to create factory client")
+		}
+		
+		// Load schematic from embedded templates
+		logger.Debug("Loading schematic from embedded template")
+		schematic, err := factoryClient.LoadSchematicFromTemplate()
+		if err != nil {
+			return fmt.Errorf("failed to load schematic template: %w", err)
+		}
+		logger.Debug("Schematic loaded successfully")
+		
+		// Generate ISO with default parameters
+		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", talos.DefaultTalosVersion)
+		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, talos.DefaultTalosVersion, "amd64", "metal")
+		if err != nil {
+			return fmt.Errorf("ISO generation failed: %w", err)
+		}
+		
+		if isoInfo == nil {
+			return fmt.Errorf("ISO generation returned nil result")
+		}
+		
+		isoURL = isoInfo.URL
+		schematicID = isoInfo.SchematicID
+		talosVersion = isoInfo.TalosVersion
+		customISO = true
+		
+		// Set schematic ID as environment variable for template rendering
+		if err := os.Setenv("SCHEMATIC_ID", schematicID); err != nil {
+			logger.Warn("Failed to set SCHEMATIC_ID environment variable: %v", err)
+		} else {
+			logger.Debug("Set SCHEMATIC_ID environment variable: %s", schematicID)
+		}
+		
+		logger.Success("Custom ISO generated successfully")
+		logger.Debug("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoURL, schematicID, talosVersion)
+		
+		// CRITICAL: Download custom ISO to TrueNAS BEFORE any VM operations
+		logger.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
+		downloader := iso.NewDownloader()
+		
+		// Create download configuration
+		downloadConfig := iso.GetDefaultConfig()
+		downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+		downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+		downloadConfig.ISOURL = isoURL
+		downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", schematicID[:8]) // Use schematic ID prefix for unique filename
+		
+		if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
+			return fmt.Errorf("CRITICAL: Failed to download custom ISO to TrueNAS - VM deployment cannot proceed: %w", err)
+		}
+		
+		logger.Success("Custom ISO downloaded to TrueNAS successfully")
+		// Update ISO URL to point to local TrueNAS path
+		isoURL = filepath.Join(downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
+		logger.Debug("Updated ISO path: %s", isoURL)
+		logger.Info("ISO preparation completed - proceeding with VM deployment...")
+	} else {
+		// Schema-based ISO generation is required for VM deployment
+		return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO with the required schematic configuration. Default ISOs are not supported as they lack the necessary customizations for this deployment workflow")
 	}
 
 	// Get SPICE password
+	logger.Debug("Retrieving SPICE password")
 	spicePassword := getSpicePassword()
 	if spicePassword == "" {
 		return fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
 	}
+	logger.Debug("SPICE password retrieved successfully")
 
 	// Create VM manager
+	logger.Debug("Creating VM manager for TrueNAS host: %s", host)
 	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	if vmManager == nil {
+		return fmt.Errorf("failed to create VM manager")
 	}
+	
+	logger.Debug("Connecting to TrueNAS API")
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("TrueNAS connection failed: %w", err)
+	}
+	logger.Debug("Successfully connected to TrueNAS")
+	
 	defer func() {
+		logger.Debug("Closing VM manager connection")
 		if closeErr := vmManager.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		} else {
+			logger.Debug("VM manager connection closed successfully")
 		}
 	}()
 
 	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
+	logger.Debug("Building VM configuration")
+	networkBridge := getEnvOrDefault("NETWORK_BRIDGE", "br0")
+	logger.Debug("Network bridge: %s", networkBridge)
+	
 	config := truenas.VMConfig{
 		Name:           name,
 		Memory:         memory,
@@ -650,8 +788,8 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		TrueNASAPIKey:  apiKey,
 		TrueNASPort:    443,
 		NoSSL:          false,
-		TalosISO:       getEnvOrDefault("TALOS_ISO", "https://github.com/siderolabs/talos/releases/latest/download/metal-amd64.iso"),
-		NetworkBridge:  getEnvOrDefault("NETWORK_BRIDGE", "br0"),
+		TalosISO:       isoURL,
+		NetworkBridge:  networkBridge,
 		StoragePool:    pool,
 		MacAddress:     macAddress,
 		// Let getZVolPaths handle path construction to avoid duplication
@@ -659,18 +797,50 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		SkipZVolCreate: skipZVolCreate,
 		SpicePassword:  spicePassword,
 		UseSpice:       true, // Always use SPICE as per working scripts
+		// Schematic configuration fields
+		SchematicID:    schematicID,
+		TalosVersion:   talosVersion,
+		CustomISO:      customISO,
 	}
+	
+	logger.Debug("VM configuration built successfully")
+	logger.Debug("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s", 
+		name, memory, vcpus, isoURL, networkBridge, pool)
 
-	// Deploy the VM
+	// STEP 3: Deploy the VM (ISO is now ready on TrueNAS)
+	logger.Info("STEP 3: Starting VM deployment process...")
+	logger.Debug("Calling vmManager.DeployVM with configuration")
+	
 	if err := vmManager.DeployVM(config); err != nil {
+		logger.Error("VM deployment failed: %v", err)
 		return fmt.Errorf("VM deployment failed: %w", err)
 	}
 
-	logger.Success("VM %s deployed successfully", name)
+	logger.Success("VM %s deployed successfully!", name)
+	logger.Info("VM deployment completed with the following configuration:")
+	logger.Info("  VM Name:      %s", name)
+	logger.Info("  Memory:       %d MB", memory)
+	logger.Info("  vCPUs:        %d", vcpus)
+	logger.Info("  Storage Pool: %s", pool)
+	logger.Info("  Network:      %s", networkBridge)
+	if macAddress != "" {
+		logger.Info("  MAC Address:  %s", macAddress)
+	}
+	logger.Info("  ISO Source:   %s", isoURL)
+	if customISO {
+		logger.Info("  Schematic ID: %s", schematicID)
+		logger.Info("  Talos Ver:    %s", talosVersion)
+	}
 	logger.Info("ZVol naming pattern:")
 	logger.Info("  Boot disk:    %s/%s-boot (%dGB)", pool, name, diskSize)
-	logger.Info("  OpenEBS disk: %s/%s-ebs (%dGB)", pool, name, openebsSize)
-	logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
+	if openebsSize > 0 {
+		logger.Info("  OpenEBS disk: %s/%s-ebs (%dGB)", pool, name, openebsSize)
+	}
+	if rookSize > 0 {
+		logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
+	}
+	
+	logger.Debug("VM deployment function completed successfully")
 	return nil
 }
 
