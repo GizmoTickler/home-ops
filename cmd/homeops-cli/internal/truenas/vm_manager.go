@@ -31,6 +31,10 @@ type VMConfig struct {
 	SkipZVolCreate bool
 	SpicePassword string
 	UseSpice      bool
+	// Schematic configuration fields
+	SchematicID   string // Optional: Talos factory schematic ID for custom ISOs
+	TalosVersion  string // Optional: Specific Talos version for custom ISOs
+	CustomISO     bool   // Flag indicating if using a custom generated ISO
 }
 
 // VMManager handles VM operations
@@ -488,11 +492,17 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	}
 
 	// Create CD-ROM device first (order 1000) - matching working script structure
+	// Use the TalosISO path from config to support both default and custom ISOs
+	isoPath := config.TalosISO
+	if isoPath == "" {
+		isoPath = "/mnt/flashstor/ISO/metal-amd64.iso" // Fallback to default
+	}
+	
 	cdromDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
 			"dtype": "CDROM",
-			"path":  "/mnt/flashstor/ISO/metal-amd64.iso", // Use local ISO path like working script
+			"path":  isoPath,
 		},
 		"order": 1000,
 	}
@@ -500,7 +510,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	if _, err := vm.client.Call("vm.device.create", []interface{}{cdromDevice}, 30); err != nil {
 		return fmt.Errorf("failed to create CD-ROM device: %w", err)
 	}
-	vm.logger.Info("Created CD-ROM device with ISO: /mnt/flashstor/ISO/metal-amd64.iso")
+	vm.logger.Info("Created CD-ROM device with ISO: %s", isoPath)
 
 	// Create network device (order 1002) - matching working script structure
 	nicDevice := map[string]interface{}{
@@ -606,7 +616,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	displayDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
-			"bind":       "192.168.120.10", // Same bind IP as working script
+			"bind":       "192.168.120.10", // SPICE bind interface
 			"dtype":      "DISPLAY",
 			"password":   config.SpicePassword,
 			"port":       nil,      // Let TrueNAS auto-assign port
