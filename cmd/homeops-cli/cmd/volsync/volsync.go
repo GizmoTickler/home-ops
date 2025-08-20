@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"homeops-cli/cmd/completion"
@@ -193,10 +194,11 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 func newSnapshotAllCommand() *cobra.Command {
 	var (
-		wait      bool
-		timeout   time.Duration
-		namespace string
-		dryRun    bool
+		wait        bool
+		timeout     time.Duration
+		namespace   string
+		dryRun      bool
+		concurrency int
 	)
 
 	cmd := &cobra.Command{
@@ -204,7 +206,7 @@ func newSnapshotAllCommand() *cobra.Command {
 		Short: "Trigger snapshots for all eligible VolSync configured PVCs",
 		Long:  `Discovers all ReplicationSources across all namespaces and triggers snapshots for them`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return snapshotAllApps(namespace, wait, timeout, dryRun)
+			return snapshotAllApps(namespace, wait, timeout, dryRun, concurrency)
 		},
 	}
 
@@ -212,6 +214,7 @@ func newSnapshotAllCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for all snapshots to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for each snapshot completion")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be snapshotted without actually triggering snapshots")
+	cmd.Flags().IntVar(&concurrency, "concurrency", 3, "Number of parallel snapshots to run (default: 3)")
 
 	// Register completion functions
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
@@ -219,7 +222,7 @@ func newSnapshotAllCommand() *cobra.Command {
 	return cmd
 }
 
-func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun bool) error {
+func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun bool, concurrency int) error {
 	logger := common.NewColorLogger()
 
 	// Discover all ReplicationSources
@@ -243,21 +246,45 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 		return nil
 	}
 
-	// Track results
+	// Track results with thread-safe access
 	var successful, failed []string
+	var mutex sync.Mutex
 
-	// Trigger snapshots for all ReplicationSources
+	// Create a semaphore to limit concurrency
+	semaphore := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	logger.Info("Processing %d snapshots with concurrency limit of %d", len(replicationSources), concurrency)
+
+	// Trigger snapshots for all ReplicationSources in parallel
 	for _, rs := range replicationSources {
-		logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
+		wg.Add(1)
+		go func(rs ReplicationSource) {
+			defer wg.Done()
 
-		err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
-		if err != nil {
-			logger.Error("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
-			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
-		} else {
-			successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
-		}
+			// Acquire semaphore
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
+
+			err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
+			
+			// Thread-safe result tracking
+			mutex.Lock()
+			if err != nil {
+				logger.Error("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
+				failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+			} else {
+				logger.Success("✓ Completed snapshot for %s/%s", rs.Namespace, rs.Name)
+				successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
+			}
+			mutex.Unlock()
+		}(rs)
 	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
 
 	// Report results
 	logger.Info("Snapshot operation completed:")
@@ -291,6 +318,12 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
 	} else {
+		// Validate namespace exists first
+		checkNsCmd := exec.Command("kubectl", "get", "namespace", namespace)
+		if err := checkNsCmd.Run(); err != nil {
+			return nil, fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
+		}
+		
 		// Search specific namespace
 		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
@@ -305,13 +338,13 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 			strings.Contains(outputStr, "the server doesn't have a resource type") {
 			return []ReplicationSource{}, nil
 		}
-		return nil, fmt.Errorf("failed to get ReplicationSources: %w\nOutput: %s", err, outputStr)
+		return nil, fmt.Errorf("failed to get ReplicationSources in namespace '%s': %w\nOutput: %s", namespace, err, outputStr)
 	}
 
 	var replicationSources []ReplicationSource
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 
-	for _, line := range lines {
+	for lineNum, line := range lines {
 		if line == "" {
 			continue
 		}
@@ -319,7 +352,12 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 		// Split by whitespace and take first two fields
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
-			continue
+			return nil, fmt.Errorf("malformed kubectl output at line %d: expected at least 2 fields, got %d: %s", lineNum+1, len(fields), line)
+		}
+
+		// Validate namespace and name are not empty
+		if fields[0] == "" || fields[1] == "" {
+			return nil, fmt.Errorf("empty namespace or name at line %d: namespace='%s', name='%s'", lineNum+1, fields[0], fields[1])
 		}
 
 		replicationSources = append(replicationSources, ReplicationSource{
@@ -331,12 +369,47 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 	return replicationSources, nil
 }
 
+// detectController determines the controller type for an application
+func detectController(namespace, app string) (string, error) {
+	// Validate inputs
+	if namespace == "" {
+		return "", fmt.Errorf("namespace cannot be empty")
+	}
+	if app == "" {
+		return "", fmt.Errorf("app name cannot be empty")
+	}
+	
+	// Validate namespace exists
+	checkNsCmd := exec.Command("kubectl", "get", "namespace", namespace)
+	if err := checkNsCmd.Run(); err != nil {
+		return "", fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
+	}
+	
+	// List of controller types to check in order of preference
+	controllers := []string{"deployment", "statefulset", "daemonset", "replicaset"}
+	
+	var lastError error
+	for _, controller := range controllers {
+		cmd := exec.Command("kubectl", "--namespace", namespace, "get", controller, app)
+		if err := cmd.Run(); err == nil {
+			return controller, nil
+		} else {
+			lastError = err
+		}
+	}
+	
+	// Log the detection attempt but still return deployment as fallback
+	// This allows the calling code to proceed but with awareness that controller may not exist
+	return "deployment", fmt.Errorf("no existing controller found for app '%s' in namespace '%s' (last error: %w), defaulting to deployment", app, namespace, lastError)
+}
+
 func newRestoreCommand() *cobra.Command {
 	var (
-		namespace string
-		app       string
-		previous  string
-		force     bool
+		namespace      string
+		app            string
+		previous       string
+		force          bool
+		restoreTimeout time.Duration
 	)
 
 	cmd := &cobra.Command{
@@ -352,7 +425,7 @@ func newRestoreCommand() *cobra.Command {
 					return fmt.Errorf("restore cancelled")
 				}
 			}
-			return restoreApp(namespace, app, previous)
+			return restoreApp(namespace, app, previous, restoreTimeout)
 		},
 	}
 
@@ -360,6 +433,7 @@ func newRestoreCommand() *cobra.Command {
 	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
+	cmd.Flags().DurationVar(&restoreTimeout, "restore-timeout", 120*time.Minute, "Timeout for restore job completion")
 	_ = cmd.MarkFlagRequired("app")
 	_ = cmd.MarkFlagRequired("previous")
 
@@ -370,16 +444,16 @@ func newRestoreCommand() *cobra.Command {
 	return cmd
 }
 
-func restoreApp(namespace, app, previous string) error {
+func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) error {
 	logger := common.NewColorLogger()
 
 	logger.Info("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
 
-	// Get controller type
-	controller := "deployment"
-	checkStatefulSet := exec.Command("kubectl", "--namespace", namespace, "get", "statefulset", app)
-	if err := checkStatefulSet.Run(); err == nil {
-		controller = "statefulset"
+	// Get controller type by checking what exists
+	controller, err := detectController(namespace, app)
+	if err != nil {
+		// Log the warning but continue since detectController returns a fallback controller type
+		logger.Warn("Controller detection: %v", err)
 	}
 
 	// Step 1: Suspend Flux resources
@@ -427,7 +501,6 @@ func restoreApp(namespace, app, previous string) error {
 
 	// Get other required fields
 	fields := map[string]string{
-		"ACCESS_MODES":       "{.spec.kopia.accessModes}",
 		"STORAGE_CLASS_NAME": "{.spec.kopia.storageClassName}",
 		"PUID":               "{.spec.kopia.moverSecurityContext.runAsUser}",
 		"PGID":               "{.spec.kopia.moverSecurityContext.runAsGroup}",
@@ -449,6 +522,23 @@ func restoreApp(namespace, app, previous string) error {
 			return fmt.Errorf("failed to get %s: %w", envKey, err)
 		}
 		env[envKey] = strings.TrimSpace(string(output))
+	}
+
+	// Handle ACCESS_MODES separately to convert from JSON to YAML format
+	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+		fmt.Sprintf("replicationsources/%s", app),
+		"--output=jsonpath={.spec.kopia.accessModes}")
+	accessModesOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get ACCESS_MODES: %w", err)
+	}
+	accessModesStr := strings.TrimSpace(string(accessModesOutput))
+	// Convert from ["ReadWriteOnce"] to ["ReadWriteOnce"] format for YAML
+	if strings.HasPrefix(accessModesStr, "[") && strings.HasSuffix(accessModesStr, "]") {
+		env["ACCESS_MODES"] = accessModesStr
+	} else {
+		// Fallback to default if parsing fails
+		env["ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
 	}
 
 	// Step 4: Create ReplicationDestination
@@ -483,7 +573,7 @@ func restoreApp(namespace, app, previous string) error {
 	cmd = exec.Command("kubectl", "--namespace", namespace, "wait",
 		fmt.Sprintf("job/%s", jobName),
 		"--for=condition=complete",
-		"--timeout=120m")
+		fmt.Sprintf("--timeout=%ds", int(restoreTimeout.Seconds())))
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("restore job failed: %w", err)
@@ -597,7 +687,7 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	for _, rs := range replicationSources {
 		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
 
-		err := restoreApp(rs.Namespace, rs.Name, previous)
+		err := restoreApp(rs.Namespace, rs.Name, previous, 120*time.Minute)
 		if err != nil {
 			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
 			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
