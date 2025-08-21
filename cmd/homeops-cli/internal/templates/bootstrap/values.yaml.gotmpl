@@ -1,0 +1,16 @@
+{{ $release := .Values.release }}
+{{- if eq $release "cilium" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/kube-system/cilium/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "coredns" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/kube-system/coredns/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "spegel" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/kube-system/spegel/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "cert-manager" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/cert-manager/cert-manager/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "external-secrets" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/external-secrets/external-secrets/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "flux-operator" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/flux-system/flux-operator/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- else if eq $release "flux-instance" }}
+{{ exec "yq" (list ".spec.values" (printf "%s/kubernetes/apps/flux-system/flux-instance/app/helmrelease.yaml" .RootDir)) | indent 0 }}
+{{- end }}

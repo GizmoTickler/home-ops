@@ -1,7 +1,7 @@
 ---
 area/bootstrap:
   - changed-files:
-      - any-glob-to-any-file: "bootstrap/**/*"
+      - any-glob-to-any-file: "cmd/homeops-cli/internal/templates/bootstrap/*"
 area/docs:
   - changed-files:
       - any-glob-to-any-file:
@@ -17,14 +17,9 @@ area/renovate:
       - any-glob-to-any-file:
           - ".renovate/**/*"
           - ".renovaterc.json5"
-area/scripts:
+area/homeops-cli:
   - changed-files:
-      - any-glob-to-any-file: "scripts/**/*"
-area/talos:
+      - any-glob-to-any-file: "cmd/homeops-cli/**/*"
+area/trunenas-deep-explorer:
   - changed-files:
-      - any-glob-to-any-file: "talos/**/*"
-area/taskfile:
-  - changed-files:
-      - any-glob-to-any-file:
-          - ".taskfiles/**/*"
-          - "Taskfile.yaml"
+      - any-glob-to-any-file: "cmd/truenas-deep-explorer/**/*"
