@@ -272,7 +272,7 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 			logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
 
 			err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
-			
+
 			// Thread-safe result tracking
 			mutex.Lock()
 			if err != nil {
@@ -326,7 +326,7 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 		if err := checkNsCmd.Run(); err != nil {
 			return nil, fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
 		}
-		
+
 		// Search specific namespace
 		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
@@ -381,16 +381,16 @@ func detectController(namespace, app string) (string, error) {
 	if app == "" {
 		return "", fmt.Errorf("app name cannot be empty")
 	}
-	
+
 	// Validate namespace exists
 	checkNsCmd := exec.Command("kubectl", "get", "namespace", namespace)
 	if err := checkNsCmd.Run(); err != nil {
 		return "", fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
 	}
-	
+
 	// List of controller types to check in order of preference
 	controllers := []string{"deployment", "statefulset", "daemonset", "replicaset"}
-	
+
 	var lastError error
 	for _, controller := range controllers {
 		cmd := exec.Command("kubectl", "--namespace", namespace, "get", controller, app)
@@ -400,7 +400,7 @@ func detectController(namespace, app string) (string, error) {
 			lastError = err
 		}
 	}
-	
+
 	// Log the detection attempt but still return deployment as fallback
 	// This allows the calling code to proceed but with awareness that controller may not exist
 	return "deployment", fmt.Errorf("no existing controller found for app '%s' in namespace '%s' (last error: %w), defaulting to deployment", app, namespace, lastError)
@@ -504,9 +504,11 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 
 	// Get other required fields
 	fields := map[string]string{
-		"STORAGE_CLASS_NAME": "{.spec.kopia.storageClassName}",
-		"PUID":               "{.spec.kopia.moverSecurityContext.runAsUser}",
-		"PGID":               "{.spec.kopia.moverSecurityContext.runAsGroup}",
+		"STORAGE_CLASS_NAME":   "{.spec.kopia.storageClassName}",
+		"CACHE_STORAGE_CLASS":  "{.spec.kopia.cacheStorageClassName}",
+		"CACHE_CAPACITY":       "{.spec.kopia.cacheCapacity}",
+		"PUID":                 "{.spec.kopia.moverSecurityContext.runAsUser}",
+		"PGID":                 "{.spec.kopia.moverSecurityContext.runAsGroup}",
 	}
 
 	env := map[string]string{
@@ -543,6 +545,24 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 		// Fallback to default if parsing fails
 		env["ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
 	}
+
+	// Handle CACHE_ACCESS_MODES separately
+	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+		fmt.Sprintf("replicationsources/%s", app),
+		"--output=jsonpath={.spec.kopia.cacheAccessModes}")
+	cacheAccessModesOutput, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get CACHE_ACCESS_MODES: %w", err)
+	}
+	cacheAccessModesStr := strings.TrimSpace(string(cacheAccessModesOutput))
+	if strings.HasPrefix(cacheAccessModesStr, "[") && strings.HasSuffix(cacheAccessModesStr, "]") {
+		env["CACHE_ACCESS_MODES"] = cacheAccessModesStr
+	} else {
+		// Fallback to default if parsing fails
+		env["CACHE_ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
+	}
+
+
 
 	// Step 4: Create ReplicationDestination
 	logger.Info("Creating ReplicationDestination...")
@@ -600,6 +620,11 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 	cmd = exec.Command("flux", "--namespace", namespace, "resume", "helmrelease", app)
 	if err := cmd.Run(); err != nil {
 		logger.Warn("Failed to resume helmrelease: %v", err)
+	}
+
+	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "kustomization", app, "--with-source")
+	if err := cmd.Run(); err != nil {
+		logger.Warn("Failed to reconcile kustomization: %v", err)
 	}
 
 	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "helmrelease", app, "--force")
@@ -814,23 +839,23 @@ func findKopiaPod() (string, error) {
 func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 	var snapshots []AppSnapshot
 	lines := strings.Split(output, "\n")
-	
+
 	var currentApp AppSnapshot
 	var inSnapshotBlock bool
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		// Check if this is an app header line (e.g., "fusion@default:/data")
 		if strings.Contains(line, "@") && strings.Contains(line, ":/data") {
 			// Save previous app if exists
 			if inSnapshotBlock && currentApp.App != "" {
 				snapshots = append(snapshots, currentApp)
 			}
-			
+
 			// Parse new app
 			parts := strings.Split(line, "@")
 			if len(parts) >= 2 {
@@ -838,13 +863,13 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 				nsParts := strings.Split(parts[1], ":")
 				if len(nsParts) >= 1 {
 					namespace := nsParts[0]
-					
+
 					// Filter by app if specified
 					if appFilter != "" && app != appFilter {
 						inSnapshotBlock = false
 						continue
 					}
-					
+
 					currentApp = AppSnapshot{
 						App:          app,
 						Namespace:    namespace,
@@ -862,9 +887,9 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 				snapshotID := fields[4]                     // "k5b070ce6951b490d1641ea00ecc2fb0b"
 				size := fields[5]                           // "190.3"
 				sizeUnit := fields[6]                       // "MB"
-				
+
 				fullSize := size + " " + sizeUnit
-				
+
 				// Extract retention tags (latest-1..3, hourly-1, etc.)
 				retentionStart := strings.Index(line, "(")
 				retentionEnd := strings.Index(line, ")")
@@ -872,7 +897,7 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 				if retentionStart > 0 && retentionEnd > retentionStart {
 					retentionTags = line[retentionStart+1 : retentionEnd]
 				}
-				
+
 				// If this is the first snapshot for this app, set as latest
 				if currentApp.Count == 0 {
 					currentApp.LatestTime = timestamp
@@ -880,7 +905,7 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 					currentApp.Size = fullSize
 					currentApp.RetentionTags = retentionTags
 				}
-				
+
 				currentApp.Count++
 				currentApp.AllSnapshots = append(currentApp.AllSnapshots, fmt.Sprintf("%s (%s)", timestamp, snapshotID))
 			}
@@ -894,7 +919,7 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 						currentApp.Count += additionalCount
 					}
 				}
-				
+
 				// Extract the "until" timestamp if present
 				untilIdx := strings.Index(line, "until ")
 				if untilIdx > 0 {
@@ -904,23 +929,23 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 			}
 		}
 	}
-	
+
 	// Add the last app
 	if inSnapshotBlock && currentApp.App != "" {
 		snapshots = append(snapshots, currentApp)
 	}
-	
+
 	return snapshots, nil
 }
 
 func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) {
 	logger.Info("VolSync Snapshots Summary:")
 	logger.Info("")
-	
+
 	// Header
 	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "APP", "NAMESPACE", "COUNT", "LATEST", "SIZE", "RETENTION")
 	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "---", "---------", "-----", "------", "----", "---------")
-	
+
 	// Rows
 	for _, snap := range snapshots {
 		fmt.Printf("%-15s %-12s %-8d %-20s %-10s %s\n",
@@ -931,7 +956,7 @@ func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) 
 			snap.Size,
 			snap.RetentionTags)
 	}
-	
+
 	fmt.Printf("\nTotal applications: %d\n", len(snapshots))
 }
 
