@@ -9,6 +9,9 @@ spec:
     manual: restore-once
   kopia:
     accessModes: {{ ENV.ACCESS_MODES }}
+    cacheAccessModes: {{ ENV.CACHE_ACCESS_MODES }}
+    cacheCapacity: {{ ENV.CACHE_CAPACITY }}
+    cacheStorageClassName: {{ ENV.CACHE_STORAGE_CLASS }}
     cleanupCachePVC: true
     cleanupTempPVC: true
     copyMethod: Direct
