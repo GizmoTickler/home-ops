@@ -4,6 +4,9 @@ import (
 	"embed"
 	"fmt"
 	"strings"
+
+	"homeops-cli/internal/template"
+	"homeops-cli/internal/metrics"
 )
 
 //go:embed volsync/*.j2
@@ -161,6 +164,42 @@ func expandNamespaceLoop(content string) string {
 	// Replace the entire loop with the expanded content
 	result := content[:forIndex] + expanded.String() + content[endIndex:]
 	return result
+}
+
+// RenderGoTemplate renders a Go template from bootstrap templates with helmfile-style functions
+func RenderGoTemplate(templateName, rootDir string, data map[string]interface{}, collector *metrics.PerformanceCollector) (string, error) {
+	// Get the template content
+	content, err := GetBootstrapTemplate(templateName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get template %s: %w", templateName, err)
+	}
+
+	// Create Go template renderer
+	renderer := template.NewGoTemplateRenderer(rootDir, collector)
+	
+	// Prepare template data
+	templateData := template.TemplateData{
+		RootDir: rootDir,
+		Values:  data,
+	}
+
+	// Render template
+	return renderer.RenderTemplate(content, templateData)
+}
+
+// RenderHelmfileValues renders dynamic values for a specific release
+func RenderHelmfileValues(release, rootDir string, collector *metrics.PerformanceCollector) (string, error) {
+	// Get the values template
+	valuesTemplate, err := GetBootstrapTemplate("values.yaml.gotmpl")
+	if err != nil {
+		return "", fmt.Errorf("failed to get values template: %w", err)
+	}
+
+	// Create Go template renderer
+	renderer := template.NewGoTemplateRenderer(rootDir, collector)
+	
+	// Render values for the specific release
+	return renderer.RenderHelmfileValues(valuesTemplate, release)
 }
 
 // validateTemplateSubstitution verifies that Jinja2 template substitution worked correctly

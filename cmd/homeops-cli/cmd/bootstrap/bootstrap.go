@@ -178,9 +178,15 @@ func validateBootstrapTemplate(templateName, renderedContent string, logger *com
 	}
 	logger.Info("Jinja2 template substitution validation passed")
 	
-	// Verify that expected content was properly rendered
-	if err := validateRenderedContent(renderedContent, logger); err != nil {
-		return fmt.Errorf("rendered content validation failed: %w", err)
+	// Verify that expected content was properly rendered (only for resources template)
+	if templateName == "resources.yaml.j2" {
+		if err := validateResourcesContent(renderedContent, logger); err != nil {
+			return fmt.Errorf("rendered content validation failed: %w", err)
+		}
+	} else if templateName == "clustersecretstore.yaml.j2" {
+		if err := validateClusterSecretStoreContent(renderedContent, logger); err != nil {
+			return fmt.Errorf("clustersecretstore content validation failed: %w", err)
+		}
 	}
 	
 	// Validate YAML syntax by parsing the rendered content
@@ -340,8 +346,8 @@ func validateYAMLSyntax(content []byte) error {
 	return yamlv3.Unmarshal(content, &result)
 }
 
-// validateRenderedContent verifies that the template was properly rendered
-func validateRenderedContent(renderedContent string, logger *common.ColorLogger) error {
+// validateResourcesContent verifies that the resources template was properly rendered
+func validateResourcesContent(renderedContent string, logger *common.ColorLogger) error {
 	// Check that expected namespaces were created
 	expectedNamespaces := []string{"external-secrets", "flux-system", "network"}
 	for _, ns := range expectedNamespaces {
@@ -371,6 +377,37 @@ func validateRenderedContent(renderedContent string, logger *common.ColorLogger)
 		return fmt.Errorf("rendered content does not contain Secret resources")
 	}
 	
+	return nil
+}
+
+// validateClusterSecretStoreContent verifies that the clustersecretstore template was properly rendered
+func validateClusterSecretStoreContent(renderedContent string, logger *common.ColorLogger) error {
+	// Check that the ClusterSecretStore was created
+	if !strings.Contains(renderedContent, "kind: ClusterSecretStore") {
+		return fmt.Errorf("rendered content does not contain ClusterSecretStore resource")
+	}
+	
+	// Check that it has the correct name
+	if !strings.Contains(renderedContent, "name: onepassword") {
+		return fmt.Errorf("ClusterSecretStore does not have expected name 'onepassword'")
+	}
+	
+	// Check that it has the onepassword provider
+	if !strings.Contains(renderedContent, "onepassword:") {
+		return fmt.Errorf("ClusterSecretStore does not contain onepassword provider")
+	}
+	
+	// Check that it references the Infrastructure vault
+	if !strings.Contains(renderedContent, "Infrastructure:") {
+		return fmt.Errorf("ClusterSecretStore does not reference Infrastructure vault")
+	}
+	
+	// Check that it has auth configuration
+	if !strings.Contains(renderedContent, "connectTokenSecretRef:") {
+		return fmt.Errorf("ClusterSecretStore does not have connectTokenSecretRef configuration")
+	}
+	
+	logger.Debug("ClusterSecretStore content validation passed")
 	return nil
 }
 
@@ -1372,8 +1409,34 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		if err := validateClusterSecretStoreTemplate(logger); err != nil {
 			return fmt.Errorf("clustersecretstore template validation failed: %w", err)
 		}
+		// Test dynamic values template rendering
+		if err := testDynamicValuesTemplate(config, logger); err != nil {
+			return fmt.Errorf("dynamic values template test failed: %w", err)
+		}
 		logger.Info("[DRY RUN] Template validation passed - would sync Helm releases")
 		return nil
+	}
+
+	// Create temporary directory for helmfile execution
+	tempDir, err := os.MkdirTemp("", "homeops-bootstrap-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			logger.Warn(fmt.Sprintf("Warning: failed to remove temp directory: %v", removeErr))
+		}
+	}()
+
+	// Create values.yaml.gotmpl in temp directory
+	valuesTemplate, err := templates.GetBootstrapTemplate("values.yaml.gotmpl")
+	if err != nil {
+		return fmt.Errorf("failed to get values template: %w", err)
+	}
+
+	valuesPath := filepath.Join(tempDir, "values.yaml.gotmpl")
+	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0644); err != nil {
+		return fmt.Errorf("failed to write values template: %w", err)
 	}
 
 	// Get embedded helmfile content
@@ -1382,7 +1445,7 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return fmt.Errorf("failed to get embedded helmfile: %w", err)
 	}
 
-	// Render the helmfile template with RootDir
+	// Render the helmfile template with RootDir and temp directory
 	tmpl, err := template.New("helmfile").Parse(helmfileTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to parse helmfile template: %w", err)
@@ -1400,43 +1463,24 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 	}
 
 	// Create temporary file for helmfile
-	tempFile, err := os.CreateTemp("", "helmfile-*.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer func() {
-		if removeErr := os.Remove(tempFile.Name()); removeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file: %v\n", removeErr)
-		}
-	}()
-	defer func() {
-		if closeErr := tempFile.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close temp file: %v\n", closeErr)
-		}
-	}()
-
-	// Write helmfile content to temp file
-	if _, err := tempFile.WriteString(helmfileContent.String()); err != nil {
-		return fmt.Errorf("failed to write helmfile content: %w", err)
-	}
-	// Close the file explicitly before using it
-	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temp file: %w", err)
+	helmfilePath := filepath.Join(tempDir, "helmfile.yaml")
+	if err := os.WriteFile(helmfilePath, helmfileContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write helmfile: %w", err)
 	}
 
-	// Debug: log the working directory and check if values file exists
+	logger.Info("Created dynamic helmfile with Go template support")
 	logger.Info(fmt.Sprintf("Setting working directory to: %s", config.RootDir))
-	valuesPath := filepath.Join(config.RootDir, "kubernetes/apps/kube-system/cilium/app/helm/values.yaml")
-	if _, err := os.Stat(valuesPath); err != nil {
-		logger.Info(fmt.Sprintf("Values file check failed: %s - %v", valuesPath, err))
-	} else {
-		logger.Info(fmt.Sprintf("Values file exists: %s", valuesPath))
-	}
 	
-	cmd := exec.Command("helmfile", "--file", tempFile.Name(), "sync", "--hide-notes")
+	cmd := exec.Command("helmfile", "--file", helmfilePath, "sync", "--hide-notes")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Dir = config.RootDir // Set working directory to project root
+	cmd.Dir = tempDir // Set working directory to temp directory with templates
+	
+	// Set additional environment variables for helmfile
+	cmd.Env = append(os.Environ(), 
+		fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir),
+		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
+	)
 	
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to sync Helm releases: %w", err)
@@ -1449,5 +1493,35 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return fmt.Errorf("failed to apply cluster secret store: %w", err)
 	}
 
+	return nil
+}
+
+// testDynamicValuesTemplate tests the dynamic values template rendering
+func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogger) error {
+	logger.Info("Testing dynamic values template rendering...")
+	
+	// Create metrics collector
+	metricsCollector := metrics.NewPerformanceCollector()
+	
+	// Test releases to verify template works
+	testReleases := []string{"cilium", "coredns", "spegel", "cert-manager", "external-secrets", "flux-operator", "flux-instance"}
+	
+	for _, release := range testReleases {
+		logger.Debug(fmt.Sprintf("Testing values rendering for release: %s", release))
+		
+		values, err := templates.RenderHelmfileValues(release, config.RootDir, metricsCollector)
+		if err != nil {
+			return fmt.Errorf("failed to render values for %s: %w", release, err)
+		}
+		
+		// Validate that we got some values back (not empty)
+		if strings.TrimSpace(values) == "" {
+			return fmt.Errorf("rendered values for %s are empty", release)
+		}
+		
+		logger.Debug(fmt.Sprintf("Successfully rendered values for %s (%d characters)", release, len(values)))
+	}
+	
+	logger.Success("Dynamic values template rendering test passed")
 	return nil
 }
