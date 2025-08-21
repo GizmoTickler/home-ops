@@ -51,6 +51,8 @@ spec:
       csi:
         readAffinity:
           enabled: true
+          crushLocationLabels:
+            - topology.kubernetes.io/zone
       dashboard:
         enabled: true
         urlPrefix: /
