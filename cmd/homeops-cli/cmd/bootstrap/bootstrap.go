@@ -550,7 +550,7 @@ func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLo
 	// Use a sample node template for patch testing
 	patchTemplate := "nodes/192.168.122.10.yaml.j2"
 
-	_, err := renderMachineConfigFromEmbedded(baseTemplate, patchTemplate)
+	_, err := renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, "controlplane")
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Machine Config Rendering",
@@ -670,7 +670,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 		}
 
 		// Render machine config using embedded templates
-		renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate)
+		renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate, machineType)
 		if err != nil {
 			logger.Error("Failed to render config for %s: %v", node, err)
 			failures = append(failures, node)
@@ -809,12 +809,13 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	return "worker", nil
 }
 
-func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType string) ([]byte, error) {
 	// Get versions from system-upgrade plans or environment variables
 	versionConfig := versionconfig.GetVersions(".")
 	env := map[string]string{
 		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion),
 		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", versionConfig.TalosVersion),
+		"machinetype":        machineType, // Add machine type for Jinja2 conditionals
 	}
 
 	// Render base config from embedded template with proper talos/ prefix
@@ -835,7 +836,20 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
 
-	return processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
+	mergedConfig, err := processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
+	if err != nil {
+		return nil, err
+	}
+
+	// Resolve 1Password references in the merged configuration
+	// Create a minimal logger for 1Password resolution
+	logger := common.NewColorLogger()
+	resolvedConfig, err := resolve1PasswordReferences(string(mergedConfig), logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve 1Password references in machine config: %w", err)
+	}
+
+	return []byte(resolvedConfig), nil
 }
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
