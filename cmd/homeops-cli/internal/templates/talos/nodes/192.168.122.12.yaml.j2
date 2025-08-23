@@ -21,7 +21,7 @@ kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    match: disk.name == "/dev/vdb"
+    match: "!system_disk"
   minSize: 1024GB
 ---
 apiVersion: v1alpha1

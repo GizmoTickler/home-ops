@@ -175,14 +175,118 @@ func (r *GoTemplateRenderer) GetTemplateVariables(templateContent string) ([]str
 	return result.([]string), nil
 }
 
+// ReleaseInfo contains information about a Helm release
+type ReleaseInfo struct {
+	Name      string
+	Namespace string
+}
+
 // RenderHelmfileValues renders helmfile values using the dynamic template
 func (r *GoTemplateRenderer) RenderHelmfileValues(valuesTemplate string, release string) (string, error) {
+	// Find the namespace for this release by searching the apps directory
+	namespace, err := r.findReleaseNamespace(release)
+	if err != nil {
+		return "", fmt.Errorf("failed to find namespace for release %s: %w", release, err)
+	}
+
 	data := TemplateData{
 		RootDir: r.rootDir,
 		Values: map[string]interface{}{
-			"release": release,
+			"release": release, // Keep the original release string for backward compatibility
 		},
 	}
 	
-	return r.RenderTemplate(valuesTemplate, data)
+	// Add Release directly to the template data so it can be accessed as .Release
+	releaseInfo := ReleaseInfo{
+		Name:      release,
+		Namespace: namespace,
+	}
+	
+	// Use a custom data structure that includes Release at the top level
+	customData := map[string]interface{}{
+		"RootDir": r.rootDir,
+		"Values":  data.Values,
+		"Release": releaseInfo,
+	}
+	
+	return r.renderTemplateWithCustomData(valuesTemplate, customData)
+}
+
+// renderTemplateWithCustomData renders a Go template with custom data structure
+func (r *GoTemplateRenderer) renderTemplateWithCustomData(templateContent string, data interface{}) (string, error) {
+	result, err := r.metrics.TrackOperationWithResult("gotemplate_render_custom", func() (interface{}, error) {
+		// Create template with custom functions - we need to pass the root dir from the data
+		var rootDir string
+		if dataMap, ok := data.(map[string]interface{}); ok {
+			if rd, ok := dataMap["RootDir"].(string); ok {
+				rootDir = rd
+			} else {
+				rootDir = r.rootDir
+			}
+		} else {
+			rootDir = r.rootDir
+		}
+		
+		tmpl := template.New("template").Funcs(r.createTemplateFuncs(rootDir))
+		
+		// Parse template
+		tmpl, err := tmpl.Parse(templateContent)
+		if err != nil {
+			return nil, errors.NewTemplateError("PARSE_FAILED", "Failed to parse Go template", err)
+		}
+
+		// Execute template
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			return nil, errors.NewTemplateError("EXECUTE_FAILED", "Failed to execute Go template", err)
+		}
+
+		return buf.String(), nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
+// findReleaseNamespace finds the namespace for a given release by searching the apps directory
+func (r *GoTemplateRenderer) findReleaseNamespace(releaseName string) (string, error) {
+	appsDir := fmt.Sprintf("%s/kubernetes/apps", r.rootDir)
+	
+	// Walk through all namespace directories
+	namespaceEntries, err := os.ReadDir(appsDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read apps directory: %w", err)
+	}
+	
+	for _, namespaceEntry := range namespaceEntries {
+		if !namespaceEntry.IsDir() {
+			continue
+		}
+		
+		namespace := namespaceEntry.Name()
+		namespacePath := fmt.Sprintf("%s/%s", appsDir, namespace)
+		
+		// Check if this namespace contains the release
+		releaseEntries, err := os.ReadDir(namespacePath)
+		if err != nil {
+			continue // Skip if we can't read this directory
+		}
+		
+		for _, releaseEntry := range releaseEntries {
+			if !releaseEntry.IsDir() {
+				continue
+			}
+			
+			if releaseEntry.Name() == releaseName {
+				// Found the release in this namespace
+				helmreleasePath := fmt.Sprintf("%s/%s/app/helmrelease.yaml", namespacePath, releaseName)
+				if _, err := os.Stat(helmreleasePath); err == nil {
+					return namespace, nil
+				}
+			}
+		}
+	}
+	
+	return "", fmt.Errorf("release %s not found in any namespace", releaseName)
 }
