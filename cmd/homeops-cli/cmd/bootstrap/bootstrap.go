@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
@@ -165,19 +164,19 @@ func runBootstrap(config *BootstrapConfig) error {
 // validateBootstrapTemplate validates template rendering and 1Password references without exposing secrets
 func validateBootstrapTemplate(templateName, renderedContent string, logger *common.ColorLogger) error {
 	logger.Info(fmt.Sprintf("Validating template: %s", templateName))
-	
+
 	// Get the original template for comparison
 	originalTemplate, err := templates.GetBootstrapTemplate(templateName)
 	if err != nil {
 		return fmt.Errorf("failed to get original template: %w", err)
 	}
-	
+
 	// Validate that Jinja2 template substitution worked correctly
 	if err := templates.ValidateTemplateSubstitution(templateName, originalTemplate, renderedContent); err != nil {
 		return fmt.Errorf("Jinja2 template substitution validation failed: %w", err)
 	}
 	logger.Info("Jinja2 template substitution validation passed")
-	
+
 	// Verify that expected content was properly rendered (only for resources template)
 	if templateName == "resources.yaml.j2" {
 		if err := validateResourcesContent(renderedContent, logger); err != nil {
@@ -188,12 +187,12 @@ func validateBootstrapTemplate(templateName, renderedContent string, logger *com
 			return fmt.Errorf("clustersecretstore content validation failed: %w", err)
 		}
 	}
-	
+
 	// Validate YAML syntax by parsing the rendered content
 	if err := validateYAMLSyntax([]byte(renderedContent)); err != nil {
 		return fmt.Errorf("invalid YAML syntax: %w", err)
 	}
-	
+
 	// Check for 1Password references and validate format
 	opRefs := extractOnePasswordReferences(renderedContent)
 	if len(opRefs) == 0 {
@@ -207,35 +206,35 @@ func validateBootstrapTemplate(templateName, renderedContent string, logger *com
 		}
 		logger.Info("All 1Password references are valid")
 	}
-	
+
 	// Test 1Password connectivity without exposing secrets
 	if err := test1PasswordConnectivity(logger); err != nil {
 		return fmt.Errorf("1Password connectivity test failed: %w", err)
 	}
-	
+
 	logger.Info("Template validation completed successfully")
 	return nil
 }
 
-// validateClusterSecretStoreTemplate validates the clustersecretstore template
+// validateClusterSecretStoreTemplate validates the clustersecretstore YAML file
 func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
-	logger.Info("Validating clustersecretstore.yaml.j2 template")
-	
-	// Get the template content
-	templateContent, err := templates.GetBootstrapTemplate("clustersecretstore.yaml.j2")
+	logger.Info("Validating clustersecretstore.yaml file")
+
+	// Get the YAML file content
+	yamlContent, err := templates.GetBootstrapFile("clustersecretstore.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to get clustersecretstore template: %w", err)
+		return fmt.Errorf("failed to get clustersecretstore YAML: %w", err)
 	}
-	
+
 	// Validate YAML syntax
-	if err := validateYAMLSyntax([]byte(templateContent)); err != nil {
+	if err := validateYAMLSyntax([]byte(yamlContent)); err != nil {
 		return fmt.Errorf("invalid YAML syntax: %w", err)
 	}
-	
+
 	// Check for 1Password references
-	opRefs := extractOnePasswordReferences(templateContent)
+	opRefs := extractOnePasswordReferences(yamlContent)
 	if len(opRefs) == 0 {
-		logger.Warn("No 1Password references found in clustersecretstore template")
+		logger.Warn("No 1Password references found in clustersecretstore YAML")
 	} else {
 		logger.Info(fmt.Sprintf("Found %d 1Password references in clustersecretstore", len(opRefs)))
 		for _, ref := range opRefs {
@@ -245,15 +244,15 @@ func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
 		}
 		logger.Info("All 1Password references in clustersecretstore are valid")
 	}
-	
-	logger.Info("ClusterSecretStore template validation completed successfully")
+
+	logger.Info("ClusterSecretStore YAML validation completed successfully")
 	return nil
 }
 
 // extractOnePasswordReferences finds all 1Password references in the content
 func extractOnePasswordReferences(content string) []string {
 	var refs []string
-	
+
 	// Find all op:// references using a more comprehensive approach
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
@@ -280,7 +279,7 @@ func extractOnePasswordReferences(content string) []string {
 			}
 		}
 	}
-	
+
 	return refs
 }
 
@@ -289,53 +288,53 @@ func validate1PasswordReference(ref string) error {
 	if !strings.HasPrefix(ref, "op://") {
 		return fmt.Errorf("reference must start with 'op://'")
 	}
-	
+
 	// Remove the op:// prefix
 	path := strings.TrimPrefix(ref, "op://")
 	parts := strings.Split(path, "/")
-	
+
 	// Should have at least vault/item format
 	if len(parts) < 2 {
 		return fmt.Errorf("reference must have format 'op://vault/item' or 'op://vault/item/field'")
 	}
-	
+
 	// Validate vault name
 	if parts[0] == "" {
 		return fmt.Errorf("vault name cannot be empty")
 	}
-	
+
 	// Validate item name
 	if parts[1] == "" {
 		return fmt.Errorf("item name cannot be empty")
 	}
-	
+
 	return nil
 }
 
 // test1PasswordConnectivity tests 1Password CLI connectivity without exposing secrets
 func test1PasswordConnectivity(logger *common.ColorLogger) error {
 	logger.Info("Testing 1Password CLI connectivity...")
-	
+
 	// Test op CLI availability
 	cmd := exec.Command("op", "--version")
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("1Password CLI not available: %w", err)
 	}
-	
+
 	// Test authentication status
 	cmd = exec.Command("op", "account", "list")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("1Password authentication failed: %w\n%s", err, output)
 	}
-	
+
 	// Test vault access (try to list items in Infrastructure vault without showing content)
 	cmd = exec.Command("op", "item", "list", "--vault", "Infrastructure", "--format", "json")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("cannot access Infrastructure vault: %w\n%s", err, output)
 	}
-	
+
 	logger.Info("1Password connectivity test passed")
 	return nil
 }
@@ -356,7 +355,7 @@ func validateResourcesContent(renderedContent string, logger *common.ColorLogger
 		}
 	}
 	logger.Debug("All expected namespaces found in rendered content")
-	
+
 	// Check that expected secrets were created
 	expectedSecrets := []string{"onepassword-secret", "sops-age", "home-ops-wc-tls", "cloudflare-tunnel-id-secret"}
 	for _, secret := range expectedSecrets {
@@ -365,7 +364,7 @@ func validateResourcesContent(renderedContent string, logger *common.ColorLogger
 		}
 	}
 	logger.Debug("All expected secrets found in rendered content")
-	
+
 	// Verify that the content contains proper Kubernetes resources
 	if !strings.Contains(renderedContent, "apiVersion: v1") {
 		return fmt.Errorf("rendered content does not contain valid Kubernetes resources")
@@ -376,7 +375,64 @@ func validateResourcesContent(renderedContent string, logger *common.ColorLogger
 	if !strings.Contains(renderedContent, "kind: Secret") {
 		return fmt.Errorf("rendered content does not contain Secret resources")
 	}
-	
+
+	return nil
+}
+
+// validateResourcesYAML validates the resources YAML content (replaces validateResourcesContent for non-template files)
+func validateResourcesYAML(yamlContent string, logger *common.ColorLogger) error {
+	logger.Info("Validating resources.yaml content")
+
+	// Validate YAML syntax
+	if err := validateYAMLSyntax([]byte(yamlContent)); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+
+	// Check that expected secrets were created (no namespaces since resources.yaml only contains secrets)
+	expectedSecrets := []string{"onepassword-secret", "sops-age", "cloudflare-tunnel-id-secret"}
+	for _, secret := range expectedSecrets {
+		if !strings.Contains(yamlContent, fmt.Sprintf("name: %s", secret)) {
+			return fmt.Errorf("expected secret '%s' not found in YAML content", secret)
+		}
+	}
+	logger.Debug("All expected secrets found in YAML content")
+
+	// Verify that the content contains proper Kubernetes resources
+	if !strings.Contains(yamlContent, "apiVersion: v1") {
+		return fmt.Errorf("YAML content does not contain valid Kubernetes resources")
+	}
+	if !strings.Contains(yamlContent, "kind: Secret") {
+		return fmt.Errorf("YAML content does not contain Secret resources")
+	}
+
+	return nil
+}
+
+// validateClusterSecretStoreYAML validates the cluster secret store YAML content (replaces validateClusterSecretStoreContent for non-template files)
+func validateClusterSecretStoreYAML(yamlContent string, logger *common.ColorLogger) error {
+	logger.Info("Validating clustersecretstore.yaml content")
+
+	// Validate YAML syntax
+	if err := validateYAMLSyntax([]byte(yamlContent)); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+
+	// Check for ClusterSecretStore resource
+	if !strings.Contains(yamlContent, "kind: ClusterSecretStore") {
+		return fmt.Errorf("YAML content does not contain ClusterSecretStore resource")
+	}
+
+	// Check for expected ClusterSecretStore name
+	if !strings.Contains(yamlContent, "name: onepassword") {
+		return fmt.Errorf("expected ClusterSecretStore 'onepassword' not found in YAML content")
+	}
+
+	// Check for 1Password provider configuration
+	if !strings.Contains(yamlContent, "onepassword:") {
+		return fmt.Errorf("YAML content does not contain 1Password provider configuration")
+	}
+
+	logger.Debug("ClusterSecretStore YAML validation passed")
 	return nil
 }
 
@@ -386,27 +442,27 @@ func validateClusterSecretStoreContent(renderedContent string, logger *common.Co
 	if !strings.Contains(renderedContent, "kind: ClusterSecretStore") {
 		return fmt.Errorf("rendered content does not contain ClusterSecretStore resource")
 	}
-	
+
 	// Check that it has the correct name
 	if !strings.Contains(renderedContent, "name: onepassword") {
 		return fmt.Errorf("ClusterSecretStore does not have expected name 'onepassword'")
 	}
-	
+
 	// Check that it has the onepassword provider
 	if !strings.Contains(renderedContent, "onepassword:") {
 		return fmt.Errorf("ClusterSecretStore does not contain onepassword provider")
 	}
-	
+
 	// Check that it references the Infrastructure vault
 	if !strings.Contains(renderedContent, "Infrastructure:") {
 		return fmt.Errorf("ClusterSecretStore does not reference Infrastructure vault")
 	}
-	
+
 	// Check that it has auth configuration
 	if !strings.Contains(renderedContent, "connectTokenSecretRef:") {
 		return fmt.Errorf("ClusterSecretStore does not have connectTokenSecretRef configuration")
 	}
-	
+
 	logger.Debug("ClusterSecretStore content validation passed")
 	return nil
 }
@@ -747,7 +803,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 	var failures []string
 	for _, node := range nodes {
 		nodeTemplate := fmt.Sprintf("nodes/%s.yaml.j2", node)
-		
+
 		// Get machine type from embedded node template
 		machineType, err := getMachineTypeFromEmbedded(nodeTemplate)
 		if err != nil {
@@ -879,7 +935,7 @@ func applyNodeConfigWithRetry(node string, config []byte, logger *common.ColorLo
 func applyNodeConfig(node string, config []byte) error {
 	cmd := exec.Command("talosctl", "--nodes", node, "apply-config", "--insecure", "--file", "/dev/stdin")
 	cmd.Stdin = bytes.NewReader(config)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, output)
@@ -974,7 +1030,7 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get node template: %w", err)
 	}
-	
+
 	// Parse machine type from template content
 	if strings.Contains(content, "type: controlplane") {
 		return "controlplane", nil
@@ -988,25 +1044,25 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
 		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
 	}
-	
+
 	// Render base config from embedded template with proper talos/ prefix
 	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
 	baseConfig, err := templates.RenderTalosTemplate(fullBaseTemplatePath, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render base config: %w", err)
 	}
-	
+
 	// Render patch config from embedded template with proper talos/ prefix
 	fullPatchTemplatePath := fmt.Sprintf("talos/%s", patchTemplate)
 	patchConfig, err := templates.RenderTalosTemplate(fullPatchTemplatePath, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render patch config: %w", err)
 	}
-	
+
 	// Use Go YAML processor to merge
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
-	
+
 	return processor.MergeYAML([]byte(baseConfig), []byte(patchConfig))
 }
 
@@ -1028,7 +1084,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	for attempts := 0; attempts < 30; attempts++ {
 		cmd := exec.Command("talosctl", "--nodes", controller, "bootstrap")
 		output, err := cmd.CombinedOutput()
-		
+
 		if err == nil {
 			logger.Info("Talos cluster bootstrapped successfully")
 			return nil
@@ -1080,9 +1136,9 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		return nil
 	}
 
-	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", controller, 
+	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", controller,
 		"--force", "--force-context-name", "main", filepath.Base(config.KubeConfig))
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to fetch kubeconfig: %w", err)
 	}
@@ -1105,7 +1161,7 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 	if err == nil {
 		logger.Debug("Current node status:")
 		logger.Debug(string(output))
-		
+
 		// Check if all nodes are ready
 		readyCmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "-o", "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}")
 		readyOutput, readyErr := readyCmd.Output()
@@ -1123,11 +1179,11 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 			logger.Success("Nodes are now available")
 			break
 		}
-		
+
 		if attempts == 14 {
 			return fmt.Errorf("nodes did not become available after %d attempts", attempts+1)
 		}
-		
+
 		logger.Info(fmt.Sprintf("Waiting for nodes to become available... (attempt %d/15)", attempts+1))
 		time.Sleep(20 * time.Second)
 	}
@@ -1161,140 +1217,100 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 }
 
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	crds := []struct {
-		name string
-		url  string
-	}{
-		{
-			name: "external-dns",
-			url:  "https://raw.githubusercontent.com/kubernetes-sigs/external-dns/refs/tags/v0.18.0/config/crd/standard/dnsendpoints.externaldns.k8s.io.yaml",
-		},
-		{
-			name: "gateway-api",
-			url:  "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.3.0/experimental-install.yaml",
-		},
-		{
-			name: "prometheus-operator",
-			url:  "https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.84.1/stripped-down-crds.yaml",
-		},
-	}
-
-	logger.Info(fmt.Sprintf("Applying %d CRDs...", len(crds)))
-	var failures []string
-
-	for _, crd := range crds {
-		logger.Debug(fmt.Sprintf("Processing CRD: %s", crd.name))
-
-		if config.DryRun {
-			logger.Info(fmt.Sprintf("[DRY RUN] Would apply CRD: %s from %s", crd.name, crd.url))
-			continue
-		}
-
-		// Apply CRD with retry mechanism
-		if err := applyCRDWithRetry(crd.name, crd.url, config, logger, 3); err != nil {
-			logger.Error(fmt.Sprintf("Failed to apply CRD %s: %v", crd.name, err))
-			failures = append(failures, crd.name)
-			continue
-		}
-
-		logger.Success(fmt.Sprintf("Successfully applied CRD: %s", crd.name))
-	}
-
-	if len(failures) > 0 {
-		return fmt.Errorf("failed to apply CRDs: %s", strings.Join(failures, ", "))
-	}
-
-	logger.Success("All CRDs applied successfully")
-	return nil
+	// Use the new helmfile-based CRD application method
+	return applyCRDsFromHelmfile(config, logger)
 }
 
-func applyCRDWithRetry(name, url string, config *BootstrapConfig, logger *common.ColorLogger, maxRetries int) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := applySingleCRD(name, url, config, logger)
-		if err == nil {
-			return nil
-		}
+func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) error {
+	logger.Info("Applying CRDs from helmfile...")
 
-		lastErr = err
-		logger.Warn(fmt.Sprintf("Attempt %d/%d to apply CRD %s failed: %v", attempt, maxRetries, name, err))
-
-		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt) * 5 * time.Second)
-		}
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would apply CRDs from crds/helmfile.yaml")
+		return nil
 	}
 
-	return fmt.Errorf("failed to apply CRD %s after %d attempts: %w", name, maxRetries, lastErr)
-}
-
-func applySingleCRD(name, url string, config *BootstrapConfig, logger *common.ColorLogger) error {
-	// Create HTTP client with timeout
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
-	// Download CRD with context
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	// Create temporary directory for helmfile execution
+	tempDir, err := os.MkdirTemp("", "homeops-crds-*")
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to download CRD: %w", err)
+		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Warn(fmt.Sprintf("Warning: failed to close response body: %v", closeErr))
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			logger.Warn(fmt.Sprintf("Warning: failed to remove temp directory: %v", removeErr))
 		}
 	}()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: failed to download CRD from %s", resp.StatusCode, url)
-	}
-
-	crdContent, err := io.ReadAll(resp.Body)
+	// Get embedded CRDs helmfile content
+	crdsHelmfileTemplate, err := templates.GetBootstrapFile("crds/helmfile.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to read CRD content: %w", err)
+		return fmt.Errorf("failed to get embedded CRDs helmfile: %w", err)
 	}
 
-	if len(crdContent) == 0 {
-		return fmt.Errorf("downloaded CRD content is empty")
-	}
-
-	// Apply CRD with enhanced error handling
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
-	cmd.Stdin = bytes.NewReader(crdContent)
-	
-	output, err := cmd.CombinedOutput()
+	// Render the helmfile template with RootDir
+	tmpl, err := template.New("crds-helmfile").Parse(crdsHelmfileTemplate)
 	if err != nil {
-		// Check if it's already applied
-		if strings.Contains(string(output), "unchanged") || strings.Contains(string(output), "configured") {
-			logger.Debug(fmt.Sprintf("CRD %s already exists or was updated", name))
-			return nil
-		}
-		return fmt.Errorf("kubectl apply failed: %w\nOutput: %s", err, string(output))
+		return fmt.Errorf("failed to parse CRDs helmfile template: %w", err)
 	}
 
+	var helmfileContent bytes.Buffer
+	templateData := struct {
+		RootDir string
+	}{
+		RootDir: config.RootDir,
+	}
+
+	if err := tmpl.Execute(&helmfileContent, templateData); err != nil {
+		return fmt.Errorf("failed to render CRDs helmfile template: %w", err)
+	}
+
+	// Create temporary file for CRDs helmfile
+	crdsHelmfilePath := filepath.Join(tempDir, "crds-helmfile.yaml")
+	if err := os.WriteFile(crdsHelmfilePath, helmfileContent.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write CRDs helmfile: %w", err)
+	}
+
+	logger.Info("Created CRDs helmfile for template processing")
+
+	// Use helmfile template command to generate CRD manifests
+	cmd := exec.Command("helmfile", "--file", crdsHelmfilePath, "template", "--include-crds")
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
+	)
+
+	// Capture the templated output
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to template CRDs from helmfile: %w", err)
+	}
+
+	if len(output) == 0 {
+		logger.Warn("No CRD manifests generated from helmfile template")
+		return nil
+	}
+
+	// Apply the templated CRDs using kubectl
+	applyCmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
+	applyCmd.Stdin = bytes.NewReader(output)
+
+	if applyOutput, err := applyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, string(applyOutput))
+	}
+
+	logger.Success("CRDs applied successfully from helmfile")
 	return nil
 }
 
+
+
 func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
-	// Render resources from embedded template
-	env := map[string]string{
-		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
-		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
-	}
-	
-	resources, err := templates.RenderBootstrapTemplate("resources.yaml.j2", env)
+	// Get resources from embedded YAML file (no longer a template)
+	resources, err := templates.GetBootstrapFile("resources.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to render resources: %w", err)
+		return fmt.Errorf("failed to get resources: %w", err)
 	}
 
-	// Resolve 1Password references in the rendered template
+	// Resolve 1Password references in the YAML content
 	logger.Info("Resolving 1Password references in bootstrap resources...")
 	resolvedResources, err := resolve1PasswordReferences(resources, logger)
 	if err != nil {
@@ -1302,18 +1318,18 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	}
 
 	if config.DryRun {
-		// Validate template rendering and 1Password references
-		if err := validateBootstrapTemplate("resources.yaml.j2", resolvedResources, logger); err != nil {
-			return fmt.Errorf("template validation failed: %w", err)
+		// Validate YAML content and 1Password references
+		if err := validateResourcesYAML(resolvedResources, logger); err != nil {
+			return fmt.Errorf("resources validation failed: %w", err)
 		}
-		logger.Info("[DRY RUN] Template validation passed - would apply resources")
+		logger.Info("[DRY RUN] Resources validation passed - would apply resources")
 		return nil
 	}
 
 	// Apply resources with force-conflicts to handle cert-manager managed fields
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "--filename", "-")
 	cmd.Stdin = bytes.NewReader([]byte(resolvedResources))
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply resources: %w\n%s", err, output)
 	}
@@ -1347,7 +1363,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	// Resolve each reference
 	for _, ref := range opRefs {
 		logger.Debug(fmt.Sprintf("Resolving 1Password reference: %s", ref))
-		
+
 		// Get the secret value
 		secretValue, err := get1PasswordSecret(ref)
 		if err != nil {
@@ -1364,15 +1380,13 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 }
 
 func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger) error {
-	// Render cluster secret store from embedded template
-	env := map[string]string{}
-	
-	clusterSecretStore, err := templates.RenderBootstrapTemplate("clustersecretstore.yaml.j2", env)
+	// Get cluster secret store from embedded YAML file (no longer a template)
+	clusterSecretStore, err := templates.GetBootstrapFile("clustersecretstore.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to render cluster secret store: %w", err)
+		return fmt.Errorf("failed to get cluster secret store: %w", err)
 	}
 
-	// Resolve 1Password references in the rendered template
+	// Resolve 1Password references in the YAML content
 	logger.Info("Resolving 1Password references in cluster secret store...")
 	resolvedClusterSecretStore, err := resolve1PasswordReferences(clusterSecretStore, logger)
 	if err != nil {
@@ -1380,18 +1394,18 @@ func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger
 	}
 
 	if config.DryRun {
-		// Validate template rendering and 1Password references
-		if err := validateBootstrapTemplate("clustersecretstore.yaml.j2", resolvedClusterSecretStore, logger); err != nil {
-			return fmt.Errorf("cluster secret store template validation failed: %w", err)
+		// Validate YAML content and 1Password references
+		if err := validateClusterSecretStoreYAML(resolvedClusterSecretStore, logger); err != nil {
+			return fmt.Errorf("cluster secret store validation failed: %w", err)
 		}
-		logger.Info("[DRY RUN] Cluster secret store template validation passed - would apply cluster secret store")
+		logger.Info("[DRY RUN] Cluster secret store validation passed - would apply cluster secret store")
 		return nil
 	}
 
 	// Apply cluster secret store with force-conflicts to handle field management conflicts
 	cmd := exec.Command("kubectl", "apply", "--namespace=external-secrets", "--server-side", "--force-conflicts", "--filename", "-", "--wait=true")
 	cmd.Stdin = bytes.NewReader([]byte(resolvedClusterSecretStore))
-	
+
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to apply cluster secret store: %w\n%s", err, output)
 	}
@@ -1470,18 +1484,18 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 
 	logger.Info("Created dynamic helmfile with Go template support")
 	logger.Info(fmt.Sprintf("Setting working directory to: %s", config.RootDir))
-	
+
 	cmd := exec.Command("helmfile", "--file", helmfilePath, "sync", "--hide-notes")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Dir = tempDir // Set working directory to temp directory with templates
-	
+
 	// Set additional environment variables for helmfile
-	cmd.Env = append(os.Environ(), 
+	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir),
 		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
 	)
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to sync Helm releases: %w", err)
 	}
@@ -1499,29 +1513,29 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 // testDynamicValuesTemplate tests the dynamic values template rendering
 func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogger) error {
 	logger.Info("Testing dynamic values template rendering...")
-	
+
 	// Create metrics collector
 	metricsCollector := metrics.NewPerformanceCollector()
-	
+
 	// Test releases to verify template works
 	testReleases := []string{"cilium", "coredns", "spegel", "cert-manager", "external-secrets", "flux-operator", "flux-instance"}
-	
+
 	for _, release := range testReleases {
 		logger.Debug(fmt.Sprintf("Testing values rendering for release: %s", release))
-		
+
 		values, err := templates.RenderHelmfileValues(release, config.RootDir, metricsCollector)
 		if err != nil {
 			return fmt.Errorf("failed to render values for %s: %w", release, err)
 		}
-		
+
 		// Validate that we got some values back (not empty)
 		if strings.TrimSpace(values) == "" {
 			return fmt.Errorf("rendered values for %s are empty", release)
 		}
-		
+
 		logger.Debug(fmt.Sprintf("Successfully rendered values for %s (%d characters)", release, len(values)))
 	}
-	
+
 	logger.Success("Dynamic values template rendering test passed")
 	return nil
 }
