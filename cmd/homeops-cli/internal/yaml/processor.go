@@ -325,6 +325,60 @@ func (p *Processor) MergeYAML(baseContent, patchContent []byte) ([]byte, error) 
 	return p.mergeYAMLInternal(baseContent, patchContent)
 }
 
+// MergeYAMLMultiDocument merges YAML content while preserving additional documents in patch
+func (p *Processor) MergeYAMLMultiDocument(baseContent, patchContent []byte) ([]byte, error) {
+	if p.metrics != nil {
+		result, err := p.metrics.TrackOperationWithResult("yaml_merge_multidoc", func() (interface{}, error) {
+			return p.mergeYAMLMultiDocumentInternal(baseContent, patchContent)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return result.([]byte), nil
+	}
+	return p.mergeYAMLMultiDocumentInternal(baseContent, patchContent)
+}
+
+func (p *Processor) mergeYAMLMultiDocumentInternal(baseContent, patchContent []byte) ([]byte, error) {
+	// Split patch content by document separator
+	patchStr := string(patchContent)
+	parts := strings.Split(patchStr, "---")
+	
+	if len(parts) == 1 {
+		// Single document, use regular merge
+		return p.mergeYAMLInternal(baseContent, patchContent)
+	}
+	
+	// Multi-document patch: merge first document, append the rest
+	firstDoc := strings.TrimSpace(parts[0])
+	if firstDoc == "" && len(parts) > 1 {
+		firstDoc = strings.TrimSpace(parts[1])
+		parts = parts[2:]
+	} else {
+		parts = parts[1:]
+	}
+	
+	// Merge the first document with base
+	merged, err := p.mergeYAMLInternal(baseContent, []byte(firstDoc))
+	if err != nil {
+		return nil, err
+	}
+	
+	// Append remaining documents
+	result := strings.Builder{}
+	result.Write(merged)
+	
+	for _, part := range parts {
+		trimmedPart := strings.TrimSpace(part)
+		if trimmedPart != "" {
+			result.WriteString("\n---\n")
+			result.WriteString(trimmedPart)
+		}
+	}
+	
+	return []byte(result.String()), nil
+}
+
 func (p *Processor) mergeYAMLInternal(baseContent, patchContent []byte) ([]byte, error) {
 	// Parse base YAML
 	var baseData map[string]interface{}

@@ -38,15 +38,6 @@ func NewSSHClient(config SSHConfig) *SSHClient {
 	}
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the op CLI
-func get1PasswordSecret(reference string) (string, error) {
-	cmd := exec.Command("op", "read", reference)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to read 1Password secret %s: %w", reference, err)
-	}
-	return strings.TrimSpace(string(output)), nil
-}
 
 // Connect validates the SSH connection using SSH with 1Password SSH agent
 func (c *SSHClient) Connect() error {
@@ -122,12 +113,12 @@ func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
 	downloadCmd := fmt.Sprintf("sudo wget -O %s %s", remotePath, isoURL)
 	c.logger.Debug("Download command: %s", downloadCmd)
 	
-	output, err := c.ExecuteCommand(downloadCmd)
+	_, err := c.ExecuteCommand(downloadCmd)
 	if err != nil {
 		// Try with curl as fallback (using sudo for write permissions)
 		c.logger.Debug("wget failed, trying curl: %v", err)
 		curlCmd := fmt.Sprintf("sudo curl -L -o %s %s", remotePath, isoURL)
-		output, err = c.ExecuteCommand(curlCmd)
+		output, err := c.ExecuteCommand(curlCmd)
 		if err != nil {
 			return fmt.Errorf("failed to download ISO with both wget and curl: %w\nOutput: %s", err, output)
 		}

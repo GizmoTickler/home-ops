@@ -5,9 +5,26 @@ machine:
     interfaces:
       - deviceSelector:
           hardwareAddr: 00:a0:98:3e:6c:22
-  disks:
-    - device: /dev/vdb
-      partitions:
-        - mountpoint: /var/mnt/extra
+        mtu: 9000
+        dhcp: true
+        vip:
+          ip: 192.168.120.100
   install:
-    image: factory.talos.dev/metal-installer/{{ ENV.SCHEMATIC_ID }}:{{ ENV.TALOS_VERSION }}
+    disk: /dev/vda
+    image: factory.talos.dev/metal-installer/8a86ddeb0f61cd2cae3fdbac63cb2f6fa340f790141255a4d6525b984f6f712b:v1.11.0-rc.0
+  nodeLabels:
+    topology.kubernetes.io/region: main
+    topology.kubernetes.io/zone: m
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-hostpath
+provisioning:
+  diskSelector:
+    match: disk.name == "/dev/vdb"
+  minSize: 1024GB
+---
+apiVersion: v1alpha1
+kind: WatchdogTimerConfig
+device: /dev/watchdog0
+timeout: 5m

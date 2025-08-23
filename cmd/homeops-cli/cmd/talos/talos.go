@@ -12,8 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
@@ -37,6 +39,7 @@ func NewCommand() *cobra.Command {
 		newResetNodeCommand(),
 		newResetClusterCommand(),
 		newKubeconfigCommand(),
+		newPrepareISOCommand(),
 		newDeployVMCommand(),
 		newManageVMCommand(),
 	)
@@ -170,10 +173,11 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 }
 
 func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
-	// Get environment variables for template rendering
+	// Get versions from system-upgrade plans or environment variables
+	versionConfig := versionconfig.GetVersions(".")
 	env := map[string]string{
-		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", "v1.29.0"),
-		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", "v1.6.0"),
+		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion),
+		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", versionConfig.TalosVersion),
 	}
 	
 	// Add schematic ID if provided
@@ -203,7 +207,7 @@ func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, s
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
 	
-	return processor.MergeYAML([]byte(baseConfig), []byte(patchConfig))
+	return processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
 }
 
 
@@ -309,7 +313,8 @@ func upgradeK8s() error {
 		return err
 	}
 
-	k8sVersion := os.Getenv("KUBERNETES_VERSION")
+	versionConfig := versionconfig.GetVersions(".")
+	k8sVersion := getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion)
 	if k8sVersion == "" {
 		return fmt.Errorf("KUBERNETES_VERSION environment variable not set")
 	}
@@ -651,7 +656,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		return fmt.Errorf("OpenEBS size cannot be negative, got %d", openebsSize)
 	}
 	if rookSize < 0 {
-		return fmt.Errorf("Rook size cannot be negative, got %d", rookSize)
+		return fmt.Errorf("rook size cannot be negative, got %d", rookSize)
 	}
 
 	// Validate VM name - no dashes allowed
@@ -692,8 +697,9 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		logger.Debug("Schematic loaded successfully")
 		
 		// Generate ISO with default parameters
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", talos.DefaultTalosVersion)
-		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, talos.DefaultTalosVersion, "amd64", "metal")
+		versionConfig := versionconfig.GetVersions(".")
+		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
+		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
 		if err != nil {
 			return fmt.Errorf("ISO generation failed: %w", err)
 		}
@@ -738,8 +744,53 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		logger.Debug("Updated ISO path: %s", isoURL)
 		logger.Info("ISO preparation completed - proceeding with VM deployment...")
 	} else {
-		// Schema-based ISO generation is required for VM deployment
-		return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO with the required schematic configuration. Default ISOs are not supported as they lack the necessary customizations for this deployment workflow")
+		// Check if a prepared ISO exists at the standard location
+		standardISOPath := "/mnt/flashstor/ISO/metal-amd64.iso"
+		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
+		
+		// Connect to TrueNAS to check if the prepared ISO exists
+		host, _, err := getTrueNASCredentials()
+		if err != nil {
+			return fmt.Errorf("failed to get TrueNAS credentials to check for prepared ISO: %w", err)
+		}
+		
+		// Create SSH client to check if ISO exists
+		sshConfig := ssh.SSHConfig{
+			Host:       host,
+			Username:   get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME"),
+			Port:       "22",
+			SSHItemRef: "op://Infrastructure/NAS01/private key",
+		}
+		sshClient := ssh.NewSSHClient(sshConfig)
+		
+		if err := sshClient.Connect(); err != nil {
+			logger.Warn("Cannot verify prepared ISO due to SSH connection failure: %v", err)
+			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
+		}
+		defer sshClient.Close()
+		
+		// Check if the standard ISO exists
+		exists, size, err := sshClient.VerifyFile(standardISOPath)
+		if err != nil {
+			logger.Warn("Failed to verify prepared ISO: %v", err)
+			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
+		}
+		
+		if !exists {
+			logger.Info("No prepared ISO found at %s", standardISOPath)
+			return fmt.Errorf("no prepared ISO found. Please run 'homeops talos prepare-iso' first to prepare the ISO, or use the --generate-iso flag to generate a new one")
+		}
+		
+		// Prepared ISO exists, use it
+		isoURL = standardISOPath
+		customISO = true  // Mark as custom since it's from prepare-iso
+		logger.Success("Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
+		logger.Info("Prepared ISO found - proceeding with VM deployment...")
+		
+		// Get version info for logging
+		versionConfig := versionconfig.GetVersions(".")
+		talosVersion = versionConfig.TalosVersion
+		// Note: schematicID won't be available here, but that's okay for VM creation
 	}
 
 	// Get SPICE password
@@ -1069,4 +1120,146 @@ func infoVM(name string) error {
 	}()
 
 	return vmManager.GetVMInfo(name)
+}
+
+// newPrepareISOCommand creates the prepare-iso command
+func newPrepareISOCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "prepare-iso",
+		Short: "Generate custom Talos ISO from schematic and upload to TrueNAS",
+		Long: `Generate a custom Talos ISO using schematic.yaml configuration and upload it to TrueNAS.
+This command will:
+1. Generate a Talos schematic from the embedded schematic.yaml template
+2. Create a custom ISO from the Talos factory
+3. Upload the ISO to TrueNAS storage
+4. Update the node configuration templates with the new schematic ID
+
+This separates ISO preparation from VM deployment, allowing you to prepare the ISO once
+and deploy multiple VMs using the same custom configuration.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return prepareISO()
+		},
+	}
+
+	return cmd
+}
+
+// prepareISO handles the ISO generation and upload process
+func prepareISO() error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting custom Talos ISO preparation...")
+
+	// Load version configuration
+	versionConfig := versionconfig.GetVersions(".")
+	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+
+	// Create factory client
+	logger.Debug("Creating Talos factory client")
+	factoryClient := talos.NewFactoryClient()
+	if factoryClient == nil {
+		return fmt.Errorf("failed to create factory client")
+	}
+
+	// Load schematic from embedded templates
+	logger.Info("STEP 1: Loading schematic configuration...")
+	schematic, err := factoryClient.LoadSchematicFromTemplate()
+	if err != nil {
+		return fmt.Errorf("failed to load schematic template: %w", err)
+	}
+	logger.Success("Schematic configuration loaded successfully")
+
+	// Generate ISO from schematic
+	logger.Info("STEP 2: Generating custom Talos ISO...")
+	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
+	
+	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
+	if err != nil {
+		return fmt.Errorf("ISO generation failed: %w", err)
+	}
+	
+	if isoInfo == nil {
+		return fmt.Errorf("ISO generation returned nil result")
+	}
+	
+	logger.Success("Custom ISO generated successfully")
+	logger.Info("ISO Details:")
+	logger.Info("  URL: %s", isoInfo.URL)
+	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+
+	// Upload ISO to TrueNAS
+	logger.Info("STEP 3: Uploading ISO to TrueNAS...")
+	downloader := iso.NewDownloader()
+	
+	// Create download configuration with standard filename
+	downloadConfig := iso.GetDefaultConfig()
+	downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+	downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+	downloadConfig.ISOURL = isoInfo.URL
+	downloadConfig.ISOFilename = "metal-amd64.iso" // Standard filename as requested
+	
+	if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
+		return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)
+	}
+	
+	logger.Success("Custom ISO uploaded to TrueNAS successfully")
+	logger.Info("ISO Location: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
+
+	// Update node templates with schematic ID
+	logger.Info("STEP 4: Updating node configuration templates...")
+	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
+		logger.Warn("Failed to update node templates: %v", err)
+		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+	} else {
+		logger.Success("Node configuration templates updated successfully")
+	}
+
+	logger.Success("ISO preparation completed successfully!")
+	logger.Info("Summary:")
+	logger.Info("  - Custom ISO generated and uploaded to TrueNAS")
+	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
+	logger.Info("  - ISO Path: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
+	logger.Info("  - Node templates updated with new schematic ID")
+	logger.Info("")
+	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --name <vm_name> [other flags]")
+	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
+
+	return nil
+}
+
+// updateNodeTemplatesWithSchematic updates the node template files with the new schematic ID
+func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
+	logger := common.NewColorLogger()
+	
+	// Node template files to update (paths relative to working directory)
+	nodeTemplateFiles := []string{
+		"internal/templates/talos/nodes/192.168.122.10.yaml.j2",
+		"internal/templates/talos/nodes/192.168.122.11.yaml.j2", 
+		"internal/templates/talos/nodes/192.168.122.12.yaml.j2",
+	}
+	
+	for _, templateFile := range nodeTemplateFiles {
+		logger.Debug("Updating template: %s", templateFile)
+		
+		// Read the template file
+		content, err := os.ReadFile(templateFile)
+		if err != nil {
+			logger.Warn("Failed to read template %s: %v", templateFile, err)
+			continue
+		}
+		
+		// Replace the template variable with actual schematic ID
+		updatedContent := strings.ReplaceAll(string(content), "factory.talos.dev/metal-installer/{{ ENV.SCHEMATIC_ID }}", fmt.Sprintf("factory.talos.dev/metal-installer/%s", schematicID))
+		
+		// Write the updated content back
+		if err := os.WriteFile(templateFile, []byte(updatedContent), 0644); err != nil {
+			logger.Warn("Failed to write template %s: %v", templateFile, err)
+			continue
+		}
+		
+		logger.Debug("Updated template %s with schematic ID %s", templateFile, schematicID)
+	}
+	
+	return nil
 }

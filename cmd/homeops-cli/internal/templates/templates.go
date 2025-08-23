@@ -7,6 +7,7 @@ import (
 
 	"homeops-cli/internal/template"
 	"homeops-cli/internal/metrics"
+	"github.com/flosch/pongo2/v6"
 )
 
 //go:embed volsync/*.j2
@@ -56,11 +57,31 @@ func RenderTalosTemplate(templateName string, env map[string]string) (string, er
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
 
-	// Simple Jinja2-style variable replacement
-	result := string(content)
+	// Use pongo2 for full Jinja2 template processing
+	tpl, err := pongo2.FromString(string(content))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse template %s: %w", templateName, err)
+	}
+
+	// Prepare context with environment variables and template variables
+	ctx := pongo2.Context{}
+	
+	// Add ENV namespace for {{ ENV.VARIABLE }} syntax
+	envContext := pongo2.Context{}
 	for key, value := range env {
-		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
-		result = strings.ReplaceAll(result, placeholder, value)
+		envContext[key] = value
+	}
+	ctx["ENV"] = envContext
+	
+	// Add direct variables for conditional syntax
+	for key, value := range env {
+		ctx[key] = value
+	}
+
+	// Render the template
+	result, err := tpl.Execute(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute template %s: %w", templateName, err)
 	}
 
 	return result, nil

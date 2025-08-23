@@ -1,15 +1,15 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/upgrade.cattle.io/plan_v1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/upgrade.cattle.io/plan_v1.json
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
   name: talos
 spec:
-  version: ${TALOS_VERSION}
+  # renovate: datasource=docker depName=ghcr.io/siderolabs/installer
+  version: v1.11.0-rc.0
   concurrency: 1
   postCompleteDelay: 2m
   exclusive: true
-  jobActiveDeadlineSecs: 2400  # 40 minutes for Talos upgrades (includes reboot time)
   serviceAccountName: system-upgrade-controller
   secrets:
     - name: system-upgrade-controller
@@ -20,8 +20,8 @@ spec:
       - key: kubernetes.io/hostname
         operator: Exists
   upgrade:
-    image: "ghcr.io/jfroy/tnu:0.4.3"
+    image: ghcr.io/jfroy/tnu:0.4.3
     args:
-      - "--node=$(SYSTEM_UPGRADE_NODE_NAME)"
-      - "--tag=${TALOS_VERSION}"
-      - "--powercycle"
+      - --node=$(SYSTEM_UPGRADE_NODE_NAME)
+      - --tag=$(SYSTEM_UPGRADE_PLAN_LATEST_VERSION)
+      - --powercycle
