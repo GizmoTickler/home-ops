@@ -12,18 +12,12 @@ releases:
     chart: oci://ghcr.io/home-operations/charts-mirror/cilium
     version: 1.18.1
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: cilium
 
   - name: coredns
     namespace: kube-system
     chart: oci://ghcr.io/coredns/charts/coredns
     version: 1.43.2
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: coredns
     needs: ['kube-system/cilium']
 
   - name: spegel
@@ -31,9 +25,6 @@ releases:
     chart: oci://ghcr.io/spegel-org/helm-charts/spegel
     version: 0.3.0
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: spegel
     needs: ['kube-system/coredns']
 
   - name: cert-manager
@@ -41,37 +32,18 @@ releases:
     chart: oci://quay.io/jetstack/charts/cert-manager
     version: v1.18.2
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: cert-manager
     needs: ['kube-system/spegel']
-
-  - name: external-secrets
-    namespace: external-secrets
-    chart: oci://ghcr.io/external-secrets/charts/external-secrets
-    version: 0.19.2
-    values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: external-secrets
-    needs: ['cert-manager/cert-manager']
 
   - name: flux-operator
     namespace: flux-system
     chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator
     version: 0.28.0
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: flux-operator
-    needs: ['external-secrets/external-secrets']
+    needs: ['cert-manager/cert-manager']
 
   - name: flux-instance
     namespace: flux-system
     chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-instance
     version: 0.28.0
     values: ['./values.yaml.gotmpl']
-    set:
-      - name: release
-        value: flux-instance
     needs: ['flux-system/flux-operator']
