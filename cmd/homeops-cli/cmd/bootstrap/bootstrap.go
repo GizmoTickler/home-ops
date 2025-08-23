@@ -545,21 +545,17 @@ func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLo
 
 func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
 	// Test rendering of machine configurations
-	// Only test controlplane template since this cluster setup only has controlplane nodes
-	nodeTemplates := []string{"controlplane"}
+	// Use the unified machineconfig.yaml.j2 template for both controlplane and worker nodes
+	baseTemplate := "machineconfig.yaml.j2"
+	// Use a sample node template for patch testing
+	patchTemplate := "nodes/192.168.122.10.yaml.j2"
 
-	for _, nodeType := range nodeTemplates {
-		baseTemplate := fmt.Sprintf("%s.yaml.j2", nodeType)
-		// Use a sample node template for patch testing
-		patchTemplate := "nodes/192.168.122.10.yaml.j2"
-
-		_, err := renderMachineConfigFromEmbedded(baseTemplate, patchTemplate)
-		if err != nil {
-			return &PreflightResult{
-				Name:    "Machine Config Rendering",
-				Status:  "FAIL",
-				Message: fmt.Sprintf("Failed to render %s config: %v", nodeType, err),
-			}
+	_, err := renderMachineConfigFromEmbedded(baseTemplate, patchTemplate)
+	if err != nil {
+		return &PreflightResult{
+			Name:    "Machine Config Rendering",
+			Status:  "FAIL",
+			Message: fmt.Sprintf("Failed to render machine config: %v", err),
 		}
 	}
 
