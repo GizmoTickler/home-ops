@@ -676,13 +676,21 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 }
 
 func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error {
+	var failedZVols []string
+	
 	for _, zvolPath := range zvolPaths {
 		vm.logger.Info("Deleting ZVol: %s", zvolPath)
 		if err := vm.client.DeleteDataset(zvolPath, false); err != nil {
 			vm.logger.Error("Failed to delete ZVol %s: %v", zvolPath, err)
-			return err
+			failedZVols = append(failedZVols, zvolPath)
+		} else {
+			vm.logger.Success("✓ Deleted ZVol: %s", zvolPath)
 		}
-		vm.logger.Success("✓ Deleted ZVol: %s", zvolPath)
 	}
+	
+	if len(failedZVols) > 0 {
+		return fmt.Errorf("failed to delete %d ZVols: %v", len(failedZVols), failedZVols)
+	}
+	
 	return nil
 }

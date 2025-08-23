@@ -21,9 +21,12 @@ type Config struct {
 
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
+	// Load versions dynamically from system-upgrade plans
+	versions := GetVersions(".")
+	
 	return &Config{
-		TalosVersion:      "v1.6.0",
-		KubernetesVersion: "v1.29.0",
+		TalosVersion:      versions.TalosVersion,
+		KubernetesVersion: versions.KubernetesVersion,
 		OnePasswordVault:  "homeops",
 		LogLevel:          "info",
 		CacheDir:          filepath.Join(os.TempDir(), "homeops-cli"),

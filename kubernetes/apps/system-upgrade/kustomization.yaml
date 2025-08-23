@@ -6,5 +6,4 @@ namespace: system-upgrade
 components:
   - ../../components/common
 resources:
-  - ./versions/ks.yaml
   - ./system-upgrade-controller/ks.yaml

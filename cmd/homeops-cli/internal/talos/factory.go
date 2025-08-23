@@ -22,12 +22,10 @@ const (
 	// TalosFactoryBaseURL is the base URL for the Talos factory API
 	TalosFactoryBaseURL = "https://factory.talos.dev"
 	
-	// DefaultTalosVersion is the default Talos version to use if not specified
-	DefaultTalosVersion = "v1.10.6"
-	
 	// CacheDir is the directory where generated ISOs are cached
 	CacheDir = ".cache/talos-isos"
 )
+
 
 // FactoryClient handles interactions with the Talos factory API
 type FactoryClient struct {
@@ -151,7 +149,11 @@ func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion s
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fc.logger.Warn("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	// Validate API response
 	if err := fc.ValidateAPIResponse(resp, "application/json"); err != nil {
@@ -229,7 +231,7 @@ func (fc *FactoryClient) validateISORequest(req ISOGenerationRequest) error {
 		return fmt.Errorf("schematic ID is required")
 	}
 	if req.TalosVersion == "" {
-		return fmt.Errorf("Talos version is required")
+		return fmt.Errorf("talos version is required")
 	}
 	if req.Architecture == "" {
 		return fmt.Errorf("architecture is required")
@@ -281,7 +283,11 @@ func (fc *FactoryClient) validateISOURL(url string) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate ISO URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fc.logger.Warn("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ISO URL returned status %d", resp.StatusCode)
@@ -300,7 +306,7 @@ func (fc *FactoryClient) GenerateISOFromSchematic(config *SchematicConfig, talos
 		return nil, fmt.Errorf("schematic config is nil")
 	}
 	if talosVersion == "" {
-		return nil, fmt.Errorf("Talos version is required")
+		return nil, fmt.Errorf("talos version is required")
 	}
 	if architecture == "" {
 		return nil, fmt.Errorf("architecture is required")

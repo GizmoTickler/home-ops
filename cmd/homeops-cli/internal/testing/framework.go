@@ -105,10 +105,13 @@ func (tf *TestFramework) CreateTempFile(name, content string) (string, error) {
 
 // CreateTestConfig creates a test configuration file
 func (tf *TestFramework) CreateTestConfig(configData map[string]interface{}) (string, error) {
+	// Get dynamic versions from the version config
+	versions := config.GetVersions(".")
+	
 	// Create a basic config manager to write the config
 	cfg := &config.Config{
-		TalosVersion:      "v1.10.6",
-		KubernetesVersion: "v1.33.3",
+		TalosVersion:      versions.TalosVersion,
+		KubernetesVersion: versions.KubernetesVersion,
 		OnePasswordVault:  "homeops",
 		LogLevel:          "info",
 		CacheDir:          tf.tempDir,

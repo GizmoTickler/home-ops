@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -24,13 +23,6 @@ type VolsyncConfig struct {
 	NFSPath   string
 }
 
-// getEnvOrDefault returns environment variable value or default
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
