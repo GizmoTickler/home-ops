@@ -849,6 +849,16 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType st
 		return nil, fmt.Errorf("failed to resolve 1Password references in machine config: %w", err)
 	}
 
+	// Debug: Check if the resolved config still contains 1Password references
+	if strings.Contains(resolvedConfig, "op://") {
+		logger.Warn("Warning: Resolved config still contains 1Password references")
+		// Find remaining references
+		opRefs := extractOnePasswordReferences(resolvedConfig)
+		for _, ref := range opRefs {
+			logger.Warn("Unresolved 1Password reference: %s", ref)
+		}
+	}
+
 	return []byte(resolvedConfig), nil
 }
 
