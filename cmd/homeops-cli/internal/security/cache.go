@@ -44,7 +44,7 @@ type SecretMetadata struct {
 // NewSecretCache creates a new secure secret cache
 func NewSecretCache(password string, defaultTTL time.Duration) (*SecretCache, error) {
 	if password == "" {
-		return nil, errors.NewSecurityError("CACHE_INIT_ERROR", 
+		return nil, errors.NewSecurityError("CACHE_INIT_ERROR",
 			"password cannot be empty for secret cache", nil)
 	}
 
@@ -62,12 +62,12 @@ func NewSecretCache(password string, defaultTTL time.Duration) (*SecretCache, er
 // Store encrypts and stores a secret in the cache
 func (sc *SecretCache) Store(key string, data []byte, ttl ...time.Duration) error {
 	if key == "" {
-		return errors.NewValidationError("CACHE_STORE_ERROR", 
+		return errors.NewValidationError("CACHE_STORE_ERROR",
 			"cache key cannot be empty", nil)
 	}
 
 	if len(data) == 0 {
-		return errors.NewValidationError("CACHE_STORE_ERROR", 
+		return errors.NewValidationError("CACHE_STORE_ERROR",
 			"data cannot be empty", nil)
 	}
 
@@ -80,7 +80,7 @@ func (sc *SecretCache) Store(key string, data []byte, ttl ...time.Duration) erro
 	// Encrypt the data
 	encryptedData, nonce, err := sc.encrypt(data)
 	if err != nil {
-		return errors.NewSecurityError("CACHE_ENCRYPTION_ERROR", 
+		return errors.NewSecurityError("CACHE_ENCRYPTION_ERROR",
 			"failed to encrypt secret data", err)
 	}
 
@@ -103,7 +103,7 @@ func (sc *SecretCache) Store(key string, data []byte, ttl ...time.Duration) erro
 // Retrieve decrypts and returns a secret from the cache
 func (sc *SecretCache) Retrieve(key string) ([]byte, error) {
 	if key == "" {
-		return nil, errors.NewValidationError("CACHE_RETRIEVE_ERROR", 
+		return nil, errors.NewValidationError("CACHE_RETRIEVE_ERROR",
 			"cache key cannot be empty", nil)
 	}
 
@@ -112,14 +112,14 @@ func (sc *SecretCache) Retrieve(key string) ([]byte, error) {
 
 	entry, exists := sc.cache[key]
 	if !exists {
-		return nil, errors.NewNotFoundError("CACHE_KEY_NOT_FOUND", 
+		return nil, errors.NewNotFoundError("CACHE_KEY_NOT_FOUND",
 			fmt.Sprintf("secret with key '%s' not found in cache", key), nil)
 	}
 
 	// Check if expired
 	if time.Now().After(entry.ExpiresAt) {
 		delete(sc.cache, key)
-		return nil, errors.NewValidationError("CACHE_ENTRY_EXPIRED", 
+		return nil, errors.NewValidationError("CACHE_ENTRY_EXPIRED",
 			fmt.Sprintf("secret with key '%s' has expired", key), nil)
 	}
 
@@ -130,7 +130,7 @@ func (sc *SecretCache) Retrieve(key string) ([]byte, error) {
 	// Decrypt the data
 	data, err := sc.decrypt(entry.EncryptedData, entry.Nonce)
 	if err != nil {
-		return nil, errors.NewSecurityError("CACHE_DECRYPTION_ERROR", 
+		return nil, errors.NewSecurityError("CACHE_DECRYPTION_ERROR",
 			"failed to decrypt secret data", err)
 	}
 
@@ -140,7 +140,7 @@ func (sc *SecretCache) Retrieve(key string) ([]byte, error) {
 // Delete removes a secret from the cache
 func (sc *SecretCache) Delete(key string) error {
 	if key == "" {
-		return errors.NewValidationError("CACHE_DELETE_ERROR", 
+		return errors.NewValidationError("CACHE_DELETE_ERROR",
 			"cache key cannot be empty", nil)
 	}
 
@@ -148,7 +148,7 @@ func (sc *SecretCache) Delete(key string) error {
 	defer sc.mu.Unlock()
 
 	if _, exists := sc.cache[key]; !exists {
-		return errors.NewNotFoundError("CACHE_KEY_NOT_FOUND", 
+		return errors.NewNotFoundError("CACHE_KEY_NOT_FOUND",
 			fmt.Sprintf("secret with key '%s' not found in cache", key), nil)
 	}
 
@@ -267,7 +267,7 @@ func (sc *SecretCache) decrypt(ciphertext, nonce []byte) ([]byte, error) {
 // EncryptString encrypts a string and returns base64 encoded result
 func EncryptString(data, password string) (string, error) {
 	if password == "" {
-		return "", errors.NewSecurityError("ENCRYPTION_ERROR", 
+		return "", errors.NewSecurityError("ENCRYPTION_ERROR",
 			"password cannot be empty", nil)
 	}
 
@@ -296,7 +296,7 @@ func EncryptString(data, password string) (string, error) {
 // DecryptString decrypts a base64 encoded string
 func DecryptString(encryptedData, password string) (string, error) {
 	if password == "" {
-		return "", errors.NewSecurityError("DECRYPTION_ERROR", 
+		return "", errors.NewSecurityError("DECRYPTION_ERROR",
 			"password cannot be empty", nil)
 	}
 
@@ -320,7 +320,7 @@ func DecryptString(encryptedData, password string) (string, error) {
 
 	nonceSize := gcm.NonceSize()
 	if len(data) < nonceSize {
-		return "", errors.NewSecurityError("DECRYPTION_ERROR", 
+		return "", errors.NewSecurityError("DECRYPTION_ERROR",
 			"encrypted data is too short", nil)
 	}
 

@@ -107,7 +107,7 @@ func (tf *TestFramework) CreateTempFile(name, content string) (string, error) {
 func (tf *TestFramework) CreateTestConfig(configData map[string]interface{}) (string, error) {
 	// Get dynamic versions from the version config
 	versions := config.GetVersions(".")
-	
+
 	// Create a basic config manager to write the config
 	cfg := &config.Config{
 		TalosVersion:      versions.TalosVersion,

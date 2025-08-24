@@ -45,7 +45,7 @@ func NewErrorReporter(logger Logger, metrics *metrics.PerformanceCollector) *Err
 func (er *ErrorReporter) RegisterHandler(handler ErrorHandler) {
 	er.mu.Lock()
 	defer er.mu.Unlock()
-	
+
 	// Insert handler in priority order (highest first)
 	inserted := false
 	for i, h := range er.handlers {
@@ -65,24 +65,24 @@ func (er *ErrorReporter) ReportError(ctx context.Context, err *HomeOpsError) err
 	if err == nil {
 		return nil
 	}
-	
+
 	// Add context if missing
 	if err.Context == nil {
 		_ = err.WithContext("unknown", "error_reporter")
 	}
-	
+
 	// Log the error
 	er.logError(err)
-	
+
 	// Update metrics
 	er.updateMetrics(err)
-	
+
 	// Try handlers in priority order
 	er.mu.RLock()
 	handlers := make([]ErrorHandler, len(er.handlers))
 	copy(handlers, er.handlers)
 	er.mu.RUnlock()
-	
+
 	for _, handler := range handlers {
 		if handler.CanHandle(err.Type) {
 			if handleErr := handler.Handle(ctx, err); handleErr != nil {
@@ -93,7 +93,7 @@ func (er *ErrorReporter) ReportError(ctx context.Context, err *HomeOpsError) err
 			return nil
 		}
 	}
-	
+
 	// No handler could process the error
 	return err
 }
@@ -105,7 +105,7 @@ func (er *ErrorReporter) logError(err *HomeOpsError) {
 		"error_code", err.Code,
 		"message", err.Message,
 	}
-	
+
 	if err.Context != nil {
 		fields = append(fields,
 			"operation", err.Context.Operation,
@@ -116,15 +116,15 @@ func (er *ErrorReporter) logError(err *HomeOpsError) {
 			fields = append(fields, "request_id", err.Context.RequestID)
 		}
 	}
-	
+
 	if len(err.Details) > 0 {
 		fields = append(fields, "details", err.Details)
 	}
-	
+
 	if err.Cause != nil {
 		fields = append(fields, "cause", err.Cause.Error())
 	}
-	
+
 	// Log at appropriate level based on error type
 	switch err.Type {
 	case ErrTypeSecurity:
@@ -143,13 +143,13 @@ func (er *ErrorReporter) updateMetrics(err *HomeOpsError) {
 	if er.metrics == nil {
 		return
 	}
-	
+
 	// Track error by type
 	metricName := fmt.Sprintf("error_%s", string(err.Type))
 	_ = er.metrics.TrackOperation(metricName, func() error {
 		return err // This will increment error count
 	})
-	
+
 	// Track error by code
 	if err.Code != "" {
 		codeMetricName := fmt.Sprintf("error_code_%s", err.Code)
@@ -164,10 +164,10 @@ func (er *ErrorReporter) GetErrorMetrics() map[string]interface{} {
 	if er.metrics == nil {
 		return nil
 	}
-	
+
 	report := er.metrics.GetReport()
 	errorMetrics := make(map[string]interface{})
-	
+
 	for name, metrics := range report {
 		if len(name) > 6 && name[:6] == "error_" {
 			// Calculate total errors from error rate and total calls
@@ -180,16 +180,16 @@ func (er *ErrorReporter) GetErrorMetrics() map[string]interface{} {
 			}
 		}
 	}
-	
+
 	return errorMetrics
 }
 
 // RetryHandler implements automatic retry logic for transient errors
 type RetryHandler struct {
-	MaxAttempts int
-	BaseDelay   time.Duration
-	MaxDelay    time.Duration
-	Multiplier  float64
+	MaxAttempts    int
+	BaseDelay      time.Duration
+	MaxDelay       time.Duration
+	Multiplier     float64
 	RetryableTypes map[ErrorType]bool
 }
 
@@ -228,15 +228,15 @@ func (rh *RetryHandler) Handle(ctx context.Context, err *HomeOpsError) error {
 // WithRetry wraps an operation with retry logic
 func (rh *RetryHandler) WithRetry(ctx context.Context, operation func() error) error {
 	var lastErr error
-	
+
 	for attempt := 1; attempt <= rh.MaxAttempts; attempt++ {
 		err := operation()
 		if err == nil {
 			return nil
 		}
-		
+
 		lastErr = err
-		
+
 		// Check if error is retryable
 		if homeOpsErr, ok := err.(*HomeOpsError); ok {
 			if !rh.CanHandle(homeOpsErr.Type) {
@@ -245,7 +245,7 @@ func (rh *RetryHandler) WithRetry(ctx context.Context, operation func() error) e
 		} else {
 			return err // Not a HomeOpsError, don't retry
 		}
-		
+
 		// Don't sleep on the last attempt
 		if attempt < rh.MaxAttempts {
 			delay := rh.calculateDelay(attempt)
@@ -257,7 +257,7 @@ func (rh *RetryHandler) WithRetry(ctx context.Context, operation func() error) e
 			}
 		}
 	}
-	
+
 	return lastErr
 }
 

@@ -11,30 +11,30 @@ import (
 
 // VMConfig represents the configuration for VM deployment
 type VMConfig struct {
-	Name          string
-	Memory        int
-	VCPUs         int
-	DiskSize      int // Boot disk size in GB
-	OpenEBSSize   int // OpenEBS disk size in GB
-	RookSize      int // Rook disk size in GB
-	TrueNASHost   string
-	TrueNASAPIKey string
-	TrueNASPort   int
-	NoSSL         bool
-	TalosISO      string
-	NetworkBridge string
-	StoragePool   string
-	MacAddress    string
-	BootZVol      string
-	OpenEBSZVol   string
-	RookZVol      string
+	Name           string
+	Memory         int
+	VCPUs          int
+	DiskSize       int // Boot disk size in GB
+	OpenEBSSize    int // OpenEBS disk size in GB
+	RookSize       int // Rook disk size in GB
+	TrueNASHost    string
+	TrueNASAPIKey  string
+	TrueNASPort    int
+	NoSSL          bool
+	TalosISO       string
+	NetworkBridge  string
+	StoragePool    string
+	MacAddress     string
+	BootZVol       string
+	OpenEBSZVol    string
+	RookZVol       string
 	SkipZVolCreate bool
-	SpicePassword string
-	UseSpice      bool
+	SpicePassword  string
+	UseSpice       bool
 	// Schematic configuration fields
-	SchematicID   string // Optional: Talos factory schematic ID for custom ISOs
-	TalosVersion  string // Optional: Specific Talos version for custom ISOs
-	CustomISO     bool   // Flag indicating if using a custom generated ISO
+	SchematicID  string // Optional: Talos factory schematic ID for custom ISOs
+	TalosVersion string // Optional: Specific Talos version for custom ISOs
+	CustomISO    bool   // Flag indicating if using a custom generated ISO
 }
 
 // VMManager handles VM operations
@@ -422,7 +422,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 		"name":    zvolPath,
 		"type":    "VOLUME",
 		"volsize": volsize,
-		"sparse":  true,   // Enable thin provisioning - this is the critical missing piece!
+		"sparse":  true, // Enable thin provisioning - this is the critical missing piece!
 	}
 
 	_, err = vm.client.Call("pool.dataset.create", []interface{}{zvolConfig}, 60)
@@ -437,29 +437,29 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 	// Build VM configuration based on real TrueNAS API structure
 	vmConfig := map[string]interface{}{
-		"name":                           config.Name,
-		"description":                    fmt.Sprintf("Talos Linux VM - %s", config.Name),
-		"vcpus":                          config.VCPUs,
-		"cores":                          1,
-		"threads":                        1,
-		"memory":                         config.Memory,
-		"bootloader":                     "UEFI",
+		"name":                          config.Name,
+		"description":                   fmt.Sprintf("Talos Linux VM - %s", config.Name),
+		"vcpus":                         config.VCPUs,
+		"cores":                         1,
+		"threads":                       1,
+		"memory":                        config.Memory,
+		"bootloader":                    "UEFI",
 		"bootloader_ovmf":               "OVMF_CODE.fd",
-		"autostart":                      false,
-		"time":                           "LOCAL",
-		"shutdown_timeout":               90,
-		"cpu_mode":                       "HOST-PASSTHROUGH",
-		"cpu_model":                      nil,
-		"cpuset":                         "",
-		"nodeset":                        "",
-		"enable_cpu_topology_extension":  false,
-		"pin_vcpus":                      false,
-		"suspend_on_snapshot":            false,
-		"trusted_platform_module":        false,
-		"min_memory":                     nil,
-		"hyperv_enlightenments":          false,
-		"command_line_args":              "",
-		"arch_type":                      nil,
+		"autostart":                     false,
+		"time":                          "LOCAL",
+		"shutdown_timeout":              90,
+		"cpu_mode":                      "HOST-PASSTHROUGH",
+		"cpu_model":                     nil,
+		"cpuset":                        "",
+		"nodeset":                       "",
+		"enable_cpu_topology_extension": false,
+		"pin_vcpus":                     false,
+		"suspend_on_snapshot":           false,
+		"trusted_platform_module":       false,
+		"min_memory":                    nil,
+		"hyperv_enlightenments":         false,
+		"command_line_args":             "",
+		"arch_type":                     nil,
 	}
 
 	return vmConfig
@@ -497,7 +497,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	if isoPath == "" {
 		isoPath = "/mnt/flashstor/ISO/metal-amd64.iso" // Fallback to default
 	}
-	
+
 	cdromDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
@@ -516,11 +516,11 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	nicDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
-			"dtype":                    "NIC",
-			"type":                     "VIRTIO",
-			"mac":                      macAddress,
-			"nic_attach":               config.NetworkBridge,
-			"trust_guest_rx_filters":   false,
+			"dtype":                  "NIC",
+			"type":                   "VIRTIO",
+			"mac":                    macAddress,
+			"nic_attach":             config.NetworkBridge,
+			"trust_guest_rx_filters": false,
 		},
 		"order": 1002,
 	}
@@ -619,12 +619,12 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 			"bind":       "192.168.120.10", // SPICE bind interface
 			"dtype":      "DISPLAY",
 			"password":   config.SpicePassword,
-			"port":       nil,      // Let TrueNAS auto-assign port
+			"port":       nil, // Let TrueNAS auto-assign port
 			"resolution": "1920x1080",
-			"type":       "SPICE",  // Always SPICE
+			"type":       "SPICE", // Always SPICE
 			"wait":       false,
 			"web":        true,
-			"web_port":   nil,      // Let TrueNAS auto-assign web port
+			"web_port":   nil, // Let TrueNAS auto-assign web port
 		},
 		"order": 1003,
 	}
@@ -677,7 +677,7 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 
 func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error {
 	var failedZVols []string
-	
+
 	for _, zvolPath := range zvolPaths {
 		vm.logger.Info("Deleting ZVol: %s", zvolPath)
 		if err := vm.client.DeleteDataset(zvolPath, false); err != nil {
@@ -687,10 +687,10 @@ func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error
 			vm.logger.Success("✓ Deleted ZVol: %s", zvolPath)
 		}
 	}
-	
+
 	if len(failedZVols) > 0 {
 		return fmt.Errorf("failed to delete %d ZVols: %v", len(failedZVols), failedZVols)
 	}
-	
+
 	return nil
 }

@@ -18,19 +18,19 @@ type RecoveryStrategy interface {
 
 // RecoveryResult holds the result of a recovery operation
 type RecoveryResult struct {
-	Success      bool          `json:"success"`
-	Attempts     int           `json:"attempts"`
-	TotalTime    time.Duration `json:"total_time"`
-	LastError    error         `json:"last_error,omitempty"`
-	Recovered    bool          `json:"recovered"`
-	Strategy     string        `json:"strategy"`
+	Success   bool          `json:"success"`
+	Attempts  int           `json:"attempts"`
+	TotalTime time.Duration `json:"total_time"`
+	LastError error         `json:"last_error,omitempty"`
+	Recovered bool          `json:"recovered"`
+	Strategy  string        `json:"strategy"`
 }
 
 // RecoveryManager handles error recovery and retry logic
 type RecoveryManager struct {
-	strategies map[ErrorType]RecoveryStrategy
+	strategies      map[ErrorType]RecoveryStrategy
 	defaultStrategy RecoveryStrategy
-	logger     RecoveryLogger // Interface for logging
+	logger          RecoveryLogger // Interface for logging
 }
 
 // RecoveryLogger interface for recovery logging
@@ -47,16 +47,16 @@ func NewRecoveryManager(logger RecoveryLogger) *RecoveryManager {
 		strategies: make(map[ErrorType]RecoveryStrategy),
 		logger:     logger,
 	}
-	
+
 	// Set up default strategies
 	rm.defaultStrategy = &ExponentialBackoffStrategy{
-		MaxAttempts:    3,
-		BaseDelay:      time.Second,
-		MaxDelay:       30 * time.Second,
-		Multiplier:     2.0,
-		JitterEnabled:  true,
+		MaxAttempts:   3,
+		BaseDelay:     time.Second,
+		MaxDelay:      30 * time.Second,
+		Multiplier:    2.0,
+		JitterEnabled: true,
 	}
-	
+
 	// Configure specific strategies for different error types
 	rm.strategies[ErrTypeNetwork] = &ExponentialBackoffStrategy{
 		MaxAttempts:   5,
@@ -65,7 +65,7 @@ func NewRecoveryManager(logger RecoveryLogger) *RecoveryManager {
 		Multiplier:    2.0,
 		JitterEnabled: true,
 	}
-	
+
 	rm.strategies[ErrTypeKubernetes] = &ExponentialBackoffStrategy{
 		MaxAttempts:   3,
 		BaseDelay:     2 * time.Second,
@@ -73,7 +73,7 @@ func NewRecoveryManager(logger RecoveryLogger) *RecoveryManager {
 		Multiplier:    1.5,
 		JitterEnabled: true,
 	}
-	
+
 	rm.strategies[ErrTypeTalos] = &ExponentialBackoffStrategy{
 		MaxAttempts:   3,
 		BaseDelay:     3 * time.Second,
@@ -81,11 +81,11 @@ func NewRecoveryManager(logger RecoveryLogger) *RecoveryManager {
 		Multiplier:    2.0,
 		JitterEnabled: true,
 	}
-	
+
 	// Security and validation errors should not be retried
 	rm.strategies[ErrTypeSecurity] = &NoRetryStrategy{}
 	rm.strategies[ErrTypeValidation] = &NoRetryStrategy{}
-	
+
 	return rm
 }
 
@@ -104,13 +104,13 @@ func (rm *RecoveryManager) ExecuteWithRecovery(
 	result := &RecoveryResult{
 		Strategy: "default",
 	}
-	
+
 	var lastErr error
 	attempt := 0
-	
+
 	for {
 		attempt++
-		
+
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
@@ -120,53 +120,53 @@ func (rm *RecoveryManager) ExecuteWithRecovery(
 			return result
 		default:
 		}
-		
+
 		rm.logger.Debug("Executing operation", "operation", operation, "attempt", attempt)
-		
+
 		err := fn()
 		if err == nil {
 			result.Success = true
 			result.Attempts = attempt
 			result.TotalTime = time.Since(start)
 			result.Recovered = attempt > 1
-			
+
 			if result.Recovered {
-				rm.logger.Info("Operation recovered after retries", 
-					"operation", operation, 
+				rm.logger.Info("Operation recovered after retries",
+					"operation", operation,
 					"attempts", attempt,
 					"duration", result.TotalTime)
 			}
-			
+
 			return result
 		}
-		
+
 		lastErr = err
 		strategy := rm.getStrategy(err)
 		result.Strategy = strategy.GetDescription()
-		
+
 		// Check if we should retry
 		if !strategy.ShouldRetry(err, attempt) || attempt >= strategy.GetMaxAttempts() {
 			result.LastError = lastErr
 			result.Attempts = attempt
 			result.TotalTime = time.Since(start)
-			
-			rm.logger.Error("Operation failed after all retry attempts", 
+
+			rm.logger.Error("Operation failed after all retry attempts",
 				"operation", operation,
 				"attempts", attempt,
 				"error", err.Error())
-			
+
 			return result
 		}
-		
+
 		// Calculate backoff duration
 		backoffDuration := strategy.GetBackoffDuration(attempt)
-		
-		rm.logger.Warn("Operation failed, retrying", 
+
+		rm.logger.Warn("Operation failed, retrying",
 			"operation", operation,
 			"attempt", attempt,
 			"error", err.Error(),
 			"backoff", backoffDuration)
-		
+
 		// Wait for backoff duration
 		select {
 		case <-ctx.Done():
@@ -215,21 +215,21 @@ func (s *ExponentialBackoffStrategy) ShouldRetry(err error, attempt int) bool {
 
 func (s *ExponentialBackoffStrategy) GetBackoffDuration(attempt int) time.Duration {
 	delay := float64(s.BaseDelay) * math.Pow(s.Multiplier, float64(attempt-1))
-	
+
 	if s.JitterEnabled {
 		// Add jitter (±25%)
 		jitter := delay * 0.25 * (rand.Float64()*2 - 1)
 		delay += jitter
 	}
-	
+
 	if delay > float64(s.MaxDelay) {
 		delay = float64(s.MaxDelay)
 	}
-	
+
 	if delay < 0 {
 		delay = float64(s.BaseDelay)
 	}
-	
+
 	return time.Duration(delay)
 }
 
@@ -238,7 +238,7 @@ func (s *ExponentialBackoffStrategy) GetMaxAttempts() int {
 }
 
 func (s *ExponentialBackoffStrategy) GetDescription() string {
-	return fmt.Sprintf("exponential_backoff(max_attempts=%d, base_delay=%v, max_delay=%v)", 
+	return fmt.Sprintf("exponential_backoff(max_attempts=%d, base_delay=%v, max_delay=%v)",
 		s.MaxAttempts, s.BaseDelay, s.MaxDelay)
 }
 
@@ -291,15 +291,15 @@ func (s *NoRetryStrategy) GetDescription() string {
 
 // CircuitBreakerStrategy implements circuit breaker pattern
 type CircuitBreakerStrategy struct {
-	MaxAttempts     int
+	MaxAttempts      int
 	FailureThreshold int
 	RecoveryTimeout  time.Duration
-	BaseDelay       time.Duration
-	
+	BaseDelay        time.Duration
+
 	// Internal state
 	failureCount    int
 	lastFailureTime time.Time
-	state          CircuitState
+	state           CircuitState
 }
 
 type CircuitState int
@@ -312,7 +312,7 @@ const (
 
 func (s *CircuitBreakerStrategy) ShouldRetry(err error, attempt int) bool {
 	now := time.Now()
-	
+
 	// Update circuit state
 	switch s.state {
 	case CircuitClosed:
@@ -325,21 +325,21 @@ func (s *CircuitBreakerStrategy) ShouldRetry(err error, attempt int) bool {
 			}
 		}
 		return attempt < s.MaxAttempts
-		
+
 	case CircuitOpen:
 		if now.Sub(s.lastFailureTime) > s.RecoveryTimeout {
 			s.state = CircuitHalfOpen
 			return attempt == 1 // Only allow one attempt in half-open
 		}
 		return false
-		
+
 	case CircuitHalfOpen:
 		// If we're here, the previous attempt failed
 		s.state = CircuitOpen
 		s.lastFailureTime = now
 		return false
 	}
-	
+
 	return false
 }
 
@@ -392,29 +392,29 @@ func (gdm *GracefulDegradationManager) ExecuteWithFallback(
 	if err == nil {
 		return nil
 	}
-	
+
 	// Check if we have a fallback for this operation
 	if fallback, exists := gdm.fallbacks[operation]; exists {
-		gdm.logger.Warn("Primary operation failed, attempting fallback", 
-			"operation", operation, 
+		gdm.logger.Warn("Primary operation failed, attempting fallback",
+			"operation", operation,
 			"error", err.Error())
-		
+
 		fallbackErr := fallback()
 		if fallbackErr == nil {
 			gdm.logger.Info("Fallback operation succeeded", "operation", operation)
 			return nil
 		}
-		
-		gdm.logger.Error("Fallback operation also failed", 
+
+		gdm.logger.Error("Fallback operation also failed",
 			"operation", operation,
 			"primary_error", err.Error(),
 			"fallback_error", fallbackErr.Error())
-		
+
 		// Return the original error, but include fallback error in details
 		if homeOpsErr, ok := err.(*HomeOpsError); ok {
 			return homeOpsErr.WithDetail("fallback_error", fallbackErr.Error())
 		}
 	}
-	
+
 	return err
 }

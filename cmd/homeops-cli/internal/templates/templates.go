@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"strings"
 
-	"homeops-cli/internal/template"
-	"homeops-cli/internal/metrics"
 	"github.com/flosch/pongo2/v6"
+	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/template"
 )
 
 //go:embed volsync/*.j2
 var volsyncTemplates embed.FS
 
-//go:embed talos/*.j2 talos/nodes/*.j2 talos/*.yaml
+//go:embed talos/nodes/*.yaml talos/*.yaml
 var talosTemplates embed.FS
 
 //go:embed bootstrap/*
@@ -65,14 +65,14 @@ func RenderTalosTemplate(templateName string, env map[string]string) (string, er
 
 	// Prepare context with environment variables and template variables
 	ctx := pongo2.Context{}
-	
+
 	// Add ENV namespace for {{ ENV.VARIABLE }} syntax
 	envContext := pongo2.Context{}
 	for key, value := range env {
 		envContext[key] = value
 	}
 	ctx["ENV"] = envContext
-	
+
 	// Add direct variables for conditional syntax
 	for key, value := range env {
 		ctx[key] = value
@@ -106,12 +106,12 @@ func RenderBootstrapTemplate(templateName string, env map[string]string) (string
 
 	// Enhanced Jinja2-style template processing
 	result := string(content)
-	
+
 	// Handle for loops (simple case for namespaces)
 	if strings.Contains(result, "{% for namespace in") {
 		result = expandNamespaceLoop(result)
 	}
-	
+
 	// Handle environment variable replacement
 	for key, value := range env {
 		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
@@ -155,33 +155,33 @@ func expandNamespaceLoop(content string) string {
 	// Find the for loop pattern
 	forPattern := `{% for namespace in ["external-secrets", "flux-system", "network"] %}`
 	endPattern := `{% endfor %}`
-	
+
 	forIndex := strings.Index(content, forPattern)
 	if forIndex == -1 {
 		return content // No for loop found
 	}
-	
+
 	endIndex := strings.Index(content[forIndex:], endPattern)
 	if endIndex == -1 {
 		return content // No matching endfor found
 	}
 	endIndex += forIndex + len(endPattern)
-	
+
 	// Extract the loop content
 	loopStart := forIndex + len(forPattern)
 	loopEnd := forIndex + endIndex - len(endPattern)
 	loopContent := content[loopStart:loopEnd]
-	
+
 	// Define the namespaces
 	namespaces := []string{"external-secrets", "flux-system", "network"}
-	
+
 	// Expand the loop
 	var expanded strings.Builder
 	for _, namespace := range namespaces {
 		expandedContent := strings.ReplaceAll(loopContent, "{{ namespace }}", namespace)
 		expanded.WriteString(expandedContent)
 	}
-	
+
 	// Replace the entire loop with the expanded content
 	result := content[:forIndex] + expanded.String() + content[endIndex:]
 	return result
@@ -197,7 +197,7 @@ func RenderGoTemplate(templateName, rootDir string, data map[string]interface{},
 
 	// Create Go template renderer
 	renderer := template.NewGoTemplateRenderer(rootDir, collector)
-	
+
 	// Prepare template data
 	templateData := template.TemplateData{
 		RootDir: rootDir,
@@ -218,7 +218,7 @@ func RenderHelmfileValues(release, rootDir string, collector *metrics.Performanc
 
 	// Create Go template renderer
 	renderer := template.NewGoTemplateRenderer(rootDir, collector)
-	
+
 	// Render values for the specific release
 	return renderer.RenderHelmfileValues(valuesTemplate, release)
 }
@@ -239,7 +239,7 @@ func ValidateTemplateSubstitution(templateName, originalTemplate, renderedConten
 	if strings.Contains(renderedContent, "{{ ENV.") {
 		return fmt.Errorf("template '%s' contains unresolved environment variables", templateName)
 	}
-	
+
 	// For resources.yaml.j2, verify namespace expansion worked
 	if templateName == "resources.yaml.j2" {
 		expectedNamespaces := []string{"external-secrets", "flux-system", "network"}
@@ -249,6 +249,6 @@ func ValidateTemplateSubstitution(templateName, originalTemplate, renderedConten
 			}
 		}
 	}
-	
+
 	return nil
 }

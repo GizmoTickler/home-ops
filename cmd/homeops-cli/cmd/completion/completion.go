@@ -146,7 +146,7 @@ func ValidNodeNames(cmd *cobra.Command, args []string, toComplete string) ([]str
 	if nodeNames, err := getKubernetesNodeNames(); err == nil && len(nodeNames) > 0 {
 		return nodeNames, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Fallback to static node names
 	nodeNames := []string{
 		"k8s-0",
@@ -162,11 +162,11 @@ func ValidNodeIPs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 	if nodeIPs, err := getKubernetesNodes(); err == nil && len(nodeIPs) > 0 {
 		return nodeIPs, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Fallback to static node IPs
 	nodeIPs := []string{
 		"192.168.122.10",
-		"192.168.122.11", 
+		"192.168.122.11",
 		"192.168.122.12",
 	}
 	return nodeIPs, cobra.ShellCompDirectiveNoFileComp
@@ -178,7 +178,7 @@ func ValidNamespaces(cmd *cobra.Command, args []string, toComplete string) ([]st
 	if namespaces, err := getKubernetesNamespaces(); err == nil && len(namespaces) > 0 {
 		return namespaces, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Fallback to static namespaces
 	namespaces := []string{
 		"default",
@@ -203,7 +203,7 @@ func ValidApplications(cmd *cobra.Command, args []string, toComplete string) ([]
 	if apps, err := getKubernetesApplications(""); err == nil && len(apps) > 0 {
 		return apps, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Fallback to static applications
 	applications := []string{
 		"cert-manager",
@@ -233,7 +233,7 @@ func ValidVMNames(cmd *cobra.Command, args []string, toComplete string) ([]strin
 	if vmNames, err := getTrueNASVMNames(); err == nil && len(vmNames) > 0 {
 		return vmNames, cobra.ShellCompDirectiveNoFileComp
 	}
-	
+
 	// Fallback to static VM names (common Talos node names)
 	vmNames := []string{
 		"k8s_0",
