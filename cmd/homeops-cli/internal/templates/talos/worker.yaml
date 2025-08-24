@@ -5,7 +5,7 @@ machine:
     crt: op://Infrastructure/talos/MACHINE_CA_CRT
   certSANs:
     - 127.0.0.1
-    - 192.168.120.100
+    - 192.168.255.100
   features:
     apidCheckExtKeyUsage: true
     diskQuotaSupport: true
@@ -50,7 +50,7 @@ machine:
     image: ghcr.io/siderolabs/kubelet:v1.33.4
     nodeIP:
       validSubnets:
-        - 192.168.120.0/22
+        - 192.168.252.0/22
   nodeLabels:
     topology.kubernetes.io/region: main
   sysctls:
@@ -78,7 +78,7 @@ cluster:
     crt: op://Infrastructure/talos/CLUSTER_CA_CRT
   clusterName: main
   controlPlane:
-    endpoint: https://192.168.120.100:6443
+    endpoint: https://192.168.255.100:6443
   id: op://Infrastructure/talos/CLUSTER_ID
   network:
     cni:
