@@ -1053,7 +1053,8 @@ func deleteVM(name string) error {
 	}()
 
 	// Delete VM and ZVols
-	storagePool := getEnvOrDefault("STORAGE_POOL", "tank")
+	// Use flashstor as default since that's where VMs are typically deployed
+	storagePool := getEnvOrDefault("STORAGE_POOL", "flashstor")
 	return vmManager.DeleteVM(name, true, storagePool)
 }
 

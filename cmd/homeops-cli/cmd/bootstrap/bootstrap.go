@@ -20,7 +20,6 @@ import (
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/templates"
-	"homeops-cli/internal/yaml"
 )
 
 type BootstrapConfig struct {
@@ -316,7 +315,17 @@ func extractOnePasswordReferences(content string) []string {
 		}
 	}
 
-	return refs
+	// Deduplicate references
+	seen := make(map[string]bool)
+	var uniqueRefs []string
+	for _, ref := range refs {
+		if !seen[ref] {
+			seen[ref] = true
+			uniqueRefs = append(uniqueRefs, ref)
+		}
+	}
+	
+	return uniqueRefs
 }
 
 // validate1PasswordReference validates the format of a 1Password reference
@@ -342,6 +351,11 @@ func validate1PasswordReference(ref string) error {
 	// Validate item name
 	if parts[1] == "" {
 		return fmt.Errorf("item name cannot be empty")
+	}
+
+	// If field is specified, validate it's not empty
+	if len(parts) >= 3 && parts[2] == "" {
+		return fmt.Errorf("field name cannot be empty")
 	}
 
 	return nil
@@ -897,21 +911,63 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType st
 		return nil, fmt.Errorf("failed to get patch config: %w", err)
 	}
 
-	// Use Go YAML processor to merge
-	metrics := metrics.NewPerformanceCollector()
-	processor := yaml.NewProcessor(nil, metrics)
-
-	mergedConfig, err := processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
-	if err != nil {
-		return nil, err
+	// Extract only the machine config part from patch (before any ---)
+	// Handle different YAML document separator formats
+	var patchParts []string
+	if strings.Contains(patchConfig, "\n---\n") {
+		patchParts = strings.Split(patchConfig, "\n---\n")
+	} else if strings.Contains(patchConfig, "\n---") {
+		patchParts = strings.Split(patchConfig, "\n---")
+	} else if strings.Contains(patchConfig, "---\n") {
+		patchParts = strings.Split(patchConfig, "---\n")
+	} else {
+		patchParts = []string{patchConfig}
+	}
+	
+	machineConfigPatch := strings.TrimSpace(patchParts[0])
+	
+	// Ensure the machine config patch starts with proper YAML
+	if !strings.HasPrefix(machineConfigPatch, "machine:") && !strings.HasPrefix(machineConfigPatch, "version:") {
+		return nil, fmt.Errorf("machine config patch does not start with valid Talos config")
 	}
 
-	// Resolve 1Password references in the merged configuration
+	// Ensure the patch has proper Talos config structure
+	if !strings.Contains(machineConfigPatch, "version:") {
+		machineConfigPatch = "version: v1alpha1\n" + machineConfigPatch
+	}
+
+	// Resolve 1Password references in both configs BEFORE merging
 	// Create a minimal logger for 1Password resolution
 	logger := common.NewColorLogger()
-	resolvedConfig, err := resolve1PasswordReferences(string(mergedConfig), logger)
+	
+	resolvedBaseConfig, err := resolve1PasswordReferences(baseConfig, logger)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve 1Password references in machine config: %w", err)
+		return nil, fmt.Errorf("failed to resolve 1Password references in base config: %w", err)
+	}
+	
+	resolvedPatchConfig, err := resolve1PasswordReferences(machineConfigPatch, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve 1Password references in patch config: %w", err)
+	}
+
+	// Use talosctl for merging resolved configs (following proven patterns)
+	mergedConfig, err := mergeConfigsWithTalosctl([]byte(resolvedBaseConfig), []byte(resolvedPatchConfig))
+	if err != nil {
+		return nil, fmt.Errorf("failed to merge configs with talosctl: %w", err)
+	}
+
+	// If there are additional YAML documents in the patch (UserVolumeConfig, etc.), append them
+	var resolvedConfig string
+	if len(patchParts) > 1 {
+		// Resolve 1Password references in additional parts too
+		additionalParts := strings.Join(patchParts[1:], "\n---\n")
+		resolvedAdditionalParts, err := resolve1PasswordReferences(additionalParts, logger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve 1Password references in additional config parts: %w", err)
+		}
+		resolvedConfig = string(mergedConfig) + "\n---\n" + resolvedAdditionalParts
+	} else {
+		resolvedConfig = string(mergedConfig)
 	}
 
 	// Debug: Check if the resolved config still contains 1Password references
@@ -925,6 +981,50 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType st
 	}
 
 	return []byte(resolvedConfig), nil
+}
+
+// mergeConfigsWithTalosctl merges base and patch configs using talosctl (onedr0p approach)
+func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
+	// Create temporary files for talosctl processing
+	baseFile, err := os.CreateTemp("", "talos-base-*.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create base config temp file: %w", err)
+	}
+	defer os.Remove(baseFile.Name())
+	defer baseFile.Close()
+
+	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create patch config temp file: %w", err)
+	}
+	defer os.Remove(patchFile.Name())
+	defer patchFile.Close()
+
+	// Write configs to temp files
+	if _, err := baseFile.Write(baseConfig); err != nil {
+		return nil, fmt.Errorf("failed to write base config: %w", err)
+	}
+	if _, err := patchFile.Write(patchConfig); err != nil {
+		return nil, fmt.Errorf("failed to write patch config: %w", err)
+	}
+
+	// Close files so talosctl can read them
+	baseFile.Close()
+	patchFile.Close()
+
+	// Use talosctl to merge configurations
+	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
+	
+	mergedConfig, err := cmd.Output()
+	if err != nil {
+		// Get stderr for better error reporting
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("talosctl config merge failed: %w\nStderr: %s", err, string(exitError.Stderr))
+		}
+		return nil, fmt.Errorf("talosctl config merge failed: %w", err)
+	}
+
+	return mergedConfig, nil
 }
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1109,67 +1209,109 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 		return nil
 	}
 
-	logger.Info("Waiting for Kubernetes nodes to become ready...")
-
-	// First check if nodes are already ready
-	cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "-o", "wide")
-	output, err := cmd.Output()
-	if err == nil {
-		logger.Debug("Current node status:")
-		logger.Debug("%s", string(output))
-
-		// Check if all nodes are ready
-		readyCmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "-o", "jsonpath={.items[*].status.conditions[?(@.type=='Ready')].status}")
-		readyOutput, readyErr := readyCmd.Output()
-		if readyErr == nil && !strings.Contains(string(readyOutput), "False") && strings.Contains(string(readyOutput), "True") {
-			logger.Success("All nodes are already ready")
-			return nil
-		}
+	// First, wait for nodes to appear
+	logger.Info("Waiting for nodes to become available...")
+	if err := waitForNodesAvailable(config, logger); err != nil {
+		return err
 	}
 
-	// Wait for nodes to become available with enhanced retry logic
-	logger.Info("Waiting for nodes to become available...")
-	for attempts := 0; attempts < 15; attempts++ {
-		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig)
-		if err := cmd.Run(); err == nil {
-			logger.Success("Nodes are now available")
-			break
-		}
+	// Wait for nodes to be in Ready=False state (proper bootstrap sequence)
+	logger.Info("Waiting for nodes to be in 'Ready=False' state...")
+	if err := waitForNodesReadyFalse(config, logger); err != nil {
+		return err
+	}
 
-		if attempts == 14 {
-			return fmt.Errorf("nodes did not become available after %d attempts", attempts+1)
-		}
+	return nil
+}
 
-		logger.Info("Waiting for nodes to become available... (attempt %d/15)", attempts+1)
+func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) error {
+	maxAttempts := 30 // 10 minutes
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, 
+			"--output=jsonpath={.items[*].metadata.name}", "--no-headers")
+		
+		output, err := cmd.Output()
+		if err != nil {
+			if attempt%3 == 0 { // Log every minute
+				logger.Debug("Attempt %d/%d: Nodes not yet available", attempt, maxAttempts)
+			}
+			if attempt == maxAttempts {
+				return fmt.Errorf("nodes not available after %d attempts: %w", maxAttempts, err)
+			}
+			time.Sleep(20 * time.Second)
+			continue
+		}
+		
+		nodeNames := strings.Fields(strings.TrimSpace(string(output)))
+		if len(nodeNames) > 0 {
+			logger.Success("Found %d nodes: %v", len(nodeNames), nodeNames)
+			return nil
+		}
+		
+		if attempt%3 == 0 { // Log every minute
+			logger.Debug("Attempt %d/%d: No nodes found yet", attempt, maxAttempts)
+		}
 		time.Sleep(20 * time.Second)
 	}
+	
+	return fmt.Errorf("no nodes found after %d attempts", maxAttempts)
+}
 
-	// Wait for nodes to be ready with progress tracking
-	logger.Info("Waiting for all nodes to be ready...")
-	for attempts := 0; attempts < 20; attempts++ {
-		cmd := exec.Command("kubectl", "wait", "--for=condition=Ready", "nodes", "--all", "--timeout=30s", "--kubeconfig", config.KubeConfig)
-		if err := cmd.Run(); err == nil {
-			logger.Success("All nodes are ready")
+func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger) error {
+	maxAttempts := 60 // 20 minutes
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
+			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}")
+		
+		output, err := cmd.Output()
+		if err != nil {
+			if attempt%3 == 0 { // Log every minute
+				logger.Debug("Attempt %d/%d: Failed to check node ready status", attempt, maxAttempts)
+			}
+			if attempt == maxAttempts {
+				return fmt.Errorf("failed to check node ready status after %d attempts: %w", maxAttempts, err)
+			}
+			time.Sleep(20 * time.Second)
+			continue
+		}
+		
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		allReadyFalse := true
+		readyFalseCount := 0
+		totalNodes := 0
+		
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, ":")
+			if len(parts) == 2 {
+				totalNodes++
+				nodeName := parts[0]
+				readyStatus := parts[1]
+				if readyStatus == "False" {
+					readyFalseCount++
+					logger.Debug("Node %s is Ready=False", nodeName)
+				} else {
+					logger.Debug("Node %s is Ready=%s", nodeName, readyStatus)
+					allReadyFalse = false
+				}
+			}
+		}
+		
+		if allReadyFalse && readyFalseCount > 0 {
+			logger.Success("All %d nodes are in Ready=False state", readyFalseCount)
 			return nil
 		}
-
-		// Show current node status for debugging
-		statusCmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "-o", "custom-columns=NAME:.metadata.name,STATUS:.status.conditions[?(@.type=='Ready')].status,REASON:.status.conditions[?(@.type=='Ready')].reason")
-		statusOutput, statusErr := statusCmd.Output()
-		if statusErr == nil {
-			logger.Debug("Current node readiness status:")
-			logger.Debug("%s", string(statusOutput))
+		
+		if attempt%3 == 0 { // Log every minute
+			logger.Info("Attempt %d/%d: %d/%d nodes Ready=False, waiting for all nodes...", 
+				attempt, maxAttempts, readyFalseCount, totalNodes)
 		}
-
-		if attempts == 19 {
-			return fmt.Errorf("nodes did not become ready after %d attempts (10 minutes)", attempts+1)
-		}
-
-		logger.Info("Waiting for nodes to be ready... (attempt %d/20)", attempts+1)
-		time.Sleep(30 * time.Second)
+		time.Sleep(20 * time.Second)
 	}
-
-	return fmt.Errorf("unexpected error in waitForNodes")
+	
+	return fmt.Errorf("nodes did not reach Ready=False state after %d attempts", maxAttempts)
 }
 
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {

@@ -40,7 +40,7 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.120.107"
+      GATEWAY_IP: "192.168.252.107"
     substituteFrom:
       - name: cluster-secrets
         kind: Secret
@@ -94,7 +94,7 @@ substitute:
   PRIMARY_HOSTNAME: "jellyseerr.${SECRET_DOMAIN}"
   ADDITIONAL_SANS: |
     - "requests.${SECRET_DOMAIN}"
-  GATEWAY_IP: "192.168.120.105"
+  GATEWAY_IP: "192.168.252.105"
   # External DNS settings as needed
 ```
 

@@ -17,7 +17,7 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.120.113"
+      GATEWAY_IP: "192.168.252.113"
   prune: true
   retryInterval: 2m
   sourceRef:

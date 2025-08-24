@@ -166,7 +166,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
 - **CNI**: Cilium with eBPF datapath for high-performance networking
 - **Load Balancing**: Maglev algorithm with DSR (Direct Server Return) mode
 - **IP Management**: Kubernetes IPAM with native routing (10.42.0.0/16)
-- **Gateway IPs**: Dedicated IP range (192.168.120.101-116) for application access
+- **Gateway IPs**: Dedicated IP range (192.168.252.101-116) for application access
 
 ---
 

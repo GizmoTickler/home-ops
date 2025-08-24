@@ -3,12 +3,15 @@ machine:
   network:
     hostname: k8s-0
     interfaces:
-      - deviceSelector:
-          hardwareAddr: 00:a0:98:28:c8:83
+      - interface: ens3
         mtu: 9000
-        dhcp: true
+        addresses:
+          - 192.168.122.10/22
+        routes:
+          - network: 0.0.0.0/0
+            gateway: 192.168.123.254
         vip:
-          ip: 192.168.120.100
+          ip: 192.168.255.100
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
@@ -17,8 +20,3 @@ provisioning:
   diskSelector:
     match: "!system_disk"
   minSize: 1024GB
----
-apiVersion: v1alpha1
-kind: WatchdogTimerConfig
-device: /dev/watchdog0
-timeout: 5m
