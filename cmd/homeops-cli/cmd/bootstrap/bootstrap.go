@@ -24,16 +24,16 @@ import (
 )
 
 type BootstrapConfig struct {
-	RootDir        string
-	KubeConfig     string
-	TalosConfig    string
-	K8sVersion     string
-	TalosVersion   string
-	DryRun         bool
-	SkipCRDs       bool
-	SkipResources  bool
-	SkipHelmfile   bool
-	SkipPreflight  bool
+	RootDir       string
+	KubeConfig    string
+	TalosConfig   string
+	K8sVersion    string
+	TalosVersion  string
+	DryRun        bool
+	SkipCRDs      bool
+	SkipResources bool
+	SkipHelmfile  bool
+	SkipPreflight bool
 }
 
 type PreflightResult struct {
@@ -78,7 +78,7 @@ func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
 
-	logger.Info("Starting cluster bootstrap process")
+	logger.Info("🚀 Starting cluster bootstrap process")
 
 	// Convert RootDir to absolute path if it's relative
 	if !filepath.IsAbs(config.RootDir) {
@@ -103,71 +103,154 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Run comprehensive preflight checks
 	if !config.SkipPreflight {
-		logger.Info("Running preflight checks...")
+		logger.Info("🔍 Running preflight checks...")
 		if err := runPreflightChecks(config, logger); err != nil {
 			return fmt.Errorf("preflight checks failed: %w", err)
 		}
-		logger.Success("All preflight checks passed")
+		logger.Success("✅ All preflight checks passed")
 	} else {
-		logger.Warn("Skipping preflight checks - this may cause failures during bootstrap")
+		logger.Warn("⚠️  Skipping preflight checks - this may cause failures during bootstrap")
 		// Still run basic prerequisite validation
 		if err := validatePrerequisites(config); err != nil {
 			return fmt.Errorf("prerequisite validation failed: %w", err)
 		}
 	}
 
-	// Apply Talos configuration
-	logger.Debug("Applying Talos configuration to nodes")
+	// Step 1: Apply Talos configuration
+	logger.Info("📋 Step 1: Applying Talos configuration to nodes")
 	if err := applyTalosConfig(config, logger); err != nil {
 		return fmt.Errorf("failed to apply Talos config: %w", err)
 	}
+	logger.Success("✅ Talos configuration applied successfully")
 
-	// Bootstrap Talos
-	logger.Debug("Bootstrapping Talos cluster")
+	// Step 2: Bootstrap Talos
+	logger.Info("🎯 Step 2: Bootstrapping Talos cluster")
 	if err := bootstrapTalos(config, logger); err != nil {
 		return fmt.Errorf("failed to bootstrap Talos: %w", err)
 	}
+	logger.Success("✅ Talos cluster bootstrapped successfully")
 
-	// Fetch kubeconfig
-	logger.Debug("Fetching kubeconfig")
+	// Step 3: Fetch kubeconfig
+	logger.Info("🔑 Step 3: Fetching kubeconfig")
 	if err := fetchKubeconfig(config, logger); err != nil {
 		return fmt.Errorf("failed to fetch kubeconfig: %w", err)
 	}
+	// Validate kubeconfig is working
+	if err := validateKubeconfig(config, logger); err != nil {
+		return fmt.Errorf("kubeconfig validation failed: %w", err)
+	}
+	logger.Success("✅ Kubeconfig fetched and validated successfully")
 
-	// Wait for nodes to be ready
-	logger.Debug("Waiting for nodes to be available")
+	// Step 4: Wait for nodes to be ready
+	logger.Info("⏳ Step 4: Waiting for nodes to be ready")
 	if err := waitForNodes(config, logger); err != nil {
 		return fmt.Errorf("failed waiting for nodes: %w", err)
 	}
+	logger.Success("✅ All nodes are ready")
 
-	// Apply CRDs
-	if !config.SkipCRDs {
-		logger.Debug("Applying CRDs")
-		if err := applyCRDs(config, logger); err != nil {
-			return fmt.Errorf("failed to apply CRDs: %w", err)
-		}
+	// Step 5: Apply namespaces first (following onedr0p pattern)
+	logger.Info("📦 Step 5: Creating initial namespaces")
+	if err := applyNamespaces(config, logger); err != nil {
+		return fmt.Errorf("failed to apply namespaces: %w", err)
 	}
+	logger.Success("✅ Initial namespaces created successfully")
 
-	// Apply resources
+	// Step 6: Apply initial resources
 	if !config.SkipResources {
-		logger.Debug("Applying resources")
+		logger.Info("🔧 Step 6: Applying initial resources")
 		if err := applyResources(config, logger); err != nil {
 			return fmt.Errorf("failed to apply resources: %w", err)
 		}
+		logger.Success("✅ Initial resources applied successfully")
 	}
 
-	// Sync Helm releases
+	// Step 7: Apply CRDs
+	if !config.SkipCRDs {
+		logger.Info("📜 Step 7: Applying Custom Resource Definitions")
+		if err := applyCRDs(config, logger); err != nil {
+			return fmt.Errorf("failed to apply CRDs: %w", err)
+		}
+		logger.Success("✅ CRDs applied successfully")
+	}
+
+	// Step 8: Sync Helm releases
 	if !config.SkipHelmfile {
-		logger.Debug("Syncing Helm releases")
+		logger.Info("⚙️  Step 8: Syncing Helm releases")
 		if err := syncHelmReleases(config, logger); err != nil {
 			return fmt.Errorf("failed to sync Helm releases: %w", err)
 		}
+		logger.Success("✅ Helm releases synced successfully")
 	}
 
-	logger.Success("Congrats! The cluster is bootstrapped and Flux is syncing the Git repository")
+	logger.Success("🎉 Congrats! The cluster is bootstrapped and Flux is syncing the Git repository")
 	return nil
 }
 
+// validateKubeconfig validates that the kubeconfig is working and cluster is accessible
+func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error {
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would validate kubeconfig")
+		return nil
+	}
+
+	// Test cluster connectivity
+	cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("cluster connectivity test failed: %w", err)
+	}
+
+	// Test API server accessibility
+	cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("API server accessibility test failed: %w", err)
+	}
+
+	logger.Debug("Kubeconfig validation passed - cluster is accessible")
+	return nil
+}
+
+// applyNamespaces creates the initial namespaces required for bootstrap
+func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error {
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would apply initial namespaces")
+		return nil
+	}
+
+	// Define critical namespaces needed for bootstrap
+	namespaces := []string{
+		"cert-manager",
+		"external-secrets",
+		"flux-system",
+	}
+
+	for _, ns := range namespaces {
+		logger.Debug("Creating namespace: %s", ns)
+
+		cmd := exec.Command("kubectl", "create", "namespace", ns,
+			"--kubeconfig", config.KubeConfig, "--dry-run=client", "-o", "yaml")
+		manifestOutput, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to generate namespace manifest for %s: %w", ns, err)
+		}
+
+		applyCmd := exec.Command("kubectl", "apply", "--kubeconfig", config.KubeConfig,
+			"--filename", "-")
+		applyCmd.Stdin = bytes.NewReader(manifestOutput)
+
+		if output, err := applyCmd.CombinedOutput(); err != nil {
+			// Check if namespace already exists - that's okay
+			if strings.Contains(string(output), "AlreadyExists") || strings.Contains(string(output), "unchanged") {
+				logger.Debug("Namespace %s already exists", ns)
+				continue
+			}
+			return fmt.Errorf("failed to create namespace %s: %w\nOutput: %s", ns, err, string(output))
+		}
+
+		logger.Debug("Successfully created namespace: %s", ns)
+	}
+
+	return nil
+}
 
 // validateClusterSecretStoreTemplate validates the clustersecretstore YAML file
 func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
@@ -217,7 +300,7 @@ func extractOnePasswordReferences(content string) []string {
 					// Find the end of the reference
 					end := len(line)
 					for j := start + 5; j < len(line); j++ {
-						if line[j] == ' ' || line[j] == '"' || line[j] == '\'' || line[j] == '}' || line[j] == ',' || line[j] == '\n' || line[j] == '\t' {
+						if line[j] == ' ' || line[j] == '"' || line[j] == '\'' || line[j] == '}' || line[j] == ',' || line[j] == '\n' || line[j] == '\t' || line[j] == ':' {
 							end = j
 							break
 						}
@@ -264,13 +347,11 @@ func validate1PasswordReference(ref string) error {
 	return nil
 }
 
-
 // validateYAMLSyntax validates YAML syntax by attempting to parse it
 func validateYAMLSyntax(content []byte) error {
 	var result interface{}
 	return yamlv3.Unmarshal(content, &result)
 }
-
 
 // validateResourcesYAML validates the resources YAML content (replaces validateResourcesContent for non-template files)
 func validateResourcesYAML(yamlContent string, logger *common.ColorLogger) error {
@@ -328,7 +409,6 @@ func validateClusterSecretStoreYAML(yamlContent string, logger *common.ColorLogg
 	logger.Debug("ClusterSecretStore YAML validation passed")
 	return nil
 }
-
 
 func validatePrerequisites(config *BootstrapConfig) error {
 	// Check for required binaries
@@ -420,7 +500,7 @@ func checkEnvironmentFiles(config *BootstrapConfig, logger *common.ColorLogger) 
 	// Validate versions are set (now using hardcoded defaults from templates)
 	if config.K8sVersion == "" {
 		return &PreflightResult{
-			Name:    "Environment Files", 
+			Name:    "Environment Files",
 			Status:  "FAIL",
 			Message: "KUBERNETES_VERSION not set",
 		}
@@ -429,7 +509,7 @@ func checkEnvironmentFiles(config *BootstrapConfig, logger *common.ColorLogger) 
 	if config.TalosVersion == "" {
 		return &PreflightResult{
 			Name:    "Environment Files",
-			Status:  "FAIL", 
+			Status:  "FAIL",
 			Message: "TALOS_VERSION not set",
 		}
 	}
@@ -545,12 +625,10 @@ func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLo
 
 func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
 	// Test rendering of machine configurations
-	// Use the unified machineconfig.yaml.j2 template for both controlplane and worker nodes
-	baseTemplate := "machineconfig.yaml.j2"
 	// Use a sample node template for patch testing
-	patchTemplate := "nodes/192.168.122.10.yaml.j2"
+	patchTemplate := "nodes/192.168.122.10.yaml"
 
-	_, err := renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, "controlplane")
+	_, err := renderMachineConfigFromEmbedded("controlplane.yaml", patchTemplate, "controlplane")
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Machine Config Rendering",
@@ -568,7 +646,7 @@ func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLo
 
 func checkTalosNodes(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
 	// Check if we can get Talos nodes
-	nodes, err := getTalosNodes()
+	nodes, err := getTalosNodes(config.TalosConfig)
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Talos Nodes",
@@ -634,7 +712,7 @@ func check1PasswordAuth() error {
 
 func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get list of nodes from talosctl config with retry
-	nodes, err := getTalosNodesWithRetry(logger, 3)
+	nodes, err := getTalosNodesWithRetry(config.TalosConfig, logger, 3)
 	if err != nil {
 		return err
 	}
@@ -644,7 +722,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 	// Apply configuration to each node
 	var failures []string
 	for _, node := range nodes {
-		nodeTemplate := fmt.Sprintf("nodes/%s.yaml.j2", node)
+		nodeTemplate := fmt.Sprintf("nodes/%s.yaml", node)
 
 		// Get machine type from embedded node template
 		machineType, err := getMachineTypeFromEmbedded(nodeTemplate)
@@ -660,9 +738,9 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 		var baseTemplate string
 		switch machineType {
 		case "controlplane":
-			baseTemplate = "machineconfig.yaml.j2"
+			baseTemplate = "controlplane.yaml"
 		case "worker":
-			baseTemplate = "machineconfig.yaml.j2"
+			baseTemplate = "worker.yaml"
 		default:
 			logger.Error("Unknown machine type for %s: %s", node, machineType)
 			failures = append(failures, node)
@@ -704,8 +782,8 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 	return nil
 }
 
-func getTalosNodes() ([]string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
+func getTalosNodes(talosConfig string) ([]string, error) {
+	cmd := exec.Command("talosctl", "--talosconfig", talosConfig, "config", "info", "--output", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Talos nodes: %w", err)
@@ -725,10 +803,10 @@ func getTalosNodes() ([]string, error) {
 	return configInfo.Nodes, nil
 }
 
-func getTalosNodesWithRetry(logger *common.ColorLogger, maxRetries int) ([]string, error) {
+func getTalosNodesWithRetry(talosConfig string, logger *common.ColorLogger, maxRetries int) ([]string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		nodes, err := getTalosNodes()
+		nodes, err := getTalosNodes(talosConfig)
 		if err == nil {
 			return nodes, nil
 		}
@@ -768,10 +846,6 @@ func applyNodeConfigWithRetry(node string, config []byte, logger *common.ColorLo
 	return fmt.Errorf("failed to apply config to %s after %d attempts: %w", node, maxRetries, lastErr)
 }
 
-
-
-
-
 // applyTalosPatch function removed - now using Go YAML processor in renderMachineConfig
 
 func applyNodeConfig(node string, config []byte) error {
@@ -785,7 +859,6 @@ func applyNodeConfig(node string, config []byte) error {
 
 	return nil
 }
-
 
 func getEnvOrDefault(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -810,26 +883,18 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 }
 
 func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType string) ([]byte, error) {
-	// Get versions from system-upgrade plans or environment variables
-	versionConfig := versionconfig.GetVersions(".")
-	env := map[string]string{
-		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion),
-		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", versionConfig.TalosVersion),
-		"machinetype":        machineType, // Add machine type for Jinja2 conditionals
-	}
-
-	// Render base config from embedded template with proper talos/ prefix
+	// Get base config from embedded YAML file with proper talos/ prefix
 	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
-	baseConfig, err := templates.RenderTalosTemplate(fullBaseTemplatePath, env)
+	baseConfig, err := templates.GetTalosTemplate(fullBaseTemplatePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render base config: %w", err)
+		return nil, fmt.Errorf("failed to get base config: %w", err)
 	}
 
-	// Render patch config from embedded template with proper talos/ prefix
+	// Get patch config from embedded YAML file with proper talos/ prefix
 	fullPatchTemplatePath := fmt.Sprintf("talos/%s", patchTemplate)
-	patchConfig, err := templates.RenderTalosTemplate(fullPatchTemplatePath, env)
+	patchConfig, err := templates.GetTalosTemplate(fullPatchTemplatePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render patch config: %w", err)
+		return nil, fmt.Errorf("failed to get patch config: %w", err)
 	}
 
 	// Use Go YAML processor to merge
@@ -864,43 +929,87 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType st
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get a random controller node
-	controller, err := getRandomController()
+	controller, err := getRandomController(config.TalosConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get controller node for bootstrap: %w", err)
 	}
 
 	logger.Debug("Bootstrapping Talos on controller %s", controller)
 
 	if config.DryRun {
-		logger.Info("[DRY RUN] Would bootstrap Talos")
+		logger.Info("[DRY RUN] Would bootstrap Talos on controller %s", controller)
 		return nil
 	}
 
-	// Try to bootstrap, checking if already bootstrapped
-	for attempts := 0; attempts < 30; attempts++ {
-		cmd := exec.Command("talosctl", "--nodes", controller, "bootstrap")
-		output, err := cmd.CombinedOutput()
-
-		if err == nil {
-			logger.Info("Talos cluster bootstrapped successfully")
-			return nil
-		}
-
-		outputStr := string(output)
-		if strings.Contains(outputStr, "AlreadyExists") {
-			logger.Info("Talos cluster is already bootstrapped")
-			return nil
-		}
-
-		logger.Info("Bootstrap in progress, waiting 10 seconds... (attempt %d/30)", attempts+1)
-		time.Sleep(10 * time.Second)
+	// Check if cluster is already bootstrapped first
+	logger.Debug("Checking if cluster is already bootstrapped...")
+	checkCmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "etcd", "status")
+	if checkOutput, checkErr := checkCmd.CombinedOutput(); checkErr == nil {
+		logger.Info("Talos cluster is already bootstrapped (etcd is running)")
+		return nil
+	} else {
+		logger.Debug("Cluster not bootstrapped yet: %s", string(checkOutput))
 	}
 
-	return fmt.Errorf("failed to bootstrap Talos after 30 attempts")
+	// Try to bootstrap with improved error handling
+	maxAttempts := 30
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		logger.Debug("Bootstrap attempt %d/%d on controller %s", attempts+1, maxAttempts, controller)
+
+		cmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "bootstrap")
+		output, err := cmd.CombinedOutput()
+		outputStr := string(output)
+
+		if err == nil {
+			logger.Success("Talos cluster bootstrapped successfully")
+			// Verify bootstrap completed
+			time.Sleep(5 * time.Second)
+			verifyCmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "etcd", "status")
+			if verifyErr := verifyCmd.Run(); verifyErr == nil {
+				logger.Success("Bootstrap verified - etcd is running")
+				return nil
+			}
+			logger.Warn("Bootstrap completed but etcd verification failed, continuing...")
+			return nil
+		}
+
+		// Check specific error conditions
+		if strings.Contains(outputStr, "AlreadyExists") ||
+			strings.Contains(outputStr, "already bootstrapped") ||
+			strings.Contains(outputStr, "already a member") {
+			logger.Success("Talos cluster is already bootstrapped")
+			return nil
+		}
+
+		if strings.Contains(outputStr, "connection refused") {
+			logger.Warn("Bootstrap attempt %d/%d: Controller not ready yet", attempts+1, maxAttempts)
+		} else if strings.Contains(outputStr, "timeout") {
+			logger.Warn("Bootstrap attempt %d/%d: Timeout waiting for response", attempts+1, maxAttempts)
+		} else {
+			logger.Warn("Bootstrap attempt %d/%d failed: %s", attempts+1, maxAttempts, strings.TrimSpace(outputStr))
+		}
+
+		if attempts == maxAttempts-1 {
+			return fmt.Errorf("failed to bootstrap Talos after %d attempts. Last error: %s", maxAttempts, outputStr)
+		}
+
+		// Progressive backoff - shorter waits initially, longer waits later
+		waitTime := 10 * time.Second
+		if attempts < 5 {
+			waitTime = 5 * time.Second
+		} else if attempts > 20 {
+			waitTime = 15 * time.Second
+		}
+
+		logger.Debug("Waiting %v before next bootstrap attempt...", waitTime)
+		time.Sleep(waitTime)
+	}
+
+	return fmt.Errorf("unexpected error in bootstrap loop")
 }
 
-func getRandomController() (string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
+func getRandomController(talosConfig string) (string, error) {
+	cmd := exec.Command("talosctl", "--talosconfig", talosConfig, "config", "info", "--output", "json")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -922,25 +1031,76 @@ func getRandomController() (string, error) {
 }
 
 func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error {
-	controller, err := getRandomController()
+	controller, err := getRandomController(config.TalosConfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get controller node for kubeconfig: %w", err)
 	}
 
 	if config.DryRun {
-		logger.Info("[DRY RUN] Would fetch kubeconfig")
+		logger.Info("[DRY RUN] Would fetch kubeconfig from controller %s", controller)
 		return nil
 	}
 
-	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", controller,
-		"--force", "--force-context-name", "main", filepath.Base(config.KubeConfig))
+	logger.Debug("Fetching kubeconfig from controller %s", controller)
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to fetch kubeconfig: %w", err)
+	// Ensure directory exists for kubeconfig
+	kubeconfigDir := filepath.Dir(config.KubeConfig)
+	if err := os.MkdirAll(kubeconfigDir, 0755); err != nil {
+		return fmt.Errorf("failed to create kubeconfig directory %s: %w", kubeconfigDir, err)
 	}
 
-	logger.Info("Kubeconfig fetched successfully")
-	return nil
+	// Try to fetch kubeconfig with retry logic
+	maxAttempts := 10
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		logger.Debug("Kubeconfig fetch attempt %d/%d", attempts+1, maxAttempts)
+
+		cmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "kubeconfig", "--nodes", controller,
+			"--force", "--force-context-name", "main", config.KubeConfig)
+
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			logger.Debug("Kubeconfig fetched successfully")
+
+			// Verify the kubeconfig file was created and is readable
+			if _, statErr := os.Stat(config.KubeConfig); statErr != nil {
+				return fmt.Errorf("kubeconfig file was not created at %s: %w", config.KubeConfig, statErr)
+			}
+
+			// Quick validation that the kubeconfig contains expected content
+			kubeconfigContent, readErr := os.ReadFile(config.KubeConfig)
+			if readErr != nil {
+				return fmt.Errorf("failed to read kubeconfig file: %w", readErr)
+			}
+
+			if !strings.Contains(string(kubeconfigContent), "apiVersion: v1") ||
+				!strings.Contains(string(kubeconfigContent), "kind: Config") {
+				return fmt.Errorf("kubeconfig file does not contain valid Kubernetes configuration")
+			}
+
+			logger.Success("Kubeconfig fetched and validated successfully")
+			return nil
+		}
+
+		outputStr := string(output)
+		if strings.Contains(outputStr, "connection refused") {
+			logger.Warn("Kubeconfig fetch attempt %d/%d: Controller not ready", attempts+1, maxAttempts)
+		} else if strings.Contains(outputStr, "timeout") {
+			logger.Warn("Kubeconfig fetch attempt %d/%d: Timeout", attempts+1, maxAttempts)
+		} else {
+			logger.Warn("Kubeconfig fetch attempt %d/%d failed: %s", attempts+1, maxAttempts, strings.TrimSpace(outputStr))
+		}
+
+		if attempts == maxAttempts-1 {
+			return fmt.Errorf("failed to fetch kubeconfig after %d attempts. Last error: %s", maxAttempts, outputStr)
+		}
+
+		// Wait before retry
+		waitTime := time.Duration(attempts+1) * 5 * time.Second
+		logger.Debug("Waiting %v before next kubeconfig fetch attempt...", waitTime)
+		time.Sleep(waitTime)
+	}
+
+	return fmt.Errorf("unexpected error in kubeconfig fetch loop")
 }
 
 func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1097,8 +1257,6 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	return nil
 }
 
-
-
 func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get resources from embedded YAML file (no longer a template)
 	resources, err := templates.GetBootstrapFile("resources.yaml")
@@ -1134,14 +1292,40 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return nil
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the CLI
+// get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic
 func get1PasswordSecret(reference string) (string, error) {
-	cmd := exec.Command("op", "read", reference)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to read 1Password secret %s: %w", reference, err)
+	maxAttempts := 3
+	for attempts := 0; attempts < maxAttempts; attempts++ {
+		cmd := exec.Command("op", "read", reference)
+		output, err := cmd.CombinedOutput()
+
+		if err == nil {
+			secretValue := strings.TrimSpace(string(output))
+			if secretValue == "" {
+				return "", fmt.Errorf("1Password secret %s returned empty value", reference)
+			}
+			return secretValue, nil
+		}
+
+		// Check for specific error types
+		outputStr := string(output)
+		if strings.Contains(outputStr, "not found") {
+			return "", fmt.Errorf("1Password secret %s not found", reference)
+		}
+		if strings.Contains(outputStr, "unauthorized") || strings.Contains(outputStr, "not signed in") {
+			return "", fmt.Errorf("1Password CLI not authenticated. Please run 'op signin'")
+		}
+
+		// Retry on network or temporary errors
+		if attempts < maxAttempts-1 {
+			time.Sleep(time.Duration(attempts+1) * time.Second)
+			continue
+		}
+
+		return "", fmt.Errorf("failed to read 1Password secret %s after %d attempts: %w\nOutput: %s", reference, maxAttempts, err, outputStr)
 	}
-	return strings.TrimSpace(string(output)), nil
+
+	return "", fmt.Errorf("unexpected error in 1Password secret retrieval loop")
 }
 
 // resolve1PasswordReferences resolves all 1Password references in the content
@@ -1157,8 +1341,8 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	result := content
 
 	// Resolve each reference
-	for _, ref := range opRefs {
-		logger.Debug("Resolving 1Password reference: %s", ref)
+	for i, ref := range opRefs {
+		logger.Debug("Resolving 1Password reference %d/%d: %s", i+1, len(opRefs), ref)
 
 		// Get the secret value
 		secretValue, err := get1PasswordSecret(ref)
@@ -1166,9 +1350,14 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 			return "", fmt.Errorf("failed to resolve 1Password reference '%s': %w", ref, err)
 		}
 
+		// Validate the secret value is not empty or suspicious
+		if len(secretValue) < 1 {
+			return "", fmt.Errorf("1Password reference '%s' resolved to empty value", ref)
+		}
+
 		// Replace the reference with the actual value
 		result = strings.ReplaceAll(result, ref, secretValue)
-		logger.Debug("Successfully resolved 1Password reference: %s", ref)
+		logger.Debug("Successfully resolved 1Password reference %d/%d: %s (length: %d)", i+1, len(opRefs), ref, len(secretValue))
 	}
 
 	logger.Info("All 1Password references resolved successfully")

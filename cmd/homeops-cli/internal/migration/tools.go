@@ -33,24 +33,24 @@ type ShellCommand struct {
 
 // MigrationReport provides a summary of migration analysis
 type MigrationReport struct {
-	ScriptsAnalyzed   int
-	CommandsFound     []ShellCommand
-	YQCommands        []ShellCommand
-	KubectlCommands   []ShellCommand
-	TalosCommands     []ShellCommand
-	OtherCommands     []ShellCommand
-	Recommendations   []string
-	EstimatedEffort   string
-	GeneratedAt       time.Time
+	ScriptsAnalyzed int
+	CommandsFound   []ShellCommand
+	YQCommands      []ShellCommand
+	KubectlCommands []ShellCommand
+	TalosCommands   []ShellCommand
+	OtherCommands   []ShellCommand
+	Recommendations []string
+	EstimatedEffort string
+	GeneratedAt     time.Time
 }
 
 // ComparisonResult represents the result of comparing shell vs Go output
 type ComparisonResult struct {
-	Operation    string
-	ShellOutput  string
-	GoOutput     string
-	Matches      bool
-	Differences  []string
+	Operation     string
+	ShellOutput   string
+	GoOutput      string
+	Matches       bool
+	Differences   []string
 	ExecutionTime struct {
 		Shell time.Duration
 		Go    time.Duration
@@ -114,7 +114,7 @@ func (mt *MigrationTool) AnalyzeShellScripts(scriptDir string) (*MigrationReport
 	})
 
 	if err != nil {
-		return nil, errors.NewFileSystemError("MIGRATION_ANALYSIS_ERROR", 
+		return nil, errors.NewFileSystemError("MIGRATION_ANALYSIS_ERROR",
 			"failed to analyze shell scripts", err)
 	}
 
@@ -243,17 +243,17 @@ func (mt *MigrationTool) suggestTalosReplacement(args string) string {
 // generateRecommendations generates migration recommendations
 func (mt *MigrationTool) generateRecommendations(report *MigrationReport) {
 	if len(report.YQCommands) > 0 {
-		report.Recommendations = append(report.Recommendations, 
+		report.Recommendations = append(report.Recommendations,
 			fmt.Sprintf("Replace %d yq commands with yaml.Processor methods", len(report.YQCommands)))
 	}
 
 	if len(report.KubectlCommands) > 0 {
-		report.Recommendations = append(report.Recommendations, 
+		report.Recommendations = append(report.Recommendations,
 			fmt.Sprintf("Replace %d kubectl commands with Kubernetes client-go", len(report.KubectlCommands)))
 	}
 
 	if len(report.TalosCommands) > 0 {
-		report.Recommendations = append(report.Recommendations, 
+		report.Recommendations = append(report.Recommendations,
 			fmt.Sprintf("Replace %d talosctl commands with Talos Go client", len(report.TalosCommands)))
 	}
 
@@ -283,7 +283,7 @@ func (mt *MigrationTool) CompareOutputs(operation, shellScript, goFunction strin
 	result.ExecutionTime.Shell = time.Since(shellStart)
 
 	if err != nil {
-		return nil, errors.NewValidationError("SHELL_EXECUTION_ERROR", 
+		return nil, errors.NewValidationError("SHELL_EXECUTION_ERROR",
 			"failed to execute shell script for comparison", err)
 	}
 

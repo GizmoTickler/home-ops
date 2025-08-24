@@ -39,7 +39,7 @@ type VMDevice map[string]interface{}
 
 // Dataset represents a TrueNAS dataset
 type Dataset struct {
-	ID       interface{}            `json:"id"`       // Can be string or number
+	ID       interface{}            `json:"id"` // Can be string or number
 	Name     string                 `json:"name"`
 	Type     string                 `json:"type"`
 	Pool     string                 `json:"pool"`
@@ -126,7 +126,7 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 	} else {
 		params = []interface{}{}
 	}
-	
+
 	result, err := c.Call("vm.query", params, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query VMs: %w", err)
@@ -278,7 +278,7 @@ func (c *WorkingClient) QueryDatasets(filters interface{}) ([]Dataset, error) {
 	} else {
 		params = []interface{}{}
 	}
-	
+
 	result, err := c.Call("pool.dataset.query", params, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query datasets: %w", err)

@@ -13,19 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
-	"gopkg.in/yaml.v3"
 )
 
 const (
 	// TalosFactoryBaseURL is the base URL for the Talos factory API
 	TalosFactoryBaseURL = "https://factory.talos.dev"
-	
+
 	// CacheDir is the directory where generated ISOs are cached
 	CacheDir = ".cache/talos-isos"
 )
-
 
 // FactoryClient handles interactions with the Talos factory API
 type FactoryClient struct {
@@ -38,8 +37,8 @@ type FactoryClient struct {
 // SchematicConfig represents the Talos schematic configuration
 type SchematicConfig struct {
 	Customization struct {
-		ExtraKernelArgs   []string `yaml:"extraKernelArgs" json:"extraKernelArgs"`
-		SystemExtensions  struct {
+		ExtraKernelArgs  []string `yaml:"extraKernelArgs" json:"extraKernelArgs"`
+		SystemExtensions struct {
 			OfficialExtensions []string `yaml:"officialExtensions" json:"officialExtensions"`
 		} `yaml:"systemExtensions" json:"systemExtensions"`
 	} `yaml:"customization" json:"customization"`
@@ -47,16 +46,15 @@ type SchematicConfig struct {
 
 // SchematicResponse represents the response from the Talos factory API
 type SchematicResponse struct {
-	ID      string `json:"id"`
-	
+	ID string `json:"id"`
 }
 
 // ISOGenerationRequest represents a request to generate an ISO
 type ISOGenerationRequest struct {
-	SchematicID   string
-	TalosVersion  string
-	Architecture  string
-	Platform      string
+	SchematicID  string
+	TalosVersion string
+	Architecture string
+	Platform     string
 }
 
 // ISOInfo contains information about a generated ISO
@@ -183,7 +181,7 @@ func (fc *FactoryClient) GenerateISO(req ISOGenerationRequest) (*ISOInfo, error)
 		return nil, fmt.Errorf("ISO request validation failed: %w", err)
 	}
 
-	fc.logger.Info("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)", 
+	fc.logger.Info("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)",
 		req.SchematicID, req.TalosVersion, req.Platform, req.Architecture)
 
 	// Check cache first
@@ -464,7 +462,6 @@ func (fc *FactoryClient) ValidateSchematicResponse(resp *SchematicResponse) erro
 	if resp.ID == "" {
 		return fmt.Errorf("schematic ID is empty")
 	}
-
 
 	// Validate ID format (should be a hash-like string)
 	if len(resp.ID) < 10 {

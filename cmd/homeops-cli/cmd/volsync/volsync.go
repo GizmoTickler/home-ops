@@ -23,7 +23,6 @@ type VolsyncConfig struct {
 	NFSPath   string
 }
 
-
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "volsync",
@@ -496,11 +495,11 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 
 	// Get other required fields
 	fields := map[string]string{
-		"STORAGE_CLASS_NAME":   "{.spec.kopia.storageClassName}",
-		"CACHE_STORAGE_CLASS":  "{.spec.kopia.cacheStorageClassName}",
-		"CACHE_CAPACITY":       "{.spec.kopia.cacheCapacity}",
-		"PUID":                 "{.spec.kopia.moverSecurityContext.runAsUser}",
-		"PGID":                 "{.spec.kopia.moverSecurityContext.runAsGroup}",
+		"STORAGE_CLASS_NAME":  "{.spec.kopia.storageClassName}",
+		"CACHE_STORAGE_CLASS": "{.spec.kopia.cacheStorageClassName}",
+		"CACHE_CAPACITY":      "{.spec.kopia.cacheCapacity}",
+		"PUID":                "{.spec.kopia.moverSecurityContext.runAsUser}",
+		"PGID":                "{.spec.kopia.moverSecurityContext.runAsGroup}",
 	}
 
 	env := map[string]string{
@@ -553,8 +552,6 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 		// Fallback to default if parsing fails
 		env["CACHE_ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
 	}
-
-
 
 	// Step 4: Create ReplicationDestination
 	logger.Info("Creating ReplicationDestination...")
@@ -805,14 +802,14 @@ func listSnapshots(appFilter, format string) error {
 }
 
 type AppSnapshot struct {
-	App           string    `json:"app" yaml:"app"`
-	Namespace     string    `json:"namespace" yaml:"namespace"`
-	Count         int       `json:"count" yaml:"count"`
-	LatestTime    string    `json:"latest_time" yaml:"latest_time"`
-	LatestID      string    `json:"latest_id" yaml:"latest_id"`
-	Size          string    `json:"size" yaml:"size"`
-	RetentionTags string    `json:"retention_tags" yaml:"retention_tags"`
-	AllSnapshots  []string  `json:"all_snapshots" yaml:"all_snapshots"`
+	App           string   `json:"app" yaml:"app"`
+	Namespace     string   `json:"namespace" yaml:"namespace"`
+	Count         int      `json:"count" yaml:"count"`
+	LatestTime    string   `json:"latest_time" yaml:"latest_time"`
+	LatestID      string   `json:"latest_id" yaml:"latest_id"`
+	Size          string   `json:"size" yaml:"size"`
+	RetentionTags string   `json:"retention_tags" yaml:"retention_tags"`
+	AllSnapshots  []string `json:"all_snapshots" yaml:"all_snapshots"`
 }
 
 func findKopiaPod() (string, error) {

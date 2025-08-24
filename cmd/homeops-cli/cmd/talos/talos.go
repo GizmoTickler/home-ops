@@ -60,7 +60,7 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	// Try 1Password first
 	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
 	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
-	
+
 	// Fall back to environment variables if 1Password fails
 	if host == "" {
 		host = os.Getenv("TRUENAS_HOST")
@@ -68,12 +68,12 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("TRUENAS_API_KEY")
 	}
-	
+
 	// Check if we have both credentials
 	if host == "" || apiKey == "" {
 		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set TRUENAS_HOST and TRUENAS_API_KEY environment variables or configure 1Password with 'op://Infrastructure/talosdeploy/TRUENAS_HOST' and 'op://Infrastructure/talosdeploy/TRUENAS_API'")
 	}
-	
+
 	return host, apiKey, nil
 }
 
@@ -125,7 +125,7 @@ func newApplyNodeCommand() *cobra.Command {
 
 func applyNodeConfig(nodeIP, mode string) error {
 	logger := common.NewColorLogger()
-	
+
 	// Get machine type
 	machineType, err := getMachineTypeFromNode(nodeIP)
 	if err != nil {
@@ -135,8 +135,8 @@ func applyNodeConfig(nodeIP, mode string) error {
 	logger.Info("Applying configuration to node %s (type: %s)", nodeIP, machineType)
 
 	// Render machine config using embedded templates
-	machineConfigTemplate := fmt.Sprintf("%s.yaml.j2", machineType)
-	nodeConfigTemplate := fmt.Sprintf("nodes/%s.yaml.j2", nodeIP)
+	machineConfigTemplate := fmt.Sprintf("%s.yaml", machineType)
+	nodeConfigTemplate := fmt.Sprintf("nodes/%s.yaml", nodeIP)
 
 	// Render the configuration
 	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate)
@@ -147,7 +147,7 @@ func applyNodeConfig(nodeIP, mode string) error {
 	// Apply the configuration
 	cmd := exec.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
 	cmd.Stdin = bytes.NewReader(renderedConfig)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to apply config: %w\n%s", err, output)
@@ -166,51 +166,29 @@ func getMachineTypeFromNode(nodeIP string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-
-
 func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
 	return renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, "")
 }
 
 func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
-	// Get versions from system-upgrade plans or environment variables
-	versionConfig := versionconfig.GetVersions(".")
-	env := map[string]string{
-		"KUBERNETES_VERSION": getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion),
-		"TALOS_VERSION":      getEnvOrDefault("TALOS_VERSION", versionConfig.TalosVersion),
-	}
-	
-	// Add schematic ID if provided
-	if schematicID != "" {
-		env["SCHEMATIC_ID"] = schematicID
-	} else if envSchematicID := os.Getenv("SCHEMATIC_ID"); envSchematicID != "" {
-		// Use schematic ID from environment variable if available
-		env["SCHEMATIC_ID"] = envSchematicID
-	} else {
-		// Use default schematic ID if none provided
-		env["SCHEMATIC_ID"] = "89b50c59f01a5ec3946078c1e4474c958b6f7fe9064654e15385ad1ad73f536c"
-	}
-	
-	// Render base config from embedded template
-	baseConfig, err := templates.RenderTalosTemplate(baseTemplate, env)
+	// Get base config from embedded YAML file
+	baseConfig, err := templates.GetTalosTemplate(baseTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render base config: %w", err)
+		return nil, fmt.Errorf("failed to get base config: %w", err)
 	}
-	
-	// Render patch config from embedded template
-	patchConfig, err := templates.RenderTalosTemplate(patchTemplate, env)
+
+	// Get patch config from embedded YAML file
+	patchConfig, err := templates.GetTalosTemplate(patchTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to render patch config: %w", err)
+		return nil, fmt.Errorf("failed to get patch config: %w", err)
 	}
-	
+
 	// Use Go YAML processor to merge
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
-	
+
 	return processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
 }
-
-
 
 func newUpgradeNodeCommand() *cobra.Command {
 	var (
@@ -239,35 +217,29 @@ func newUpgradeNodeCommand() *cobra.Command {
 func upgradeNode(nodeIP, mode string) error {
 	logger := common.NewColorLogger()
 
-	// Get factory image from node config
-	nodeFile := filepath.Join("./talos/nodes", fmt.Sprintf("%s.yaml.j2", nodeIP))
-	if !common.FileExists(nodeFile) {
-		return fmt.Errorf("node config not found: %s", nodeFile)
-	}
-
-	// Get node config from embedded templates
-	nodeTemplate := fmt.Sprintf("talos/nodes/%s.yaml.j2", nodeIP)
-	configOutput, err := templates.GetTalosTemplate(nodeTemplate)
+	// Get factory image from controlplane config instead of individual node configs
+	controlplaneTemplate := "talos/controlplane.yaml"
+	configOutput, err := templates.GetTalosTemplate(controlplaneTemplate)
 	if err != nil {
-		return fmt.Errorf("failed to get node config: %w", err)
+		return fmt.Errorf("failed to get controlplane config: %w", err)
 	}
 
 	// Extract factory image using Go YAML processor
 	metrics := metrics.NewPerformanceCollector()
 	processor := yaml.NewProcessor(nil, metrics)
-	
+
 	// Parse YAML content into a map
 	configData, err := processor.ParseString(string(configOutput))
 	if err != nil {
-		return fmt.Errorf("failed to parse node config: %w", err)
+		return fmt.Errorf("failed to parse controlplane config: %w", err)
 	}
-	
+
 	// Extract factory image using GetValue
 	factoryImageValue, err := processor.GetValue(configData, "machine.install.image")
 	if err != nil {
 		return fmt.Errorf("failed to get factory image: %w", err)
 	}
-	
+
 	factoryImage, ok := factoryImageValue.(string)
 	if !ok {
 		return fmt.Errorf("factory image is not a string: %v", factoryImageValue)
@@ -276,14 +248,14 @@ func upgradeNode(nodeIP, mode string) error {
 	logger.Info("Upgrading node %s to image: %s", nodeIP, factoryImage)
 
 	// Perform upgrade
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "upgrade", 
-		"--image", factoryImage, 
+	cmd := exec.Command("talosctl", "--nodes", nodeIP, "upgrade",
+		"--image", factoryImage,
 		"--reboot-mode", mode,
 		"--timeout", "10m")
-	
+
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("upgrade failed: %w", err)
 	}
@@ -569,9 +541,9 @@ func generateKubeconfig() error {
 	rootDir := "."
 	logger.Info("Generating kubeconfig from node %s", node)
 
-	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node, 
+	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node,
 		"--force", "--force-context-name", "main", rootDir)
-	
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to generate kubeconfig: %w\n%s", err, output)
@@ -583,16 +555,16 @@ func generateKubeconfig() error {
 
 func newDeployVMCommand() *cobra.Command {
 	var (
-		name         string
-		memory       int
-		vcpus        int
-		diskSize     int
-		openebsSize  int
-		rookSize     int
-		macAddress   string
-		pool         string
+		name           string
+		memory         int
+		vcpus          int
+		diskSize       int
+		openebsSize    int
+		rookSize       int
+		macAddress     string
+		pool           string
 		skipZVolCreate bool
-		generateISO  bool
+		generateISO    bool
 	)
 
 	cmd := &cobra.Command{
@@ -633,7 +605,7 @@ func validateVMName(name string) error {
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate, generateISO bool) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting VM deployment: %s", name)
-	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, openebsSize=%dGB, rookSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t", 
+	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, openebsSize=%dGB, rookSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
 		pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
 
 	// Validate input parameters
@@ -676,18 +648,18 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	// FIRST STEP: ISO generation and download to TrueNAS (if requested)
 	var isoURL, schematicID, talosVersion string
 	var customISO bool
-	
+
 	logger.Debug("Determining ISO configuration (generateISO=%t)", generateISO)
 	if generateISO {
 		logger.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
-		
+
 		// Create factory client
 		logger.Debug("Creating Talos factory client")
 		factoryClient := talos.NewFactoryClient()
 		if factoryClient == nil {
 			return fmt.Errorf("failed to create factory client")
 		}
-		
+
 		// Load schematic from embedded templates
 		logger.Debug("Loading schematic from embedded template")
 		schematic, err := factoryClient.LoadSchematicFromTemplate()
@@ -695,7 +667,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 			return fmt.Errorf("failed to load schematic template: %w", err)
 		}
 		logger.Debug("Schematic loaded successfully")
-		
+
 		// Generate ISO with default parameters
 		versionConfig := versionconfig.GetVersions(".")
 		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
@@ -703,41 +675,41 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		if err != nil {
 			return fmt.Errorf("ISO generation failed: %w", err)
 		}
-		
+
 		if isoInfo == nil {
 			return fmt.Errorf("ISO generation returned nil result")
 		}
-		
+
 		isoURL = isoInfo.URL
 		schematicID = isoInfo.SchematicID
 		talosVersion = isoInfo.TalosVersion
 		customISO = true
-		
+
 		// Set schematic ID as environment variable for template rendering
 		if err := os.Setenv("SCHEMATIC_ID", schematicID); err != nil {
 			logger.Warn("Failed to set SCHEMATIC_ID environment variable: %v", err)
 		} else {
 			logger.Debug("Set SCHEMATIC_ID environment variable: %s", schematicID)
 		}
-		
+
 		logger.Success("Custom ISO generated successfully")
 		logger.Debug("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoURL, schematicID, talosVersion)
-		
+
 		// CRITICAL: Download custom ISO to TrueNAS BEFORE any VM operations
 		logger.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
 		downloader := iso.NewDownloader()
-		
+
 		// Create download configuration
 		downloadConfig := iso.GetDefaultConfig()
 		downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
 		downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
 		downloadConfig.ISOURL = isoURL
 		downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", schematicID[:8]) // Use schematic ID prefix for unique filename
-		
+
 		if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
 			return fmt.Errorf("CRITICAL: Failed to download custom ISO to TrueNAS - VM deployment cannot proceed: %w", err)
 		}
-		
+
 		logger.Success("Custom ISO downloaded to TrueNAS successfully")
 		// Update ISO URL to point to local TrueNAS path
 		isoURL = filepath.Join(downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
@@ -747,13 +719,13 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		// Check if a prepared ISO exists at the standard location
 		standardISOPath := "/mnt/flashstor/ISO/metal-amd64.iso"
 		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
-		
+
 		// Connect to TrueNAS to check if the prepared ISO exists
 		host, _, err := getTrueNASCredentials()
 		if err != nil {
 			return fmt.Errorf("failed to get TrueNAS credentials to check for prepared ISO: %w", err)
 		}
-		
+
 		// Create SSH client to check if ISO exists
 		sshConfig := ssh.SSHConfig{
 			Host:       host,
@@ -762,31 +734,35 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 			SSHItemRef: "op://Infrastructure/NAS01/private key",
 		}
 		sshClient := ssh.NewSSHClient(sshConfig)
-		
+
 		if err := sshClient.Connect(); err != nil {
 			logger.Warn("Cannot verify prepared ISO due to SSH connection failure: %v", err)
 			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
 		}
-		defer sshClient.Close()
-		
+		defer func() {
+			if closeErr := sshClient.Close(); closeErr != nil {
+				logger.Warn("Failed to close SSH client: %v", closeErr)
+			}
+		}()
+
 		// Check if the standard ISO exists
 		exists, size, err := sshClient.VerifyFile(standardISOPath)
 		if err != nil {
 			logger.Warn("Failed to verify prepared ISO: %v", err)
 			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
 		}
-		
+
 		if !exists {
 			logger.Info("No prepared ISO found at %s", standardISOPath)
 			return fmt.Errorf("no prepared ISO found. Please run 'homeops talos prepare-iso' first to prepare the ISO, or use the --generate-iso flag to generate a new one")
 		}
-		
+
 		// Prepared ISO exists, use it
 		isoURL = standardISOPath
-		customISO = true  // Mark as custom since it's from prepare-iso
+		customISO = true // Mark as custom since it's from prepare-iso
 		logger.Success("Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
 		logger.Info("Prepared ISO found - proceeding with VM deployment...")
-		
+
 		// Get version info for logging
 		versionConfig := versionconfig.GetVersions(".")
 		talosVersion = versionConfig.TalosVersion
@@ -807,13 +783,13 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	if vmManager == nil {
 		return fmt.Errorf("failed to create VM manager")
 	}
-	
+
 	logger.Debug("Connecting to TrueNAS API")
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("TrueNAS connection failed: %w", err)
 	}
 	logger.Debug("Successfully connected to TrueNAS")
-	
+
 	defer func() {
 		logger.Debug("Closing VM manager connection")
 		if closeErr := vmManager.Close(); closeErr != nil {
@@ -827,41 +803,41 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	logger.Debug("Building VM configuration")
 	networkBridge := getEnvOrDefault("NETWORK_BRIDGE", "br0")
 	logger.Debug("Network bridge: %s", networkBridge)
-	
+
 	config := truenas.VMConfig{
-		Name:           name,
-		Memory:         memory,
-		VCPUs:          vcpus,
-		DiskSize:       diskSize,
-		OpenEBSSize:    openebsSize,
-		RookSize:       rookSize,
-		TrueNASHost:    host,
-		TrueNASAPIKey:  apiKey,
-		TrueNASPort:    443,
-		NoSSL:          false,
-		TalosISO:       isoURL,
-		NetworkBridge:  networkBridge,
-		StoragePool:    pool,
-		MacAddress:     macAddress,
+		Name:          name,
+		Memory:        memory,
+		VCPUs:         vcpus,
+		DiskSize:      diskSize,
+		OpenEBSSize:   openebsSize,
+		RookSize:      rookSize,
+		TrueNASHost:   host,
+		TrueNASAPIKey: apiKey,
+		TrueNASPort:   443,
+		NoSSL:         false,
+		TalosISO:      isoURL,
+		NetworkBridge: networkBridge,
+		StoragePool:   pool,
+		MacAddress:    macAddress,
 		// Let getZVolPaths handle path construction to avoid duplication
 		// BootZVol, OpenEBSZVol, RookZVol will be auto-generated
 		SkipZVolCreate: skipZVolCreate,
 		SpicePassword:  spicePassword,
 		UseSpice:       true, // Always use SPICE as per working scripts
 		// Schematic configuration fields
-		SchematicID:    schematicID,
-		TalosVersion:   talosVersion,
-		CustomISO:      customISO,
+		SchematicID:  schematicID,
+		TalosVersion: talosVersion,
+		CustomISO:    customISO,
 	}
-	
+
 	logger.Debug("VM configuration built successfully")
-	logger.Debug("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s", 
+	logger.Debug("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s",
 		name, memory, vcpus, isoURL, networkBridge, pool)
 
 	// STEP 3: Deploy the VM (ISO is now ready on TrueNAS)
 	logger.Info("STEP 3: Starting VM deployment process...")
 	logger.Debug("Calling vmManager.DeployVM with configuration")
-	
+
 	if err := vmManager.DeployVM(config); err != nil {
 		logger.Error("VM deployment failed: %v", err)
 		return fmt.Errorf("VM deployment failed: %w", err)
@@ -890,7 +866,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	if rookSize > 0 {
 		logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
 	}
-	
+
 	logger.Debug("VM deployment function completed successfully")
 	return nil
 }
@@ -1171,16 +1147,16 @@ func prepareISO() error {
 	// Generate ISO from schematic
 	logger.Info("STEP 2: Generating custom Talos ISO...")
 	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
-	
+
 	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
 	if err != nil {
 		return fmt.Errorf("ISO generation failed: %w", err)
 	}
-	
+
 	if isoInfo == nil {
 		return fmt.Errorf("ISO generation returned nil result")
 	}
-	
+
 	logger.Success("Custom ISO generated successfully")
 	logger.Info("ISO Details:")
 	logger.Info("  URL: %s", isoInfo.URL)
@@ -1190,18 +1166,18 @@ func prepareISO() error {
 	// Upload ISO to TrueNAS
 	logger.Info("STEP 3: Uploading ISO to TrueNAS...")
 	downloader := iso.NewDownloader()
-	
+
 	// Create download configuration with standard filename
 	downloadConfig := iso.GetDefaultConfig()
 	downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
 	downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
 	downloadConfig.ISOURL = isoInfo.URL
 	downloadConfig.ISOFilename = "metal-amd64.iso" // Standard filename as requested
-	
+
 	if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
 		return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)
 	}
-	
+
 	logger.Success("Custom ISO uploaded to TrueNAS successfully")
 	logger.Info("ISO Location: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
 
@@ -1228,38 +1204,51 @@ func prepareISO() error {
 	return nil
 }
 
-// updateNodeTemplatesWithSchematic updates the node template files with the new schematic ID
+// updateNodeTemplatesWithSchematic updates the controlplane template with the new schematic ID
 func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	logger := common.NewColorLogger()
-	
-	// Node template files to update (paths relative to working directory)
-	nodeTemplateFiles := []string{
-		"internal/templates/talos/nodes/192.168.122.10.yaml.j2",
-		"internal/templates/talos/nodes/192.168.122.11.yaml.j2", 
-		"internal/templates/talos/nodes/192.168.122.12.yaml.j2",
+
+	// Update controlplane.yaml template with schematic ID
+	templateFile := "internal/templates/talos/controlplane.yaml"
+	logger.Debug("Updating controlplane template: %s", templateFile)
+
+	// Read the template file
+	content, err := os.ReadFile(templateFile)
+	if err != nil {
+		return fmt.Errorf("failed to read controlplane template %s: %w", templateFile, err)
 	}
-	
-	for _, templateFile := range nodeTemplateFiles {
-		logger.Debug("Updating template: %s", templateFile)
-		
-		// Read the template file
-		content, err := os.ReadFile(templateFile)
-		if err != nil {
-			logger.Warn("Failed to read template %s: %v", templateFile, err)
-			continue
+
+	// Build the new factory image URL with the schematic ID
+	newFactoryImage := fmt.Sprintf("factory.talos.dev/metal-installer/%s:%s", schematicID, talosVersion)
+
+	// Replace the existing factory image URL with the new schematic-based URL
+	contentStr := string(content)
+	lines := strings.Split(contentStr, "\n")
+
+	for i, line := range lines {
+		if strings.Contains(line, "image: factory.talos.dev/metal-installer/") {
+			// Extract the indentation to maintain YAML formatting
+			indent := ""
+			for _, char := range line {
+				if char == ' ' {
+					indent += " "
+				} else {
+					break
+				}
+			}
+			lines[i] = indent + "image: " + newFactoryImage
+			logger.Debug("Updated factory image to: %s", newFactoryImage)
+			break
 		}
-		
-		// Replace the template variable with actual schematic ID
-		updatedContent := strings.ReplaceAll(string(content), "factory.talos.dev/metal-installer/{{ ENV.SCHEMATIC_ID }}", fmt.Sprintf("factory.talos.dev/metal-installer/%s", schematicID))
-		
-		// Write the updated content back
-		if err := os.WriteFile(templateFile, []byte(updatedContent), 0644); err != nil {
-			logger.Warn("Failed to write template %s: %v", templateFile, err)
-			continue
-		}
-		
-		logger.Debug("Updated template %s with schematic ID %s", templateFile, schematicID)
 	}
-	
+
+	updatedContent := strings.Join(lines, "\n")
+
+	// Write the updated content back
+	if err := os.WriteFile(templateFile, []byte(updatedContent), 0644); err != nil {
+		return fmt.Errorf("failed to write controlplane template %s: %w", templateFile, err)
+	}
+
+	logger.Debug("Updated controlplane template %s with schematic ID %s", templateFile, schematicID)
 	return nil
 }

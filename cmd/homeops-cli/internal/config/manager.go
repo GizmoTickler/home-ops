@@ -23,7 +23,7 @@ type Config struct {
 func DefaultConfig() *Config {
 	// Load versions dynamically from system-upgrade plans
 	versions := GetVersions(".")
-	
+
 	return &Config{
 		TalosVersion:      versions.TalosVersion,
 		KubernetesVersion: versions.KubernetesVersion,

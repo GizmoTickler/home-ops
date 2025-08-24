@@ -31,7 +31,7 @@ func NewProcessor(logger interface{}, metrics *metrics.PerformanceCollector) *Pr
 func (p *Processor) ParseFile(filename string) (map[string]interface{}, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, errors.NewFileSystemError("YAML_FILE_READ_ERROR", 
+		return nil, errors.NewFileSystemError("YAML_FILE_READ_ERROR",
 			fmt.Sprintf("failed to open YAML file: %s", filename), err)
 	}
 	defer func() {
@@ -49,7 +49,7 @@ func (p *Processor) Parse(reader io.Reader) (map[string]interface{}, error) {
 	decoder := yaml.NewDecoder(reader)
 
 	if err := decoder.Decode(&result); err != nil {
-		return nil, errors.NewValidationError("YAML_PARSE_ERROR", 
+		return nil, errors.NewValidationError("YAML_PARSE_ERROR",
 			"failed to parse YAML content", err)
 	}
 
@@ -65,7 +65,7 @@ func (p *Processor) ParseString(content string) (map[string]interface{}, error) 
 func (p *Processor) WriteFile(filename string, data interface{}) error {
 	file, err := os.Create(filename)
 	if err != nil {
-		return errors.NewFileSystemError("YAML_FILE_WRITE_ERROR", 
+		return errors.NewFileSystemError("YAML_FILE_WRITE_ERROR",
 			fmt.Sprintf("failed to create YAML file: %s", filename), err)
 	}
 	defer func() {
@@ -88,7 +88,7 @@ func (p *Processor) Write(writer io.Writer, data interface{}) error {
 	}()
 
 	if err := encoder.Encode(data); err != nil {
-		return errors.NewValidationError("YAML_ENCODE_ERROR", 
+		return errors.NewValidationError("YAML_ENCODE_ERROR",
 			"failed to encode data as YAML", err)
 	}
 
@@ -116,7 +116,7 @@ func (p *Processor) GetValue(data map[string]interface{}, path string) (interfac
 			if value, exists := current[key]; exists {
 				return value, nil
 			}
-			return nil, errors.NewValidationError("YAML_PATH_NOT_FOUND", 
+			return nil, errors.NewValidationError("YAML_PATH_NOT_FOUND",
 				fmt.Sprintf("path '%s' not found in YAML data", path), nil)
 		}
 
@@ -125,11 +125,11 @@ func (p *Processor) GetValue(data map[string]interface{}, path string) (interfac
 			if nextMap, ok := value.(map[string]interface{}); ok {
 				current = nextMap
 			} else {
-				return nil, errors.NewValidationError("YAML_PATH_INVALID", 
+				return nil, errors.NewValidationError("YAML_PATH_INVALID",
 					fmt.Sprintf("path '%s' contains non-object value at '%s'", path, key), nil)
 			}
 		} else {
-			return nil, errors.NewValidationError("YAML_PATH_NOT_FOUND", 
+			return nil, errors.NewValidationError("YAML_PATH_NOT_FOUND",
 				fmt.Sprintf("path '%s' not found in YAML data", path), nil)
 		}
 	}
@@ -154,7 +154,7 @@ func (p *Processor) SetValue(data map[string]interface{}, path string, value int
 			if nextMap, ok := value.(map[string]interface{}); ok {
 				current = nextMap
 			} else {
-				return errors.NewValidationError("YAML_PATH_INVALID", 
+				return errors.NewValidationError("YAML_PATH_INVALID",
 					fmt.Sprintf("path '%s' contains non-object value at '%s'", path, key), nil)
 			}
 		} else {
@@ -224,7 +224,7 @@ func (p *Processor) deepCopy(value interface{}) interface{} {
 func (p *Processor) ValidateSchema(data map[string]interface{}, requiredFields []string) error {
 	for _, field := range requiredFields {
 		if _, exists := data[field]; !exists {
-			return errors.NewValidationError("YAML_SCHEMA_VALIDATION_ERROR", 
+			return errors.NewValidationError("YAML_SCHEMA_VALIDATION_ERROR",
 				fmt.Sprintf("required field '%s' is missing", field), nil)
 		}
 	}
@@ -262,7 +262,7 @@ func (p *Processor) getMachineTypeInternal(filePath string) (string, error) {
 		}
 	}
 
-	return "", errors.NewValidationError("YAML_FIELD_NOT_FOUND", 
+	return "", errors.NewValidationError("YAML_FIELD_NOT_FOUND",
 		"machine.type field not found in YAML", nil)
 }
 
@@ -284,27 +284,27 @@ func (p *Processor) mergeYAMLFilesInternal(basePath, patchPath string) ([]byte, 
 	// Read base file
 	baseData, err := p.ParseFile(basePath)
 	if err != nil {
-		return nil, errors.NewFileSystemError("YAML_READ_BASE_FAILED", 
+		return nil, errors.NewFileSystemError("YAML_READ_BASE_FAILED",
 			fmt.Sprintf("Failed to read base file: %s", basePath), err)
 	}
 
 	// Read patch file
 	patchData, err := p.ParseFile(patchPath)
 	if err != nil {
-		return nil, errors.NewFileSystemError("YAML_READ_PATCH_FAILED", 
+		return nil, errors.NewFileSystemError("YAML_READ_PATCH_FAILED",
 			fmt.Sprintf("Failed to read patch file: %s", patchPath), err)
 	}
 
 	// Merge patch into base using mergo
 	if err := mergo.Merge(&baseData, patchData, mergo.WithOverride); err != nil {
-		return nil, errors.NewValidationError("YAML_MERGE_FAILED", 
+		return nil, errors.NewValidationError("YAML_MERGE_FAILED",
 			"Failed to merge YAML content", err)
 	}
 
 	// Marshal back to YAML
 	merged, err := yaml.Marshal(baseData)
 	if err != nil {
-		return nil, errors.NewValidationError("YAML_MARSHAL_FAILED", 
+		return nil, errors.NewValidationError("YAML_MARSHAL_FAILED",
 			"Failed to marshal merged YAML", err)
 	}
 
@@ -343,12 +343,12 @@ func (p *Processor) mergeYAMLMultiDocumentInternal(baseContent, patchContent []b
 	// Split patch content by document separator
 	patchStr := string(patchContent)
 	parts := strings.Split(patchStr, "---")
-	
+
 	if len(parts) == 1 {
 		// Single document, use regular merge
 		return p.mergeYAMLInternal(baseContent, patchContent)
 	}
-	
+
 	// Multi-document patch: merge first document, append the rest
 	firstDoc := strings.TrimSpace(parts[0])
 	if firstDoc == "" && len(parts) > 1 {
@@ -357,17 +357,17 @@ func (p *Processor) mergeYAMLMultiDocumentInternal(baseContent, patchContent []b
 	} else {
 		parts = parts[1:]
 	}
-	
+
 	// Merge the first document with base
 	merged, err := p.mergeYAMLInternal(baseContent, []byte(firstDoc))
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Append remaining documents
 	result := strings.Builder{}
 	result.Write(merged)
-	
+
 	for _, part := range parts {
 		trimmedPart := strings.TrimSpace(part)
 		if trimmedPart != "" {
@@ -375,7 +375,7 @@ func (p *Processor) mergeYAMLMultiDocumentInternal(baseContent, patchContent []b
 			result.WriteString(trimmedPart)
 		}
 	}
-	
+
 	return []byte(result.String()), nil
 }
 
@@ -383,27 +383,27 @@ func (p *Processor) mergeYAMLInternal(baseContent, patchContent []byte) ([]byte,
 	// Parse base YAML
 	var baseData map[string]interface{}
 	if err := yaml.Unmarshal(baseContent, &baseData); err != nil {
-		return nil, errors.NewValidationError("YAML_PARSE_BASE_FAILED", 
+		return nil, errors.NewValidationError("YAML_PARSE_BASE_FAILED",
 			"Failed to parse base YAML content", err)
 	}
 
 	// Parse patch YAML
 	var patchData map[string]interface{}
 	if err := yaml.Unmarshal(patchContent, &patchData); err != nil {
-		return nil, errors.NewValidationError("YAML_PARSE_PATCH_FAILED", 
+		return nil, errors.NewValidationError("YAML_PARSE_PATCH_FAILED",
 			"Failed to parse patch YAML content", err)
 	}
 
 	// Merge patch into base using mergo
 	if err := mergo.Merge(&baseData, patchData, mergo.WithOverride); err != nil {
-		return nil, errors.NewValidationError("YAML_MERGE_FAILED", 
+		return nil, errors.NewValidationError("YAML_MERGE_FAILED",
 			"Failed to merge YAML content", err)
 	}
 
 	// Marshal back to YAML
 	merged, err := yaml.Marshal(baseData)
 	if err != nil {
-		return nil, errors.NewValidationError("YAML_MARSHAL_FAILED", 
+		return nil, errors.NewValidationError("YAML_MARSHAL_FAILED",
 			"Failed to marshal merged YAML", err)
 	}
 
