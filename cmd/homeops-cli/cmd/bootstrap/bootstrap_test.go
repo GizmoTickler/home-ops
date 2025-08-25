@@ -21,22 +21,22 @@ func TestBootstrapConfig(t *testing.T) {
 		{
 			name: "valid config",
 			config: &BootstrapConfig{
-				RootDir:     "/tmp/test",
-				KubeConfig:  "/tmp/kubeconfig",
-				TalosConfig: "/tmp/talosconfig",
-				K8sVersion:  "v1.33.4",
+				RootDir:      "/tmp/test",
+				KubeConfig:   "/tmp/kubeconfig",
+				TalosConfig:  "/tmp/talosconfig",
+				K8sVersion:   "v1.33.4",
 				TalosVersion: "v1.11.0",
-				DryRun:      false,
+				DryRun:       false,
 			},
 			valid: true,
 		},
 		{
 			name: "empty root dir",
 			config: &BootstrapConfig{
-				RootDir:     "",
-				KubeConfig:  "/tmp/kubeconfig",
-				TalosConfig: "/tmp/talosconfig",
-				K8sVersion:  "v1.33.4",
+				RootDir:      "",
+				KubeConfig:   "/tmp/kubeconfig",
+				TalosConfig:  "/tmp/talosconfig",
+				K8sVersion:   "v1.33.4",
 				TalosVersion: "v1.11.0",
 			},
 			valid: false,
@@ -95,10 +95,10 @@ cluster:
 // TestValidatePrerequisites tests prerequisite validation
 func TestValidatePrerequisites(t *testing.T) {
 	config := &BootstrapConfig{
-		RootDir:     "/tmp",
-		KubeConfig:  "/tmp/kubeconfig", 
-		TalosConfig: "/tmp/talosconfig",
-		K8sVersion:  "v1.33.4",
+		RootDir:      "/tmp",
+		KubeConfig:   "/tmp/kubeconfig",
+		TalosConfig:  "/tmp/talosconfig",
+		K8sVersion:   "v1.33.4",
 		TalosVersion: "v1.11.0",
 	}
 
@@ -122,7 +122,7 @@ func TestGet1PasswordSecret(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "malformed reference", 
+			name:        "malformed reference",
 			reference:   "op://",
 			expectError: true,
 		},
@@ -144,7 +144,7 @@ func TestGet1PasswordSecret(t *testing.T) {
 // TestResolve1PasswordReferences tests 1Password reference resolution
 func TestResolve1PasswordReferences(t *testing.T) {
 	logger := common.NewColorLogger()
-	
+
 	tests := []struct {
 		name     string
 		content  string
@@ -184,7 +184,7 @@ func TestWaitForNodesAvailable(t *testing.T) {
 	// Create a temporary kubeconfig that will fail
 	tmpDir := t.TempDir()
 	kubeconfig := filepath.Join(tmpDir, "kubeconfig")
-	
+
 	// Write invalid kubeconfig
 	invalidConfig := `
 apiVersion: v1
@@ -199,7 +199,7 @@ contexts:
   name: invalid
 current-context: invalid
 `
-	
+
 	if err := os.WriteFile(kubeconfig, []byte(invalidConfig), 0600); err != nil {
 		t.Fatalf("Failed to write test kubeconfig: %v", err)
 	}
@@ -217,7 +217,7 @@ current-context: invalid
 	if err == nil {
 		t.Errorf("Expected error with invalid kubeconfig")
 	}
-	
+
 	// Should fail relatively quickly (within 30 seconds for this test)
 	if duration > 30*time.Second {
 		t.Errorf("Function took too long to fail: %v", duration)
@@ -256,12 +256,12 @@ func TestExtractOnePasswordReferences(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := extractOnePasswordReferences(tt.content)
-			
+
 			if len(result) != len(tt.expected) {
 				t.Errorf("Expected %d references, got %d", len(tt.expected), len(result))
 				return
 			}
-			
+
 			for i, expected := range tt.expected {
 				if result[i] != expected {
 					t.Errorf("Expected reference %d to be %s, got %s", i, expected, result[i])
