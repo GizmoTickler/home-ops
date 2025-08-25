@@ -171,23 +171,23 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 }
 
 func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
-	// Get base config from embedded YAML file
-	baseConfig, err := templates.GetTalosTemplate(baseTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get base config: %w", err)
-	}
-
-	// Get patch config from embedded YAML file
-	patchConfig, err := templates.GetTalosTemplate(patchTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get patch config: %w", err)
-	}
-
-	// Use Go YAML processor to merge
-	metrics := metrics.NewPerformanceCollector()
-	processor := yaml.NewProcessor(nil, metrics)
-
-	return processor.MergeYAMLMultiDocument([]byte(baseConfig), []byte(patchConfig))
+	logger := common.NewColorLogger()
+	metricsCollector := metrics.NewPerformanceCollector()
+	
+	// Create unified template renderer
+	renderer := templates.NewTemplateRenderer(".", logger, metricsCollector)
+	
+	// Prepare environment variables for template rendering
+	env := make(map[string]string)
+	env["SCHEMATIC_ID"] = schematicID
+	
+	// Add other common environment variables
+	versionConfig := versionconfig.GetVersions(".")
+	env["KUBERNETES_VERSION"] = versionConfig.KubernetesVersion
+	env["TALOS_VERSION"] = versionConfig.TalosVersion
+	
+	// Use the unified renderer for Talos config rendering and merging
+	return renderer.RenderTalosConfigWithMerge(baseTemplate, patchTemplate, env)
 }
 
 func newUpgradeNodeCommand() *cobra.Command {

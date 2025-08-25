@@ -1,6 +1,7 @@
 ---
 version: v1alpha1
 machine:
+  type: controlplane
   ca:
     crt: op://Infrastructure/talos/MACHINE_CA_CRT
     key: op://Infrastructure/talos/MACHINE_CA_KEY
