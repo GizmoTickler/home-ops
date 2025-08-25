@@ -191,65 +191,99 @@ func (vm *VMManager) DeleteVM(name string, deleteZVol bool, storagePool string) 
 
 	vm.logger.Info("Deleting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
 
-	// Discover ZVols if we need to delete them
+	// Discover ZVols BEFORE deleting the VM
+	// This ensures we can still query the VM's devices
 	var zvolPaths []string
 	if deleteZVol {
 		vm.logger.Info("ZVol deletion requested for VM %s", name)
+		
+		// Try primary discovery through VM devices
 		zvolPaths, err = vm.discoverVMZVols(vmItem)
 		if err != nil {
-			vm.logger.Warn("Failed to discover ZVols for VM %s: %v", name, err)
+			vm.logger.Warn("Primary ZVol discovery failed for VM %s: %v", name, err)
+		} else if len(zvolPaths) > 0 {
+			vm.logger.Success("Primary discovery found %d ZVols: %v", len(zvolPaths), zvolPaths)
 		} else {
-			vm.logger.Info("Primary discovery found %d ZVols: %v", len(zvolPaths), zvolPaths)
+			vm.logger.Info("Primary discovery found no ZVols, will try pattern matching")
+		}
+		
+		// If primary discovery didn't find ZVols, try pattern matching immediately
+		if len(zvolPaths) == 0 {
+			vm.logger.Info("Attempting pattern-based ZVol discovery for VM %s", name)
+			fallbackPaths := vm.discoverZVolsByPattern(storagePool, name)
+			if len(fallbackPaths) > 0 {
+				vm.logger.Success("Pattern matching found %d ZVols: %v", len(fallbackPaths), fallbackPaths)
+				zvolPaths = fallbackPaths
+			} else {
+				vm.logger.Warn("No ZVols found using pattern matching")
+				// Last resort: try querying all VOLUMEs and filter by VM name
+				vm.logger.Info("Attempting comprehensive ZVol search for VM %s", name)
+				datasets, err := vm.client.QueryDatasets(nil)
+				if err == nil {
+					for _, dataset := range datasets {
+						if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, name) {
+							vm.logger.Info("Found potential ZVol: %s", dataset.Name)
+							zvolPaths = append(zvolPaths, dataset.Name)
+						}
+					}
+					if len(zvolPaths) > 0 {
+						vm.logger.Success("Comprehensive search found %d potential ZVols", len(zvolPaths))
+					}
+				}
+			}
 		}
 	} else {
 		vm.logger.Info("ZVol deletion not requested for VM %s", name)
 	}
 
-	// Delete the VM first
+	// Log discovered ZVols before VM deletion
+	if deleteZVol && len(zvolPaths) > 0 {
+		vm.logger.Info("Will attempt to delete the following ZVols after VM deletion: %v", zvolPaths)
+	}
+
+	// Delete the VM
 	vm.logger.Info("Calling TrueNAS API to delete VM ID: %d", vmItem.ID)
 	if err := vm.client.DeleteVM(vmItem.ID); err != nil {
 		vm.logger.Error("VM deletion API call failed: %v", err)
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
-	vm.logger.Info("VM deletion API call completed successfully")
+	vm.logger.Success("VM deletion API call completed successfully")
 
-	// Verify VM is actually deleted by checking if it still exists
+	// Brief wait to ensure VM deletion is processed
+	time.Sleep(2 * time.Second)
+
+	// Verify VM is actually deleted
 	vm.logger.Info("Verifying VM deletion...")
 	_, verifyErr := vm.getVMByName(name)
 	if verifyErr == nil {
-		vm.logger.Warn("VM still exists after deletion API call - this may indicate a TrueNAS API issue")
-	} else {
-		vm.logger.Info("VM deletion verified - VM no longer exists")
+		vm.logger.Warn("VM still exists after deletion API call - waiting and retrying verification")
+		time.Sleep(3 * time.Second)
+		_, verifyErr = vm.getVMByName(name)
+		if verifyErr == nil {
+			vm.logger.Error("VM persists after deletion - this may indicate a TrueNAS API issue")
+		}
+	}
+	if verifyErr != nil {
+		vm.logger.Success("VM deletion verified - VM no longer exists")
 	}
 
-	// Delete ZVols if requested
-	if deleteZVol {
-		if len(zvolPaths) == 0 {
-			vm.logger.Warn("No ZVols discovered for VM %s - trying fallback discovery", name)
-			// Try fallback discovery using VM name patterns
-			fallbackPaths := vm.discoverZVolsByPattern(storagePool, name)
-			if len(fallbackPaths) > 0 {
-				vm.logger.Success("Found %d ZVols using fallback pattern matching: %v", len(fallbackPaths), fallbackPaths)
-				zvolPaths = fallbackPaths
-			} else {
-				vm.logger.Error("No ZVols found for VM %s using any discovery method", name)
-			}
+	// Delete ZVols if requested and we found any
+	if deleteZVol && len(zvolPaths) > 0 {
+		vm.logger.Info("Starting deletion of %d ZVols for VM %s", len(zvolPaths), name)
+		deletionErr := vm.deleteZVolsByPaths(zvolPaths, name)
+		if deletionErr != nil {
+			vm.logger.Error("Failed to delete some ZVols: %v", deletionErr)
+			vm.logger.Warn("Manual cleanup may be required for remaining ZVols")
+			// Return error to indicate partial failure
+			return fmt.Errorf("VM deleted but failed to delete all ZVols: %w", deletionErr)
 		} else {
-			vm.logger.Success("Primary discovery found %d ZVols, skipping fallback", len(zvolPaths))
+			vm.logger.Success("All %d ZVols deleted successfully", len(zvolPaths))
 		}
-		
-		if len(zvolPaths) > 0 {
-			vm.logger.Info("Attempting to delete %d ZVols for VM %s", len(zvolPaths), name)
-			if err := vm.deleteZVolsByPaths(zvolPaths, name); err != nil {
-				vm.logger.Error("Failed to delete some ZVols: %v", err)
-				// Continue with VM deletion even if ZVol deletion fails
-			} else {
-				vm.logger.Success("All ZVols deleted successfully")
-			}
-		}
+	} else if deleteZVol && len(zvolPaths) == 0 {
+		vm.logger.Warn("No ZVols were found for VM %s - they may have been manually deleted or may require manual cleanup", name)
 	}
 
-	vm.logger.Success("VM %s deleted successfully", name)
+	vm.logger.Success("VM %s deletion completed", name)
 	return nil
 }
 
@@ -722,19 +756,13 @@ func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error
 	for i, zvolPath := range zvolPaths {
 		vm.logger.Info("Deleting ZVol %d/%d: %s", i+1, len(zvolPaths), zvolPath)
 		
-		// Try with recursive=false first, then recursive=true if that fails
-		if err := vm.client.DeleteDataset(zvolPath, false); err != nil {
-			vm.logger.Warn("Failed to delete ZVol %s with recursive=false: %v", zvolPath, err)
-			vm.logger.Info("Retrying ZVol deletion with recursive=true: %s", zvolPath)
-			
-			if retryErr := vm.client.DeleteDataset(zvolPath, true); retryErr != nil {
-				vm.logger.Error("Failed to delete ZVol %s with recursive=true: %v", zvolPath, retryErr)
-				failedZVols = append(failedZVols, fmt.Sprintf("%s (errors: %v, %v)", zvolPath, err, retryErr))
-			} else {
-				vm.logger.Success("✓ Deleted ZVol with recursive=true: %s", zvolPath)
-			}
+		// Always use recursive=true to handle snapshots
+		// ZVols often have automatic snapshots that prevent deletion without recursive flag
+		if err := vm.client.DeleteDataset(zvolPath, true); err != nil {
+			vm.logger.Error("Failed to delete ZVol %s: %v", zvolPath, err)
+			failedZVols = append(failedZVols, fmt.Sprintf("%s (error: %v)", zvolPath, err))
 		} else {
-			vm.logger.Success("✓ Deleted ZVol: %s", zvolPath)
+			vm.logger.Success("✓ Deleted ZVol (including any snapshots): %s", zvolPath)
 		}
 	}
 
@@ -745,18 +773,65 @@ func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error
 	return nil
 }
 
+// CleanupOrphanedZVols deletes ZVols for a VM that no longer exists
+func (vm *VMManager) CleanupOrphanedZVols(vmName, storagePool string) error {
+	vm.logger.Info("Searching for orphaned ZVols for VM: %s", vmName)
+	
+	// Use pattern discovery to find ZVols
+	zvolPaths := vm.discoverZVolsByPattern(storagePool, vmName)
+	
+	if len(zvolPaths) == 0 {
+		vm.logger.Warn("No orphaned ZVols found for VM %s", vmName)
+		return nil
+	}
+	
+	vm.logger.Info("Found %d orphaned ZVols for VM %s: %v", len(zvolPaths), vmName, zvolPaths)
+	
+	// Delete the discovered ZVols
+	if err := vm.deleteZVolsByPaths(zvolPaths, vmName); err != nil {
+		return fmt.Errorf("failed to delete orphaned ZVols: %w", err)
+	}
+	
+	vm.logger.Success("Successfully cleaned up %d orphaned ZVols for VM %s", len(zvolPaths), vmName)
+	return nil
+}
+
 // discoverZVolsByPattern attempts to find ZVols using naming patterns when device discovery fails
 func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string {
 	vm.logger.Info("Attempting fallback ZVol discovery using naming patterns")
 	vm.logger.Info("Search parameters: storagePool=%s, vmName=%s", storagePool, vmName)
 	var zvolPaths []string
 	
-	// Common ZVol naming patterns based on deployment logic
-	patterns := []string{
+	// Build multiple pattern variations to handle different pool configurations
+	// VMs can be created with different pool paths like "flashstor" or "flashstor/VM"
+	var patterns []string
+	
+	// Standard patterns with the provided pool
+	patterns = append(patterns,
 		fmt.Sprintf("%s/%s-boot", storagePool, vmName),
 		fmt.Sprintf("%s/%s-ebs", storagePool, vmName),    // OpenEBS disk
 		fmt.Sprintf("%s/%s-rook", storagePool, vmName),   // Rook disk
+	)
+	
+	// If the pool doesn't already contain /VM, also check with /VM appended
+	if !strings.HasSuffix(storagePool, "/VM") {
+		patterns = append(patterns,
+			fmt.Sprintf("%s/VM/%s-boot", storagePool, vmName),
+			fmt.Sprintf("%s/VM/%s-ebs", storagePool, vmName),
+			fmt.Sprintf("%s/VM/%s-rook", storagePool, vmName),
+		)
 	}
+	
+	// If the pool has /VM, also check without it
+	if strings.HasSuffix(storagePool, "/VM") {
+		basePool := strings.TrimSuffix(storagePool, "/VM")
+		patterns = append(patterns,
+			fmt.Sprintf("%s/%s-boot", basePool, vmName),
+			fmt.Sprintf("%s/%s-ebs", basePool, vmName),
+			fmt.Sprintf("%s/%s-rook", basePool, vmName),
+		)
+	}
+	
 	vm.logger.Info("Looking for ZVols matching patterns: %v", patterns)
 	
 	// Query all datasets to find matches
@@ -774,33 +849,41 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		patternMap[pattern] = true
 	}
 	
-	// First, log some sample datasets to understand the structure
-	if len(datasets) > 0 {
-		vm.logger.Info("Sample dataset names: %v", func() []string {
-			var samples []string
-			for i, ds := range datasets {
-				if i < 5 { // Show first 5 datasets
-					samples = append(samples, fmt.Sprintf("%s (type: %s)", ds.Name, ds.Type))
-				}
-			}
-			return samples
-		}())
-	}
-	
-	// Check each dataset
+	// Also do a more flexible search by checking if dataset name contains the VM name
+	// This helps catch ZVols even if the pool path is different
 	for _, dataset := range datasets {
+		// First check exact pattern matches
 		if patternMap[dataset.Name] {
-			vm.logger.Info("Found pattern match: %s (type: %s)", dataset.Name, dataset.Type)
+			vm.logger.Info("Found exact pattern match: %s (type: %s)", dataset.Name, dataset.Type)
 			// Check if it's actually a ZVol (type should be "VOLUME")
 			if dataset.Type == "VOLUME" {
 				zvolPaths = append(zvolPaths, dataset.Name)
-				vm.logger.Success("✓ Found ZVol by pattern: %s", dataset.Name)
+				vm.logger.Success("✓ Found ZVol by exact pattern: %s", dataset.Name)
 			} else {
 				vm.logger.Warn("Pattern matched but not a VOLUME: %s (type: %s)", dataset.Name, dataset.Type)
+			}
+		} else if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, vmName) {
+			// Flexible matching: if it's a VOLUME and contains the VM name
+			// Check if it matches our expected suffixes
+			if strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-boot", vmName)) ||
+			   strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-ebs", vmName)) ||
+			   strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-rook", vmName)) {
+				zvolPaths = append(zvolPaths, dataset.Name)
+				vm.logger.Success("✓ Found ZVol by flexible pattern: %s", dataset.Name)
 			}
 		}
 	}
 	
-	vm.logger.Info("Pattern-based discovery found %d ZVols", len(zvolPaths))
-	return zvolPaths
+	// Remove duplicates
+	seen := make(map[string]bool)
+	var uniquePaths []string
+	for _, path := range zvolPaths {
+		if !seen[path] {
+			seen[path] = true
+			uniquePaths = append(uniquePaths, path)
+		}
+	}
+	
+	vm.logger.Info("Pattern-based discovery found %d unique ZVols", len(uniquePaths))
+	return uniquePaths
 }
