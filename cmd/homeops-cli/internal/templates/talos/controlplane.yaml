@@ -7,7 +7,7 @@ machine:
     key: op://Infrastructure/talos/MACHINE_CA_KEY
   certSANs:
     - 127.0.0.1
-    - 192.168.255.100
+    - 192.168.120.100
   features:
     apidCheckExtKeyUsage: true
     diskQuotaSupport: true
@@ -61,7 +61,7 @@ machine:
     image: ghcr.io/siderolabs/kubelet:v1.33.4
     nodeIP:
       validSubnets:
-        - 192.168.252.0/22
+        - 192.168.120.0/22
   nodeLabels:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
@@ -91,7 +91,7 @@ cluster:
     key: op://Infrastructure/talos/CLUSTER_CA_KEY
   clusterName: home-ops-cluster
   controlPlane:
-    endpoint: https://192.168.255.100:6443
+    endpoint: https://192.169.120.100:6443
   id: op://Infrastructure/talos/CLUSTER_ID
   network:
     cni:
@@ -115,7 +115,7 @@ cluster:
         - level: Metadata
     certSANs:
       - 127.0.0.1
-      - 192.168.255.100
+      - 192.168.120.100
     disablePodSecurityPolicy: true
     extraArgs:
       enable-aggregator-routing: "true"
@@ -130,7 +130,7 @@ cluster:
     disabled: true
   etcd:
     advertisedSubnets:
-      - 192.168.255.0/22
+      - 192.168.120.0/22
     ca:
       crt: op://Infrastructure/talos/CLUSTER_ETCD_CA_CRT
       key: op://Infrastructure/talos/CLUSTER_ETCD_CA_KEY

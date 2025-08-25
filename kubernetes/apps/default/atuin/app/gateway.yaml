@@ -13,7 +13,7 @@ spec:
   gatewayClassName: cilium
   addresses:
     - type: IPAddress
-      value: 192.168.252.111
+      value: 192.169.123.111
   listeners:
     - name: http
       protocol: HTTP

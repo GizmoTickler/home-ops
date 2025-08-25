@@ -7,7 +7,7 @@ machine:
           hardwareAddr: 00:a0:98:1a:f3:72
         dhcp: true
         vip:
-          ip: 192.168.255.100
+          ip: 192.169.120.100
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
