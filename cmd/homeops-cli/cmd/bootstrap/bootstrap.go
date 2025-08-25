@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,8 +69,8 @@ func NewCommand() *cobra.Command {
 
 	// Add flags
 	cmd.Flags().StringVar(&config.RootDir, "root-dir", ".", "Root directory of the project")
-	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", "./kubeconfig", "Path to kubeconfig file")
-	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", "", "Path to talosconfig file (empty to use default)")
+	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", "kubeconfig", "Path to kubeconfig file (relative to root-dir)")
+	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", "talosconfig", "Path to talosconfig file (relative to root-dir)")
 	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv("KUBERNETES_VERSION"), "Kubernetes version")
 	cmd.Flags().StringVar(&config.TalosVersion, "talos-version", os.Getenv("TALOS_VERSION"), "Talos version")
 	cmd.Flags().BoolVar(&config.DryRun, "dry-run", false, "Perform a dry run without making changes")
@@ -97,6 +96,17 @@ func runBootstrap(config *BootstrapConfig) error {
 		}
 		config.RootDir = absPath
 	}
+
+	// Resolve kubeconfig and talosconfig paths relative to root directory if they are relative
+	if config.KubeConfig != "" && !filepath.IsAbs(config.KubeConfig) {
+		config.KubeConfig = filepath.Join(config.RootDir, config.KubeConfig)
+	}
+	if config.TalosConfig != "" && !filepath.IsAbs(config.TalosConfig) {
+		config.TalosConfig = filepath.Join(config.RootDir, config.TalosConfig)
+	}
+
+	logger.Debug("Using kubeconfig: %s", config.KubeConfig)
+	logger.Debug("Using talosconfig: %s", config.TalosConfig)
 
 	// Load versions from system-upgrade plans if not provided via flags/env
 	if config.K8sVersion == "" || config.TalosVersion == "" {
@@ -229,11 +239,21 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		return nil
 	}
 
-	// Define critical namespaces needed for bootstrap
+	// Define all namespaces used in the cluster
+	// This ensures all namespaces exist before any resources are applied
 	namespaces := []string{
+		"actions-runner-system",
 		"cert-manager",
 		"external-secrets",
 		"flux-system",
+		"kube-system",  // Usually exists but we'll ensure it's there
+		"network",
+		"observability",
+		"openebs-system",
+		"rook-ceph",
+		"system",
+		"system-upgrade",
+		"volsync-system",
 	}
 
 	for _, ns := range namespaces {
@@ -888,12 +908,6 @@ func applyNodeConfig(node string, config []byte) error {
 	return nil
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
 
 func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	// Get the node template content with proper talos/ prefix
@@ -1018,15 +1032,23 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base config temp file: %w", err)
 	}
-	defer os.Remove(baseFile.Name())
-	defer baseFile.Close()
+	defer func() {
+		_ = os.Remove(baseFile.Name()) // Ignore cleanup errors
+	}()
+	defer func() {
+		_ = baseFile.Close() // Ignore cleanup errors
+	}()
 
 	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create patch config temp file: %w", err)
 	}
-	defer os.Remove(patchFile.Name())
-	defer patchFile.Close()
+	defer func() {
+		_ = os.Remove(patchFile.Name()) // Ignore cleanup errors
+	}()
+	defer func() {
+		_ = patchFile.Close() // Ignore cleanup errors
+	}()
 
 	// Write configs to temp files
 	if _, err := baseFile.Write(baseConfig); err != nil {
@@ -1037,8 +1059,12 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 	}
 
 	// Close files so talosctl can read them
-	baseFile.Close()
-	patchFile.Close()
+	if err := baseFile.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close base file: %w", err)
+	}
+	if err := patchFile.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close patch file: %w", err)
+	}
 
 	// Use talosctl to merge configurations
 	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
@@ -1270,13 +1296,64 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 		return err
 	}
 
-	// Wait for nodes to be in Ready=False state (proper bootstrap sequence)
+	// Check if nodes are already ready (re-bootstrap scenario)
+	if ready, err := checkIfNodesReady(config, logger); err != nil {
+		return fmt.Errorf("failed to check node readiness: %w", err)
+	} else if ready {
+		logger.Success("Nodes are already ready (CNI likely already installed)")
+		return nil
+	}
+
+	// Wait for nodes to be in Ready=False state (fresh bootstrap sequence)
 	logger.Info("Waiting for nodes to be in 'Ready=False' state...")
 	if err := waitForNodesReadyFalse(config, logger); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// checkIfNodesReady checks if nodes are already in Ready=True state
+func checkIfNodesReady(config *BootstrapConfig, logger *common.ColorLogger) (bool, error) {
+	cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
+		"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Ready')].status}{\"\\n\"}{end}")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("failed to check node ready status: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	allReady := true
+	readyCount := 0
+	totalNodes := 0
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if len(parts) == 2 {
+			totalNodes++
+			nodeName := parts[0]
+			readyStatus := parts[1]
+			if readyStatus == "True" {
+				readyCount++
+				logger.Debug("Node %s is Ready=True", nodeName)
+			} else {
+				logger.Debug("Node %s is Ready=%s", nodeName, readyStatus)
+				allReady = false
+			}
+		}
+	}
+
+	if allReady && readyCount > 0 {
+		logger.Info("All %d nodes are already Ready=True", readyCount)
+		return true, nil
+	}
+
+	logger.Debug("Nodes not all ready yet: %d/%d ready", readyCount, totalNodes)
+	return false, nil
 }
 
 func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1375,7 +1452,7 @@ func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 }
 
 func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) error {
-	logger.Info("Applying CRDs from helmfile...")
+	logger.Info("Applying CRDs from dedicated helmfile...")
 
 	if config.DryRun {
 		logger.Info("[DRY RUN] Would apply CRDs from crds/helmfile.yaml")
@@ -1394,38 +1471,21 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	}()
 
 	// Get embedded CRDs helmfile content
-	crdsHelmfileTemplate, err := templates.GetBootstrapFile("crds/helmfile.yaml")
+	crdsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/00-crds.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get embedded CRDs helmfile: %w", err)
 	}
 
-	// Render the helmfile template with RootDir
-	tmpl, err := template.New("crds-helmfile").Parse(crdsHelmfileTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse CRDs helmfile template: %w", err)
-	}
-
-	var helmfileContent bytes.Buffer
-	templateData := struct {
-		RootDir string
-	}{
-		RootDir: config.RootDir,
-	}
-
-	if err := tmpl.Execute(&helmfileContent, templateData); err != nil {
-		return fmt.Errorf("failed to render CRDs helmfile template: %w", err)
-	}
-
-	// Create temporary file for CRDs helmfile
-	crdsHelmfilePath := filepath.Join(tempDir, "crds-helmfile.yaml")
-	if err := os.WriteFile(crdsHelmfilePath, helmfileContent.Bytes(), 0644); err != nil {
+	// The CRDs helmfile doesn't need templating, write it directly
+	crdsHelmfilePath := filepath.Join(tempDir, "00-crds.yaml")
+	if err := os.WriteFile(crdsHelmfilePath, []byte(crdsHelmfileTemplate), 0644); err != nil {
 		return fmt.Errorf("failed to write CRDs helmfile: %w", err)
 	}
 
-	logger.Info("Created CRDs helmfile for template processing")
+	logger.Info("Using dedicated CRDs helmfile to extract CRDs only")
 
-	// Use helmfile template command to generate CRD manifests
-	cmd := exec.Command("helmfile", "--file", crdsHelmfilePath, "template", "--include-crds")
+	// Use helmfile template to generate CRDs only (the helmfile has --include-crds but we filter to CRDs)
+	cmd := exec.Command("helmfile", "--file", crdsHelmfilePath, "template")
 	cmd.Dir = tempDir
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
@@ -1438,19 +1498,43 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	}
 
 	if len(output) == 0 {
-		logger.Warn("No CRD manifests generated from helmfile template")
+		logger.Warn("No manifests generated from CRDs helmfile template")
 		return nil
 	}
 
-	// Apply the templated CRDs using kubectl
-	applyCmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
-	applyCmd.Stdin = bytes.NewReader(output)
-
-	if applyOutput, err := applyCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, string(applyOutput))
+	// Extract only the CRDs from the output
+	crdManifests, otherManifests, err := separateCRDsFromManifests(string(output))
+	if err != nil {
+		return fmt.Errorf("failed to separate CRDs from manifests: %w", err)
 	}
 
-	logger.Success("CRDs applied successfully from helmfile")
+	if len(otherManifests) > 0 {
+		logger.Debug("Found %d non-CRD resources in CRDs helmfile output, ignoring them", len(otherManifests))
+	}
+
+	// Apply only the CRDs
+	if len(crdManifests) > 0 {
+		logger.Info("Applying %d CRDs...", len(crdManifests))
+		crdYaml := strings.Join(crdManifests, "\n---\n")
+		
+		applyCmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
+		applyCmd.Stdin = bytes.NewReader([]byte(crdYaml))
+
+		if applyOutput, err := applyCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, string(applyOutput))
+		}
+
+		logger.Info("CRDs applied, waiting for them to be established...")
+		
+		// Wait for CRDs to be established
+		if err := waitForCRDsEstablished(config, logger); err != nil {
+			return fmt.Errorf("CRDs failed to be established: %w", err)
+		}
+	} else {
+		logger.Warn("No CRDs found in helmfile template output")
+	}
+
+	logger.Success("CRDs applied and established successfully")
 	return nil
 }
 
@@ -1633,7 +1717,11 @@ func saveRenderedConfig(config, filename string, logger *common.ColorLogger) err
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", filename, err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			logger.Warn("Failed to close file: %v", err)
+		}
+	}()
 	
 	_, err = file.WriteString(config)
 	if err != nil {
@@ -1718,33 +1806,16 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return fmt.Errorf("failed to write values template: %w", err)
 	}
 
-	// Get embedded helmfile content
-	helmfileTemplate, err := templates.GetBootstrapFile("helmfile.yaml")
+	// Get embedded apps helmfile content
+	appsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/01-apps.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to get embedded helmfile: %w", err)
+		return fmt.Errorf("failed to get embedded apps helmfile: %w", err)
 	}
 
-	// Render the helmfile template with RootDir and temp directory
-	tmpl, err := template.New("helmfile").Parse(helmfileTemplate)
-	if err != nil {
-		return fmt.Errorf("failed to parse helmfile template: %w", err)
-	}
-
-	var helmfileContent bytes.Buffer
-	templateData := struct {
-		RootDir string
-	}{
-		RootDir: config.RootDir,
-	}
-
-	if err := tmpl.Execute(&helmfileContent, templateData); err != nil {
-		return fmt.Errorf("failed to render helmfile template: %w", err)
-	}
-
-	// Create temporary file for helmfile
-	helmfilePath := filepath.Join(tempDir, "helmfile.yaml")
-	if err := os.WriteFile(helmfilePath, helmfileContent.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write helmfile: %w", err)
+	// The apps helmfile doesn't need templating, write it directly
+	helmfilePath := filepath.Join(tempDir, "01-apps.yaml")
+	if err := os.WriteFile(helmfilePath, []byte(appsHelmfileTemplate), 0644); err != nil {
+		return fmt.Errorf("failed to write apps helmfile: %w", err)
 	}
 
 	logger.Info("Created dynamic helmfile with Go template support")
@@ -1767,12 +1838,149 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 
 	logger.Info("Helm releases synced successfully")
 
-	// Apply cluster secret store after external-secrets is deployed
+	// Wait for external-secrets webhook to be ready before applying ClusterSecretStore
+	logger.Info("Waiting for external-secrets webhook to be ready...")
+	if err := waitForExternalSecretsWebhook(config, logger); err != nil {
+		return fmt.Errorf("external-secrets webhook failed to become ready: %w", err)
+	}
+
+	// Apply cluster secret store after external-secrets is deployed and ready
 	if err := applyClusterSecretStore(config, logger); err != nil {
 		return fmt.Errorf("failed to apply cluster secret store: %w", err)
 	}
 
 	return nil
+}
+
+// separateCRDsFromManifests separates CRD manifests from other manifests
+func separateCRDsFromManifests(manifestsYaml string) ([]string, []string, error) {
+	var crdManifests []string
+	var otherManifests []string
+
+	// Split by YAML document separator
+	documents := strings.Split(manifestsYaml, "\n---\n")
+
+	for _, doc := range documents {
+		doc = strings.TrimSpace(doc)
+		if doc == "" || doc == "---" {
+			continue
+		}
+
+		// Check if this is a CRD by looking for "kind: CustomResourceDefinition"
+		if strings.Contains(doc, "kind: CustomResourceDefinition") {
+			crdManifests = append(crdManifests, doc)
+		} else {
+			otherManifests = append(otherManifests, doc)
+		}
+	}
+
+	return crdManifests, otherManifests, nil
+}
+
+// waitForCRDsEstablished waits for all CRDs to be established
+func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger) error {
+	maxAttempts := 30 // 2 minutes with 4-second intervals
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		cmd := exec.Command("kubectl", "get", "crd", 
+			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Established')].status}{\"\\n\"}{end}",
+			"--kubeconfig", config.KubeConfig)
+
+		output, err := cmd.Output()
+		if err != nil {
+			logger.Debug("Attempt %d/%d: Failed to check CRD status", attempt, maxAttempts)
+			if attempt == maxAttempts {
+				return fmt.Errorf("failed to check CRD status after %d attempts: %w", maxAttempts, err)
+			}
+			time.Sleep(4 * time.Second)
+			continue
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		allEstablished := true
+		establishedCount := 0
+		totalCRDs := 0
+
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, ":")
+			if len(parts) == 2 {
+				totalCRDs++
+				crdName := parts[0]
+				status := parts[1]
+				if status == "True" {
+					establishedCount++
+					logger.Debug("CRD %s is established", crdName)
+				} else {
+					logger.Debug("CRD %s is not established (status: %s)", crdName, status)
+					allEstablished = false
+				}
+			}
+		}
+
+		if allEstablished && establishedCount > 0 {
+			logger.Success("All %d CRDs are established", establishedCount)
+			return nil
+		}
+
+		if attempt%5 == 0 { // Log every 20 seconds
+			logger.Info("Waiting for CRDs to be established: %d/%d ready", establishedCount, totalCRDs)
+		}
+		time.Sleep(4 * time.Second)
+	}
+
+	return fmt.Errorf("CRDs did not become established after %d attempts", maxAttempts)
+}
+
+// waitForExternalSecretsWebhook waits for the external-secrets webhook to be ready
+func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.ColorLogger) error {
+	maxAttempts := 60 // 5 minutes with 5-second intervals
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Check if the webhook deployment is ready
+		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook", 
+			"-n", "external-secrets", 
+			"--output=jsonpath={.status.readyReplicas}",
+			"--kubeconfig", config.KubeConfig)
+
+		output, err := cmd.Output()
+		if err != nil {
+			logger.Debug("Attempt %d/%d: Failed to check webhook deployment status", attempt, maxAttempts)
+			if attempt == maxAttempts {
+				return fmt.Errorf("failed to check webhook deployment status after %d attempts: %w", maxAttempts, err)
+			}
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		readyReplicas := strings.TrimSpace(string(output))
+		if readyReplicas != "" && readyReplicas != "0" {
+			// Also check if the webhook service has endpoints
+			endpointsCmd := exec.Command("kubectl", "get", "endpoints", "external-secrets-webhook",
+				"-n", "external-secrets",
+				"--output=jsonpath={.subsets[*].addresses[*].ip}",
+				"--kubeconfig", config.KubeConfig)
+			
+			endpointsOutput, endpointsErr := endpointsCmd.Output()
+			if endpointsErr == nil {
+				endpoints := strings.TrimSpace(string(endpointsOutput))
+				if endpoints != "" {
+					logger.Success("External-secrets webhook is ready with %s ready replicas and endpoints available", readyReplicas)
+					return nil
+				}
+			}
+			logger.Debug("Webhook deployment ready but no endpoints available yet")
+		} else {
+			logger.Debug("Webhook deployment not ready yet (ready replicas: %s)", readyReplicas)
+		}
+
+		if attempt%6 == 0 { // Log every 30 seconds
+			logger.Info("Still waiting for external-secrets webhook to be ready (attempt %d/%d)", attempt, maxAttempts)
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("external-secrets webhook did not become ready after %d attempts", maxAttempts)
 }
 
 // testDynamicValuesTemplate tests the dynamic values template rendering

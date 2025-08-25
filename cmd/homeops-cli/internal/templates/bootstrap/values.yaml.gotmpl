@@ -1,1 +1,1 @@
-{{ exec "yq" (list "select(.kind == \"HelmRelease\").spec.values" (printf "%s/kubernetes/apps/%s/%s/app/helmrelease.yaml" .RootDir .Release.Namespace .Release.Name)) | indent 0 }}
+{{ exec "yq" (list "select(.kind == \"HelmRelease\").spec.values" (printf "%s/kubernetes/apps/%s/%s/app/helmrelease.yaml" (env "ROOT_DIR") .Release.Namespace .Release.Name)) | indent 0 }}
