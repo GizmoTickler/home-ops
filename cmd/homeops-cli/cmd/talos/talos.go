@@ -77,15 +77,9 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	return host, apiKey, nil
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the op CLI
+// get1PasswordSecret retrieves a secret from 1Password using the shared common function
 func get1PasswordSecret(reference string) string {
-	cmd := exec.Command("op", "read", reference)
-	output, err := cmd.Output()
-	if err != nil {
-		// Silently fail and return empty string to allow fallback to env vars
-		return ""
-	}
-	return strings.TrimSpace(string(output))
+	return common.Get1PasswordSecretSilent(reference)
 }
 
 // getSpicePassword retrieves SPICE password from 1Password or environment variables
@@ -135,8 +129,8 @@ func applyNodeConfig(nodeIP, mode string) error {
 	logger.Info("Applying configuration to node %s (type: %s)", nodeIP, machineType)
 
 	// Render machine config using embedded templates
-	machineConfigTemplate := fmt.Sprintf("%s.yaml", machineType)
-	nodeConfigTemplate := fmt.Sprintf("nodes/%s.yaml", nodeIP)
+	machineConfigTemplate := fmt.Sprintf("talos/%s.yaml", machineType)
+	nodeConfigTemplate := fmt.Sprintf("talos/nodes/%s.yaml", nodeIP)
 
 	// Render the configuration
 	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate)
@@ -144,9 +138,16 @@ func applyNodeConfig(nodeIP, mode string) error {
 		return fmt.Errorf("failed to render config: %w", err)
 	}
 
+	// Resolve 1Password references in the rendered config (following bootstrap pattern)
+	logger.Info("Resolving 1Password references in Talos configuration...")
+	resolvedConfig, err := common.InjectSecrets(string(renderedConfig))
+	if err != nil {
+		return fmt.Errorf("failed to resolve 1Password references: %w", err)
+	}
+
 	// Apply the configuration
 	cmd := exec.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
-	cmd.Stdin = bytes.NewReader(renderedConfig)
+	cmd.Stdin = bytes.NewReader([]byte(resolvedConfig))
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -173,19 +174,19 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
 	logger := common.NewColorLogger()
 	metricsCollector := metrics.NewPerformanceCollector()
-	
+
 	// Create unified template renderer
 	renderer := templates.NewTemplateRenderer(".", logger, metricsCollector)
-	
+
 	// Prepare environment variables for template rendering
 	env := make(map[string]string)
 	env["SCHEMATIC_ID"] = schematicID
-	
+
 	// Add other common environment variables
 	versionConfig := versionconfig.GetVersions(".")
 	env["KUBERNETES_VERSION"] = versionConfig.KubernetesVersion
 	env["TALOS_VERSION"] = versionConfig.TalosVersion
-	
+
 	// Use the unified renderer for Talos config rendering and merging
 	return renderer.RenderTalosConfigWithMerge(baseTemplate, patchTemplate, env)
 }
