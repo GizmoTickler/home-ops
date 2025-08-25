@@ -3,7 +3,6 @@ machine:
   network:
     hostname: k8s-0
     interfaces:
-    interfaces:
       - deviceSelector:
           hardwareAddr: 00:a0:98:28:c8:83
         mtu: 9000
