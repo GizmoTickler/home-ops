@@ -41,8 +41,14 @@ spec:
               capabilities:
                 drop:
                   - ALL
+            terminationMessagePath: /tmp/termination-log
 
     persistence:
+      tmp:
+        type: emptyDir
+        medium: Memory
+        globalMounts:
+          - path: /tmp
       config:
         type: configMap
         name: generic-device-plugin

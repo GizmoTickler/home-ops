@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
-	
+
 	"homeops-cli/internal/common"
 )
 
@@ -30,12 +30,12 @@ func TestBootstrapWorkflowDryRun(t *testing.T) {
 	}
 
 	config := &BootstrapConfig{
-		RootDir:      tmpDir,
-		KubeConfig:   kubeconfigPath,
-		TalosConfig:  talosconfigPath,
-		K8sVersion:   "v1.33.4",
-		TalosVersion: "v1.11.0",
-		DryRun:       true,  // Dry run mode
+		RootDir:       tmpDir,
+		KubeConfig:    kubeconfigPath,
+		TalosConfig:   talosconfigPath,
+		K8sVersion:    "v1.33.4",
+		TalosVersion:  "v1.11.0",
+		DryRun:        true, // Dry run mode
 		SkipPreflight: true, // Skip preflight checks for test
 	}
 
@@ -67,12 +67,12 @@ func TestBootstrapConfigValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: &BootstrapConfig{
-				RootDir:      "/tmp",
-				KubeConfig:   "/tmp/kubeconfig",
-				TalosConfig:  "/tmp/talosconfig",
-				K8sVersion:   "v1.33.4",
-				TalosVersion: "v1.11.0",
-				DryRun:       true,
+				RootDir:       "/tmp",
+				KubeConfig:    "/tmp/kubeconfig",
+				TalosConfig:   "/tmp/talosconfig",
+				K8sVersion:    "v1.33.4",
+				TalosVersion:  "v1.11.0",
+				DryRun:        true,
 				SkipPreflight: true,
 			},
 			expectError: false,
@@ -80,12 +80,12 @@ func TestBootstrapConfigValidation(t *testing.T) {
 		{
 			name: "missing root directory",
 			config: &BootstrapConfig{
-				RootDir:      "",
-				KubeConfig:   "/tmp/kubeconfig",
-				TalosConfig:  "/tmp/talosconfig",
-				K8sVersion:   "v1.33.4",
-				TalosVersion: "v1.11.0",
-				DryRun:       true,
+				RootDir:       "",
+				KubeConfig:    "/tmp/kubeconfig",
+				TalosConfig:   "/tmp/talosconfig",
+				K8sVersion:    "v1.33.4",
+				TalosVersion:  "v1.11.0",
+				DryRun:        true,
 				SkipPreflight: true,
 			},
 			expectError: false, // Should get converted to current dir
@@ -95,7 +95,7 @@ func TestBootstrapConfigValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := runBootstrap(tt.config)
-			
+
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error but got none")
 			}
@@ -119,11 +119,11 @@ func TestPreflightChecks(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	config := &BootstrapConfig{
-		RootDir:     tmpDir,
-		KubeConfig:  filepath.Join(tmpDir, "kubeconfig"),
-		TalosConfig: filepath.Join(tmpDir, "talosconfig"),
-		K8sVersion:  "v1.33.4",
-		TalosVersion: "v1.11.0",
+		RootDir:       tmpDir,
+		KubeConfig:    filepath.Join(tmpDir, "kubeconfig"),
+		TalosConfig:   filepath.Join(tmpDir, "talosconfig"),
+		K8sVersion:    "v1.33.4",
+		TalosVersion:  "v1.11.0",
 		SkipPreflight: false, // Enable preflight checks
 	}
 
@@ -144,7 +144,7 @@ func TestNodeReadinessWorkflow(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	kubeconfigPath := filepath.Join(tmpDir, "kubeconfig")
-	
+
 	// Create invalid kubeconfig for testing
 	invalidKubeconfig := `
 apiVersion: v1
@@ -159,7 +159,7 @@ contexts:
   name: invalid-test
 current-context: invalid-test
 `
-	
+
 	if err := os.WriteFile(kubeconfigPath, []byte(invalidKubeconfig), 0600); err != nil {
 		t.Fatalf("Failed to create test kubeconfig: %v", err)
 	}
@@ -195,12 +195,12 @@ func TestBootstrapStages(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	config := &BootstrapConfig{
-		RootDir:      tmpDir,
-		KubeConfig:   filepath.Join(tmpDir, "kubeconfig"),
-		TalosConfig:  filepath.Join(tmpDir, "talosconfig"),
-		K8sVersion:   "v1.33.4",
-		TalosVersion: "v1.11.0",
-		DryRun:       true,
+		RootDir:       tmpDir,
+		KubeConfig:    filepath.Join(tmpDir, "kubeconfig"),
+		TalosConfig:   filepath.Join(tmpDir, "talosconfig"),
+		K8sVersion:    "v1.33.4",
+		TalosVersion:  "v1.11.0",
+		DryRun:        true,
 		SkipPreflight: true,
 	}
 
@@ -260,12 +260,12 @@ func TestErrorHandlingAndRecovery(t *testing.T) {
 		{
 			name: "invalid root directory",
 			config: &BootstrapConfig{
-				RootDir:      "/nonexistent/path/that/should/not/exist",
-				KubeConfig:   "/tmp/kubeconfig",
-				TalosConfig:  "/tmp/talosconfig",
-				K8sVersion:   "v1.33.4",
-				TalosVersion: "v1.11.0",
-				DryRun:       true,
+				RootDir:       "/nonexistent/path/that/should/not/exist",
+				KubeConfig:    "/tmp/kubeconfig",
+				TalosConfig:   "/tmp/talosconfig",
+				K8sVersion:    "v1.33.4",
+				TalosVersion:  "v1.11.0",
+				DryRun:        true,
 				SkipPreflight: true,
 			},
 			description: "Should handle invalid root directory gracefully",
@@ -273,12 +273,12 @@ func TestErrorHandlingAndRecovery(t *testing.T) {
 		{
 			name: "missing version info",
 			config: &BootstrapConfig{
-				RootDir:      "/tmp",
-				KubeConfig:   "/tmp/kubeconfig",
-				TalosConfig:  "/tmp/talosconfig",
-				K8sVersion:   "",
-				TalosVersion: "",
-				DryRun:       true,
+				RootDir:       "/tmp",
+				KubeConfig:    "/tmp/kubeconfig",
+				TalosConfig:   "/tmp/talosconfig",
+				K8sVersion:    "",
+				TalosVersion:  "",
+				DryRun:        true,
 				SkipPreflight: true,
 			},
 			description: "Should load versions from defaults",
@@ -288,7 +288,7 @@ func TestErrorHandlingAndRecovery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := runBootstrap(tt.config)
-			
+
 			// Log the result - some errors are expected and acceptable
 			if err != nil {
 				t.Logf("%s - Error (may be expected): %v", tt.description, err)
@@ -365,12 +365,12 @@ metadata:
 func BenchmarkBootstrapDryRun(b *testing.B) {
 	tmpDir := b.TempDir()
 	config := &BootstrapConfig{
-		RootDir:      tmpDir,
-		KubeConfig:   filepath.Join(tmpDir, "kubeconfig"),
-		TalosConfig:  filepath.Join(tmpDir, "talosconfig"),
-		K8sVersion:   "v1.33.4",
-		TalosVersion: "v1.11.0",
-		DryRun:       true,
+		RootDir:       tmpDir,
+		KubeConfig:    filepath.Join(tmpDir, "kubeconfig"),
+		TalosConfig:   filepath.Join(tmpDir, "talosconfig"),
+		K8sVersion:    "v1.33.4",
+		TalosVersion:  "v1.11.0",
+		DryRun:        true,
 		SkipPreflight: true,
 	}
 

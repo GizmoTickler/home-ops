@@ -333,17 +333,17 @@ func (c *WorkingClient) DeleteDataset(name string, recursive bool) error {
 	// Note: recursive_snapshot is not a valid parameter for the API
 	params := map[string]interface{}{
 		"recursive": recursive,
-		"force":     true,  // Force deletion even if dataset is busy
+		"force":     true, // Force deletion even if dataset is busy
 	}
-	
+
 	log.Printf("Attempting to delete dataset: %s with params: %+v", name, params)
-	
+
 	result, err := c.Call("pool.dataset.delete", []interface{}{name, params}, 120) // Increase timeout for large datasets
 	if err != nil {
 		log.Printf("Failed to delete dataset %s: %v", name, err)
 		return fmt.Errorf("failed to delete dataset %s: %w", name, err)
 	}
-	
+
 	log.Printf("Dataset deletion result for %s: %s", name, string(result))
 	return nil
 }

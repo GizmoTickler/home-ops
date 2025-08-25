@@ -12,9 +12,9 @@ import (
 
 // TemplateRenderer provides a unified interface for different template engines
 type TemplateRenderer struct {
-	rootDir   string
-	logger    *common.ColorLogger
-	metrics   *metrics.PerformanceCollector
+	rootDir    string
+	logger     *common.ColorLogger
+	metrics    *metrics.PerformanceCollector
 	goRenderer *template.GoTemplateRenderer
 }
 
@@ -39,7 +39,7 @@ func (r *TemplateRenderer) RenderTemplate(templateName, content string, env map[
 			Values:  data,
 		}
 		return r.goRenderer.RenderTemplate(content, templateData)
-		
+
 	case strings.Contains(templateName, ".j2") || strings.Contains(content, "{%") || strings.Contains(content, "{{ ENV."):
 		// Use Jinja2 renderer for Talos templates
 		if strings.HasPrefix(templateName, "talos/") {
@@ -49,7 +49,7 @@ func (r *TemplateRenderer) RenderTemplate(templateName, content string, env map[
 		}
 		// Fallback to bootstrap template for other Jinja2 templates
 		return RenderBootstrapTemplate(templateName, env)
-		
+
 	default:
 		// Simple variable replacement for basic templates
 		result := content
@@ -69,7 +69,7 @@ func (r *TemplateRenderer) RenderTalosConfigWithMerge(baseTemplate, patchTemplat
 		return nil, fmt.Errorf("failed to render base template %s: %w", baseTemplate, err)
 	}
 
-	// Get patch config  
+	// Get patch config
 	patchConfig, err := RenderTalosTemplate(patchTemplate, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to render patch template %s: %w", patchTemplate, err)
@@ -78,7 +78,7 @@ func (r *TemplateRenderer) RenderTalosConfigWithMerge(baseTemplate, patchTemplat
 	// Trim leading document separator if present
 	patchConfigTrimmed := strings.TrimPrefix(patchConfig, "---\n")
 	patchConfigTrimmed = strings.TrimPrefix(patchConfigTrimmed, "---\r\n")
-	
+
 	// Now split by document separators
 	var patchParts []string
 	if strings.Contains(patchConfigTrimmed, "\n---\n") {
@@ -88,15 +88,15 @@ func (r *TemplateRenderer) RenderTalosConfigWithMerge(baseTemplate, patchTemplat
 	} else {
 		patchParts = []string{patchConfigTrimmed}
 	}
-	
+
 	// The first part should be the machine config
 	machineConfigPatch := strings.TrimSpace(patchParts[0])
-	
+
 	// Ensure the machine config patch starts with proper YAML
 	if !strings.HasPrefix(machineConfigPatch, "machine:") && !strings.HasPrefix(machineConfigPatch, "version:") {
 		return nil, fmt.Errorf("machine config patch does not start with valid Talos config")
 	}
-	
+
 	// Ensure proper Talos config structure
 	if !strings.Contains(machineConfigPatch, "version:") {
 		machineConfigPatch = "version: v1alpha1\n" + machineConfigPatch

@@ -216,20 +216,35 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 		return nil
 	}
 
-	// Test cluster connectivity
-	cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cluster connectivity test failed: %w", err)
+	logger.Info("Waiting for cluster API server to be ready...")
+
+	maxAttempts := 12 // 2 minutes total with exponential backoff
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		logger.Debug("Kubeconfig validation attempt %d/%d", attempt, maxAttempts)
+
+		// Test cluster connectivity with timeout
+		cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
+		if err := cmd.Run(); err == nil {
+			// If cluster-info succeeds, test node accessibility
+			cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
+			if err := cmd.Run(); err == nil {
+				logger.Debug("Kubeconfig validation passed - cluster is accessible")
+				return nil
+			}
+			logger.Debug("Cluster connectivity OK, but nodes not ready yet")
+		} else {
+			logger.Debug("Cluster connectivity not ready yet")
+		}
+
+		// Don't wait after the last attempt
+		if attempt < maxAttempts {
+			waitTime := time.Duration(attempt*5) * time.Second // 5s, 10s, 15s, etc.
+			logger.Debug("Waiting %v before next attempt...", waitTime)
+			time.Sleep(waitTime)
+		}
 	}
 
-	// Test API server accessibility
-	cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("API server accessibility test failed: %w", err)
-	}
-
-	logger.Debug("Kubeconfig validation passed - cluster is accessible")
-	return nil
+	return fmt.Errorf("cluster did not become ready after %d attempts over 2+ minutes", maxAttempts)
 }
 
 // applyNamespaces creates the initial namespaces required for bootstrap
@@ -246,7 +261,7 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		"cert-manager",
 		"external-secrets",
 		"flux-system",
-		"kube-system",  // Usually exists but we'll ensure it's there
+		"kube-system", // Usually exists but we'll ensure it's there
 		"network",
 		"observability",
 		"openebs-system",
@@ -908,7 +923,6 @@ func applyNodeConfig(node string, config []byte) error {
 	return nil
 }
 
-
 func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	// Get the node template content with proper talos/ prefix
 	fullTemplatePath := fmt.Sprintf("talos/%s", nodeTemplate)
@@ -1086,18 +1100,18 @@ func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLog
 	maxAttempts := 6 // 1 minute total with 10s intervals
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		logger.Debug("Etcd validation attempt %d/%d", attempt, maxAttempts)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		
+
 		cmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", talosConfig, "--nodes", controller, "etcd", "status")
 		_, err := cmd.CombinedOutput()
-		
+
 		if err == nil {
 			logger.Debug("Etcd is running and responding")
 			return nil
 		}
-		
+
 		// Check if etcd service is actually running (not just waiting)
 		serviceCmd := exec.Command("talosctl", "--talosconfig", talosConfig, "--nodes", controller, "service", "etcd")
 		serviceOutput, serviceErr := serviceCmd.Output()
@@ -1105,13 +1119,13 @@ func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLog
 			logger.Debug("Etcd service is running")
 			return nil
 		}
-		
+
 		logger.Debug("Etcd validation attempt %d failed: %v", attempt, err)
 		if attempt < maxAttempts {
 			time.Sleep(10 * time.Second)
 		}
 	}
-	
+
 	return fmt.Errorf("etcd failed to start after bootstrap")
 }
 
@@ -1169,8 +1183,8 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 		// Handle "AlreadyExists" as success (like onedr0p does)
 		if strings.Contains(outputStr, "AlreadyExists") ||
-		   strings.Contains(outputStr, "already exists") ||
-		   strings.Contains(outputStr, "cluster is already initialized") {
+			strings.Contains(outputStr, "already exists") ||
+			strings.Contains(outputStr, "cluster is already initialized") {
 			logger.Info("Bootstrap already exists - cluster is already initialized")
 			return nil
 		}
@@ -1516,7 +1530,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	if len(crdManifests) > 0 {
 		logger.Info("Applying %d CRDs...", len(crdManifests))
 		crdYaml := strings.Join(crdManifests, "\n---\n")
-		
+
 		applyCmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
 		applyCmd.Stdin = bytes.NewReader([]byte(crdYaml))
 
@@ -1525,7 +1539,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 		}
 
 		logger.Info("CRDs applied, waiting for them to be established...")
-		
+
 		// Wait for CRDs to be established
 		if err := waitForCRDsEstablished(config, logger); err != nil {
 			return fmt.Errorf("CRDs failed to be established: %w", err)
@@ -1573,40 +1587,9 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return nil
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic
+// get1PasswordSecret retrieves a secret from 1Password using the shared common function
 func get1PasswordSecret(reference string) (string, error) {
-	maxAttempts := 3
-	for attempts := 0; attempts < maxAttempts; attempts++ {
-		cmd := exec.Command("op", "read", reference)
-		output, err := cmd.CombinedOutput()
-
-		if err == nil {
-			secretValue := strings.TrimSpace(string(output))
-			if secretValue == "" {
-				return "", fmt.Errorf("1Password secret %s returned empty value", reference)
-			}
-			return secretValue, nil
-		}
-
-		// Check for specific error types
-		outputStr := string(output)
-		if strings.Contains(outputStr, "not found") {
-			return "", fmt.Errorf("1Password secret %s not found", reference)
-		}
-		if strings.Contains(outputStr, "unauthorized") || strings.Contains(outputStr, "not signed in") {
-			return "", fmt.Errorf("1Password CLI not authenticated. Please run 'op signin'")
-		}
-
-		// Retry on network or temporary errors
-		if attempts < maxAttempts-1 {
-			time.Sleep(time.Duration(attempts+1) * time.Second)
-			continue
-		}
-
-		return "", fmt.Errorf("failed to read 1Password secret %s after %d attempts: %w\nOutput: %s", reference, maxAttempts, err, outputStr)
-	}
-
-	return "", fmt.Errorf("unexpected error in 1Password secret retrieval loop")
+	return common.Get1PasswordSecret(reference)
 }
 
 // resolve1PasswordReferences resolves all 1Password references in the content
@@ -1627,10 +1610,10 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	}
 
 	logger.Info("Found %d 1Password references to resolve", len(opRefs))
-	
+
 	// Create a map to store resolved secrets
 	resolvedSecrets := make(map[string]string)
-	
+
 	// First, resolve all secrets
 	for i, ref := range opRefs {
 		logger.Debug("Resolving 1Password reference %d/%d: %s", i+1, len(opRefs), ref)
@@ -1649,14 +1632,14 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 		logger.Debug("Resolved reference: '%s' to secret value (first 20 chars): '%.20s...' (length: %d)", ref, secretValue, len(secretValue))
 		resolvedSecrets[ref] = secretValue
 	}
-	
+
 	// Sort references by length (longest first) to prevent substring replacement
 	// This ensures CLUSTER_SECRETBOXENCRYPTIONSECRET is replaced before CLUSTER_SECRET
 	var sortedRefs []string
 	for ref := range resolvedSecrets {
 		sortedRefs = append(sortedRefs, ref)
 	}
-	
+
 	// Simple sort by length (longest first)
 	for i := 0; i < len(sortedRefs); i++ {
 		for j := i + 1; j < len(sortedRefs); j++ {
@@ -1665,7 +1648,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 			}
 		}
 	}
-	
+
 	// Replace each resolved secret in order (longest first)
 	result := content
 	for _, ref := range sortedRefs {
@@ -1686,7 +1669,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 			logger.Debug("Final line %d with secretboxEncryptionSecret: '%s'", i+1, line)
 		}
 	}
-	
+
 	// Validate that all secrets were properly resolved by checking against 1Password
 	if strings.Contains(result, "op://") {
 		logger.Warn("Warning: Rendered configuration still contains unresolved 1Password references")
@@ -1722,12 +1705,12 @@ func saveRenderedConfig(config, filename string, logger *common.ColorLogger) err
 			logger.Warn("Failed to close file: %v", err)
 		}
 	}()
-	
+
 	_, err = file.WriteString(config)
 	if err != nil {
 		return fmt.Errorf("failed to write to file %s: %w", filename, err)
 	}
-	
+
 	logger.Debug("Saved rendered configuration to %s for validation", filename)
 	return nil
 }
@@ -1881,7 +1864,7 @@ func separateCRDsFromManifests(manifestsYaml string) ([]string, []string, error)
 func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger) error {
 	maxAttempts := 30 // 2 minutes with 4-second intervals
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		cmd := exec.Command("kubectl", "get", "crd", 
+		cmd := exec.Command("kubectl", "get", "crd",
 			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Established')].status}{\"\\n\"}{end}",
 			"--kubeconfig", config.KubeConfig)
 
@@ -1938,8 +1921,8 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 	maxAttempts := 60 // 5 minutes with 5-second intervals
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Check if the webhook deployment is ready
-		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook", 
-			"-n", "external-secrets", 
+		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook",
+			"-n", "external-secrets",
 			"--output=jsonpath={.status.readyReplicas}",
 			"--kubeconfig", config.KubeConfig)
 
@@ -1960,7 +1943,7 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 				"-n", "external-secrets",
 				"--output=jsonpath={.subsets[*].addresses[*].ip}",
 				"--kubeconfig", config.KubeConfig)
-			
+
 			endpointsOutput, endpointsErr := endpointsCmd.Output()
 			if endpointsErr == nil {
 				endpoints := strings.TrimSpace(string(endpointsOutput))

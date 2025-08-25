@@ -1,12 +1,12 @@
 package bootstrap
 
 import (
+	"homeops-cli/internal/common"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
-	"path/filepath"
-	"homeops-cli/internal/common"
 )
 
 // TestRenderMachineConfigFromEmbedded tests machine config rendering
@@ -21,39 +21,39 @@ func TestRenderMachineConfigFromEmbedded(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		baseTemplate string
+		name          string
+		baseTemplate  string
 		patchTemplate string
-		machineType  string
-		expectError  bool
+		machineType   string
+		expectError   bool
 	}{
 		{
-			name:         "valid templates",
-			baseTemplate: "controlplane.yaml",
-			patchTemplate: "nodes/192.168.122.10.yaml", 
-			machineType:  "controlplane",
-			expectError:  false,
-		},
-		{
-			name:         "non-existent base template",
-			baseTemplate: "nonexistent.yaml",
+			name:          "valid templates",
+			baseTemplate:  "controlplane.yaml",
 			patchTemplate: "nodes/192.168.122.10.yaml",
-			machineType:  "controlplane", 
-			expectError:  true,
+			machineType:   "controlplane",
+			expectError:   false,
 		},
 		{
-			name:         "non-existent patch template",
-			baseTemplate: "controlplane.yaml",
+			name:          "non-existent base template",
+			baseTemplate:  "nonexistent.yaml",
+			patchTemplate: "nodes/192.168.122.10.yaml",
+			machineType:   "controlplane",
+			expectError:   true,
+		},
+		{
+			name:          "non-existent patch template",
+			baseTemplate:  "controlplane.yaml",
 			patchTemplate: "nodes/nonexistent.yaml",
-			machineType:  "controlplane",
-			expectError:  true,
+			machineType:   "controlplane",
+			expectError:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := renderMachineConfigFromEmbedded(tt.baseTemplate, tt.patchTemplate, tt.machineType)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
@@ -98,7 +98,7 @@ func TestMergeConfigsWithTalosctlErrorHandling(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name:        "invalid patch YAML", 
+			name:        "invalid patch YAML",
 			baseConfig:  []byte("version: v1alpha1\nmachine:\n  type: controlplane"),
 			patchConfig: []byte("invalid: yaml: content: ["),
 			expectError: true,
@@ -114,7 +114,7 @@ func TestMergeConfigsWithTalosctlErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := mergeConfigsWithTalosctl(tt.baseConfig, tt.patchConfig)
-			
+
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error but got none")
 			}
@@ -167,10 +167,10 @@ func TestTempFileCleanup(t *testing.T) {
 // TestGetMachineTypeFromEmbedded tests machine type detection
 func TestGetMachineTypeFromEmbedded(t *testing.T) {
 	tests := []struct {
-		name           string
-		nodeTemplate   string
-		expectedType   string
-		expectError    bool
+		name         string
+		nodeTemplate string
+		expectedType string
+		expectError  bool
 	}{
 		{
 			name:         "controlplane node",
@@ -189,7 +189,7 @@ func TestGetMachineTypeFromEmbedded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			machineType, err := getMachineTypeFromEmbedded(tt.nodeTemplate)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
@@ -217,7 +217,7 @@ func TestApplyNodeConfigWithRetry(t *testing.T) {
 
 	logger := common.NewColorLogger()
 	config := []byte("test config")
-	
+
 	// This will fail because we don't have a real Talos node, but test the retry logic
 	err := applyNodeConfigWithRetry("192.168.1.1", config, logger, 2)
 	if err == nil {
@@ -237,7 +237,7 @@ func TestApplyNodeConfig(t *testing.T) {
 	}
 
 	config := []byte("test config")
-	
+
 	// This will fail because we don't have a real Talos node
 	err := applyNodeConfig("192.168.1.1", config)
 	if err == nil {
@@ -262,7 +262,7 @@ func TestFullRenderingPipeline(t *testing.T) {
 	}
 
 	resultStr := string(result)
-	
+
 	// Check that basic structure is present
 	if !strings.Contains(resultStr, "version:") && !strings.Contains(resultStr, "apiVersion:") {
 		t.Errorf("Result missing version information")
@@ -297,7 +297,7 @@ func BenchmarkRenderMachineConfigFromEmbedded(b *testing.B) {
 // Test parallel rendering to ensure thread safety
 func TestParallelRendering(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping integration test in short mode") 
+		t.Skip("Skipping integration test in short mode")
 	}
 
 	if _, err := exec.LookPath("talosctl"); err != nil {
