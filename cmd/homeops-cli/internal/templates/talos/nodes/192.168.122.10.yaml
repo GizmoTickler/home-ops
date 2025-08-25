@@ -1,15 +1,13 @@
+---
 machine:
-  type: controlplane
   network:
     hostname: k8s-0
     interfaces:
-      - interface: ens3
+    interfaces:
+      - deviceSelector:
+          hardwareAddr: 00:a0:98:28:c8:83
         mtu: 9000
-        addresses:
-          - 192.168.122.10/22
-        routes:
-          - network: 0.0.0.0/0
-            gateway: 192.168.123.254
+        dhcp: true
         vip:
           ip: 192.168.255.100
 ---
