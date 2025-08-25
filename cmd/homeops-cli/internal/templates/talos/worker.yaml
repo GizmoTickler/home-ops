@@ -5,7 +5,7 @@ machine:
     crt: op://Infrastructure/talos/MACHINE_CA_CRT
   certSANs:
     - 127.0.0.1
-    - 192.168.255.100
+    - 192.169.120.100
   features:
     apidCheckExtKeyUsage: true
     diskQuotaSupport: true
@@ -78,7 +78,7 @@ cluster:
     crt: op://Infrastructure/talos/CLUSTER_CA_CRT
   clusterName: home-ops-cluster
   controlPlane:
-    endpoint: https://192.168.255.100:6443
+    endpoint: https://192.169.120.100:6443
   id: op://Infrastructure/talos/CLUSTER_ID
   network:
     cni:
