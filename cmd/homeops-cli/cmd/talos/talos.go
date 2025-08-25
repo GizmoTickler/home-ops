@@ -884,6 +884,7 @@ func newManageVMCommand() *cobra.Command {
 		newStopVMCommand(),
 		newDeleteVMCommand(),
 		newInfoVMCommand(),
+		newCleanupZVolsCommand(),
 	)
 
 	return cmd
@@ -1053,7 +1054,8 @@ func deleteVM(name string) error {
 	}()
 
 	// Delete VM and ZVols
-	// Use flashstor as default since that's where VMs are typically deployed
+	// Use the most common storage pool path where VMs are deployed
+	// The VM manager will try multiple patterns to find the actual ZVols
 	storagePool := getEnvOrDefault("STORAGE_POOL", "flashstor")
 	return vmManager.DeleteVM(name, true, storagePool)
 }
@@ -1251,5 +1253,69 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	}
 
 	logger.Debug("Updated controlplane template %s with schematic ID %s", templateFile, schematicID)
+	return nil
+}
+
+// newCleanupZVolsCommand creates a command to cleanup orphaned ZVols
+func newCleanupZVolsCommand() *cobra.Command {
+	var (
+		vmName      string
+		storagePool string
+		force       bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "cleanup-zvols",
+		Short: "Clean up orphaned ZVols for a VM that was already deleted",
+		Long:  `Clean up orphaned ZVols when a VM was deleted but its ZVols remain. This is useful when VM deletion didn't properly clean up the storage volumes.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !force {
+				fmt.Printf("Delete orphaned ZVols for VM '%s' ... continue? (y/N): ", vmName)
+				var response string
+				_, _ = fmt.Scanln(&response)
+				if response != "y" && response != "Y" {
+					return fmt.Errorf("cleanup cancelled")
+				}
+			}
+			return cleanupOrphanedZVols(vmName, storagePool)
+		},
+	}
+
+	cmd.Flags().StringVar(&vmName, "vm-name", "", "Name of the VM whose ZVols to clean up (required)")
+	cmd.Flags().StringVar(&storagePool, "pool", "flashstor", "Storage pool (default: flashstor)")
+	cmd.Flags().BoolVar(&force, "force", false, "Force cleanup without confirmation")
+	_ = cmd.MarkFlagRequired("vm-name")
+
+	return cmd
+}
+
+// cleanupOrphanedZVols deletes orphaned ZVols for a VM that no longer exists
+func cleanupOrphanedZVols(vmName, storagePool string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting cleanup of orphaned ZVols for VM: %s", vmName)
+
+	// Get TrueNAS connection details
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	// Use the CleanupOrphanedZVols method from VM manager
+	if err := vmManager.CleanupOrphanedZVols(vmName, storagePool); err != nil {
+		return fmt.Errorf("failed to cleanup orphaned ZVols: %w", err)
+	}
+
+	logger.Success("Successfully cleaned up orphaned ZVols for VM: %s", vmName)
 	return nil
 }
