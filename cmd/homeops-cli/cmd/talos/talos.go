@@ -542,7 +542,7 @@ func generateKubeconfig() error {
 	logger.Info("Generating kubeconfig from node %s", node)
 
 	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node,
-		"--force", "--force-context-name", "main", rootDir)
+		"--force", "--force-context-name", "home-ops-cluster", rootDir)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

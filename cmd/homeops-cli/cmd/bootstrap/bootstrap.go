@@ -1210,7 +1210,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		logger.Debug("Kubeconfig fetch attempt %d/%d", attempts+1, maxAttempts)
 
 		cmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "kubeconfig", "--nodes", controller,
-			"--force", "--force-context-name", "main", config.KubeConfig)
+			"--force", "--force-context-name", "home-ops-cluster", config.KubeConfig)
 
 		output, err := cmd.CombinedOutput()
 		if err == nil {

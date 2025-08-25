@@ -89,7 +89,7 @@ cluster:
   ca:
     crt: op://Infrastructure/talos/CLUSTER_CA_CRT
     key: op://Infrastructure/talos/CLUSTER_CA_KEY
-  clusterName: main
+  clusterName: home-ops-cluster
   controlPlane:
     endpoint: https://192.168.255.100:6443
   id: op://Infrastructure/talos/CLUSTER_ID
