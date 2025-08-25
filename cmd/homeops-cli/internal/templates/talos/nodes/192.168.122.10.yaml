@@ -6,7 +6,7 @@ machine:
       - interface: ens3
         mtu: 9000
         addresses:
-          - 192.168.123.10/22
+          - 192.168.122.10/22
         routes:
           - network: 0.0.0.0/0
             gateway: 192.168.123.254
