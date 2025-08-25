@@ -39,7 +39,7 @@ type VMDevice map[string]interface{}
 
 // Dataset represents a TrueNAS dataset
 type Dataset struct {
-	ID       interface{}            `json:"id"`       // Can be string or number
+	ID       interface{}            `json:"id"` // Can be string or number
 	Name     string                 `json:"name"`
 	Type     string                 `json:"type"`
 	Pool     string                 `json:"pool"`
@@ -126,7 +126,7 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 	} else {
 		params = []interface{}{}
 	}
-	
+
 	result, err := c.Call("vm.query", params, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query VMs: %w", err)
@@ -278,7 +278,7 @@ func (c *WorkingClient) QueryDatasets(filters interface{}) ([]Dataset, error) {
 	} else {
 		params = []interface{}{}
 	}
-	
+
 	result, err := c.Call("pool.dataset.query", params, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query datasets: %w", err)
@@ -328,11 +328,24 @@ func (c *WorkingClient) CreateDataset(datasetConfig DatasetCreateRequest) (*Data
 
 // DeleteDataset deletes a dataset
 func (c *WorkingClient) DeleteDataset(name string, recursive bool) error {
+	// TrueNAS API expects the dataset ID (which is the full path) and options
+	// The correct format for pool.dataset.delete is: (id, {"recursive": bool, "force": bool})
+	// Note: recursive_snapshot is not a valid parameter for the API
 	params := map[string]interface{}{
 		"recursive": recursive,
+		"force":     true,  // Force deletion even if dataset is busy
 	}
-	_, err := c.Call("pool.dataset.delete", []interface{}{name, params}, 60)
-	return err
+	
+	log.Printf("Attempting to delete dataset: %s with params: %+v", name, params)
+	
+	result, err := c.Call("pool.dataset.delete", []interface{}{name, params}, 120) // Increase timeout for large datasets
+	if err != nil {
+		log.Printf("Failed to delete dataset %s: %v", name, err)
+		return fmt.Errorf("failed to delete dataset %s: %w", name, err)
+	}
+	
+	log.Printf("Dataset deletion result for %s: %s", name, string(result))
+	return nil
 }
 
 // GetVMBootloaderOptions gets available bootloader options

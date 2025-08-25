@@ -10,15 +10,15 @@ import (
 type ErrorType string
 
 const (
-	ErrTypeTemplate    ErrorType = "template"
-	ErrTypeKubernetes  ErrorType = "kubernetes"
-	ErrTypeTalos       ErrorType = "talos"
-	ErrTypeValidation  ErrorType = "validation"
-	ErrTypeNetwork     ErrorType = "network"
-	ErrTypeConfig      ErrorType = "config"
-	ErrTypeSecurity    ErrorType = "security"
-	ErrTypeFileSystem  ErrorType = "filesystem"
-	ErrTypeNotFound    ErrorType = "notfound"
+	ErrTypeTemplate   ErrorType = "template"
+	ErrTypeKubernetes ErrorType = "kubernetes"
+	ErrTypeTalos      ErrorType = "talos"
+	ErrTypeValidation ErrorType = "validation"
+	ErrTypeNetwork    ErrorType = "network"
+	ErrTypeConfig     ErrorType = "config"
+	ErrTypeSecurity   ErrorType = "security"
+	ErrTypeFileSystem ErrorType = "filesystem"
+	ErrTypeNotFound   ErrorType = "notfound"
 )
 
 // ErrorContext provides additional context for error tracking and debugging
@@ -101,7 +101,7 @@ func (e *HomeOpsError) WithStackTrace() *HomeOpsError {
 			Timestamp: time.Now(),
 		}
 	}
-	
+
 	// Capture stack trace
 	var stackTrace []string
 	for i := 1; i < 10; i++ { // Limit to 10 frames
@@ -120,7 +120,7 @@ func (e *HomeOpsError) GetUserFriendlyMessage() *ErrorMessage {
 	msg := &ErrorMessage{
 		TechnicalDetails: e.Error(),
 	}
-	
+
 	// Generate user-friendly messages based on error type and code
 	switch e.Type {
 	case ErrTypeTemplate:
@@ -194,7 +194,7 @@ func (e *HomeOpsError) GetUserFriendlyMessage() *ErrorMessage {
 			"Contact support if the issue persists",
 		}
 	}
-	
+
 	// Add documentation links based on error type
 	switch e.Type {
 	case ErrTypeTemplate:
@@ -211,7 +211,7 @@ func (e *HomeOpsError) GetUserFriendlyMessage() *ErrorMessage {
 			"https://www.talos.dev/docs/",
 		}
 	}
-	
+
 	return msg
 }
 

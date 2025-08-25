@@ -12,7 +12,7 @@ spec:
   healthChecks:
     - apiVersion: helm.toolkit.fluxcd.io/v2
       kind: HelmRelease
-      name: rook-ceph-operator
+      name: rook-ceph
       namespace: *namespace
   interval: 1h
   path: ./kubernetes/apps/rook-ceph/rook-ceph/app
@@ -62,7 +62,7 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.120.115"
+      GATEWAY_IP: "192.168.123.115"
   prune: true
   retryInterval: 2m
   sourceRef:

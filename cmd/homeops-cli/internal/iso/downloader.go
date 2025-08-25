@@ -12,15 +12,15 @@ import (
 // DownloadConfig holds configuration for ISO download
 type DownloadConfig struct {
 	// TrueNAS SSH connection details
-	TrueNASHost       string
-	TrueNASUsername   string
-	TrueNASPort       string
-	SSHItemRef        string // 1Password SSH item reference for op CLI
-	
+	TrueNASHost     string
+	TrueNASUsername string
+	TrueNASPort     string
+	SSHItemRef      string // 1Password SSH item reference for op CLI
+
 	// ISO details
-	ISOURL            string
-	ISOStoragePath    string // Path on TrueNAS where ISO should be stored
-	ISOFilename       string // Filename for the ISO (e.g., "metal-amd64.iso")
+	ISOURL         string
+	ISOStoragePath string // Path on TrueNAS where ISO should be stored
+	ISOFilename    string // Filename for the ISO (e.g., "metal-amd64.iso")
 }
 
 // Downloader handles ISO download operations
@@ -38,8 +38,8 @@ func NewDownloader() *Downloader {
 // DownloadCustomISO downloads a custom ISO to TrueNAS storage
 func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 	d.logger.Info("Starting custom ISO download to TrueNAS")
-	d.logger.Debug("Config: Host=%s, Username=%s, Port=%s, URL=%s, Path=%s", 
-		config.TrueNASHost, config.TrueNASUsername, config.TrueNASPort, 
+	d.logger.Debug("Config: Host=%s, Username=%s, Port=%s, URL=%s, Path=%s",
+		config.TrueNASHost, config.TrueNASUsername, config.TrueNASPort,
 		config.ISOURL, config.ISOStoragePath)
 
 	// Validate configuration
@@ -145,11 +145,11 @@ func (d *Downloader) validateConfig(config DownloadConfig) error {
 // GetDefaultConfig returns a default configuration for ISO download
 func GetDefaultConfig() DownloadConfig {
 	return DownloadConfig{
-		TrueNASHost:    "op://Infrastructure/talosdeploy/TRUENAS_HOST",
+		TrueNASHost:     "op://Infrastructure/talosdeploy/TRUENAS_HOST",
 		TrueNASUsername: "op://Infrastructure/talosdeploy/TRUENAS_USERNAME",
-		TrueNASPort:    "22",
-		ISOStoragePath: "/mnt/flashstor/ISO",
-		ISOFilename:    "metal-amd64.iso",
-		SSHItemRef:     "op://Infrastructure/NAS01/private key",
+		TrueNASPort:     "22",
+		ISOStoragePath:  "/mnt/flashstor/ISO",
+		ISOFilename:     "metal-amd64.iso",
+		SSHItemRef:      "op://Infrastructure/NAS01/private key",
 	}
 }

@@ -20,10 +20,10 @@ type ValidationRule interface {
 
 // ValidationResult holds the result of a validation operation
 type ValidationResult struct {
-	IsValid  bool             `json:"is_valid"`
-	Errors   []*HomeOpsError  `json:"errors,omitempty"`
-	Warnings []*HomeOpsError  `json:"warnings,omitempty"`
-	Field    string           `json:"field,omitempty"`
+	IsValid  bool            `json:"is_valid"`
+	Errors   []*HomeOpsError `json:"errors,omitempty"`
+	Warnings []*HomeOpsError `json:"warnings,omitempty"`
+	Field    string          `json:"field,omitempty"`
 }
 
 // ValidationContext provides context for validation operations
@@ -58,20 +58,20 @@ func (v *Validator) AddRule(field string, rule ValidationRule) {
 // ValidateStruct validates a struct using reflection and registered rules
 func (v *Validator) ValidateStruct(obj interface{}) *ValidationResult {
 	result := &ValidationResult{
-		IsValid: true,
-		Errors:  make([]*HomeOpsError, 0),
+		IsValid:  true,
+		Errors:   make([]*HomeOpsError, 0),
 		Warnings: make([]*HomeOpsError, 0),
 	}
-	
+
 	val := reflect.ValueOf(obj)
 	typ := reflect.TypeOf(obj)
-	
+
 	// Handle pointers
 	if val.Kind() == reflect.Ptr {
 		val = val.Elem()
 		typ = typ.Elem()
 	}
-	
+
 	if val.Kind() != reflect.Struct {
 		err := NewValidationError("INVALID_TYPE", "Expected struct type for validation", nil).
 			WithContext(v.context.Operation, v.context.Component)
@@ -79,24 +79,24 @@ func (v *Validator) ValidateStruct(obj interface{}) *ValidationResult {
 		result.IsValid = false
 		return result
 	}
-	
+
 	// Validate each field
 	for i := 0; i < val.NumField(); i++ {
 		field := typ.Field(i)
 		fieldValue := val.Field(i)
-		
+
 		// Skip unexported fields
 		if !fieldValue.CanInterface() {
 			continue
 		}
-		
+
 		fieldName := field.Name
-		
+
 		// Check for validation tag
 		if tag := field.Tag.Get("validate"); tag != "" {
 			v.addTagRules(fieldName, tag)
 		}
-		
+
 		// Apply rules for this field
 		if rules, exists := v.rules[fieldName]; exists {
 			for _, rule := range rules {
@@ -112,7 +112,7 @@ func (v *Validator) ValidateStruct(obj interface{}) *ValidationResult {
 			}
 		}
 	}
-	
+
 	return result
 }
 
@@ -146,32 +146,30 @@ func (v *Validator) addTagRules(fieldName, tag string) {
 	}
 }
 
-
-
 // RequiredRule validates that a field is not empty
 type RequiredRule struct{}
 
 func (r *RequiredRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{
-		IsValid: true,
-		Errors:  make([]*HomeOpsError, 0),
+		IsValid:  true,
+		Errors:   make([]*HomeOpsError, 0),
 		Warnings: make([]*HomeOpsError, 0),
 	}
-	
+
 	if value == nil {
 		err := NewValidationError("REQUIRED_FIELD", "Field is required", nil)
 		result.Errors = append(result.Errors, err)
 		result.IsValid = false
 		return result
 	}
-	
+
 	// Check for empty strings
 	if str, ok := value.(string); ok && strings.TrimSpace(str) == "" {
 		err := NewValidationError("REQUIRED_FIELD", "Field cannot be empty", nil)
 		result.Errors = append(result.Errors, err)
 		result.IsValid = false
 	}
-	
+
 	return result
 }
 
@@ -190,16 +188,16 @@ type MinLengthRule struct {
 
 func (r *MinLengthRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{IsValid: true}
-	
+
 	if str, ok := value.(string); ok {
 		if len(str) < r.MinLength {
-			err := NewValidationError("MIN_LENGTH", 
+			err := NewValidationError("MIN_LENGTH",
 				fmt.Sprintf("Field must be at least %d characters long", r.MinLength), nil)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -218,16 +216,16 @@ type MaxLengthRule struct {
 
 func (r *MaxLengthRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{IsValid: true}
-	
+
 	if str, ok := value.(string); ok {
 		if len(str) > r.MaxLength {
-			err := NewValidationError("MAX_LENGTH", 
+			err := NewValidationError("MAX_LENGTH",
 				fmt.Sprintf("Field must be no more than %d characters long", r.MaxLength), nil)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -246,7 +244,7 @@ var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]
 
 func (r *EmailRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{IsValid: true}
-	
+
 	if str, ok := value.(string); ok && str != "" {
 		if !emailRegex.MatchString(str) {
 			err := NewValidationError("INVALID_EMAIL", "Field must be a valid email address", nil)
@@ -254,7 +252,7 @@ func (r *EmailRule) Validate(value interface{}) *ValidationResult {
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -271,7 +269,7 @@ type FileExistsRule struct{}
 
 func (r *FileExistsRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{IsValid: true}
-	
+
 	if str, ok := value.(string); ok && str != "" {
 		// Expand environment variables and home directory
 		path := os.ExpandEnv(str)
@@ -279,20 +277,20 @@ func (r *FileExistsRule) Validate(value interface{}) *ValidationResult {
 			homeDir, _ := os.UserHomeDir()
 			path = filepath.Join(homeDir, path[2:])
 		}
-		
+
 		if _, err := os.Stat(path); os.IsNotExist(err) {
-			err := NewFileSystemError("FILE_NOT_FOUND", 
+			err := NewFileSystemError("FILE_NOT_FOUND",
 				fmt.Sprintf("File does not exist: %s", path), err)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		} else if err != nil {
-			err := NewFileSystemError("FILE_ACCESS_ERROR", 
+			err := NewFileSystemError("FILE_ACCESS_ERROR",
 				fmt.Sprintf("Cannot access file: %s", path), err)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -309,7 +307,7 @@ type DirExistsRule struct{}
 
 func (r *DirExistsRule) Validate(value interface{}) *ValidationResult {
 	result := &ValidationResult{IsValid: true}
-	
+
 	if str, ok := value.(string); ok && str != "" {
 		// Expand environment variables and home directory
 		path := os.ExpandEnv(str)
@@ -317,26 +315,26 @@ func (r *DirExistsRule) Validate(value interface{}) *ValidationResult {
 			homeDir, _ := os.UserHomeDir()
 			path = filepath.Join(homeDir, path[2:])
 		}
-		
+
 		info, err := os.Stat(path)
 		if os.IsNotExist(err) {
-			err := NewFileSystemError("DIR_NOT_FOUND", 
+			err := NewFileSystemError("DIR_NOT_FOUND",
 				fmt.Sprintf("Directory does not exist: %s", path), err)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		} else if err != nil {
-			err := NewFileSystemError("DIR_ACCESS_ERROR", 
+			err := NewFileSystemError("DIR_ACCESS_ERROR",
 				fmt.Sprintf("Cannot access directory: %s", path), err)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		} else if !info.IsDir() {
-			err := NewValidationError("NOT_DIRECTORY", 
+			err := NewValidationError("NOT_DIRECTORY",
 				fmt.Sprintf("Path is not a directory: %s", path), nil)
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -359,16 +357,16 @@ func NewConfigValidator() *ConfigValidator {
 		Component: "config",
 		Operation: "validation",
 	}
-	
+
 	validator := NewValidator(context)
-	
+
 	// Add common configuration validation rules
 	validator.AddRule("TalosVersion", &RequiredRule{})
 	validator.AddRule("KubernetesVersion", &RequiredRule{})
 	validator.AddRule("OnePasswordVault", &RequiredRule{})
 	validator.AddRule("TalosConfig", &FileExistsRule{})
 	validator.AddRule("KubeConfig", &FileExistsRule{})
-	
+
 	return &ConfigValidator{
 		validator: validator,
 	}
@@ -385,17 +383,17 @@ func (cv *ConfigValidator) ValidateEnvironment(requiredVars []string) *Validatio
 		IsValid: true,
 		Errors:  make([]*HomeOpsError, 0),
 	}
-	
+
 	for _, envVar := range requiredVars {
 		if value := os.Getenv(envVar); value == "" {
-			err := NewConfigError("MISSING_ENV_VAR", 
+			err := NewConfigError("MISSING_ENV_VAR",
 				fmt.Sprintf("Required environment variable not set: %s", envVar), nil).
 				WithContext("environment_validation", "config_validator")
 			result.Errors = append(result.Errors, err)
 			result.IsValid = false
 		}
 	}
-	
+
 	return result
 }
 
@@ -405,12 +403,12 @@ func (cv *ConfigValidator) ValidateCLITools(requiredTools []string) *ValidationR
 		IsValid: true,
 		Errors:  make([]*HomeOpsError, 0),
 	}
-	
+
 	for _, tool := range requiredTools {
 		if _, err := os.Stat(tool); err != nil {
 			// Try to find in PATH
 			if _, pathErr := exec.LookPath(tool); pathErr != nil {
-				err := NewValidationError("MISSING_CLI_TOOL", 
+				err := NewValidationError("MISSING_CLI_TOOL",
 					fmt.Sprintf("Required CLI tool not found: %s", tool), pathErr).
 					WithContext("cli_validation", "config_validator")
 				result.Errors = append(result.Errors, err)
@@ -418,6 +416,6 @@ func (cv *ConfigValidator) ValidateCLITools(requiredTools []string) *ValidationR
 			}
 		}
 	}
-	
+
 	return result
 }

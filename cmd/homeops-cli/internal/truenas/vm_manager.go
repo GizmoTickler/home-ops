@@ -11,30 +11,30 @@ import (
 
 // VMConfig represents the configuration for VM deployment
 type VMConfig struct {
-	Name          string
-	Memory        int
-	VCPUs         int
-	DiskSize      int // Boot disk size in GB
-	OpenEBSSize   int // OpenEBS disk size in GB
-	RookSize      int // Rook disk size in GB
-	TrueNASHost   string
-	TrueNASAPIKey string
-	TrueNASPort   int
-	NoSSL         bool
-	TalosISO      string
-	NetworkBridge string
-	StoragePool   string
-	MacAddress    string
-	BootZVol      string
-	OpenEBSZVol   string
-	RookZVol      string
+	Name           string
+	Memory         int
+	VCPUs          int
+	DiskSize       int // Boot disk size in GB
+	OpenEBSSize    int // OpenEBS disk size in GB
+	RookSize       int // Rook disk size in GB
+	TrueNASHost    string
+	TrueNASAPIKey  string
+	TrueNASPort    int
+	NoSSL          bool
+	TalosISO       string
+	NetworkBridge  string
+	StoragePool    string
+	MacAddress     string
+	BootZVol       string
+	OpenEBSZVol    string
+	RookZVol       string
 	SkipZVolCreate bool
-	SpicePassword string
-	UseSpice      bool
+	SpicePassword  string
+	UseSpice       bool
 	// Schematic configuration fields
-	SchematicID   string // Optional: Talos factory schematic ID for custom ISOs
-	TalosVersion  string // Optional: Specific Talos version for custom ISOs
-	CustomISO     bool   // Flag indicating if using a custom generated ISO
+	SchematicID  string // Optional: Talos factory schematic ID for custom ISOs
+	TalosVersion string // Optional: Specific Talos version for custom ISOs
+	CustomISO    bool   // Flag indicating if using a custom generated ISO
 }
 
 // VMManager handles VM operations
@@ -191,40 +191,99 @@ func (vm *VMManager) DeleteVM(name string, deleteZVol bool, storagePool string) 
 
 	vm.logger.Info("Deleting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
 
-	// Discover ZVols if we need to delete them
+	// Discover ZVols BEFORE deleting the VM
+	// This ensures we can still query the VM's devices
 	var zvolPaths []string
 	if deleteZVol {
+		vm.logger.Info("ZVol deletion requested for VM %s", name)
+		
+		// Try primary discovery through VM devices
 		zvolPaths, err = vm.discoverVMZVols(vmItem)
 		if err != nil {
-			vm.logger.Warn("Failed to discover ZVols for VM %s: %v", name, err)
+			vm.logger.Warn("Primary ZVol discovery failed for VM %s: %v", name, err)
+		} else if len(zvolPaths) > 0 {
+			vm.logger.Success("Primary discovery found %d ZVols: %v", len(zvolPaths), zvolPaths)
+		} else {
+			vm.logger.Info("Primary discovery found no ZVols, will try pattern matching")
 		}
+		
+		// If primary discovery didn't find ZVols, try pattern matching immediately
+		if len(zvolPaths) == 0 {
+			vm.logger.Info("Attempting pattern-based ZVol discovery for VM %s", name)
+			fallbackPaths := vm.discoverZVolsByPattern(storagePool, name)
+			if len(fallbackPaths) > 0 {
+				vm.logger.Success("Pattern matching found %d ZVols: %v", len(fallbackPaths), fallbackPaths)
+				zvolPaths = fallbackPaths
+			} else {
+				vm.logger.Warn("No ZVols found using pattern matching")
+				// Last resort: try querying all VOLUMEs and filter by VM name
+				vm.logger.Info("Attempting comprehensive ZVol search for VM %s", name)
+				datasets, err := vm.client.QueryDatasets(nil)
+				if err == nil {
+					for _, dataset := range datasets {
+						if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, name) {
+							vm.logger.Info("Found potential ZVol: %s", dataset.Name)
+							zvolPaths = append(zvolPaths, dataset.Name)
+						}
+					}
+					if len(zvolPaths) > 0 {
+						vm.logger.Success("Comprehensive search found %d potential ZVols", len(zvolPaths))
+					}
+				}
+			}
+		}
+	} else {
+		vm.logger.Info("ZVol deletion not requested for VM %s", name)
 	}
 
-	// Delete the VM first
+	// Log discovered ZVols before VM deletion
+	if deleteZVol && len(zvolPaths) > 0 {
+		vm.logger.Info("Will attempt to delete the following ZVols after VM deletion: %v", zvolPaths)
+	}
+
+	// Delete the VM
 	vm.logger.Info("Calling TrueNAS API to delete VM ID: %d", vmItem.ID)
 	if err := vm.client.DeleteVM(vmItem.ID); err != nil {
 		vm.logger.Error("VM deletion API call failed: %v", err)
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
-	vm.logger.Info("VM deletion API call completed successfully")
+	vm.logger.Success("VM deletion API call completed successfully")
 
-	// Verify VM is actually deleted by checking if it still exists
+	// Brief wait to ensure VM deletion is processed
+	time.Sleep(2 * time.Second)
+
+	// Verify VM is actually deleted
 	vm.logger.Info("Verifying VM deletion...")
 	_, verifyErr := vm.getVMByName(name)
 	if verifyErr == nil {
-		vm.logger.Warn("VM still exists after deletion API call - this may indicate a TrueNAS API issue")
-	} else {
-		vm.logger.Info("VM deletion verified - VM no longer exists")
-	}
-
-	// Delete ZVols if requested
-	if deleteZVol && len(zvolPaths) > 0 {
-		if err := vm.deleteZVolsByPaths(zvolPaths, name); err != nil {
-			vm.logger.Warn("Failed to delete some ZVols: %v", err)
+		vm.logger.Warn("VM still exists after deletion API call - waiting and retrying verification")
+		time.Sleep(3 * time.Second)
+		_, verifyErr = vm.getVMByName(name)
+		if verifyErr == nil {
+			vm.logger.Error("VM persists after deletion - this may indicate a TrueNAS API issue")
 		}
 	}
+	if verifyErr != nil {
+		vm.logger.Success("VM deletion verified - VM no longer exists")
+	}
 
-	vm.logger.Success("VM %s deleted successfully", name)
+	// Delete ZVols if requested and we found any
+	if deleteZVol && len(zvolPaths) > 0 {
+		vm.logger.Info("Starting deletion of %d ZVols for VM %s", len(zvolPaths), name)
+		deletionErr := vm.deleteZVolsByPaths(zvolPaths, name)
+		if deletionErr != nil {
+			vm.logger.Error("Failed to delete some ZVols: %v", deletionErr)
+			vm.logger.Warn("Manual cleanup may be required for remaining ZVols")
+			// Return error to indicate partial failure
+			return fmt.Errorf("VM deleted but failed to delete all ZVols: %w", deletionErr)
+		} else {
+			vm.logger.Success("All %d ZVols deleted successfully", len(zvolPaths))
+		}
+	} else if deleteZVol && len(zvolPaths) == 0 {
+		vm.logger.Warn("No ZVols were found for VM %s - they may have been manually deleted or may require manual cleanup", name)
+	}
+
+	vm.logger.Success("VM %s deletion completed", name)
 	return nil
 }
 
@@ -422,7 +481,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 		"name":    zvolPath,
 		"type":    "VOLUME",
 		"volsize": volsize,
-		"sparse":  true,   // Enable thin provisioning - this is the critical missing piece!
+		"sparse":  true, // Enable thin provisioning - this is the critical missing piece!
 	}
 
 	_, err = vm.client.Call("pool.dataset.create", []interface{}{zvolConfig}, 60)
@@ -437,29 +496,29 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 	// Build VM configuration based on real TrueNAS API structure
 	vmConfig := map[string]interface{}{
-		"name":                           config.Name,
-		"description":                    fmt.Sprintf("Talos Linux VM - %s", config.Name),
-		"vcpus":                          config.VCPUs,
-		"cores":                          1,
-		"threads":                        1,
-		"memory":                         config.Memory,
-		"bootloader":                     "UEFI",
+		"name":                          config.Name,
+		"description":                   fmt.Sprintf("Talos Linux VM - %s", config.Name),
+		"vcpus":                         config.VCPUs,
+		"cores":                         1,
+		"threads":                       1,
+		"memory":                        config.Memory,
+		"bootloader":                    "UEFI",
 		"bootloader_ovmf":               "OVMF_CODE.fd",
-		"autostart":                      false,
-		"time":                           "LOCAL",
-		"shutdown_timeout":               90,
-		"cpu_mode":                       "HOST-PASSTHROUGH",
-		"cpu_model":                      nil,
-		"cpuset":                         "",
-		"nodeset":                        "",
-		"enable_cpu_topology_extension":  false,
-		"pin_vcpus":                      false,
-		"suspend_on_snapshot":            false,
-		"trusted_platform_module":        false,
-		"min_memory":                     nil,
-		"hyperv_enlightenments":          false,
-		"command_line_args":              "",
-		"arch_type":                      nil,
+		"autostart":                     false,
+		"time":                          "LOCAL",
+		"shutdown_timeout":              90,
+		"cpu_mode":                      "HOST-PASSTHROUGH",
+		"cpu_model":                     nil,
+		"cpuset":                        "",
+		"nodeset":                       "",
+		"enable_cpu_topology_extension": false,
+		"pin_vcpus":                     false,
+		"suspend_on_snapshot":           false,
+		"trusted_platform_module":       false,
+		"min_memory":                    nil,
+		"hyperv_enlightenments":         false,
+		"command_line_args":             "",
+		"arch_type":                     nil,
 	}
 
 	return vmConfig
@@ -497,7 +556,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	if isoPath == "" {
 		isoPath = "/mnt/flashstor/ISO/metal-amd64.iso" // Fallback to default
 	}
-	
+
 	cdromDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
@@ -516,11 +575,11 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	nicDevice := map[string]interface{}{
 		"vm": vmID,
 		"attributes": map[string]interface{}{
-			"dtype":                    "NIC",
-			"type":                     "VIRTIO",
-			"mac":                      macAddress,
-			"nic_attach":               config.NetworkBridge,
-			"trust_guest_rx_filters":   false,
+			"dtype":                  "NIC",
+			"type":                   "VIRTIO",
+			"mac":                    macAddress,
+			"nic_attach":             config.NetworkBridge,
+			"trust_guest_rx_filters": false,
 		},
 		"order": 1002,
 	}
@@ -619,12 +678,12 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 			"bind":       "192.168.120.10", // SPICE bind interface
 			"dtype":      "DISPLAY",
 			"password":   config.SpicePassword,
-			"port":       nil,      // Let TrueNAS auto-assign port
+			"port":       nil, // Let TrueNAS auto-assign port
 			"resolution": "1920x1080",
-			"type":       "SPICE",  // Always SPICE
+			"type":       "SPICE", // Always SPICE
 			"wait":       false,
 			"web":        true,
-			"web_port":   nil,      // Let TrueNAS auto-assign web port
+			"web_port":   nil, // Let TrueNAS auto-assign web port
 		},
 		"order": 1003,
 	}
@@ -656,18 +715,33 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 		vm.logger.Info("Device %d: %+v", i+1, device)
 		if attributes, ok := device["attributes"].(map[string]interface{}); ok {
 			vm.logger.Info("Device attributes: %+v", attributes)
-			if dtype, ok := attributes["dtype"].(string); ok && dtype == "DISK" {
-				vm.logger.Info("Found DISK device: %+v", device)
-				if path, ok := attributes["path"].(string); ok {
-					vm.logger.Info("Device path: %s", path)
-					// Extract ZVol path from device path
-					if strings.HasPrefix(path, "/dev/zvol/") {
-						zvolPath := strings.TrimPrefix(path, "/dev/zvol/")
-						zvolPaths = append(zvolPaths, zvolPath)
-						vm.logger.Info("Found ZVol: %s", zvolPath)
+			
+			// Check dtype field
+			if dtype, ok := attributes["dtype"].(string); ok {
+				vm.logger.Info("Device type (dtype): %s", dtype)
+				if dtype == "DISK" {
+					vm.logger.Info("Found DISK device: %+v", device)
+					if path, ok := attributes["path"].(string); ok {
+						vm.logger.Info("Device path: %s", path)
+						// Extract ZVol path from device path
+						if strings.HasPrefix(path, "/dev/zvol/") {
+							zvolPath := strings.TrimPrefix(path, "/dev/zvol/")
+							zvolPaths = append(zvolPaths, zvolPath)
+							vm.logger.Success("✓ Found ZVol: %s", zvolPath)
+						} else {
+							vm.logger.Info("Device path is not a ZVol (doesn't start with /dev/zvol/): %s", path)
+						}
+					} else {
+						vm.logger.Warn("DISK device has no path attribute")
 					}
+				} else {
+					vm.logger.Info("Skipping non-DISK device type: %s", dtype)
 				}
+			} else {
+				vm.logger.Warn("Device has no dtype attribute or dtype is not a string")
 			}
+		} else {
+			vm.logger.Warn("Device has no attributes or attributes is not a map")
 		}
 	}
 
@@ -676,13 +750,140 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 }
 
 func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error {
-	for _, zvolPath := range zvolPaths {
-		vm.logger.Info("Deleting ZVol: %s", zvolPath)
-		if err := vm.client.DeleteDataset(zvolPath, false); err != nil {
+	var failedZVols []string
+
+	vm.logger.Info("Starting ZVol deletion process for %d ZVols", len(zvolPaths))
+	for i, zvolPath := range zvolPaths {
+		vm.logger.Info("Deleting ZVol %d/%d: %s", i+1, len(zvolPaths), zvolPath)
+		
+		// Always use recursive=true to handle snapshots
+		// ZVols often have automatic snapshots that prevent deletion without recursive flag
+		if err := vm.client.DeleteDataset(zvolPath, true); err != nil {
 			vm.logger.Error("Failed to delete ZVol %s: %v", zvolPath, err)
-			return err
+			failedZVols = append(failedZVols, fmt.Sprintf("%s (error: %v)", zvolPath, err))
+		} else {
+			vm.logger.Success("✓ Deleted ZVol (including any snapshots): %s", zvolPath)
 		}
-		vm.logger.Success("✓ Deleted ZVol: %s", zvolPath)
 	}
+
+	if len(failedZVols) > 0 {
+		return fmt.Errorf("failed to delete %d ZVols: %v", len(failedZVols), failedZVols)
+	}
+
 	return nil
+}
+
+// CleanupOrphanedZVols deletes ZVols for a VM that no longer exists
+func (vm *VMManager) CleanupOrphanedZVols(vmName, storagePool string) error {
+	vm.logger.Info("Searching for orphaned ZVols for VM: %s", vmName)
+	
+	// Use pattern discovery to find ZVols
+	zvolPaths := vm.discoverZVolsByPattern(storagePool, vmName)
+	
+	if len(zvolPaths) == 0 {
+		vm.logger.Warn("No orphaned ZVols found for VM %s", vmName)
+		return nil
+	}
+	
+	vm.logger.Info("Found %d orphaned ZVols for VM %s: %v", len(zvolPaths), vmName, zvolPaths)
+	
+	// Delete the discovered ZVols
+	if err := vm.deleteZVolsByPaths(zvolPaths, vmName); err != nil {
+		return fmt.Errorf("failed to delete orphaned ZVols: %w", err)
+	}
+	
+	vm.logger.Success("Successfully cleaned up %d orphaned ZVols for VM %s", len(zvolPaths), vmName)
+	return nil
+}
+
+// discoverZVolsByPattern attempts to find ZVols using naming patterns when device discovery fails
+func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string {
+	vm.logger.Info("Attempting fallback ZVol discovery using naming patterns")
+	vm.logger.Info("Search parameters: storagePool=%s, vmName=%s", storagePool, vmName)
+	var zvolPaths []string
+	
+	// Build multiple pattern variations to handle different pool configurations
+	// VMs can be created with different pool paths like "flashstor" or "flashstor/VM"
+	var patterns []string
+	
+	// Standard patterns with the provided pool
+	patterns = append(patterns,
+		fmt.Sprintf("%s/%s-boot", storagePool, vmName),
+		fmt.Sprintf("%s/%s-ebs", storagePool, vmName),    // OpenEBS disk
+		fmt.Sprintf("%s/%s-rook", storagePool, vmName),   // Rook disk
+	)
+	
+	// If the pool doesn't already contain /VM, also check with /VM appended
+	if !strings.HasSuffix(storagePool, "/VM") {
+		patterns = append(patterns,
+			fmt.Sprintf("%s/VM/%s-boot", storagePool, vmName),
+			fmt.Sprintf("%s/VM/%s-ebs", storagePool, vmName),
+			fmt.Sprintf("%s/VM/%s-rook", storagePool, vmName),
+		)
+	}
+	
+	// If the pool has /VM, also check without it
+	if strings.HasSuffix(storagePool, "/VM") {
+		basePool := strings.TrimSuffix(storagePool, "/VM")
+		patterns = append(patterns,
+			fmt.Sprintf("%s/%s-boot", basePool, vmName),
+			fmt.Sprintf("%s/%s-ebs", basePool, vmName),
+			fmt.Sprintf("%s/%s-rook", basePool, vmName),
+		)
+	}
+	
+	vm.logger.Info("Looking for ZVols matching patterns: %v", patterns)
+	
+	// Query all datasets to find matches
+	datasets, err := vm.client.QueryDatasets(nil)
+	if err != nil {
+		vm.logger.Warn("Failed to query datasets for pattern matching: %v", err)
+		return zvolPaths
+	}
+	
+	vm.logger.Info("Queried %d total datasets for pattern matching", len(datasets))
+	
+	// Convert patterns to map for faster lookup
+	patternMap := make(map[string]bool)
+	for _, pattern := range patterns {
+		patternMap[pattern] = true
+	}
+	
+	// Also do a more flexible search by checking if dataset name contains the VM name
+	// This helps catch ZVols even if the pool path is different
+	for _, dataset := range datasets {
+		// First check exact pattern matches
+		if patternMap[dataset.Name] {
+			vm.logger.Info("Found exact pattern match: %s (type: %s)", dataset.Name, dataset.Type)
+			// Check if it's actually a ZVol (type should be "VOLUME")
+			if dataset.Type == "VOLUME" {
+				zvolPaths = append(zvolPaths, dataset.Name)
+				vm.logger.Success("✓ Found ZVol by exact pattern: %s", dataset.Name)
+			} else {
+				vm.logger.Warn("Pattern matched but not a VOLUME: %s (type: %s)", dataset.Name, dataset.Type)
+			}
+		} else if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, vmName) {
+			// Flexible matching: if it's a VOLUME and contains the VM name
+			// Check if it matches our expected suffixes
+			if strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-boot", vmName)) ||
+			   strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-ebs", vmName)) ||
+			   strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-rook", vmName)) {
+				zvolPaths = append(zvolPaths, dataset.Name)
+				vm.logger.Success("✓ Found ZVol by flexible pattern: %s", dataset.Name)
+			}
+		}
+	}
+	
+	// Remove duplicates
+	seen := make(map[string]bool)
+	var uniquePaths []string
+	for _, path := range zvolPaths {
+		if !seen[path] {
+			seen[path] = true
+			uniquePaths = append(uniquePaths, path)
+		}
+	}
+	
+	vm.logger.Info("Pattern-based discovery found %d unique ZVols", len(uniquePaths))
+	return uniquePaths
 }

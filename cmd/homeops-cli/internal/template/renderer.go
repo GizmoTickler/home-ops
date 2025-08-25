@@ -129,7 +129,7 @@ func (r *Renderer) injectSecrets(content []byte) ([]byte, error) {
 			// Get secret from 1Password
 			secret, err := r.getSecret(vault, item, field)
 			if err != nil {
-				return nil, errors.NewTemplateError("SECRET_INJECTION_FAILED", 
+				return nil, errors.NewTemplateError("SECRET_INJECTION_FAILED",
 					fmt.Sprintf("Failed to inject secret %s", fullMatch), err)
 			}
 
@@ -174,7 +174,7 @@ func (r *Renderer) ValidateTemplate(templatePath string) error {
 	return r.metrics.TrackOperation("template_validation", func() error {
 		_, err := pongo2.FromFile(templatePath)
 		if err != nil {
-			return errors.NewTemplateError("VALIDATION_FAILED", 
+			return errors.NewTemplateError("VALIDATION_FAILED",
 				fmt.Sprintf("Template validation failed: %s", templatePath), err)
 		}
 		return nil
@@ -186,7 +186,7 @@ func (r *Renderer) GetTemplateVariables(templatePath string) ([]string, error) {
 	result, err := r.metrics.TrackOperationWithResult("get_template_variables", func() (interface{}, error) {
 		content, err := os.ReadFile(templatePath)
 		if err != nil {
-			return nil, errors.NewTemplateError("READ_FAILED", 
+			return nil, errors.NewTemplateError("READ_FAILED",
 				fmt.Sprintf("Failed to read template: %s", templatePath), err)
 		}
 

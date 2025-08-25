@@ -13,18 +13,15 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
-	"gopkg.in/yaml.v3"
 )
 
 const (
 	// TalosFactoryBaseURL is the base URL for the Talos factory API
 	TalosFactoryBaseURL = "https://factory.talos.dev"
-	
-	// DefaultTalosVersion is the default Talos version to use if not specified
-	DefaultTalosVersion = "v1.10.6"
-	
+
 	// CacheDir is the directory where generated ISOs are cached
 	CacheDir = ".cache/talos-isos"
 )
@@ -40,8 +37,8 @@ type FactoryClient struct {
 // SchematicConfig represents the Talos schematic configuration
 type SchematicConfig struct {
 	Customization struct {
-		ExtraKernelArgs   []string `yaml:"extraKernelArgs" json:"extraKernelArgs"`
-		SystemExtensions  struct {
+		ExtraKernelArgs  []string `yaml:"extraKernelArgs" json:"extraKernelArgs"`
+		SystemExtensions struct {
 			OfficialExtensions []string `yaml:"officialExtensions" json:"officialExtensions"`
 		} `yaml:"systemExtensions" json:"systemExtensions"`
 	} `yaml:"customization" json:"customization"`
@@ -49,16 +46,15 @@ type SchematicConfig struct {
 
 // SchematicResponse represents the response from the Talos factory API
 type SchematicResponse struct {
-	ID      string `json:"id"`
-	
+	ID string `json:"id"`
 }
 
 // ISOGenerationRequest represents a request to generate an ISO
 type ISOGenerationRequest struct {
-	SchematicID   string
-	TalosVersion  string
-	Architecture  string
-	Platform      string
+	SchematicID  string
+	TalosVersion string
+	Architecture string
+	Platform     string
 }
 
 // ISOInfo contains information about a generated ISO
@@ -151,7 +147,11 @@ func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion s
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fc.logger.Warn("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	// Validate API response
 	if err := fc.ValidateAPIResponse(resp, "application/json"); err != nil {
@@ -181,7 +181,7 @@ func (fc *FactoryClient) GenerateISO(req ISOGenerationRequest) (*ISOInfo, error)
 		return nil, fmt.Errorf("ISO request validation failed: %w", err)
 	}
 
-	fc.logger.Info("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)", 
+	fc.logger.Info("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)",
 		req.SchematicID, req.TalosVersion, req.Platform, req.Architecture)
 
 	// Check cache first
@@ -229,7 +229,7 @@ func (fc *FactoryClient) validateISORequest(req ISOGenerationRequest) error {
 		return fmt.Errorf("schematic ID is required")
 	}
 	if req.TalosVersion == "" {
-		return fmt.Errorf("Talos version is required")
+		return fmt.Errorf("talos version is required")
 	}
 	if req.Architecture == "" {
 		return fmt.Errorf("architecture is required")
@@ -281,7 +281,11 @@ func (fc *FactoryClient) validateISOURL(url string) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate ISO URL: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			fc.logger.Warn("Failed to close response body: %v", closeErr)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ISO URL returned status %d", resp.StatusCode)
@@ -300,7 +304,7 @@ func (fc *FactoryClient) GenerateISOFromSchematic(config *SchematicConfig, talos
 		return nil, fmt.Errorf("schematic config is nil")
 	}
 	if talosVersion == "" {
-		return nil, fmt.Errorf("Talos version is required")
+		return nil, fmt.Errorf("talos version is required")
 	}
 	if architecture == "" {
 		return nil, fmt.Errorf("architecture is required")
@@ -458,7 +462,6 @@ func (fc *FactoryClient) ValidateSchematicResponse(resp *SchematicResponse) erro
 	if resp.ID == "" {
 		return fmt.Errorf("schematic ID is empty")
 	}
-
 
 	// Validate ID format (should be a hash-like string)
 	if len(resp.ID) < 10 {

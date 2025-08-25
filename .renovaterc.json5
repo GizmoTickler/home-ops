@@ -9,6 +9,7 @@
     "github>GizmoTickler/home-ops//.renovate/grafanaDashboards.json5",
     "github>GizmoTickler/home-ops//.renovate/groups.json5",
     "github>GizmoTickler/home-ops//.renovate/labels.json5",
+    "github>GizmoTickler/home-ops//.renovate/overrides.json5",
     "github>GizmoTickler/home-ops//.renovate/semanticCommits.json5",
     ":automergeBranch",
     ":disableRateLimiting",

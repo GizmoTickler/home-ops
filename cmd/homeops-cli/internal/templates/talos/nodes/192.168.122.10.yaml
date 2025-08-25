@@ -1,0 +1,18 @@
+---
+machine:
+  network:
+    hostname: k8s-0
+    interfaces:
+      - deviceSelector:
+          hardwareAddr: 00:a0:98:28:c8:83
+        dhcp: true
+        vip:
+          ip: 192.168.120.100
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-hostpath
+provisioning:
+  diskSelector:
+    match: "!system_disk"
+  minSize: 1024GB

@@ -78,11 +78,11 @@ func browsePVC(namespace, claim, image string) error {
 	logger.Info("Mounting PVC %s/%s to temporary container", namespace, claim)
 
 	// Execute browse-pvc
-	cmd := exec.Command("kubectl", "browse-pvc", 
+	cmd := exec.Command("kubectl", "browse-pvc",
 		"--namespace", namespace,
 		"--image", image,
 		claim)
-	
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -161,9 +161,9 @@ func syncSecrets(dryRun bool) error {
 	logger := common.NewColorLogger()
 
 	// Get all ExternalSecrets
-	cmd := exec.Command("kubectl", "get", "externalsecret", "--all-namespaces", 
+	cmd := exec.Command("kubectl", "get", "externalsecret", "--all-namespaces",
 		"--no-headers", "--output=jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}")
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get ExternalSecrets: %w", err)
@@ -199,10 +199,10 @@ func syncSecrets(dryRun bool) error {
 
 		// Annotate to force sync
 		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		annotateCmd := exec.Command("kubectl", "--namespace", namespace, 
-			"annotate", "externalsecret", name, 
+		annotateCmd := exec.Command("kubectl", "--namespace", namespace,
+			"annotate", "externalsecret", name,
 			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite")
-		
+
 		if err := annotateCmd.Run(); err != nil {
 			logger.Error("Failed to sync %s/%s: %v", namespace, name, err)
 			continue
@@ -256,7 +256,7 @@ func cleansePods(namespace string, dryRun bool) error {
 			args = append(args, "--all-namespaces")
 		}
 		args = append(args, "--field-selector", fmt.Sprintf("status.phase=%s", phase))
-		
+
 		if dryRun {
 			// First get the list of pods that would be deleted
 			listArgs := []string{"get", "pods"}
@@ -266,7 +266,7 @@ func cleansePods(namespace string, dryRun bool) error {
 				listArgs = append(listArgs, "--all-namespaces")
 			}
 			listArgs = append(listArgs, "--field-selector", fmt.Sprintf("status.phase=%s", phase), "-o", "name")
-			
+
 			listCmd := exec.Command("kubectl", listArgs...)
 			output, err := listCmd.Output()
 			if err != nil {
@@ -285,7 +285,7 @@ func cleansePods(namespace string, dryRun bool) error {
 			}
 		} else {
 			args = append(args, "--ignore-not-found=true")
-			
+
 			cmd := exec.Command("kubectl", args...)
 			output, err := cmd.CombinedOutput()
 			if err != nil {
@@ -301,7 +301,7 @@ func cleansePods(namespace string, dryRun bool) error {
 					deleted++
 				}
 			}
-			
+
 			if deleted > 0 {
 				logger.Info("Deleted %d pods in %s phase", deleted, phase)
 				totalDeleted += deleted
@@ -312,7 +312,7 @@ func cleansePods(namespace string, dryRun bool) error {
 	if !dryRun {
 		logger.Success("Pod cleanup completed. Total pods deleted: %d", totalDeleted)
 	}
-	
+
 	return nil
 }
 
