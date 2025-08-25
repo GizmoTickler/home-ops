@@ -1055,6 +1055,40 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 	return mergedConfig, nil
 }
 
+// validateEtcdRunning validates that etcd is actually running after bootstrap
+func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLogger) error {
+	maxAttempts := 6 // 1 minute total with 10s intervals
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		logger.Debug("Etcd validation attempt %d/%d", attempt, maxAttempts)
+		
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		
+		cmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", talosConfig, "--nodes", controller, "etcd", "status")
+		_, err := cmd.CombinedOutput()
+		
+		if err == nil {
+			logger.Debug("Etcd is running and responding")
+			return nil
+		}
+		
+		// Check if etcd service is actually running (not just waiting)
+		serviceCmd := exec.Command("talosctl", "--talosconfig", talosConfig, "--nodes", controller, "service", "etcd")
+		serviceOutput, serviceErr := serviceCmd.Output()
+		if serviceErr == nil && strings.Contains(string(serviceOutput), "STATE    Running") {
+			logger.Debug("Etcd service is running")
+			return nil
+		}
+		
+		logger.Debug("Etcd validation attempt %d failed: %v", attempt, err)
+		if attempt < maxAttempts {
+			time.Sleep(10 * time.Second)
+		}
+	}
+	
+	return fmt.Errorf("etcd failed to start after bootstrap")
+}
+
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get a random controller node
 	controller, err := getRandomController(config.TalosConfig)
@@ -1069,9 +1103,11 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 		return nil
 	}
 
-	// Check if cluster is already bootstrapped first
+	// Check if cluster is already bootstrapped first with timeout
 	logger.Debug("Checking if cluster is already bootstrapped...")
-	checkCmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "etcd", "status")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	checkCmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "etcd", "status")
 	if checkOutput, checkErr := checkCmd.CombinedOutput(); checkErr == nil {
 		logger.Info("Talos cluster is already bootstrapped (etcd is running)")
 		return nil
@@ -1090,6 +1126,17 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 		// Success cases (following onedr0p's logic)
 		if err == nil {
+			// Validate that etcd actually started after bootstrap
+			logger.Debug("Bootstrap command succeeded, validating etcd started...")
+			if err := validateEtcdRunning(config.TalosConfig, controller, logger); err != nil {
+				logger.Debug("Bootstrap succeeded but etcd validation failed: %v", err)
+				if attempts < maxAttempts-1 {
+					logger.Debug("Waiting 10 seconds before next bootstrap attempt")
+					time.Sleep(10 * time.Second)
+					continue
+				}
+				return fmt.Errorf("bootstrap command succeeded but etcd failed to start: %w", err)
+			}
 			logger.Success("Talos cluster bootstrapped successfully")
 			return nil
 		}
