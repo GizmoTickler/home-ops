@@ -375,8 +375,12 @@ func BenchmarkBootstrapDryRun(b *testing.B) {
 	}
 
 	// Create mock files
-	os.WriteFile(config.KubeConfig, []byte("mock kubeconfig"), 0600)
-	os.WriteFile(config.TalosConfig, []byte("mock talosconfig"), 0600)
+	if err := os.WriteFile(config.KubeConfig, []byte("mock kubeconfig"), 0600); err != nil {
+		b.Fatalf("Failed to create mock kubeconfig: %v", err)
+	}
+	if err := os.WriteFile(config.TalosConfig, []byte("mock talosconfig"), 0600); err != nil {
+		b.Fatalf("Failed to create mock talosconfig: %v", err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
