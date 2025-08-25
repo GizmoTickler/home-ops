@@ -24,7 +24,7 @@ spec:
       APP: *app
       VOLSYNC_CAPACITY: 10Gi
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.169.123.123"
+      GATEWAY_IP: "192.168.123.123"
   prune: true
   retryInterval: 2m
   sourceRef:
