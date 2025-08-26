@@ -8,6 +8,9 @@ machine:
         dhcp: true
         vip:
           ip: 192.168.120.100
+  time:
+    servers:
+      - /dev/ptp0
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
