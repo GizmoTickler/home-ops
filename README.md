@@ -9,8 +9,8 @@ _Kubernetes cluster running on TrueNAS Scale VMs, managed with Talos, Flux, and 
 
 <div align="center">
 
-[![Talos](https://img.shields.io/badge/Talos-v1.10.6-blue?style=for-the-badge&logo=talos&logoColor=white)](https://www.talos.dev/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.33.3-blue?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Talos](https://img.shields.io/badge/Talos-v1.11.rc0-blue?style=for-the-badge&logo=talos&logoColor=white)](https://www.talos.dev/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.33.4-blue?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Flux](https://img.shields.io/badge/Flux-v2.4.0-blue?style=for-the-badge&logo=flux&logoColor=white)](https://fluxcd.io/)
 [![Renovate](https://img.shields.io/badge/Renovate-enabled-blue?style=for-the-badge&logo=renovatebot&logoColor=white)](https://renovatebot.com/)
 
