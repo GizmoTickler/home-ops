@@ -6,7 +6,7 @@ metadata:
   name: rook-ceph-dashboard
 spec:
   hostnames:
-    - rook.${SECRET_DOMAIN}
+    - rook-ceph-cluster.${SECRET_DOMAIN}
   parentRefs:
     - name: rook-ceph-cluster-gateway
       namespace: rook-ceph
