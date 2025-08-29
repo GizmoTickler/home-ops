@@ -53,11 +53,9 @@ Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 
 func setEnvironment() {
 	// Set default environment variables if not already set
+	// KUBECONFIG, TALOSCONFIG, and SOPS_AGE_KEY_FILE should use global environment variables
 	envDefaults := map[string]string{
-		"KUBECONFIG":            "./kubeconfig",
 		"MINIJINJA_CONFIG_FILE": "./.minijinja.toml",
-		"SOPS_AGE_KEY_FILE":     "./age.key",
-		"TALOSCONFIG":           "./talosconfig",
 	}
 
 	for key, defaultValue := range envDefaults {
