@@ -11,6 +11,15 @@ machine:
   time:
     servers:
       - /dev/ptp0
+cluster:
+  discovery:
+    enabled: true
+    registries:
+      kubernetes:
+        disabled: false
+      service:
+        disabled: false
+        endpoint: http://192.168.123.152:3000
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
