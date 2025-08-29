@@ -69,8 +69,8 @@ func NewCommand() *cobra.Command {
 
 	// Add flags
 	cmd.Flags().StringVar(&config.RootDir, "root-dir", ".", "Root directory of the project")
-	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", "kubeconfig", "Path to kubeconfig file (relative to root-dir)")
-	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", "talosconfig", "Path to talosconfig file (relative to root-dir)")
+	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", os.Getenv("KUBECONFIG"), "Path to kubeconfig file")
+	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", os.Getenv("TALOSCONFIG"), "Path to talosconfig file")
 	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv("KUBERNETES_VERSION"), "Kubernetes version")
 	cmd.Flags().StringVar(&config.TalosVersion, "talos-version", os.Getenv("TALOS_VERSION"), "Talos version")
 	cmd.Flags().BoolVar(&config.DryRun, "dry-run", false, "Perform a dry run without making changes")
@@ -97,13 +97,8 @@ func runBootstrap(config *BootstrapConfig) error {
 		config.RootDir = absPath
 	}
 
-	// Resolve kubeconfig and talosconfig paths relative to root directory if they are relative
-	if config.KubeConfig != "" && !filepath.IsAbs(config.KubeConfig) {
-		config.KubeConfig = filepath.Join(config.RootDir, config.KubeConfig)
-	}
-	if config.TalosConfig != "" && !filepath.IsAbs(config.TalosConfig) {
-		config.TalosConfig = filepath.Join(config.RootDir, config.TalosConfig)
-	}
+	// Kubeconfig and talosconfig are now expected to be absolute paths from environment variables
+	// No need to resolve them relative to root directory
 
 	logger.Debug("Using kubeconfig: %s", config.KubeConfig)
 	logger.Debug("Using talosconfig: %s", config.TalosConfig)
@@ -1272,6 +1267,14 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 				return fmt.Errorf("kubeconfig file does not contain valid Kubernetes configuration")
 			}
 
+			// Save kubeconfig to 1Password for chezmoi
+			if err := saveKubeconfigTo1Password(kubeconfigContent, logger); err != nil {
+				logger.Warn("Failed to save kubeconfig to 1Password: %v", err)
+				logger.Warn("Continuing with bootstrap - kubeconfig is available locally")
+			} else {
+				logger.Success("Kubeconfig saved to 1Password for chezmoi")
+			}
+
 			logger.Success("Kubeconfig fetched and validated successfully")
 			return nil
 		}
@@ -1993,5 +1996,34 @@ func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogg
 	}
 
 	logger.Success("Dynamic values template rendering test passed")
+	return nil
+}
+
+// saveKubeconfigTo1Password saves the kubeconfig content to the existing 1Password item as a file attachment
+func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLogger) error {
+	logger.Debug("Updating kubeconfig file in 1Password...")
+	
+	// Create a temporary file with the kubeconfig content
+	tmpFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary kubeconfig file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+	
+	if _, err := tmpFile.Write(kubeconfigContent); err != nil {
+		return fmt.Errorf("failed to write kubeconfig to temporary file: %w", err)
+	}
+	tmpFile.Close()
+	
+	// Update the existing kubeconfig item by replacing the file attachment
+	cmd := exec.Command("op", "item", "edit", "kubeconfig", "--vault", "Private", fmt.Sprintf("kubeconfig[file]=%s", tmpFile.Name()))
+	output, err := cmd.CombinedOutput()
+	
+	if err != nil {
+		return fmt.Errorf("failed to update kubeconfig file in 1Password: %w (output: %s)", err, string(output))
+	}
+	
+	logger.Debug("Kubeconfig file updated in 1Password")
 	return nil
 }
