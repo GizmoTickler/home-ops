@@ -16,7 +16,7 @@ cluster:
     enabled: true
     registries:
       kubernetes:
-        disabled: false
+        disabled: true
       service:
         disabled: false
         endpoint: http://192.168.123.152:3000
