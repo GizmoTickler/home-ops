@@ -550,7 +550,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		macAddress = vm.generateRandomMAC()
 	}
 
-	// Create CD-ROM device first (order 1000) - matching working script structure
+	// Create CD-ROM device first (order 1006) - avoid boot issues with 1000
 	// Use the TalosISO path from config to support both default and custom ISOs
 	isoPath := config.TalosISO
 	if isoPath == "" {
@@ -563,7 +563,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 			"dtype": "CDROM",
 			"path":  isoPath,
 		},
-		"order": 1000,
+		"order": 1006,
 	}
 
 	if _, err := vm.client.Call("vm.device.create", []interface{}{cdromDevice}, 30); err != nil {
