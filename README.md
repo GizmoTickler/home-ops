@@ -33,11 +33,11 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 ### Infrastructure Details
 
 - **Host OS**: TrueNAS Scale with libvirt/QEMU virtualization
-- **Kubernetes Distribution**: Talos Linux v1.10.6 (immutable, minimal, secure)
-- **Kubernetes Version**: v1.33.3
-- **VM Configuration**: 3 control plane nodes, each with 8 vCPUs and 32GB RAM
+- **Kubernetes Distribution**: Talos Linux v1.11.rc0 (immutable, minimal, secure)
+- **Kubernetes Version**: v1.33.4
+- **VM Configuration**: 3 control plane nodes, each with 10 vCPUs and 48GB RAM
 - **Storage Strategy**: Multi-tier approach using local NVMe for performance and Rook Ceph for distributed resilience
-- **Networking**: Cilium v1.18.0 CNI with eBPF, Gateway API, and L2 announcements
+- **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: k8s-gateway for internal resolution, external-dns for Cloudflare integration
 
@@ -60,7 +60,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 
 ### GitOps
 
-[Flux](https://github.com/fluxcd/flux2) v2.6.4 provides GitOps continuous delivery, watching the [kubernetes](./kubernetes/) folder and applying changes based on Git repository state. The setup includes:
+[Flux](https://github.com/fluxcd/flux2) provides GitOps continuous delivery, watching the [kubernetes](./kubernetes/) folder and applying changes based on Git repository state. The setup includes:
 
 - **SOPS Integration**: Automatic decryption of secrets using age encryption
 - **Dependency Management**: HelmReleases and Kustomizations with explicit dependencies
@@ -160,13 +160,13 @@ The cluster implements a sophisticated networking architecture using Cilium and 
 ### Internal Resolution
 - **k8s-gateway**: Internal DNS resolution for cluster services and HTTPRoutes
 - **CoreDNS**: Kubernetes cluster DNS with custom configurations
-- **L2 Announcements**: Cilium L2 announcements for LoadBalancer IP allocation
+- **Cilium Announcements**: Cilium L2/BGP announcements for LoadBalancer IP allocation
 
 ### Network Architecture
 - **CNI**: Cilium with eBPF datapath for high-performance networking
 - **Load Balancing**: Maglev algorithm with DSR (Direct Server Return) mode
 - **IP Management**: Kubernetes IPAM with native routing (10.42.0.0/16)
-- **Gateway IPs**: Dedicated IP range (192.168.252.101-116) for application access
+- **Gateway IPs**: Dedicated IP range (192.168.123.101-149) for application access
 
 ---
 
@@ -233,9 +233,9 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                    | OS            |
 |-----------------------------|-------|------|--------|-----------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 8    | 32GB   | 250GB (OS) + 1TB (local) + 800GB (ceph) | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 10    | 48GB   | 250GB (OS) + 1TB (local) + 800GB (ceph) | Talos Linux   |
 
-**Total VM Resources**: 24 vCPUs, 96GB RAM allocated from the 40-core, 384GB host system.
+**Total VM Resources**: 30 vCPUs, 144GB RAM allocated from the 40-core, 384GB host system.
 
 ---
 
