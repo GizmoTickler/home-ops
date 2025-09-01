@@ -7,7 +7,7 @@ require (
 	github.com/1Password/connect-sdk-go v1.5.3
 	github.com/fatih/color v1.18.0
 	github.com/flosch/pongo2/v6 v6.0.0
-	github.com/spf13/cobra v1.9.1
+	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.20.1
 	github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe
 	go.uber.org/zap v1.27.0
@@ -29,7 +29,7 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
