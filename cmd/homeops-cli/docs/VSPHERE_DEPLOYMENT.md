@@ -24,7 +24,7 @@ This guide covers deploying Talos VMs on vSphere/ESXi using the homeops-cli tool
 
 3. **Talos ISO**:
    - Upload the Talos ISO to the `truenas-iso-nfs` datastore
-   - Default location: `[truenas-iso-nfs] metal-amd64.iso`
+   - Default location: `[truenas-iso-nfs] vmware-amd64.iso`
 
 ## Usage Examples
 
@@ -126,7 +126,7 @@ The default VM specifications match your requirements:
 - **Rook Disk**: 800GB (thick provisioned for optimal Ceph performance)
 - **Datastore**: truenas-flash (iSCSI)
 - **Network**: vl999 (SR-IOV adapter)
-- **ISO**: [datastore1] metal-amd64.iso
+- **ISO**: [datastore1] vmware-amd64.iso
 - **Guest OS**: Other 6.x or later Linux (64-bit)
 - **Network Adapter**: SR-IOV Ethernet Card
 - **SCSI Controller**: ParaVirtual SCSI
@@ -177,7 +177,7 @@ While the deployment command creates VMs on vSphere, you can manage them using s
 
 1. **Connection Failed**: Verify ESXi host is reachable and credentials are correct
 2. **Datastore Not Found**: Ensure `truenas-flash` iSCSI datastore is mounted
-3. **ISO Not Found**: Check that the ISO exists at `[truenas-iso-nfs] metal-amd64.iso`
+3. **ISO Not Found**: Check that the ISO exists at `[truenas-iso-nfs] vmware-amd64.iso`
 4. **Network Not Found**: Verify port group `vl999` exists in ESXi networking
 
 ## Notes
