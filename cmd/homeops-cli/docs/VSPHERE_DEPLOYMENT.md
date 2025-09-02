@@ -65,6 +65,30 @@ This will create:
 - talos-node-02
 - talos-node-03
 
+### Deploy k8s Cluster Nodes
+
+Deploy the 3 k8s cluster nodes with their predefined MAC addresses:
+
+```bash
+./homeops-cli talos deploy-vm \
+  --provider vsphere \
+  --name k8s \
+  --node-count 3 \
+  --concurrent 3 \
+  --memory 49152 \
+  --vcpus 10 \
+  --disk-size 250 \
+  --openebs-size 1024 \
+  --rook-size 800
+```
+
+This will create:
+- k8s-0 (MAC: 00:a0:98:28:c8:83) - automatically read from node config
+- k8s-1 (MAC: 00:a0:98:1a:f3:72) - automatically read from node config
+- k8s-2 (MAC: 00:a0:98:3e:6c:22) - automatically read from node config
+
+The MAC addresses are automatically read from the node configuration files in `internal/templates/talos/nodes/`.
+
 ### Custom Network and Datastore
 
 Specify custom network and datastore:
@@ -99,10 +123,24 @@ The default VM specifications match your requirements:
 - **vCPUs**: 10
 - **Boot Disk**: 250GB (thin provisioned)
 - **OpenEBS Disk**: 1024GB / 1TB (thin provisioned)
-- **Rook Disk**: 800GB (thin provisioned)
+- **Rook Disk**: 800GB (thick provisioned for optimal Ceph performance)
 - **Datastore**: truenas-flash (iSCSI)
-- **Network**: vl999
-- **ISO**: [truenas-iso-nfs] metal-amd64.iso
+- **Network**: vl999 (SR-IOV adapter)
+- **ISO**: [datastore1] metal-amd64.iso
+- **Guest OS**: Other 6.x or later Linux (64-bit)
+- **Network Adapter**: SR-IOV Ethernet Card
+- **SCSI Controller**: ParaVirtual SCSI
+- **SATA Controller**: AHCI (for CD-ROM)
+
+Note: The Rook disk uses thick provisioning (eager zeroed) for better Ceph performance, while boot and OpenEBS disks use thin provisioning to save space.
+
+### SR-IOV Physical Function Distribution
+
+When deploying multiple VMs, the CLI automatically distributes them across available SR-IOV physical functions for optimal network performance:
+- VM 1, 3, 5, ... → Physical Function 0000:04:00.0
+- VM 2, 4, 6, ... → Physical Function 0000:04:00.1
+
+This ensures balanced network load across both physical functions of the dual-port X540-AT2 controller.
 
 ## Parallel Deployment
 
