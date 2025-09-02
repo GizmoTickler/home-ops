@@ -45,7 +45,7 @@ machine:
         nconnect=16
         noatime=True
   install:
-    disk: /dev/vda
+    disk: /dev/sda
     image: factory.talos.dev/vmware-installer/a93025e6707c8413549fb4f104bf0d196d196741e33d9f958b3e3ba122d53d80:v1.11.0
     wipe: false
   kernel:
