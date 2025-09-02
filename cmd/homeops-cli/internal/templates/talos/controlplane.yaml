@@ -46,7 +46,7 @@ machine:
         noatime=True
   install:
     disk: /dev/vda
-    image: factory.talos.dev/metal-installer/8a86ddeb0f61cd2cae3fdbac63cb2f6fa340f790141255a4d6525b984f6f712b:v1.11.0-rc.0
+    image: factory.talos.dev/vmware-installer/a93025e6707c8413549fb4f104bf0d196d196741e33d9f958b3e3ba122d53d80:v1.11.0
     wipe: false
   kernel:
     modules:
@@ -58,7 +58,7 @@ machine:
       featureGates:
         ImageVolume: true
       serializeImagePulls: false
-    image: ghcr.io/siderolabs/kubelet:v1.33.4
+    image: ghcr.io/siderolabs/kubelet:v1.34.0
     nodeIP:
       validSubnets:
         - 192.168.120.0/22
@@ -121,11 +121,11 @@ cluster:
       enable-aggregator-routing: "true"
       feature-gates: ImageVolume=true,MutatingAdmissionPolicy=true
       runtime-config: admissionregistration.k8s.io/v1alpha1=true
-    image: registry.k8s.io/kube-apiserver:v1.33.4
+    image: registry.k8s.io/kube-apiserver:v1.34.0
   controllerManager:
     extraArgs:
       bind-address: 0.0.0.0
-    image: registry.k8s.io/kube-controller-manager:v1.33.4
+    image: registry.k8s.io/kube-controller-manager:v1.34.0
   coreDNS:
     disabled: true
   etcd:
@@ -138,6 +138,7 @@ cluster:
       listen-metrics-urls: http://0.0.0.0:2381
   proxy:
     disabled: true
+    image: registry.k8s.io/kube-proxy:v1.34.0
   scheduler:
     config:
       apiVersion: kubescheduler.config.k8s.io/v1
@@ -158,7 +159,7 @@ cluster:
                     whenUnsatisfiable: ScheduleAnyway
     extraArgs:
       bind-address: 0.0.0.0
-    image: registry.k8s.io/kube-scheduler:v1.33.4
+    image: registry.k8s.io/kube-scheduler:v1.34.0
   secretboxEncryptionSecret: op://Infrastructure/talos/CLUSTER_SECRETBOXENCRYPTIONSECRET
   serviceAccount:
     key: op://Infrastructure/talos/CLUSTER_SERVICEACCOUNT_KEY
