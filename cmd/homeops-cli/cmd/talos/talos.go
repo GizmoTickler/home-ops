@@ -19,6 +19,7 @@ import (
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vsphere"
 	"homeops-cli/internal/yaml"
 )
 
@@ -566,27 +567,49 @@ func newDeployVMCommand() *cobra.Command {
 		pool           string
 		skipZVolCreate bool
 		generateISO    bool
+		provider       string
+		// vSphere specific flags
+		datastore      string
+		network        string
+		concurrent     int
+		nodeCount      int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
-		Short: "Deploy Talos VM on TrueNAS with auto-generated ZVol paths",
-		Long:  `Deploy a new Talos VM on TrueNAS with proper ZVol naming convention. Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
+		Short: "Deploy Talos VM on TrueNAS or vSphere/ESXi",
+		Long:  `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.
+
+For TrueNAS: Uses proper ZVol naming convention and SPICE console.
+For vSphere/ESXi: Deploys to specified datastore with iSCSI storage.
+
+Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if provider == "vsphere" || provider == "esxi" {
+				return deployVMOnVSphere(name, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+			}
 			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
 		},
 	}
 
-	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (default: flashstor/VM)")
-	cmd.Flags().IntVar(&memory, "memory", 4096, "Memory in MB")
-	cmd.Flags().IntVar(&vcpus, "vcpus", 2, "Number of vCPUs")
+	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
+	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
+	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 10, "Number of vCPUs (default: 10)")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB")
 	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1024, "OpenEBS disk size in GB")
 	cmd.Flags().IntVar(&rookSize, "rook-size", 800, "Rook disk size in GB")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
-	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation")
+	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
+	
+	// vSphere specific flags
+	cmd.Flags().StringVar(&datastore, "datastore", "truenas-flash", "Datastore name (vSphere only)")
+	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
+	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")
+	
 	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
@@ -1318,5 +1341,146 @@ func cleanupOrphanedZVols(vmName, storagePool string) error {
 	}
 
 	logger.Success("Successfully cleaned up orphaned ZVols for VM: %s", vmName)
+	return nil
+}
+
+// deployVMOnVSphere deploys one or more VMs on vSphere/ESXi
+func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting vSphere/ESXi VM deployment")
+
+	// Get vSphere credentials from 1Password or environment
+	host := get1PasswordSecret("op://Infrastructure/esxi/host")
+	if host == "" {
+		host = os.Getenv("VSPHERE_HOST")
+	}
+	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	if username == "" {
+		username = os.Getenv("VSPHERE_USERNAME")
+	}
+	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	if password == "" {
+		password = os.Getenv("VSPHERE_PASSWORD")
+	}
+
+	if host == "" || username == "" || password == "" {
+		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
+	}
+
+	// Create vSphere client
+	client := vsphere.NewClient(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("Failed to close vSphere connection: %v", err)
+		}
+	}()
+
+	// Handle ISO generation if requested
+	var isoPath string
+	if generateISO {
+		logger.Info("Generating custom Talos ISO...")
+		// Note: For vSphere, we assume the ISO is already on the NFS datastore
+		// The user should run prepare-iso first or we need to handle upload differently
+		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the truenas-iso-nfs datastore")
+		logger.Warn("Run 'homeops talos prepare-iso' first if needed")
+		isoPath = "[truenas-iso-nfs] metal-amd64.iso"
+	} else {
+		// Use existing ISO on NFS datastore
+		isoPath = "[truenas-iso-nfs] metal-amd64.iso"
+	}
+
+	// Prepare VM configurations
+	var configs []vsphere.VMConfig
+	
+	if nodeCount == 1 {
+		// Single VM deployment
+		config := vsphere.VMConfig{
+			Name:        baseName,
+			Memory:      memory,
+			VCPUs:       vcpus,
+			DiskSize:    diskSize,
+			OpenEBSSize: openebsSize,
+			RookSize:    rookSize,
+			Datastore:   datastore,
+			Network:     network,
+			ISO:         isoPath,
+			MacAddress:  macAddress,
+			PowerOn:     true,
+		}
+		configs = append(configs, config)
+	} else {
+		// Multiple VM deployment with numbering
+		for i := 1; i <= nodeCount; i++ {
+			vmName := fmt.Sprintf("%s-%02d", baseName, i)
+			config := vsphere.VMConfig{
+				Name:        vmName,
+				Memory:      memory,
+				VCPUs:       vcpus,
+				DiskSize:    diskSize,
+				OpenEBSSize: openebsSize,
+				RookSize:    rookSize,
+				Datastore:   datastore,
+				Network:     network,
+				ISO:         isoPath,
+				PowerOn:     true,
+			}
+			configs = append(configs, config)
+		}
+	}
+
+	// Deploy VMs
+	if len(configs) == 1 {
+		// Single VM deployment
+		logger.Info("Deploying VM: %s", configs[0].Name)
+		logger.Info("Configuration:")
+		logger.Info("  Memory: %d MB", configs[0].Memory)
+		logger.Info("  vCPUs: %d", configs[0].VCPUs)
+		logger.Info("  Boot Disk: %d GB", configs[0].DiskSize)
+		logger.Info("  OpenEBS Disk: %d GB", configs[0].OpenEBSSize)
+		logger.Info("  Rook Disk: %d GB", configs[0].RookSize)
+		logger.Info("  Datastore: %s", configs[0].Datastore)
+		logger.Info("  Network: %s", configs[0].Network)
+		logger.Info("  ISO: %s", configs[0].ISO)
+
+		vm, err := client.CreateVM(configs[0])
+		if err != nil {
+			return fmt.Errorf("failed to create VM: %w", err)
+		}
+
+		if configs[0].PowerOn {
+			if err := client.PowerOnVM(vm); err != nil {
+				return fmt.Errorf("failed to power on VM: %w", err)
+			}
+		}
+
+		logger.Success("VM %s deployed successfully!", configs[0].Name)
+	} else {
+		// Parallel VM deployment
+		logger.Info("Deploying %d VMs in parallel (max concurrent: %d)", len(configs), concurrent)
+		logger.Info("VM Configuration (for all VMs):")
+		logger.Info("  Memory: %d MB", memory)
+		logger.Info("  vCPUs: %d", vcpus)
+		logger.Info("  Boot Disk: %d GB", diskSize)
+		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
+		logger.Info("  Rook Disk: %d GB", rookSize)
+		logger.Info("  Datastore: %s", datastore)
+		logger.Info("  Network: %s", network)
+		logger.Info("  ISO: %s", isoPath)
+		logger.Info("")
+		logger.Info("VMs to deploy:")
+		for _, config := range configs {
+			logger.Info("  - %s", config.Name)
+		}
+
+		if err := client.DeployVMsConcurrently(configs); err != nil {
+			return fmt.Errorf("parallel deployment failed: %w", err)
+		}
+
+		logger.Success("Successfully deployed %d VMs!", len(configs))
+	}
+
 	return nil
 }
