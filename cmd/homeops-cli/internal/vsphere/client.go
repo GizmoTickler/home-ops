@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -93,7 +94,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to find datastore %s: %w", config.Datastore, err)
 	}
 
-	// Find network
+	// Find network - needed for SR-IOV network backing
 	network, err := c.finder.Network(c.ctx, config.Network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find network %s: %w", config.Network, err)
@@ -108,7 +109,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	// Create VM spec
 	spec := types.VirtualMachineConfigSpec{
 		Name:     config.Name,
-		GuestId:  "other3xLinux64Guest", // Generic 64-bit Linux
+		GuestId:  "other6xLinux64Guest", // Other 6.x or later Linux (64-bit) - matches manual VMs
 		NumCPUs:  int32(config.VCPUs),
 		MemoryMB: int64(config.Memory),
 		Files: &types.VirtualMachineFileInfo{
@@ -121,6 +122,19 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		Flags: &types.VirtualMachineFlagInfo{
 			VirtualMmuUsage:      "automatic",
 			VirtualExecUsage:     "hvAuto",
+		},
+		// Memory reservation - reserve all guest memory for SR-IOV
+		MemoryReservationLockedToMax: types.NewBool(true),
+		MemoryAllocation: &types.ResourceAllocationInfo{
+			Reservation: types.NewInt64(int64(config.Memory)), // Reserve all memory in MB
+			Limit:       types.NewInt64(-1),                   // No limit
+			Shares: &types.SharesInfo{
+				Level: types.SharesLevelNormal,
+			},
+		},
+		// VMware Tools configuration
+		Tools: &types.ToolsConfigInfo{
+			SyncTimeWithHost: types.NewBool(true), // Synchronize guest time with host
 		},
 	}
 
@@ -141,20 +155,25 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	}
 	devices = append(devices, scsiController)
 
-	// Add network adapter
+	// Add SR-IOV network adapter - uses regular network backing, not physical function backing
 	backing, err := network.EthernetCardBackingInfo(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network backing: %w", err)
 	}
 
-	netDevice := &types.VirtualVmxnet3{
-		VirtualVmxnet: types.VirtualVmxnet{
-			VirtualEthernetCard: types.VirtualEthernetCard{
-				VirtualDevice: types.VirtualDevice{
-					Key:     2000,
-					Backing: backing,
-				},
-				AddressType: "generated",
+	netDevice := &types.VirtualSriovEthernetCard{
+		VirtualEthernetCard: types.VirtualEthernetCard{
+			VirtualDevice: types.VirtualDevice{
+				Key:        13031, // Match manual VM key exactly
+				ControllerKey: 100, // PCI controller key from manual VM
+				Backing:    backing, // Use regular network backing for vl999
+			},
+			AddressType: "generated",
+		},
+		AllowGuestOSMtuChange: types.NewBool(true), // Enable guest OS MTU changes
+		SriovBacking: &types.VirtualSriovEthernetCardSriovBackingInfo{
+			PhysicalFunctionBacking: &types.VirtualPCIPassthroughDeviceBackingInfo{
+				Id: config.PhysicalFunction,
 			},
 		},
 	}
@@ -167,19 +186,33 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	
 	devices = append(devices, netDevice)
 
-	// Add CD-ROM with ISO
+	// Add SATA controller for CD-ROM (matches manual VMs)
+	sataController := &types.VirtualAHCIController{
+		VirtualSATAController: types.VirtualSATAController{
+			VirtualController: types.VirtualController{
+				VirtualDevice: types.VirtualDevice{
+					Key: 15000,
+				},
+				BusNumber: 0,
+			},
+		},
+	}
+	devices = append(devices, sataController)
+
+	// Add CD-ROM with ISO on SATA controller
 	if config.ISO != "" {
 		cdrom := &types.VirtualCdrom{
 			VirtualDevice: types.VirtualDevice{
-				Key: 3000,
-				ControllerKey: 200, // IDE controller
+				Key: 16000,
+				ControllerKey: 15000, // SATA controller
+				UnitNumber: types.NewInt32(0),
 				Backing: &types.VirtualCdromIsoBackingInfo{
 					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
 						FileName: config.ISO,
 					},
 				},
 				Connectable: &types.VirtualDeviceConnectInfo{
-					Connected:         true,
+					Connected:         true,  // Connect ISO for booting
 					StartConnected:    true,
 					AllowGuestControl: true,
 				},
@@ -189,28 +222,33 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	}
 
 	// Add boot disk
-	bootDisk := c.createDisk(config.DiskSize, 0, datastore.Reference().Value, config.Datastore)
+	bootDisk := c.createDisk(config.DiskSize, 0, datastore.Reference().Value, config.Datastore, config.Name)
 	devices = append(devices, bootDisk)
 
 	// Add OpenEBS disk if specified
 	if config.OpenEBSSize > 0 {
-		openebsDisk := c.createDisk(config.OpenEBSSize, 1, datastore.Reference().Value, config.Datastore)
+		openebsDisk := c.createDisk(config.OpenEBSSize, 1, datastore.Reference().Value, config.Datastore, config.Name)
 		devices = append(devices, openebsDisk)
 	}
 
 	// Add Rook disk if specified
 	if config.RookSize > 0 {
-		rookDisk := c.createDisk(config.RookSize, 2, datastore.Reference().Value, config.Datastore)
+		rookDisk := c.createDisk(config.RookSize, 2, datastore.Reference().Value, config.Datastore, config.Name)
 		devices = append(devices, rookDisk)
 	}
 
 	// Add devices to spec
 	var deviceChanges []types.BaseVirtualDeviceConfigSpec
 	for _, device := range devices {
-		deviceChanges = append(deviceChanges, &types.VirtualDeviceConfigSpec{
+		spec := &types.VirtualDeviceConfigSpec{
 			Operation: types.VirtualDeviceConfigSpecOperationAdd,
 			Device:    device,
-		})
+		}
+		// For VirtualDisk devices, specify file operation to create new disk
+		if _, isDisk := device.(*types.VirtualDisk); isDisk {
+			spec.FileOperation = types.VirtualDeviceConfigSpecFileOperationCreate
+		}
+		deviceChanges = append(deviceChanges, spec)
 	}
 	spec.DeviceChange = deviceChanges
 
@@ -232,8 +270,14 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 }
 
 // createDisk creates a virtual disk specification
-func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName string) *types.VirtualDisk {
-	return &types.VirtualDisk{
+func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, vmName string) *types.VirtualDisk {
+	// Determine thin provisioning based on disk unit number
+	// Unit 0: Boot disk (250GB) - thin provisioned
+	// Unit 1: OpenEBS disk (1TB) - thin provisioned
+	// Unit 2: Rook disk (800GB) - thick provisioned (default for Ceph performance)
+	thinProvisioned := unitNumber != 2
+	
+	disk := &types.VirtualDisk{
 		VirtualDevice: types.VirtualDevice{
 			Key: int32(2000 + unitNumber),
 			ControllerKey: 1000, // SCSI controller key
@@ -243,11 +287,17 @@ func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName string)
 					FileName: fmt.Sprintf("[%s]", datastoreName),
 				},
 				DiskMode:        "persistent",
-				ThinProvisioned: types.NewBool(true),
+				ThinProvisioned: types.NewBool(thinProvisioned),
 			},
 		},
-		CapacityInKB: int64(sizeGB) * 1024 * 1024,
+		CapacityInKB:    int64(sizeGB) * 1024 * 1024, // GB to KB: 1GB = 1024*1024 KB
+		CapacityInBytes: int64(sizeGB) * 1024 * 1024 * 1024, // GB to Bytes: 1GB = 1024*1024*1024 Bytes
 	}
+	
+	// Debug: log what we're actually setting
+	c.logger.Info("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB) * 1024 * 1024, int64(sizeGB) * 1024 * 1024 * 1024)
+	
+	return disk
 }
 
 // PowerOnVM powers on a VM
@@ -333,6 +383,33 @@ func (c *Client) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error
 		return nil, fmt.Errorf("failed to get VM properties: %w", err)
 	}
 	return &mvm, nil
+}
+
+// UploadISOToDatastore uploads an ISO file to a vSphere datastore
+func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileName string) error {
+	c.logger.Debug("Uploading ISO %s to datastore %s as %s", localFilePath, datastoreName, remoteFileName)
+	
+	// Find the datastore
+	datastore, err := c.finder.Datastore(c.ctx, datastoreName)
+	if err != nil {
+		return fmt.Errorf("failed to find datastore %s: %w", datastoreName, err)
+	}
+	
+	// Get file info for size logging
+	fileInfo, err := os.Stat(localFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	
+	c.logger.Info("Uploading %s (%d MB) to datastore...", remoteFileName, fileInfo.Size()/(1024*1024))
+	
+	// Upload file using datastore UploadFile method
+	if err := datastore.UploadFile(c.ctx, localFilePath, remoteFileName, nil); err != nil {
+		return fmt.Errorf("failed to upload file to datastore: %w", err)
+	}
+	
+	c.logger.Success("ISO uploaded successfully to [%s] %s", datastoreName, remoteFileName)
+	return nil
 }
 
 // DeployVMsConcurrently deploys multiple VMs in parallel

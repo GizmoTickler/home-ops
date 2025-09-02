@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
@@ -20,7 +23,7 @@ import (
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vsphere"
-	"homeops-cli/internal/yaml"
+	localyaml "homeops-cli/internal/yaml"
 )
 
 func NewCommand() *cobra.Command {
@@ -228,7 +231,7 @@ func upgradeNode(nodeIP, mode string) error {
 
 	// Extract factory image using Go YAML processor
 	metrics := metrics.NewPerformanceCollector()
-	processor := yaml.NewProcessor(nil, metrics)
+	processor := localyaml.NewProcessor(nil, metrics)
 
 	// Parse YAML content into a map
 	configData, err := processor.ParseString(string(configOutput))
@@ -741,7 +744,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		logger.Info("ISO preparation completed - proceeding with VM deployment...")
 	} else {
 		// Check if a prepared ISO exists at the standard location
-		standardISOPath := "/mnt/flashstor/ISO/metal-amd64.iso"
+		standardISOPath := "/mnt/flashstor/ISO/vmware-amd64.iso"
 		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
 
 		// Connect to TrueNAS to check if the prepared ISO exists
@@ -906,6 +909,8 @@ func newManageVMCommand() *cobra.Command {
 		newListVMsCommand(),
 		newStartVMCommand(),
 		newStopVMCommand(),
+		newPowerOnVMCommand(),
+		newPowerOffVMCommand(),
 		newDeleteVMCommand(),
 		newInfoVMCommand(),
 		newCleanupZVolsCommand(),
@@ -1029,26 +1034,37 @@ func stopVM(name string) error {
 
 func newDeleteVMCommand() *cobra.Command {
 	var (
-		name  string
-		force bool
+		name     string
+		force    bool
+		provider string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a VM and all associated ZVols on TrueNAS",
+		Short: "Delete a VM on TrueNAS or vSphere/ESXi",
+		Long:  `Delete a VM on TrueNAS (with ZVols) or vSphere/ESXi. Use --provider to select the virtualization platform.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Printf("Delete VM '%s' and all its ZVols ... continue? (y/N): ", name)
+				if provider == "vsphere" || provider == "esxi" {
+					fmt.Printf("Delete VM '%s' on vSphere/ESXi ... continue? (y/N): ", name)
+				} else {
+					fmt.Printf("Delete VM '%s' and all its ZVols on TrueNAS ... continue? (y/N): ", name)
+				}
 				var response string
 				_, _ = fmt.Scanln(&response)
 				if response != "y" && response != "Y" {
 					return fmt.Errorf("deletion cancelled")
 				}
 			}
+			
+			if provider == "vsphere" || provider == "esxi" {
+				return deleteVMOnVSphere(name)
+			}
 			return deleteVM(name)
 		},
 	}
 
+	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 	_ = cmd.MarkFlagRequired("name")
@@ -1127,30 +1143,54 @@ func infoVM(name string) error {
 
 // newPrepareISOCommand creates the prepare-iso command
 func newPrepareISOCommand() *cobra.Command {
+	var provider string
+	
 	cmd := &cobra.Command{
 		Use:   "prepare-iso",
-		Short: "Generate custom Talos ISO from schematic and upload to TrueNAS",
-		Long: `Generate a custom Talos ISO using schematic.yaml configuration and upload it to TrueNAS.
+		Short: "Generate custom Talos ISO from schematic and upload to storage provider",
+		Long: `Generate a custom Talos ISO using schematic.yaml configuration and upload it to the specified provider.
 This command will:
 1. Generate a Talos schematic from the embedded schematic.yaml template
 2. Create a custom ISO from the Talos factory
-3. Upload the ISO to TrueNAS storage
+3. Upload the ISO to TrueNAS storage or vSphere datastore
 4. Update the node configuration templates with the new schematic ID
 
 This separates ISO preparation from VM deployment, allowing you to prepare the ISO once
 and deploy multiple VMs using the same custom configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return prepareISO()
+			return prepareISOWithProvider(provider)
 		},
 	}
+
+	cmd.Flags().StringVar(&provider, "provider", "truenas", "Storage provider: truenas or vsphere")
 
 	return cmd
 }
 
-// prepareISO handles the ISO generation and upload process
-func prepareISO() error {
+// prepareISOWithProvider handles the ISO generation and upload process for different providers
+func prepareISOWithProvider(provider string) error {
 	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation...")
+	logger.Info("Starting custom Talos ISO preparation for provider: %s", provider)
+	
+	switch provider {
+	case "truenas":
+		return prepareISOForTrueNAS()
+	case "vsphere":
+		return prepareISOForVSphere()
+	default:
+		return fmt.Errorf("unsupported provider: %s. Supported providers: truenas, vsphere", provider)
+	}
+}
+
+// prepareISO handles the ISO generation and upload process (backward compatibility)
+func prepareISO() error {
+	return prepareISOWithProvider("truenas")
+}
+
+// prepareISOForTrueNAS handles TrueNAS-specific ISO preparation
+func prepareISOForTrueNAS() error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting custom Talos ISO preparation for TrueNAS...")
 
 	// Load version configuration
 	versionConfig := versionconfig.GetVersions(".")
@@ -1199,7 +1239,7 @@ func prepareISO() error {
 	downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
 	downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
 	downloadConfig.ISOURL = isoInfo.URL
-	downloadConfig.ISOFilename = "metal-amd64.iso" // Standard filename as requested
+	downloadConfig.ISOFilename = "vmware-amd64.iso" // Standard filename for vSphere provider
 
 	if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
 		return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)
@@ -1231,6 +1271,180 @@ func prepareISO() error {
 	return nil
 }
 
+// prepareISOForVSphere handles vSphere-specific ISO preparation
+func prepareISOForVSphere() error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting custom Talos ISO preparation for vSphere...")
+
+	// Load version configuration
+	versionConfig := versionconfig.GetVersions(".")
+	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+
+	// Create factory client
+	logger.Debug("Creating Talos factory client")
+	factoryClient := talos.NewFactoryClient()
+	if factoryClient == nil {
+		return fmt.Errorf("failed to create factory client")
+	}
+
+	// Load schematic from embedded templates
+	logger.Info("STEP 1: Loading schematic configuration...")
+	schematic, err := factoryClient.LoadSchematicFromTemplate()
+	if err != nil {
+		return fmt.Errorf("failed to load schematic template: %w", err)
+	}
+	logger.Success("Schematic configuration loaded successfully")
+
+	// Generate ISO from schematic
+	logger.Info("STEP 2: Generating custom Talos ISO...")
+	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=vmware", versionConfig.TalosVersion)
+
+	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "vmware")
+	if err != nil {
+		return fmt.Errorf("ISO generation failed: %w", err)
+	}
+
+	if isoInfo == nil {
+		return fmt.Errorf("ISO generation returned nil result")
+	}
+
+	logger.Success("Custom ISO generated successfully")
+	logger.Info("ISO Details:")
+	logger.Info("  URL: %s", isoInfo.URL)
+	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+
+	// Upload ISO to vSphere datastore
+	logger.Info("STEP 3: Uploading ISO to vSphere datastore...")
+	if err := uploadISOToVSphere(isoInfo.URL); err != nil {
+		return fmt.Errorf("failed to upload custom ISO to vSphere: %w", err)
+	}
+
+	logger.Success("Custom ISO uploaded to vSphere datastore successfully")
+	logger.Info("ISO Location: [datastore1] vmware-amd64.iso")
+
+	// Update node templates with schematic ID
+	logger.Info("STEP 4: Updating node configuration templates...")
+	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
+		logger.Warn("Failed to update node templates: %v", err)
+		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+	} else {
+		logger.Success("Node configuration templates updated successfully")
+	}
+
+	logger.Success("ISO preparation completed successfully!")
+	logger.Info("Summary:")
+	logger.Info("  - Custom ISO generated and uploaded to vSphere datastore1")
+	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
+	logger.Info("  - ISO Path: [datastore1] vmware-amd64.iso")
+	logger.Info("  - Node templates updated with new schematic ID")
+	logger.Info("")
+	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --provider vsphere --name <vm_name> [other flags]")
+	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
+
+	return nil
+}
+
+// uploadISOToVSphere downloads ISO from URL and uploads it to vSphere datastore
+func uploadISOToVSphere(isoURL string) error {
+	logger := common.NewColorLogger()
+	
+	// Get vSphere credentials
+	host := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/host")
+	username := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/username")
+	password := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/password")
+	
+	if host == "" || username == "" || password == "" {
+		return fmt.Errorf("failed to get vSphere credentials from 1Password")
+	}
+	
+	logger.Debug("Connecting to vSphere host: %s", host)
+	client := vsphere.NewClient(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("Failed to close vSphere connection: %v", err)
+		}
+	}()
+
+	// Download ISO to temporary file
+	logger.Info("Downloading ISO from factory...")
+	tempFile, err := downloadISOToTemp(isoURL)
+	if err != nil {
+		return fmt.Errorf("failed to download ISO: %w", err)
+	}
+	defer func() {
+		if err := os.Remove(tempFile); err != nil {
+			logger.Warn("Failed to remove temporary file %s: %v", tempFile, err)
+		}
+	}()
+
+	logger.Success("ISO downloaded to temporary file: %s", tempFile)
+
+	// Upload to vSphere datastore
+	logger.Info("Uploading ISO to vSphere datastore1...")
+	if err := client.UploadISOToDatastore(tempFile, "datastore1", "vmware-amd64.iso"); err != nil {
+		return fmt.Errorf("failed to upload ISO to datastore: %w", err)
+	}
+
+	logger.Success("ISO uploaded to vSphere datastore successfully")
+	return nil
+}
+
+// downloadISOToTemp downloads ISO from URL to a temporary file and returns the file path
+func downloadISOToTemp(isoURL string) (string, error) {
+	logger := common.NewColorLogger()
+	
+	// Create temporary file
+	tempFile, err := os.CreateTemp("", "talos-*.iso")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary file: %w", err)
+	}
+	tempFile.Close() // Close the file handle so we can write to it later
+	
+	tempPath := tempFile.Name()
+	logger.Debug("Created temporary file: %s", tempPath)
+	
+	// Download ISO
+	logger.Debug("Downloading from URL: %s", isoURL)
+	resp, err := http.Get(isoURL)
+	if err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to download ISO: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to download ISO: HTTP %d", resp.StatusCode)
+	}
+	
+	// Create file for writing
+	outFile, err := os.Create(tempPath)
+	if err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to create output file: %w", err)
+	}
+	defer outFile.Close()
+	
+	// Copy with progress tracking
+	size := resp.ContentLength
+	if size > 0 {
+		logger.Info("Downloading %d MB ISO...", size/(1024*1024))
+	}
+	
+	_, err = io.Copy(outFile, resp.Body)
+	if err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to write ISO data: %w", err)
+	}
+	
+	return tempPath, nil
+}
+
 // updateNodeTemplatesWithSchematic updates the controlplane template with the new schematic ID
 func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	logger := common.NewColorLogger()
@@ -1246,14 +1460,14 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	}
 
 	// Build the new factory image URL with the schematic ID
-	newFactoryImage := fmt.Sprintf("factory.talos.dev/metal-installer/%s:%s", schematicID, talosVersion)
+	newFactoryImage := fmt.Sprintf("factory.talos.dev/vmware-installer/%s:%s", schematicID, talosVersion)
 
 	// Replace the existing factory image URL with the new schematic-based URL
 	contentStr := string(content)
 	lines := strings.Split(contentStr, "\n")
 
 	for i, line := range lines {
-		if strings.Contains(line, "image: factory.talos.dev/metal-installer/") {
+		if strings.Contains(line, "image: factory.talos.dev/vmware-installer/") {
 			// Extract the indentation to maintain YAML formatting
 			indent := ""
 			for _, char := range line {
@@ -1345,12 +1559,74 @@ func cleanupOrphanedZVols(vmName, storagePool string) error {
 }
 
 // deployVMOnVSphere deploys one or more VMs on vSphere/ESXi
+// getNodeMacAddress reads the MAC address from the node's YAML configuration file
+func getNodeMacAddress(nodeName string) (string, error) {
+	// Map node names to IP addresses
+	nodeIPs := map[string]string{
+		"k8s-0": "192.168.122.10",
+		"k8s-1": "192.168.122.11",
+		"k8s-2": "192.168.122.12",
+	}
+	
+	// Get the IP for this node
+	nodeIP, ok := nodeIPs[nodeName]
+	if !ok {
+		// Not a predefined k8s node, return empty for auto-generation
+		return "", nil
+	}
+	
+	// Read the node configuration file
+	nodeConfigPath := filepath.Join("internal", "templates", "talos", "nodes", fmt.Sprintf("%s.yaml", nodeIP))
+	data, err := os.ReadFile(nodeConfigPath)
+	if err != nil {
+		// If file doesn't exist, return empty for auto-generation
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read node config: %w", err)
+	}
+	
+	// Parse the YAML to extract MAC address
+	var nodeConfig map[string]interface{}
+	if err := yaml.Unmarshal(data, &nodeConfig); err != nil {
+		return "", fmt.Errorf("failed to parse node config: %w", err)
+	}
+	
+	// Navigate through the YAML structure to find the MAC address
+	// Path: machine.network.interfaces[0].deviceSelector.hardwareAddr
+	if machine, ok := nodeConfig["machine"].(map[string]interface{}); ok {
+		if network, ok := machine["network"].(map[string]interface{}); ok {
+			if interfaces, ok := network["interfaces"].([]interface{}); ok && len(interfaces) > 0 {
+				if iface, ok := interfaces[0].(map[string]interface{}); ok {
+					if deviceSelector, ok := iface["deviceSelector"].(map[string]interface{}); ok {
+						if hardwareAddr, ok := deviceSelector["hardwareAddr"].(string); ok {
+							return hardwareAddr, nil
+						}
+					}
+				}
+			}
+		}
+	}
+	
+	return "", nil // Return empty if MAC not found in config
+}
+
+// getPhysicalFunction returns the appropriate SR-IOV physical function for load balancing
+// Alternates between two physical functions: 0000:04:00.0 and 0000:04:00.1
+func getPhysicalFunction(vmIndex int) string {
+	physicalFunctions := []string{
+		"0000:04:00.0", // First physical function
+		"0000:04:00.1", // Second physical function
+	}
+	return physicalFunctions[vmIndex%len(physicalFunctions)]
+}
+
 func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment")
 
 	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/host")
+	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv("VSPHERE_HOST")
 	}
@@ -1382,14 +1658,14 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 	var isoPath string
 	if generateISO {
 		logger.Info("Generating custom Talos ISO...")
-		// Note: For vSphere, we assume the ISO is already on the NFS datastore
+		// Note: For vSphere, we assume the ISO is already on the datastore
 		// The user should run prepare-iso first or we need to handle upload differently
-		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the truenas-iso-nfs datastore")
+		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the datastore")
 		logger.Warn("Run 'homeops talos prepare-iso' first if needed")
-		isoPath = "[truenas-iso-nfs] metal-amd64.iso"
+		isoPath = "[datastore1] vmware-amd64.iso" // Use datastore1 to match manual VMs
 	} else {
-		// Use existing ISO on NFS datastore
-		isoPath = "[truenas-iso-nfs] metal-amd64.iso"
+		// Use existing ISO on datastore1 (matches manual VMs)
+		isoPath = "[datastore1] vmware-amd64.iso"
 	}
 
 	// Prepare VM configurations
@@ -1397,35 +1673,67 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 	
 	if nodeCount == 1 {
 		// Single VM deployment
+		// Check if this is a k8s node and get the appropriate MAC address
+		vmMacAddress := macAddress
+		if vmMacAddress == "" && strings.HasPrefix(baseName, "k8s-") {
+			// Try to read MAC address from node configuration
+			if mac, err := getNodeMacAddress(baseName); err != nil {
+				logger.Warn("Failed to read MAC address from node config: %v", err)
+			} else if mac != "" {
+				vmMacAddress = mac
+				logger.Info("Using MAC address from node config: %s", mac)
+			}
+		}
+		
 		config := vsphere.VMConfig{
-			Name:        baseName,
-			Memory:      memory,
-			VCPUs:       vcpus,
-			DiskSize:    diskSize,
-			OpenEBSSize: openebsSize,
-			RookSize:    rookSize,
-			Datastore:   datastore,
-			Network:     network,
-			ISO:         isoPath,
-			MacAddress:  macAddress,
-			PowerOn:     true,
+			Name:             baseName,
+			Memory:           memory,
+			VCPUs:            vcpus,
+			DiskSize:         diskSize,
+			OpenEBSSize:      openebsSize,
+			RookSize:         rookSize,
+			Datastore:        datastore,
+			Network:          network,
+			ISO:              isoPath,
+			MacAddress:       vmMacAddress,
+			PhysicalFunction: getPhysicalFunction(0), // Single VM gets first PF
+			PowerOn:          false, // Don't power on by default
 		}
 		configs = append(configs, config)
 	} else {
 		// Multiple VM deployment with numbering
 		for i := 1; i <= nodeCount; i++ {
 			vmName := fmt.Sprintf("%s-%02d", baseName, i)
+			
+			// For k8s nodes, use index-based naming (k8s-0, k8s-1, k8s-2)
+			if baseName == "k8s" {
+				vmName = fmt.Sprintf("%s-%d", baseName, i-1)
+			}
+			
+			// Get MAC address for k8s nodes from configuration files
+			vmMacAddress := ""
+			if strings.HasPrefix(vmName, "k8s-") {
+				if mac, err := getNodeMacAddress(vmName); err != nil {
+					logger.Warn("Failed to read MAC address for %s: %v", vmName, err)
+				} else if mac != "" {
+					vmMacAddress = mac
+					logger.Info("Using MAC address from config for %s: %s", vmName, mac)
+				}
+			}
+			
 			config := vsphere.VMConfig{
-				Name:        vmName,
-				Memory:      memory,
-				VCPUs:       vcpus,
-				DiskSize:    diskSize,
-				OpenEBSSize: openebsSize,
-				RookSize:    rookSize,
-				Datastore:   datastore,
-				Network:     network,
-				ISO:         isoPath,
-				PowerOn:     true,
+				Name:             vmName,
+				Memory:           memory,
+				VCPUs:            vcpus,
+				DiskSize:         diskSize,
+				OpenEBSSize:      openebsSize,
+				RookSize:         rookSize,
+				Datastore:        datastore,
+				Network:          network,
+				ISO:              isoPath,
+				MacAddress:       vmMacAddress,
+				PhysicalFunction: getPhysicalFunction(i - 1), // Alternate PFs based on VM index
+				PowerOn:          false, // Don't power on by default
 			}
 			configs = append(configs, config)
 		}
@@ -1472,7 +1780,11 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 		logger.Info("")
 		logger.Info("VMs to deploy:")
 		for _, config := range configs {
-			logger.Info("  - %s", config.Name)
+			if config.MacAddress != "" {
+				logger.Info("  - %s (MAC: %s, PF: %s)", config.Name, config.MacAddress, config.PhysicalFunction)
+			} else {
+				logger.Info("  - %s (PF: %s)", config.Name, config.PhysicalFunction)
+			}
 		}
 
 		if err := client.DeployVMsConcurrently(configs); err != nil {
@@ -1482,5 +1794,204 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 		logger.Success("Successfully deployed %d VMs!", len(configs))
 	}
 
+	return nil
+}
+
+// deleteVMOnVSphere deletes a VM from vSphere/ESXi
+func deleteVMOnVSphere(vmName string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting vSphere/ESXi VM deletion for: %s", vmName)
+
+	// Get vSphere credentials from 1Password or environment
+	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	if host == "" {
+		host = os.Getenv("VSPHERE_HOST")
+	}
+	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	if username == "" {
+		username = os.Getenv("VSPHERE_USERNAME")
+	}
+	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	if password == "" {
+		password = os.Getenv("VSPHERE_PASSWORD")
+	}
+
+	if host == "" || username == "" || password == "" {
+		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
+	}
+
+	// Create vSphere client
+	client := vsphere.NewClient(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("Failed to close vSphere connection: %v", err)
+		}
+	}()
+
+	// Find the VM
+	vm, err := client.FindVM(vmName)
+	if err != nil {
+		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
+	}
+
+	logger.Info("Found VM: %s", vmName)
+
+	// Delete the VM
+	if err := client.DeleteVM(vm); err != nil {
+		return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
+	}
+
+	logger.Success("VM %s deleted successfully!", vmName)
+	return nil
+}
+
+func newPowerOnVMCommand() *cobra.Command {
+	var (
+		name     string
+		provider string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "poweron",
+		Short: "Power on a VM on TrueNAS or vSphere/ESXi",
+		Long:  `Power on a VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if provider == "vsphere" || provider == "esxi" {
+				return powerOnVMOnVSphere(name)
+			}
+			return startVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+func newPowerOffVMCommand() *cobra.Command {
+	var (
+		name     string
+		provider string
+	)
+
+	cmd := &cobra.Command{
+		Use:   "poweroff",
+		Short: "Power off a VM on TrueNAS or vSphere/ESXi",
+		Long:  `Power off a VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if provider == "vsphere" || provider == "esxi" {
+				return powerOffVMOnVSphere(name)
+			}
+			return stopVM(name)
+		},
+	}
+
+	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	_ = cmd.MarkFlagRequired("name")
+
+	return cmd
+}
+
+// powerOnVMOnVSphere powers on a VM on vSphere/ESXi
+func powerOnVMOnVSphere(vmName string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Powering on vSphere/ESXi VM: %s", vmName)
+
+	// Get vSphere credentials from 1Password or environment
+	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	if host == "" {
+		host = os.Getenv("VSPHERE_HOST")
+	}
+	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	if username == "" {
+		username = os.Getenv("VSPHERE_USERNAME")
+	}
+	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	if password == "" {
+		password = os.Getenv("VSPHERE_PASSWORD")
+	}
+
+	if host == "" || username == "" || password == "" {
+		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
+	}
+
+	// Create vSphere client
+	client := vsphere.NewClient(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("Failed to close vSphere connection: %v", err)
+		}
+	}()
+
+	// Find the VM
+	vm, err := client.FindVM(vmName)
+	if err != nil {
+		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
+	}
+
+	// Power on the VM
+	if err := client.PowerOnVM(vm); err != nil {
+		return fmt.Errorf("failed to power on VM %s: %w", vmName, err)
+	}
+
+	logger.Success("VM %s powered on successfully!", vmName)
+	return nil
+}
+
+// powerOffVMOnVSphere powers off a VM on vSphere/ESXi
+func powerOffVMOnVSphere(vmName string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Powering off vSphere/ESXi VM: %s", vmName)
+
+	// Get vSphere credentials from 1Password or environment
+	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	if host == "" {
+		host = os.Getenv("VSPHERE_HOST")
+	}
+	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	if username == "" {
+		username = os.Getenv("VSPHERE_USERNAME")
+	}
+	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	if password == "" {
+		password = os.Getenv("VSPHERE_PASSWORD")
+	}
+
+	if host == "" || username == "" || password == "" {
+		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
+	}
+
+	// Create vSphere client
+	client := vsphere.NewClient(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("Failed to close vSphere connection: %v", err)
+		}
+	}()
+
+	// Find the VM
+	vm, err := client.FindVM(vmName)
+	if err != nil {
+		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
+	}
+
+	// Power off the VM
+	if err := client.PowerOffVM(vm); err != nil {
+		return fmt.Errorf("failed to power off VM %s: %w", vmName, err)
+	}
+
+	logger.Success("VM %s powered off successfully!", vmName)
 	return nil
 }

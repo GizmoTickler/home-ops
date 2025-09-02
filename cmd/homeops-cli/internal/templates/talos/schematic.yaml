@@ -12,4 +12,4 @@ customization:
     - talos.auditd.disabled=1
   systemExtensions:
     officialExtensions:
-      - siderolabs/nfsrahead              # NFS Performance
+      - siderolabs/nfsrahead

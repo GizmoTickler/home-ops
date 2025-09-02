@@ -37,28 +37,38 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	plansDir := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
 
 	if _, err := os.Stat(plansDir); os.IsNotExist(err) {
-		logger.Debug("System upgrade plans directory not found: %s", plansDir)
-		return getDefaultVersions(), nil
+		return nil, fmt.Errorf("system upgrade plans directory not found: %s", plansDir)
 	}
 
 	config := &VersionConfig{}
+	var loadErrors []string
 
 	// Load Kubernetes version from kubernetes.yaml
-	if k8sVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "kubernetes.yaml"), "kubelet"); err == nil {
-		config.KubernetesVersion = k8sVersion
-		logger.Debug("Loaded Kubernetes version from system-upgrade plan: %s", k8sVersion)
+	k8sVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "kubernetes.yaml"), "kubelet")
+	if err != nil {
+		loadErrors = append(loadErrors, fmt.Sprintf("kubernetes: %v", err))
+		config.KubernetesVersion = "v1.34.0" // emergency fallback
+		logger.Debug("Using fallback Kubernetes version due to load error: %v", err)
 	} else {
-		logger.Debug("Failed to load Kubernetes version: %v", err)
-		config.KubernetesVersion = "v1.33.4" // fallback
+		config.KubernetesVersion = k8sVersion
+		logger.Debug("✅ Loaded Kubernetes version from system-upgrade plan: %s", k8sVersion)
 	}
 
 	// Load Talos version from talos.yaml
-	if talosVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "talos.yaml"), "installer"); err == nil {
-		config.TalosVersion = talosVersion
-		logger.Debug("Loaded Talos version from system-upgrade plan: %s", talosVersion)
+	talosVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "talos.yaml"), "installer")
+	if err != nil {
+		loadErrors = append(loadErrors, fmt.Sprintf("talos: %v", err))
+		config.TalosVersion = "v1.11.0" // emergency fallback
+		logger.Debug("Using fallback Talos version due to load error: %v", err)
 	} else {
-		logger.Debug("Failed to load Talos version: %v", err)
-		config.TalosVersion = "v1.11.0-rc.0" // fallback
+		config.TalosVersion = talosVersion  
+		logger.Debug("✅ Loaded Talos version from system-upgrade plan: %s", talosVersion)
+	}
+
+	// If we had any load errors but managed to get at least some versions, warn but continue
+	if len(loadErrors) > 0 {
+		logger.Warn("Some versions could not be loaded from system-upgrade plans: %v", strings.Join(loadErrors, ", "))
+		logger.Warn("Using emergency fallbacks for failed versions")
 	}
 
 	return config, nil
@@ -107,18 +117,28 @@ func isValidVersionFormat(version string) bool {
 // getDefaultVersions returns hardcoded fallback versions
 func getDefaultVersions() *VersionConfig {
 	return &VersionConfig{
-		KubernetesVersion: "v1.33.4",
-		TalosVersion:      "v1.11.0-rc.0",
+		KubernetesVersion: "v1.34.0",
+		TalosVersion:      "v1.11.0",
 	}
 }
 
-// GetVersions is a convenience function that attempts to load from system-upgrade plans
-// with fallback to defaults. This is the main entry point for the CLI.
+// GetVersions is a convenience function that loads versions from system-upgrade plans as primary source.
+// This is the main entry point for the CLI.
 func GetVersions(rootDir string) *VersionConfig {
-	if config, err := LoadVersionsFromSystemUpgrade(rootDir); err == nil {
-		return config
+	logger := common.NewColorLogger()
+	
+	// Always try to load from system-upgrade plans first (primary source)
+	config, err := LoadVersionsFromSystemUpgrade(rootDir)
+	if err != nil {
+		logger.Warn("Failed to load versions from system-upgrade plans: %v", err)
+		logger.Warn("Using hardcoded fallback versions - this should not happen in production")
+		return getDefaultVersions()
 	}
-
-	// Fallback to defaults if loading fails
-	return getDefaultVersions()
+	
+	// Log what we're using for transparency
+	logger.Debug("Loaded versions from system-upgrade controller plans:")
+	logger.Debug("  Kubernetes: %s", config.KubernetesVersion)  
+	logger.Debug("  Talos: %s", config.TalosVersion)
+	
+	return config
 }
