@@ -50,7 +50,7 @@ spec:
       exclusive: false
     dashboards:
       enabled: true
-    devices: ens+
+    devices: eth0
     enableIPv4BIGTCP: true
     endpointRoutes:
       enabled: true
