@@ -17,6 +17,7 @@ type VMConfig struct {
 	Network    string // Network name (e.g., "VM Network")
 	ISO        string // ISO path on datastore (e.g., "[truenas-iso-nfs] metal-amd64.iso")
 	MacAddress string // Optional MAC address
+	PhysicalFunction string // SR-IOV Physical Function (e.g., "0000:04:00.0")
 	
 	// Deployment options
 	PowerOn    bool   // Power on VM after creation
