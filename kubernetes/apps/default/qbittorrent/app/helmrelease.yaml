@@ -37,7 +37,7 @@ spec:
             command:
               - /bin/sh
               - -c
-              - |
+              - |-
                 cd /tmp
                 wget https://github.com/buroa/qbrr/releases/download/0.0.28/qbrr_0.0.28_linux_amd64.tar.gz
                 tar -xzf qbrr_0.0.28_linux_amd64.tar.gz
@@ -237,7 +237,7 @@ spec:
     configMaps:
       config:
         data:
-          .qbt.toml: |
+          .qbt.toml: |-
             [qbittorrent]
             addr = "http://localhost:80"
 

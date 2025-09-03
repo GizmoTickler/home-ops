@@ -28,7 +28,7 @@ jobs:
         with:
           github-token: "${{ steps.app-token.outputs.token }}"
           result-encoding: string
-          script: |
+          script: |-
             const { data: tags } = await github.rest.repos.listTags({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -50,7 +50,7 @@ jobs:
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         with:
           github-token: "${{ steps.app-token.outputs.token }}"
-          script: |
+          script: |-
             const tagName = "${{ steps.determine-next-tag.outputs.result }}";
 
             const tag = await github.rest.git.createTag({
