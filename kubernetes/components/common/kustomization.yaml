@@ -6,5 +6,4 @@ resources:
   - ./namespace.yaml
   - ./cluster-config-externalsecret.yaml
   - ./alerts
-  - ./repos
   - ./sops
