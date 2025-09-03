@@ -10,3 +10,4 @@ resources:
   - ./cloudflare-dns/ks.yaml
   - ./echo/ks.yaml
   - ./k8s-gateway/ks.yaml
+  - ./unifi-dns/ks.yaml
