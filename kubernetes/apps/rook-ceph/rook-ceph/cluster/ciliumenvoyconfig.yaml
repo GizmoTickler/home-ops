@@ -6,10 +6,6 @@ metadata:
   name: rook-ceph-dashboard-retries
   namespace: rook-ceph
 spec:
-  gatewayAPI:
-    httpRoutes:
-      - name: rook-ceph-dashboard
-        namespace: rook-ceph
   resources:
     - "@type": type.googleapis.com/envoy.config.route.v3.RouteConfiguration
       # Cilium names the RouteConfiguration for an HTTPRoute as: httproute/<ns>/<name>
