@@ -1,6 +1,6 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cilium.io/ciliumenvoyconfig_v2alpha1.json
-apiVersion: cilium.io/v2alpha1
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cilium.io/ciliumenvoyconfig_v2.json
+apiVersion: cilium.io/v2
 kind: CiliumEnvoyConfig
 metadata:
   name: rook-ceph-dashboard-retries
@@ -21,4 +21,3 @@ spec:
             retry_on: "5xx,connect-failure,refused-stream,reset,disconnect,isolated_failure"
             num_retries: 3
             per_try_timeout: 2s
-
