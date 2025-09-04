@@ -37,14 +37,14 @@ spec:
     dashboards:
       enabled: true
     devices: eth0
-    enableIPv4BIGTCP: true
+    enableIPv4BIGTCP: false
     endpointRoutes:
       enabled: true
     envoy:
       rollOutPods: true
       prometheus:
-         serviceMonitor:
-           enabled: true
+        serviceMonitor:
+          enabled: true
     gatewayAPI:
       enabled: true
       enableAlpn: true
