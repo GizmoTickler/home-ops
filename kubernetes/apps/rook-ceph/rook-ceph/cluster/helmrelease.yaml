@@ -23,16 +23,16 @@ spec:
       createPrometheusRules: true
     toolbox:
       enabled: true
-    route:
-      dashboard:
-        host:
-          name: rook-ceph-cluster.${SECRET_DOMAIN}
-          path: /
-          pathType: PathPrefix
-        parentRefs:
-          - name: rook-ceph-cluster-gateway
-            namespace: rook-ceph
-            sectionName: https
+    # route:
+    #   dashboard:
+    #     host:
+    #       name: rook-ceph-cluster.${SECRET_DOMAIN}
+    #       path: /
+    #       pathType: PathPrefix
+    #     parentRefs:
+    #       - name: rook-ceph-cluster-gateway
+    #         namespace: rook-ceph
+    #         sectionName: https
     cephClusterSpec:
       cephConfig:
         global:

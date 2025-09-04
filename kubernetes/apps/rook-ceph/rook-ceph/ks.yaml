@@ -35,8 +35,8 @@ spec:
   commonMetadata:
     labels:
       app.kubernetes.io/name: *app
-  components:
-    - ../../../../components/gateway
+  # components:
+  #   - ../../../../components/gateway
   dependsOn:
     - name: rook-ceph
       namespace: *namespace
