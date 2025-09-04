@@ -67,6 +67,10 @@ spec:
         provider: host
         connections:
           requireMsgr2: true
+      resources:
+        osd:
+          requests:
+            cpu: "1000m"
       storage:
         useAllNodes: true
         useAllDevices: false
