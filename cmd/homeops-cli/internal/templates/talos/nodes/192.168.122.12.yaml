@@ -27,7 +27,7 @@ name: local-hostpath
 provisioning:
   diskSelector:
     match: "!system_disk"
-  minSize: 800GB
+  minSize: 600GB
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
@@ -35,4 +35,4 @@ name: longhorn
 provisioning:
   diskSelector:
     match: "!system_disk"
-  minSize: 600GB
+  minSize: 800GB
