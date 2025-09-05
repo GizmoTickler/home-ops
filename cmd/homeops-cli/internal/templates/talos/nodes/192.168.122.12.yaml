@@ -20,17 +20,3 @@ cluster:
       service:
         disabled: false
         endpoint: http://192.168.123.152:3000
----
-apiVersion: v1alpha1
-kind: UserVolumeConfig
-name: local-hostpath
-provisioning:
-  diskSelector:
-    match: disk.size >= 600u * GB && disk.size < 800u * GB
----
-apiVersion: v1alpha1
-kind: UserVolumeConfig
-name: longhorn
-provisioning:
-  diskSelector:
-    match: disk.size >= 800u * GB && disk.size < 1u * TB
