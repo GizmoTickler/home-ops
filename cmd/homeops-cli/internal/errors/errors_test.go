@@ -117,6 +117,7 @@ func TestUserFriendlyMessages(t *testing.T) {
 			msg := err.GetUserFriendlyMessage()
 			if msg == nil {
 				t.Fatal("Expected user-friendly message to be generated")
+				return // This return is needed to satisfy staticcheck
 			}
 
 			if len(msg.SuggestedActions) < test.expectedActions {

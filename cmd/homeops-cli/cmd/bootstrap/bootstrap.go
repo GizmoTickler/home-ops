@@ -257,10 +257,10 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		"external-secrets",
 		"flux-system",
 		"kube-system", // Usually exists but we'll ensure it's there
+		"longhorn-system",
 		"network",
 		"observability",
 		"openebs-system",
-		"rook-ceph",
 		"system",
 		"system-upgrade",
 		"volsync-system",
@@ -2008,13 +2008,15 @@ func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLog
 	if err != nil {
 		return fmt.Errorf("failed to create temporary kubeconfig file: %w", err)
 	}
-	defer os.Remove(tmpFile.Name())
-	defer tmpFile.Close()
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
+	defer func() { _ = tmpFile.Close() }()
 
 	if _, err := tmpFile.Write(kubeconfigContent); err != nil {
 		return fmt.Errorf("failed to write kubeconfig to temporary file: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close temporary file: %w", err)
+	}
 
 	// Update the existing kubeconfig item by replacing the file attachment
 	cmd := exec.Command("op", "item", "edit", "kubeconfig", "--vault", "Private", fmt.Sprintf("kubeconfig[file]=%s", tmpFile.Name()))
