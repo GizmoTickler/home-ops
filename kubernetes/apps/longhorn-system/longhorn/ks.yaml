@@ -27,5 +27,8 @@ spec:
       GATEWAY_IP: "192.168.123.130"
   dependsOn:
     - name: openebs
+      namespace: openebs-system
     - name: cert-manager
+      namespace: cert-manager
     - name: cert-manager-issuers
+      namespace: cert-manager
