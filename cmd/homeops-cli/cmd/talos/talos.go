@@ -572,16 +572,16 @@ func newDeployVMCommand() *cobra.Command {
 		generateISO    bool
 		provider       string
 		// vSphere specific flags
-		datastore      string
-		network        string
-		concurrent     int
-		nodeCount      int
+		datastore  string
+		network    string
+		concurrent int
+		nodeCount  int
 	)
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Talos VM on TrueNAS or vSphere/ESXi",
-		Long:  `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.
+		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.
 
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
 For vSphere/ESXi: Deploys to specified datastore with iSCSI storage.
@@ -599,20 +599,20 @@ Use --generate-iso to create a custom ISO using the schematic.yaml configuration
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
-	cmd.Flags().IntVar(&vcpus, "vcpus", 10, "Number of vCPUs (default: 10)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB")
-	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1024, "OpenEBS disk size in GB")
-	cmd.Flags().IntVar(&rookSize, "rook-size", 800, "Rook disk size in GB")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 8, "Number of vCPUs (default: 8)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 100, "Boot disk size in GB")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", 800, "OpenEBS disk size in GB")
+	cmd.Flags().IntVar(&rookSize, "rook-size", 600, "Rook disk size in GB")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
-	
+
 	// vSphere specific flags
-	cmd.Flags().StringVar(&datastore, "datastore", "truenas-flash", "Datastore name (vSphere only)")
+	cmd.Flags().StringVar(&datastore, "datastore", "truenas", "Datastore name (vSphere only)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
 	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")
-	
+
 	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
@@ -1056,7 +1056,7 @@ func newDeleteVMCommand() *cobra.Command {
 					return fmt.Errorf("deletion cancelled")
 				}
 			}
-			
+
 			if provider == "vsphere" || provider == "esxi" {
 				return deleteVMOnVSphere(name)
 			}
@@ -1144,7 +1144,7 @@ func infoVM(name string) error {
 // newPrepareISOCommand creates the prepare-iso command
 func newPrepareISOCommand() *cobra.Command {
 	var provider string
-	
+
 	cmd := &cobra.Command{
 		Use:   "prepare-iso",
 		Short: "Generate custom Talos ISO from schematic and upload to storage provider",
@@ -1171,7 +1171,7 @@ and deploy multiple VMs using the same custom configuration.`,
 func prepareISOWithProvider(provider string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting custom Talos ISO preparation for provider: %s", provider)
-	
+
 	switch provider {
 	case "truenas":
 		return prepareISOForTrueNAS()
@@ -1349,16 +1349,16 @@ func prepareISOForVSphere() error {
 // uploadISOToVSphere downloads ISO from URL and uploads it to vSphere datastore
 func uploadISOToVSphere(isoURL string) error {
 	logger := common.NewColorLogger()
-	
+
 	// Get vSphere credentials
 	host := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/host")
 	username := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/username")
 	password := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/password")
-	
+
 	if host == "" || username == "" || password == "" {
 		return fmt.Errorf("failed to get vSphere credentials from 1Password")
 	}
-	
+
 	logger.Debug("Connecting to vSphere host: %s", host)
 	client := vsphere.NewClient(host, username, password, true)
 	if err := client.Connect(host, username, password, true); err != nil {
@@ -1397,17 +1397,17 @@ func uploadISOToVSphere(isoURL string) error {
 // downloadISOToTemp downloads ISO from URL to a temporary file and returns the file path
 func downloadISOToTemp(isoURL string) (string, error) {
 	logger := common.NewColorLogger()
-	
+
 	// Create temporary file
 	tempFile, err := os.CreateTemp("", "talos-*.iso")
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary file: %w", err)
 	}
 	tempFile.Close() // Close the file handle so we can write to it later
-	
+
 	tempPath := tempFile.Name()
 	logger.Debug("Created temporary file: %s", tempPath)
-	
+
 	// Download ISO
 	logger.Debug("Downloading from URL: %s", isoURL)
 	resp, err := http.Get(isoURL)
@@ -1416,12 +1416,12 @@ func downloadISOToTemp(isoURL string) (string, error) {
 		return "", fmt.Errorf("failed to download ISO: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		os.Remove(tempPath)
 		return "", fmt.Errorf("failed to download ISO: HTTP %d", resp.StatusCode)
 	}
-	
+
 	// Create file for writing
 	outFile, err := os.Create(tempPath)
 	if err != nil {
@@ -1429,19 +1429,19 @@ func downloadISOToTemp(isoURL string) (string, error) {
 		return "", fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer outFile.Close()
-	
+
 	// Copy with progress tracking
 	size := resp.ContentLength
 	if size > 0 {
 		logger.Info("Downloading %d MB ISO...", size/(1024*1024))
 	}
-	
+
 	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
 		os.Remove(tempPath)
 		return "", fmt.Errorf("failed to write ISO data: %w", err)
 	}
-	
+
 	return tempPath, nil
 }
 
@@ -1567,31 +1567,29 @@ func getNodeMacAddress(nodeName string) (string, error) {
 		"k8s-1": "192.168.122.11",
 		"k8s-2": "192.168.122.12",
 	}
-	
+
 	// Get the IP for this node
 	nodeIP, ok := nodeIPs[nodeName]
 	if !ok {
 		// Not a predefined k8s node, return empty for auto-generation
 		return "", nil
 	}
-	
-	// Read the node configuration file
-	nodeConfigPath := filepath.Join("internal", "templates", "talos", "nodes", fmt.Sprintf("%s.yaml", nodeIP))
-	data, err := os.ReadFile(nodeConfigPath)
+
+	// Read the node configuration from embedded templates
+	nodeConfigPath := fmt.Sprintf("talos/nodes/%s.yaml", nodeIP)
+	templateContent, err := templates.GetTalosTemplate(nodeConfigPath)
 	if err != nil {
-		// If file doesn't exist, return empty for auto-generation
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("failed to read node config: %w", err)
+		// If template doesn't exist, return empty for auto-generation
+		return "", nil
 	}
-	
+	data := []byte(templateContent)
+
 	// Parse the YAML to extract MAC address
 	var nodeConfig map[string]interface{}
 	if err := yaml.Unmarshal(data, &nodeConfig); err != nil {
 		return "", fmt.Errorf("failed to parse node config: %w", err)
 	}
-	
+
 	// Navigate through the YAML structure to find the MAC address
 	// Path: machine.network.interfaces[0].deviceSelector.hardwareAddr
 	if machine, ok := nodeConfig["machine"].(map[string]interface{}); ok {
@@ -1607,7 +1605,7 @@ func getNodeMacAddress(nodeName string) (string, error) {
 			}
 		}
 	}
-	
+
 	return "", nil // Return empty if MAC not found in config
 }
 
@@ -1670,7 +1668,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 
 	// Prepare VM configurations
 	var configs []vsphere.VMConfig
-	
+
 	if nodeCount == 1 {
 		// Single VM deployment
 		// Check if this is a k8s node and get the appropriate MAC address
@@ -1684,7 +1682,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 				logger.Info("Using MAC address from node config: %s", mac)
 			}
 		}
-		
+
 		config := vsphere.VMConfig{
 			Name:             baseName,
 			Memory:           memory,
@@ -1697,19 +1695,19 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 			ISO:              isoPath,
 			MacAddress:       vmMacAddress,
 			PhysicalFunction: getPhysicalFunction(0), // Single VM gets first PF
-			PowerOn:          false, // Don't power on by default
+			PowerOn:          false,                  // Don't power on by default
 		}
 		configs = append(configs, config)
 	} else {
 		// Multiple VM deployment with numbering
 		for i := 1; i <= nodeCount; i++ {
 			vmName := fmt.Sprintf("%s-%02d", baseName, i)
-			
+
 			// For k8s nodes, use index-based naming (k8s-0, k8s-1, k8s-2)
 			if baseName == "k8s" {
 				vmName = fmt.Sprintf("%s-%d", baseName, i-1)
 			}
-			
+
 			// Get MAC address for k8s nodes from configuration files
 			vmMacAddress := ""
 			if strings.HasPrefix(vmName, "k8s-") {
@@ -1720,7 +1718,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 					logger.Info("Using MAC address from config for %s: %s", vmName, mac)
 				}
 			}
-			
+
 			config := vsphere.VMConfig{
 				Name:             vmName,
 				Memory:           memory,
@@ -1733,7 +1731,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 				ISO:              isoPath,
 				MacAddress:       vmMacAddress,
 				PhysicalFunction: getPhysicalFunction(i - 1), // Alternate PFs based on VM index
-				PowerOn:          false, // Don't power on by default
+				PowerOn:          false,                      // Don't power on by default
 			}
 			configs = append(configs, config)
 		}

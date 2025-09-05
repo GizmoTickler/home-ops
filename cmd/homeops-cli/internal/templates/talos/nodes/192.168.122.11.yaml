@@ -1,3 +1,4 @@
+---
 machine:
   network:
     hostname: k8s-1
@@ -26,4 +27,4 @@ name: local-hostpath
 provisioning:
   diskSelector:
     match: "!system_disk"
-  minSize: 1024GB
+  minSize: 800GB

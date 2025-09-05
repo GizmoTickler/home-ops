@@ -35,4 +35,4 @@ spec:
   targets:
     staticConfig:
       static:
-        - nas01.${SECRET_DOMAIN}:2049
+        - 192.168.120.10:2049

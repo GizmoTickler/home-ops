@@ -20,12 +20,12 @@ import (
 
 // Client represents a vSphere/ESXi client
 type Client struct {
-	client    *govmomi.Client
-	vim       *vim25.Client
-	finder    *find.Finder
-	logger    *common.ColorLogger
-	ctx       context.Context
-	cancel    context.CancelFunc
+	client     *govmomi.Client
+	vim        *vim25.Client
+	finder     *find.Finder
+	logger     *common.ColorLogger
+	ctx        context.Context
+	cancel     context.CancelFunc
 	datacenter *object.Datacenter
 }
 
@@ -120,8 +120,8 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 			EfiSecureBootEnabled: types.NewBool(false), // Disable secure boot for Talos
 		},
 		Flags: &types.VirtualMachineFlagInfo{
-			VirtualMmuUsage:      "automatic",
-			VirtualExecUsage:     "hvAuto",
+			VirtualMmuUsage:  "automatic",
+			VirtualExecUsage: "hvAuto",
 		},
 		// Memory reservation - reserve all guest memory for SR-IOV
 		MemoryReservationLockedToMax: types.NewBool(true),
@@ -132,9 +132,21 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 				Level: types.SharesLevelNormal,
 			},
 		},
+		// CPU allocation with high shares
+		CpuAllocation: &types.ResourceAllocationInfo{
+			Reservation: types.NewInt64(10000), // 10000MHz CPU reservation
+			Limit:       types.NewInt64(-1),    // No limit
+			Shares: &types.SharesInfo{
+				Level: types.SharesLevelHigh, // Set CPU shares to high
+			},
+		},
 		// VMware Tools configuration
 		Tools: &types.ToolsConfigInfo{
 			SyncTimeWithHost: types.NewBool(true), // Synchronize guest time with host
+		},
+		// Latency sensitivity configuration
+		LatencySensitivity: &types.LatencySensitivity{
+			Level: types.LatencySensitivitySensitivityLevelMedium, // Set latency sensitivity to medium
 		},
 	}
 
@@ -164,26 +176,26 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	netDevice := &types.VirtualSriovEthernetCard{
 		VirtualEthernetCard: types.VirtualEthernetCard{
 			VirtualDevice: types.VirtualDevice{
-				Key:        13031, // Match manual VM key exactly
-				ControllerKey: 100, // PCI controller key from manual VM
-				Backing:    backing, // Use regular network backing for vl999
+				Key:           13031,   // Match manual VM key exactly
+				ControllerKey: 100,     // PCI controller key from manual VM
+				Backing:       backing, // Use regular network backing for vl999
 			},
 			AddressType: "generated",
 		},
-		AllowGuestOSMtuChange: types.NewBool(true), // Enable guest OS MTU changes
+		AllowGuestOSMtuChange: types.NewBool(false), // Disable guest OS MTU changes
 		SriovBacking: &types.VirtualSriovEthernetCardSriovBackingInfo{
 			PhysicalFunctionBacking: &types.VirtualPCIPassthroughDeviceBackingInfo{
 				Id: config.PhysicalFunction,
 			},
 		},
 	}
-	
+
 	// Set MAC address if provided
 	if config.MacAddress != "" {
 		netDevice.AddressType = "manual"
 		netDevice.MacAddress = config.MacAddress
 	}
-	
+
 	devices = append(devices, netDevice)
 
 	// Add SATA controller for CD-ROM (matches manual VMs)
@@ -203,16 +215,16 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	if config.ISO != "" {
 		cdrom := &types.VirtualCdrom{
 			VirtualDevice: types.VirtualDevice{
-				Key: 16000,
+				Key:           16000,
 				ControllerKey: 15000, // SATA controller
-				UnitNumber: types.NewInt32(0),
+				UnitNumber:    types.NewInt32(0),
 				Backing: &types.VirtualCdromIsoBackingInfo{
 					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
 						FileName: config.ISO,
 					},
 				},
 				Connectable: &types.VirtualDeviceConnectInfo{
-					Connected:         true,  // Connect ISO for booting
+					Connected:         true, // Connect ISO for booting
 					StartConnected:    true,
 					AllowGuestControl: true,
 				},
@@ -265,23 +277,23 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 	vm := object.NewVirtualMachine(c.vim, info.Result.(types.ManagedObjectReference))
 	c.logger.Success("VM %s created successfully", config.Name)
-	
+
 	return vm, nil
 }
 
 // createDisk creates a virtual disk specification
-func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, vmName string) *types.VirtualDisk {
-	// Determine thin provisioning based on disk unit number
-	// Unit 0: Boot disk (250GB) - thin provisioned
-	// Unit 1: OpenEBS disk (1TB) - thin provisioned
-	// Unit 2: Rook disk (800GB) - thick provisioned (default for Ceph performance)
-	thinProvisioned := unitNumber != 2
-	
+func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, _ string) *types.VirtualDisk {
+	// All disks are thick provisioned as requested
+	// Unit 0: Boot disk (100GB) - thick provisioned
+	// Unit 1: OpenEBS disk (800GB) - thick provisioned
+	// Unit 2: Rook disk (600GB) - thick provisioned
+	thinProvisioned := false
+
 	disk := &types.VirtualDisk{
 		VirtualDevice: types.VirtualDevice{
-			Key: int32(2000 + unitNumber),
+			Key:           int32(2000 + unitNumber),
 			ControllerKey: 1000, // SCSI controller key
-			UnitNumber: types.NewInt32(int32(unitNumber)),
+			UnitNumber:    types.NewInt32(int32(unitNumber)),
 			Backing: &types.VirtualDiskFlatVer2BackingInfo{
 				VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
 					FileName: fmt.Sprintf("[%s]", datastoreName),
@@ -290,13 +302,13 @@ func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, vmName
 				ThinProvisioned: types.NewBool(thinProvisioned),
 			},
 		},
-		CapacityInKB:    int64(sizeGB) * 1024 * 1024, // GB to KB: 1GB = 1024*1024 KB
+		CapacityInKB:    int64(sizeGB) * 1024 * 1024,        // GB to KB: 1GB = 1024*1024 KB
 		CapacityInBytes: int64(sizeGB) * 1024 * 1024 * 1024, // GB to Bytes: 1GB = 1024*1024*1024 Bytes
 	}
-	
+
 	// Debug: log what we're actually setting
-	c.logger.Info("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB) * 1024 * 1024, int64(sizeGB) * 1024 * 1024 * 1024)
-	
+	c.logger.Info("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB)*1024*1024, int64(sizeGB)*1024*1024*1024)
+
 	return disk
 }
 
@@ -388,26 +400,26 @@ func (c *Client) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error
 // UploadISOToDatastore uploads an ISO file to a vSphere datastore
 func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileName string) error {
 	c.logger.Debug("Uploading ISO %s to datastore %s as %s", localFilePath, datastoreName, remoteFileName)
-	
+
 	// Find the datastore
 	datastore, err := c.finder.Datastore(c.ctx, datastoreName)
 	if err != nil {
 		return fmt.Errorf("failed to find datastore %s: %w", datastoreName, err)
 	}
-	
+
 	// Get file info for size logging
 	fileInfo, err := os.Stat(localFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
-	
+
 	c.logger.Info("Uploading %s (%d MB) to datastore...", remoteFileName, fileInfo.Size()/(1024*1024))
-	
+
 	// Upload file using datastore UploadFile method
 	if err := datastore.UploadFile(c.ctx, localFilePath, remoteFileName, nil); err != nil {
 		return fmt.Errorf("failed to upload file to datastore: %w", err)
 	}
-	
+
 	c.logger.Success("ISO uploaded successfully to [%s] %s", datastoreName, remoteFileName)
 	return nil
 }
@@ -416,29 +428,29 @@ func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileNa
 func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 	var wg sync.WaitGroup
 	errors := make(chan error, len(configs))
-	
+
 	// Semaphore to limit concurrent deployments (adjust as needed)
 	sem := make(chan struct{}, 3)
-	
+
 	for _, config := range configs {
 		wg.Add(1)
 		go func(cfg VMConfig) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			
+
 			c.logger.Info("Starting deployment of VM: %s", cfg.Name)
 			startTime := time.Now()
-			
+
 			// Create VM
 			vm, err := c.CreateVM(cfg)
 			if err != nil {
 				errors <- fmt.Errorf("failed to create VM %s: %w", cfg.Name, err)
 				return
 			}
-			
+
 			// Power on VM if requested
 			if cfg.PowerOn {
 				if err := c.PowerOnVM(vm); err != nil {
@@ -446,15 +458,15 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 					return
 				}
 			}
-			
+
 			c.logger.Success("VM %s deployed in %v", cfg.Name, time.Since(startTime))
 		}(config)
 	}
-	
+
 	// Wait for all goroutines to complete
 	wg.Wait()
 	close(errors)
-	
+
 	// Collect errors
 	var allErrors []string
 	for err := range errors {
@@ -462,10 +474,10 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 			allErrors = append(allErrors, err.Error())
 		}
 	}
-	
+
 	if len(allErrors) > 0 {
 		return fmt.Errorf("deployment errors:\n%s", strings.Join(allErrors, "\n"))
 	}
-	
+
 	return nil
 }
