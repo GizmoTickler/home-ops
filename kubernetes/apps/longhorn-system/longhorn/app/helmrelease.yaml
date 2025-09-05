@@ -23,51 +23,25 @@ spec:
       strategy: rollback
       retries: 3
   values:
+    persistence:
+      defaultDataLocality: best-effort
     defaultSettings:
       defaultDataPath: "/var/mnt/longhorn"
       defaultReplicaCount: 3
-      backupTarget: ""
-      backupTargetCredentialSecret: ""
       createDefaultDiskLabeledNodes: true
-      defaultDataLocality: best-effort
       replicaAutoBalance: best-effort
-      storageMinimalAvailablePercentage: 10
-      storageReservedPercentageForDefaultDisk: 15
-      upgradeChecker: false
+      storageMinimalAvailablePercentage: 5
+      storageReservedPercentageForDefaultDisk: 10
       defaultLonghornStaticStorageClass: longhorn
       nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
-      concurrentAutomaticEngineUpgradePerNodeLimit: 3
       orphanAutoDeletion: true
-      storageNetwork: ""
-      storageOverProvisioningPercentage: 100
-      guaranteedInstanceManagerCPU: 12
-
-    persistence:
-      defaultClass: false
-      defaultClassReplicaCount: 3
-      defaultDataLocality: best-effort
-      defaultRevisionCount: 2
-      defaultNodeSelector:
-        enable: false
-      removeSnapshotsDuringFilesystemTrim: ignored
-
-    csi:
-      attacherReplicaCount: 3
-      provisionerReplicaCount: 3
-      resizerReplicaCount: 3
-      snapshotterReplicaCount: 3
+      replicaAutoBalance: true
+      guaranteedEngineManagerCPU: 20
+      guaranteedReplicaManagerCPU: 20
 
     ingress:
       enabled: false
 
-    longhornManager:
-      nodeSelector: {}
-      tolerations: []
-
-    longhornDriver:
-      nodeSelector: {}
-      tolerations: []
-
-    longhornUI:
-      nodeSelector: {}
-      tolerations: []
+    metrics:
+      serviceMonitor:
+        enabled: true

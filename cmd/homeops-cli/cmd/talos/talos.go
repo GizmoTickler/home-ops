@@ -1182,7 +1182,6 @@ func prepareISOWithProvider(provider string) error {
 	}
 }
 
-
 // prepareISOForTrueNAS handles TrueNAS-specific ISO preparation
 func prepareISOForTrueNAS() error {
 	logger := common.NewColorLogger()
@@ -1448,7 +1447,7 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	logger := common.NewColorLogger()
 
 	// Update controlplane.yaml template with schematic ID
-	templateFile := "internal/templates/talos/controlplane.yaml"
+	templateFile := "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
 	logger.Debug("Updating controlplane template: %s", templateFile)
 
 	// Read the template file
