@@ -26,13 +26,11 @@ kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    match: "!system_disk"
-  minSize: 600GB
+    match: disk.size >= 600u * GB && disk.size < 800u * GB
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
 name: longhorn
 provisioning:
   diskSelector:
-    match: "!system_disk"
-  minSize: 800GB
+    match: disk.size >= 800u * GB && disk.size < 1u * TB
