@@ -1182,10 +1182,6 @@ func prepareISOWithProvider(provider string) error {
 	}
 }
 
-// prepareISO handles the ISO generation and upload process (backward compatibility)
-func prepareISO() error {
-	return prepareISOWithProvider("truenas")
-}
 
 // prepareISOForTrueNAS handles TrueNAS-specific ISO preparation
 func prepareISOForTrueNAS() error {
@@ -1403,7 +1399,9 @@ func downloadISOToTemp(isoURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary file: %w", err)
 	}
-	tempFile.Close() // Close the file handle so we can write to it later
+	if err := tempFile.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temporary file: %w", err)
+	}
 
 	tempPath := tempFile.Name()
 	logger.Debug("Created temporary file: %s", tempPath)
@@ -1412,23 +1410,23 @@ func downloadISOToTemp(isoURL string) (string, error) {
 	logger.Debug("Downloading from URL: %s", isoURL)
 	resp, err := http.Get(isoURL)
 	if err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to download ISO: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to download ISO: HTTP %d", resp.StatusCode)
 	}
 
 	// Create file for writing
 	outFile, err := os.Create(tempPath)
 	if err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer outFile.Close()
+	defer func() { _ = outFile.Close() }()
 
 	// Copy with progress tracking
 	size := resp.ContentLength
@@ -1438,7 +1436,7 @@ func downloadISOToTemp(isoURL string) (string, error) {
 
 	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
-		os.Remove(tempPath)
+		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to write ISO data: %w", err)
 	}
 
