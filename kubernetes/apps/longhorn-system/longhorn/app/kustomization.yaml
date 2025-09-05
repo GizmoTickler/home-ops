@@ -5,6 +5,4 @@ kind: Kustomization
 resources:
   - ./helmrepository.yaml
   - ./helmrelease.yaml
-  - ./storageclass.yaml
-  - ./volumesnapshotclass.yaml
   - ./httproute.yaml
