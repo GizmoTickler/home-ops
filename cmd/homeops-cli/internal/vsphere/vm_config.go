@@ -5,23 +5,23 @@ import "fmt"
 // VMConfig represents the configuration for a vSphere VM
 type VMConfig struct {
 	// Basic VM configuration
-	Name       string
-	Memory     int    // Memory in MB
-	VCPUs      int    // Number of vCPUs
-	DiskSize   int    // Boot disk size in GB
-	OpenEBSSize int   // OpenEBS disk size in GB (optional)
-	RookSize   int    // Rook disk size in GB (optional)
-	
+	Name        string
+	Memory      int // Memory in MB
+	VCPUs       int // Number of vCPUs
+	DiskSize    int // Boot disk size in GB
+	OpenEBSSize int // OpenEBS disk size in GB (optional)
+	RookSize    int // Rook disk size in GB (optional)
+
 	// vSphere specific configuration
-	Datastore  string // Datastore name (e.g., "truenas-flash")
-	Network    string // Network name (e.g., "VM Network")
-	ISO        string // ISO path on datastore (e.g., "[truenas-iso-nfs] metal-amd64.iso")
-	MacAddress string // Optional MAC address
+	Datastore        string // Datastore name (e.g., "truenas-flash")
+	Network          string // Network name (e.g., "VM Network")
+	ISO              string // ISO path on datastore (e.g., "[truenas-iso-nfs] metal-amd64.iso")
+	MacAddress       string // Optional MAC address
 	PhysicalFunction string // SR-IOV Physical Function (e.g., "0000:04:00.0")
-	
+
 	// Deployment options
-	PowerOn    bool   // Power on VM after creation
-	
+	PowerOn bool // Power on VM after creation
+
 	// Talos specific
 	SchematicID  string // Optional: Talos factory schematic ID
 	TalosVersion string // Optional: Talos version
@@ -34,20 +34,20 @@ type VMDeploymentConfig struct {
 	Username string
 	Password string
 	Insecure bool
-	
+
 	// Default VM specs
-	DefaultMemory     int
-	DefaultVCPUs      int
-	DefaultDiskSize   int
+	DefaultMemory      int
+	DefaultVCPUs       int
+	DefaultDiskSize    int
 	DefaultOpenEBSSize int
-	DefaultRookSize   int
-	
+	DefaultRookSize    int
+
 	// vSphere defaults
 	DefaultDatastore string
 	DefaultNetwork   string
 	ISODatastore     string // Datastore where ISOs are stored
 	ISOPath          string // Path to Talos ISO
-	
+
 	// VMs to deploy
 	VMs []VMConfig
 }
@@ -57,11 +57,11 @@ func GetDefaultVMConfig(name string) VMConfig {
 	return VMConfig{
 		Name:        name,
 		Memory:      48 * 1024, // 48GB
-		VCPUs:       10,
-		DiskSize:    250,  // 250GB boot
-		OpenEBSSize: 1024, // 1TB OpenEBS
-		RookSize:    800,  // 800GB Rook
-		Datastore:   "truenas-flash",
+		VCPUs:       8,
+		DiskSize:    100, // 100GB boot
+		OpenEBSSize: 800, // 800GB OpenEBS
+		RookSize:    600, // 600GB Rook
+		Datastore:   "truenas",
 		Network:     "vl999",
 		PowerOn:     true,
 	}
