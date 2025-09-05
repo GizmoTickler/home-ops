@@ -28,7 +28,7 @@ spec:
     defaultSettings:
       defaultDataPath: "/var/mnt/longhorn"
       defaultReplicaCount: 3
-      createDefaultDiskLabeledNodes: true
+      createDefaultDiskLabeledNodes: false
       storageMinimalAvailablePercentage: 5
       storageReservedPercentageForDefaultDisk: 10
       defaultLonghornStaticStorageClass: longhorn
