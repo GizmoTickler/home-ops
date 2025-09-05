@@ -13,3 +13,4 @@ customization:
   systemExtensions:
     officialExtensions:
       - siderolabs/nfsrahead
+      - siderolabs/iscsi-tools
