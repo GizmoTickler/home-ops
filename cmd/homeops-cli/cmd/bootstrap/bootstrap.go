@@ -166,13 +166,6 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 	logger.Success("✅ All nodes are ready")
 
-	// Step 4.5: Apply Longhorn node annotations
-	logger.Info("🏷️  Step 4.5: Applying Longhorn disk configuration annotations")
-	if err := applyLonghornNodeAnnotations(config, logger); err != nil {
-		return fmt.Errorf("failed to apply Longhorn node annotations: %w", err)
-	}
-	logger.Success("✅ Longhorn node annotations applied successfully")
-
 	// Step 5: Apply namespaces first (following onedr0p pattern)
 	logger.Info("📦 Step 5: Creating initial namespaces")
 	if err := applyNamespaces(config, logger); err != nil {
@@ -2034,41 +2027,5 @@ func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLog
 	}
 
 	logger.Debug("Kubeconfig file updated in 1Password")
-	return nil
-}
-
-// applyLonghornNodeAnnotations applies the Longhorn disk configuration annotations to all nodes
-func applyLonghornNodeAnnotations(config *BootstrapConfig, logger *common.ColorLogger) error {
-	logger.Debug("Applying Longhorn disk configuration annotations to nodes...")
-
-	// Get all node names
-	cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--output=jsonpath={.items[*].metadata.name}")
-	output, err := cmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to get node names: %w", err)
-	}
-
-	nodeNames := strings.Fields(strings.TrimSpace(string(output)))
-	if len(nodeNames) == 0 {
-		return fmt.Errorf("no nodes found in cluster")
-	}
-
-	// Apply annotation to each node
-	annotation := `node.longhorn.io/default-disks-config=[{"path":"/var/mnt/longhorn","allowScheduling":true}]`
-	for _, nodeName := range nodeNames {
-		logger.Debug("Applying Longhorn disk config annotation to node: %s", nodeName)
-
-		annotateCmd := exec.Command("kubectl", "annotate", "node", nodeName, annotation,
-			"--kubeconfig", config.KubeConfig, "--overwrite")
-
-		if output, err := annotateCmd.CombinedOutput(); err != nil {
-			logger.Debug("Failed to annotate node %s: %s", nodeName, string(output))
-			return fmt.Errorf("failed to annotate node %s: %w", nodeName, err)
-		}
-
-		logger.Debug("Successfully applied annotation to node: %s", nodeName)
-	}
-
-	logger.Info("Applied Longhorn disk configuration annotations to %d node(s)", len(nodeNames))
 	return nil
 }

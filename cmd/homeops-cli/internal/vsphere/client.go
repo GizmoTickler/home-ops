@@ -122,6 +122,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		Flags: &types.VirtualMachineFlagInfo{
 			VirtualMmuUsage:  "automatic",
 			VirtualExecUsage: "hvAuto",
+			VvtdEnabled:      types.NewBool(config.EnableIOMMU), // Enable IOMMU/VT-d based on config
 		},
 		// Memory reservation - reserve all guest memory for SR-IOV
 		MemoryReservationLockedToMax: types.NewBool(true),
@@ -148,6 +149,11 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		LatencySensitivity: &types.LatencySensitivity{
 			Level: types.LatencySensitivitySensitivityLevelMedium, // Set latency sensitivity to medium
 		},
+	}
+
+	// Log IOMMU status
+	if config.EnableIOMMU {
+		c.logger.Debug("IOMMU/VT-d enabled for VM %s", config.Name)
 	}
 
 	// Create devices

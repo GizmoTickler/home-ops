@@ -48,14 +48,6 @@ machine:
     disk: /dev/sda
     image: factory.talos.dev/vmware-installer/9e9feb8b7bda640bbf53ab6e6af6800f120f9439f7dd1d17c4ec3d33f68a9f04:v1.11.0
     wipe: false
-  # Additional disk mounts for storage
-  disks:
-    - device: /dev/sdb
-      partitions:
-        - mountpoint: /var/mnt/longhorn
-    - device: /dev/sdc
-      partitions:
-        - mountpoint: /var/mnt/local-hostpath
   kernel:
     modules:
       - name: nbd
@@ -73,7 +65,6 @@ machine:
   nodeLabels:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
-    node.longhorn.io/create-default-disk: 'config'
 
   sysctls:
     fs.inotify.max_user_instances: "8192"

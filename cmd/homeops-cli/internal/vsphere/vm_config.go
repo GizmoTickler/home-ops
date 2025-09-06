@@ -20,7 +20,8 @@ type VMConfig struct {
 	PhysicalFunction string // SR-IOV Physical Function (e.g., "0000:04:00.0")
 
 	// Deployment options
-	PowerOn bool // Power on VM after creation
+	PowerOn     bool // Power on VM after creation
+	EnableIOMMU bool // Enable IOMMU/VT-d for VM
 
 	// Talos specific
 	SchematicID  string // Optional: Talos factory schematic ID
@@ -64,6 +65,7 @@ func GetDefaultVMConfig(name string) VMConfig {
 		Datastore:   "truenas",
 		Network:     "vl999",
 		PowerOn:     true,
+		EnableIOMMU: true, // Enable IOMMU/VT-d by default for Talos VMs
 	}
 }
 
