@@ -96,6 +96,12 @@ spec:
           limits:
             memory: 256Mi
         logLevel: info
+        env:
+          - name: TRUENAS_APIKEY
+            valueFrom:
+              secretKeyRef:
+                name: democratic-csi-secret
+                key: TRUENAS_APIKEY
 
     node:
       driver:
@@ -109,6 +115,12 @@ spec:
         logLevel: info
         iscsiDirHostPath: /usr/local/etc/iscsi
         iscsiDirHostPathType: ""
+        env:
+          - name: TRUENAS_APIKEY
+            valueFrom:
+              secretKeyRef:
+                name: democratic-csi-secret
+                key: TRUENAS_APIKEY
 
     driver:
       config:
@@ -118,8 +130,8 @@ spec:
           protocol: http
           host: 192.168.120.10
           port: 80
-          apiKey: "${TRUENAS_APIKEY}"
-          username: root
+          apiKey: ${TRUENAS_APIKEY}
+
         zfs:
           datasetParentName: flashstor/kubernetes/volumes
           detachedSnapshotsDatasetParentName: flashstor/kubernetes/snapshots
@@ -128,7 +140,6 @@ spec:
           zvolDedup:
           zvolEnableReservation: false
         iscsi:
-          targetPortal: "192.168.120.10:3260"
           targetPortals:
             - "192.168.120.10:3260"
             - "192.168.120.4:3260"
