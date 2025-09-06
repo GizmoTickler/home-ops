@@ -6,5 +6,5 @@ metadata:
   name: democratic-csi
 spec:
   type: oci
-  url: ghcr.io/democratic-csi/charts
+  url: oci://ghcr.io/democratic-csi/charts
   interval: 12h
