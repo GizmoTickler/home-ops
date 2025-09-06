@@ -20,7 +20,3 @@ spec:
   timeout: 5m
   dependsOn:
     - name: snapshot-controller
-  postBuild:
-    substituteFrom:
-      - kind: Secret
-        name: democratic-csi-secret
