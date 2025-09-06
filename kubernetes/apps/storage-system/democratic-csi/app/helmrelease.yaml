@@ -76,12 +76,6 @@ spec:
           limits:
             memory: 200Mi
             ephemeral-storage: 200Mi
-        env:
-          - name: TRUENAS_APIKEY
-            valueFrom:
-              secretKeyRef:
-                name: democratic-csi-secret
-                key: TRUENAS_APIKEY
     csiProxy:
       resources:
         requests:
@@ -137,12 +131,6 @@ spec:
             value: /usr/local/sbin/iscsiadm
         iscsiDirHostPath: /var/iscsi
         iscsiDirHostPathType: ""
-        env:
-          - name: TRUENAS_APIKEY
-            valueFrom:
-              secretKeyRef:
-                name: democratic-csi-secret
-                key: TRUENAS_APIKEY
       driverRegistrar:
         resources:
           requests:
@@ -170,9 +158,10 @@ spec:
         driver: freenas-api-iscsi
         instance_id:
         httpConnection:
-          protocol: https
-          host: nas01.${SECRET_DOMAIN}
-          port: 443
+          protocol: http
+          host: 192.168.120.10
+          port: 80
+          username: ${TRUENAS_USERNAME}
           apiKey: ${TRUENAS_APIKEY}
 
         zfs:
