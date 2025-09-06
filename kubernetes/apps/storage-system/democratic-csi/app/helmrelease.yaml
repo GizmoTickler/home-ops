@@ -127,7 +127,6 @@ spec:
           zvolCompression:
           zvolDedup:
           zvolEnableReservation: false
-          zvolBlocksize:
         iscsi:
           targetPortal: "192.168.120.10:3260"
           targetPortals:
