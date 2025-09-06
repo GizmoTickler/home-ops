@@ -14,9 +14,8 @@ type VMConfig struct {
 	Name           string
 	Memory         int
 	VCPUs          int
-	DiskSize       int // Boot disk size in GB
-	OpenEBSSize    int // OpenEBS disk size in GB
-	RookSize       int // Rook disk size in GB
+	DiskSize       int // Boot/OpenEBS disk size in GB (default: 500GB)
+	LonghornSize   int // Longhorn disk size in GB (default: 1000GB)
 	TrueNASHost    string
 	TrueNASAPIKey  string
 	TrueNASPort    int
@@ -26,8 +25,7 @@ type VMConfig struct {
 	StoragePool    string
 	MacAddress     string
 	BootZVol       string
-	OpenEBSZVol    string
-	RookZVol       string
+	LonghornZVol   string
 	SkipZVolCreate bool
 	SpicePassword  string
 	UseSpice       bool
@@ -338,18 +336,13 @@ func (vm *VMManager) createZVols(config VMConfig) error {
 
 	zvolPaths := vm.getZVolPaths(config)
 
-	// Create boot ZVol
-	if err := vm.createSingleZVol(zvolPaths["boot"], config.DiskSize, "boot"); err != nil {
+	// Create boot/OpenEBS ZVol (500GB)
+	if err := vm.createSingleZVol(zvolPaths["boot"], config.DiskSize, "boot/OpenEBS"); err != nil {
 		return err
 	}
 
-	// Create OpenEBS ZVol
-	if err := vm.createSingleZVol(zvolPaths["openebs"], config.OpenEBSSize, "OpenEBS"); err != nil {
-		return err
-	}
-
-	// Create Rook ZVol
-	if err := vm.createSingleZVol(zvolPaths["rook"], config.RookSize, "Rook"); err != nil {
+	// Create Longhorn ZVol (1TB)
+	if err := vm.createSingleZVol(zvolPaths["longhorn"], config.LonghornSize, "Longhorn"); err != nil {
 		return err
 	}
 
@@ -391,25 +384,14 @@ func (vm *VMManager) getZVolPaths(config VMConfig) map[string]string {
 		}
 	}
 
-	if config.OpenEBSZVol != "" {
-		paths["openebs"] = config.OpenEBSZVol
+	if config.LonghornZVol != "" {
+		paths["longhorn"] = config.LonghornZVol
 	} else {
 		// Check if StoragePool already contains /VM to avoid duplication
 		if strings.HasSuffix(config.StoragePool, "/VM") {
-			paths["openebs"] = fmt.Sprintf("%s/%s-ebs", config.StoragePool, config.Name)
+			paths["longhorn"] = fmt.Sprintf("%s/%s-longhorn", config.StoragePool, config.Name)
 		} else {
-			paths["openebs"] = fmt.Sprintf("%s/VM/%s-ebs", config.StoragePool, config.Name)
-		}
-	}
-
-	if config.RookZVol != "" {
-		paths["rook"] = config.RookZVol
-	} else {
-		// Check if StoragePool already contains /VM to avoid duplication
-		if strings.HasSuffix(config.StoragePool, "/VM") {
-			paths["rook"] = fmt.Sprintf("%s/%s-rook", config.StoragePool, config.Name)
-		} else {
-			paths["rook"] = fmt.Sprintf("%s/VM/%s-rook", config.StoragePool, config.Name)
+			paths["longhorn"] = fmt.Sprintf("%s/VM/%s-longhorn", config.StoragePool, config.Name)
 		}
 	}
 
@@ -592,7 +574,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	// Create disk devices with correct order matching working script
 	zvolPaths := vm.getZVolPaths(config)
 
-	// Boot disk (order 1001) - matching working script structure
+	// Boot/OpenEBS disk (order 1001) - 500GB combined disk
 	if bootPath, exists := zvolPaths["boot"]; exists && bootPath != "" {
 		bootDevice := map[string]interface{}{
 			"vm": vmID,
@@ -612,19 +594,19 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		}
 
 		if _, err := vm.client.Call("vm.device.create", []interface{}{bootDevice}, 30); err != nil {
-			return fmt.Errorf("failed to create boot disk device: %w", err)
+			return fmt.Errorf("failed to create boot/OpenEBS disk device: %w", err)
 		}
-		vm.logger.Info("Created boot disk device: /dev/zvol/%s", bootPath)
+		vm.logger.Info("Created boot/OpenEBS disk device (500GB): /dev/zvol/%s", bootPath)
 	}
 
-	// OpenEBS disk (order 1004) - matching working script structure
-	if openebsPath, exists := zvolPaths["openebs"]; exists && openebsPath != "" {
-		openebsDevice := map[string]interface{}{
+	// Longhorn disk (order 1004) - 1TB disk
+	if longhornPath, exists := zvolPaths["longhorn"]; exists && longhornPath != "" {
+		longhornDevice := map[string]interface{}{
 			"vm": vmID,
 			"attributes": map[string]interface{}{
 				"dtype":               "DISK",
 				"type":                "VIRTIO",
-				"path":                fmt.Sprintf("/dev/zvol/%s", openebsPath),
+				"path":                fmt.Sprintf("/dev/zvol/%s", longhornPath),
 				"iotype":              "THREADS",
 				"create_zvol":         false,
 				"logical_sectorsize":  nil,
@@ -636,35 +618,10 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 			"order": 1004,
 		}
 
-		if _, err := vm.client.Call("vm.device.create", []interface{}{openebsDevice}, 30); err != nil {
-			return fmt.Errorf("failed to create OpenEBS disk device: %w", err)
+		if _, err := vm.client.Call("vm.device.create", []interface{}{longhornDevice}, 30); err != nil {
+			return fmt.Errorf("failed to create Longhorn disk device: %w", err)
 		}
-		vm.logger.Info("Created OpenEBS disk device: /dev/zvol/%s", openebsPath)
-	}
-
-	// Rook disk (order 1005) - matching working script structure
-	if rookPath, exists := zvolPaths["rook"]; exists && rookPath != "" {
-		rookDevice := map[string]interface{}{
-			"vm": vmID,
-			"attributes": map[string]interface{}{
-				"dtype":               "DISK",
-				"type":                "VIRTIO",
-				"path":                fmt.Sprintf("/dev/zvol/%s", rookPath),
-				"iotype":              "THREADS",
-				"create_zvol":         false,
-				"logical_sectorsize":  nil,
-				"physical_sectorsize": nil,
-				"serial":              vm.generateRandomSerial(),
-				"zvol_name":           nil,
-				"zvol_volsize":        nil,
-			},
-			"order": 1005,
-		}
-
-		if _, err := vm.client.Call("vm.device.create", []interface{}{rookDevice}, 30); err != nil {
-			return fmt.Errorf("failed to create Rook disk device: %w", err)
-		}
-		vm.logger.Info("Created Rook disk device: /dev/zvol/%s", rookPath)
+		vm.logger.Info("Created Longhorn disk device (1TB): /dev/zvol/%s", longhornPath)
 	}
 
 	// Create SPICE display device (order 1003) - matching working script
@@ -809,16 +766,14 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 	// Standard patterns with the provided pool
 	patterns = append(patterns,
 		fmt.Sprintf("%s/%s-boot", storagePool, vmName),
-		fmt.Sprintf("%s/%s-ebs", storagePool, vmName),  // OpenEBS disk
-		fmt.Sprintf("%s/%s-rook", storagePool, vmName), // Rook disk
+		fmt.Sprintf("%s/%s-longhorn", storagePool, vmName), // Longhorn disk
 	)
 
 	// If the pool doesn't already contain /VM, also check with /VM appended
 	if !strings.HasSuffix(storagePool, "/VM") {
 		patterns = append(patterns,
 			fmt.Sprintf("%s/VM/%s-boot", storagePool, vmName),
-			fmt.Sprintf("%s/VM/%s-ebs", storagePool, vmName),
-			fmt.Sprintf("%s/VM/%s-rook", storagePool, vmName),
+			fmt.Sprintf("%s/VM/%s-longhorn", storagePool, vmName),
 		)
 	}
 
@@ -827,8 +782,7 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		basePool := strings.TrimSuffix(storagePool, "/VM")
 		patterns = append(patterns,
 			fmt.Sprintf("%s/%s-boot", basePool, vmName),
-			fmt.Sprintf("%s/%s-ebs", basePool, vmName),
-			fmt.Sprintf("%s/%s-rook", basePool, vmName),
+			fmt.Sprintf("%s/%s-longhorn", basePool, vmName),
 		)
 	}
 
@@ -866,8 +820,7 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 			// Flexible matching: if it's a VOLUME and contains the VM name
 			// Check if it matches our expected suffixes
 			if strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-boot", vmName)) ||
-				strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-ebs", vmName)) ||
-				strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-rook", vmName)) {
+				strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-longhorn", vmName)) {
 				zvolPaths = append(zvolPaths, dataset.Name)
 				vm.logger.Success("✓ Found ZVol by flexible pattern: %s", dataset.Name)
 			}

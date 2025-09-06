@@ -564,8 +564,7 @@ func newDeployVMCommand() *cobra.Command {
 		memory         int
 		vcpus          int
 		diskSize       int
-		openebsSize    int
-		rookSize       int
+		longhornSize   int
 		macAddress     string
 		pool           string
 		skipZVolCreate bool
@@ -589,9 +588,9 @@ For vSphere/ESXi: Deploys to specified datastore with iSCSI storage.
 Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if provider == "vsphere" || provider == "esxi" {
-				return deployVMOnVSphere(name, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+				return deployVMOnVSphere(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 			}
-			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
+			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 		},
 	}
 
@@ -600,9 +599,8 @@ Use --generate-iso to create a custom ISO using the schematic.yaml configuration
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 8, "Number of vCPUs (default: 8)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", 100, "Boot disk size in GB")
-	cmd.Flags().IntVar(&openebsSize, "openebs-size", 800, "OpenEBS disk size in GB")
-	cmd.Flags().IntVar(&rookSize, "rook-size", 600, "Rook disk size in GB")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 500, "Boot/OpenEBS disk size in GB (default: 500GB)")
+	cmd.Flags().IntVar(&longhornSize, "longhorn-size", 1000, "Longhorn disk size in GB (default: 1TB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
@@ -629,11 +627,11 @@ func validateVMName(name string) error {
 	return nil
 }
 
-func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress string, skipZVolCreate, generateISO bool) error {
+func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO bool) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting VM deployment: %s", name)
-	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, openebsSize=%dGB, rookSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
-		pool, memory, vcpus, diskSize, openebsSize, rookSize, macAddress, skipZVolCreate, generateISO)
+	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, longhornSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
+		pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 
 	// Validate input parameters
 	if name == "" {
@@ -651,11 +649,8 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	if diskSize <= 0 {
 		return fmt.Errorf("disk size must be greater than 0, got %d", diskSize)
 	}
-	if openebsSize < 0 {
-		return fmt.Errorf("OpenEBS size cannot be negative, got %d", openebsSize)
-	}
-	if rookSize < 0 {
-		return fmt.Errorf("rook size cannot be negative, got %d", rookSize)
+	if longhornSize < 0 {
+		return fmt.Errorf("longhorn size cannot be negative, got %d", longhornSize)
 	}
 
 	// Validate VM name - no dashes allowed
@@ -836,8 +831,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		Memory:        memory,
 		VCPUs:         vcpus,
 		DiskSize:      diskSize,
-		OpenEBSSize:   openebsSize,
-		RookSize:      rookSize,
+		LonghornSize:  longhornSize,
 		TrueNASHost:   host,
 		TrueNASAPIKey: apiKey,
 		TrueNASPort:   443,
@@ -886,12 +880,9 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		logger.Info("  Talos Ver:    %s", talosVersion)
 	}
 	logger.Info("ZVol naming pattern:")
-	logger.Info("  Boot disk:    %s/%s-boot (%dGB)", pool, name, diskSize)
-	if openebsSize > 0 {
-		logger.Info("  OpenEBS disk: %s/%s-ebs (%dGB)", pool, name, openebsSize)
-	}
-	if rookSize > 0 {
-		logger.Info("  Rook disk:    %s/%s-rook (%dGB)", pool, name, rookSize)
+	logger.Info("  Boot/OpenEBS disk: %s/%s-boot (%dGB)", pool, name, diskSize)
+	if longhornSize > 0 {
+		logger.Info("  Longhorn disk:     %s/%s-longhorn (%dGB)", pool, name, longhornSize)
 	}
 
 	logger.Debug("VM deployment function completed successfully")
@@ -1616,7 +1607,7 @@ func getPhysicalFunction(vmIndex int) string {
 	return physicalFunctions[vmIndex%len(physicalFunctions)]
 }
 
-func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, rookSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
+func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment")
 
@@ -1685,8 +1676,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 			Memory:           memory,
 			VCPUs:            vcpus,
 			DiskSize:         diskSize,
-			OpenEBSSize:      openebsSize,
-			RookSize:         rookSize,
+			LonghornSize:     longhornSize,
 			Datastore:        datastore,
 			Network:          network,
 			ISO:              isoPath,
@@ -1722,8 +1712,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 				Memory:           memory,
 				VCPUs:            vcpus,
 				DiskSize:         diskSize,
-				OpenEBSSize:      openebsSize,
-				RookSize:         rookSize,
+				LonghornSize:     longhornSize,
 				Datastore:        datastore,
 				Network:          network,
 				ISO:              isoPath,
@@ -1743,9 +1732,8 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 		logger.Info("Configuration:")
 		logger.Info("  Memory: %d MB", configs[0].Memory)
 		logger.Info("  vCPUs: %d", configs[0].VCPUs)
-		logger.Info("  Boot Disk: %d GB", configs[0].DiskSize)
-		logger.Info("  OpenEBS Disk: %d GB", configs[0].OpenEBSSize)
-		logger.Info("  Rook Disk: %d GB", configs[0].RookSize)
+		logger.Info("  Boot/OpenEBS Disk: %d GB", configs[0].DiskSize)
+		logger.Info("  Longhorn Disk: %d GB", configs[0].LonghornSize)
 		logger.Info("  Datastore: %s", configs[0].Datastore)
 		logger.Info("  Network: %s", configs[0].Network)
 		logger.Info("  ISO: %s", configs[0].ISO)
@@ -1768,9 +1756,8 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 		logger.Info("VM Configuration (for all VMs):")
 		logger.Info("  Memory: %d MB", memory)
 		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-		logger.Info("  Rook Disk: %d GB", rookSize)
+		logger.Info("  Boot/OpenEBS Disk: %d GB", diskSize)
+		logger.Info("  Longhorn Disk: %d GB", longhornSize)
 		logger.Info("  Datastore: %s", datastore)
 		logger.Info("  Network: %s", network)
 		logger.Info("  ISO: %s", isoPath)

@@ -5,12 +5,11 @@ import "fmt"
 // VMConfig represents the configuration for a vSphere VM
 type VMConfig struct {
 	// Basic VM configuration
-	Name        string
-	Memory      int // Memory in MB
-	VCPUs       int // Number of vCPUs
-	DiskSize    int // Boot disk size in GB
-	OpenEBSSize int // OpenEBS disk size in GB (optional)
-	RookSize    int // Rook disk size in GB (optional)
+	Name         string
+	Memory       int // Memory in MB
+	VCPUs        int // Number of vCPUs
+	DiskSize     int // Boot/OpenEBS disk size in GB (default: 500GB)
+	LonghornSize int // Longhorn disk size in GB (default: 1000GB)
 
 	// vSphere specific configuration
 	Datastore        string // Datastore name (e.g., "truenas-flash")
@@ -37,11 +36,10 @@ type VMDeploymentConfig struct {
 	Insecure bool
 
 	// Default VM specs
-	DefaultMemory      int
-	DefaultVCPUs       int
-	DefaultDiskSize    int
-	DefaultOpenEBSSize int
-	DefaultRookSize    int
+	DefaultMemory       int
+	DefaultVCPUs        int
+	DefaultDiskSize     int
+	DefaultLonghornSize int
 
 	// vSphere defaults
 	DefaultDatastore string
@@ -56,16 +54,15 @@ type VMDeploymentConfig struct {
 // GetDefaultVMConfig returns a VM configuration with default Talos specs
 func GetDefaultVMConfig(name string) VMConfig {
 	return VMConfig{
-		Name:        name,
-		Memory:      48 * 1024, // 48GB
-		VCPUs:       8,
-		DiskSize:    100, // 100GB boot
-		OpenEBSSize: 800, // 800GB OpenEBS
-		RookSize:    600, // 600GB Rook
-		Datastore:   "truenas",
-		Network:     "vl999",
-		PowerOn:     true,
-		EnableIOMMU: true, // Enable IOMMU/VT-d by default for Talos VMs
+		Name:         name,
+		Memory:       48 * 1024, // 48GB
+		VCPUs:        8,
+		DiskSize:     500,  // 500GB boot/OpenEBS
+		LonghornSize: 1000, // 1TB Longhorn
+		Datastore:    "truenas",
+		Network:      "vl999",
+		PowerOn:      true,
+		EnableIOMMU:  true, // Enable IOMMU/VT-d by default for Talos VMs
 	}
 }
 
