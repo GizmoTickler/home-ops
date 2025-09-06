@@ -169,24 +169,25 @@ spec:
         zfs:
           datasetParentName: flashstor/kubernetes/volumes
           detachedSnapshotsDatasetParentName: flashstor/kubernetes/snapshots
-          zvolBlocksize:
           zvolCompression:
           zvolDedup:
           zvolEnableReservation: false
+          zvolBlocksize:
         iscsi:
           targetPortals:
             - "192.168.120.10:3260"
             - "192.168.120.4:3260"
           interface:
           namePrefix: csi-
-          nameSuffix: ""
+          nameSuffix: "-home-ops-cluster"
           targetGroups:
             - targetGroupPortalGroup: 3
               targetGroupInitiatorGroup: 5
               targetGroupAuthType: None
               targetGroupAuthGroup:
           extentInsecureTpc: true
-          extentXen: false
+          extentXenCompat: false
+          extentDisablePhysicalBlocksize: true
           extentBlocksize: 512
           extentRpm: "SSD"
           extentAvailThreshold: 0
