@@ -6,6 +6,10 @@ metadata:
   name: democratic-csi-iscsi
 spec:
   interval: 1h
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: democratic-csi-secret
   chart:
     spec:
       chart: democratic-csi
@@ -118,7 +122,7 @@ spec:
           protocol: http
           host: 192.168.120.10
           port: 80
-          apiKey: "op://Infrastructure/democratic-csi/TRUENAS_APIKEY"
+          apiKey: "${TRUENAS_APIKEY}"
           username: root
         zfs:
           datasetParentName: flashstor/kubernetes/volumes
