@@ -53,19 +53,6 @@ machine:
       - name: nbd
       - name: nvme_tcp
       - name: vfio-pci
-  userVolumes:
-    - name: longhorn  # Mounts to /var/mnt/longhorn
-      provisioning:
-        diskSelector:
-          match: disk.dev_path == '/dev/sdb' && !system_disk  # Targets a specific disk (replace /dev/sdb with your device)
-        minSize: "800GiB"  # Minimum required size
-        grow: true  # Expand if more space is available
-    - name: local-hostpath  # Mounts to /var/mnt/local-hostpath (for OpenEBS localpv)
-      provisioning:
-        diskSelector:
-          match: disk.dev_path == '/dev/sdc' && !system_disk  # Targets a different disk (replace /dev/sdc)
-        minSize: "600GiB"
-        grow: true
   kubelet:
     defaultRuntimeSeccompProfileEnabled: true
     disableManifestsDirectory: true

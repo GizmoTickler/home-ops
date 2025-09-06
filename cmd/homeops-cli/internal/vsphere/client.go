@@ -239,20 +239,14 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		devices = append(devices, cdrom)
 	}
 
-	// Add boot disk
+	// Add boot/OpenEBS disk (500GB)
 	bootDisk := c.createDisk(config.DiskSize, 0, datastore.Reference().Value, config.Datastore, config.Name)
 	devices = append(devices, bootDisk)
 
-	// Add OpenEBS disk if specified
-	if config.OpenEBSSize > 0 {
-		openebsDisk := c.createDisk(config.OpenEBSSize, 1, datastore.Reference().Value, config.Datastore, config.Name)
-		devices = append(devices, openebsDisk)
-	}
-
-	// Add Rook disk if specified
-	if config.RookSize > 0 {
-		rookDisk := c.createDisk(config.RookSize, 2, datastore.Reference().Value, config.Datastore, config.Name)
-		devices = append(devices, rookDisk)
+	// Add Longhorn disk (1TB)
+	if config.LonghornSize > 0 {
+		longhornDisk := c.createDisk(config.LonghornSize, 1, datastore.Reference().Value, config.Datastore, config.Name)
+		devices = append(devices, longhornDisk)
 	}
 
 	// Add devices to spec
@@ -290,9 +284,8 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 // createDisk creates a virtual disk specification
 func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, _ string) *types.VirtualDisk {
 	// All disks are thick provisioned as requested
-	// Unit 0: Boot disk (100GB) - thick provisioned
-	// Unit 1: OpenEBS disk (800GB) - thick provisioned
-	// Unit 2: Rook disk (600GB) - thick provisioned
+	// Unit 0: Boot/OpenEBS disk (500GB) - thick provisioned
+	// Unit 1: Longhorn disk (1000GB) - thick provisioned
 	thinProvisioned := false
 
 	disk := &types.VirtualDisk{
