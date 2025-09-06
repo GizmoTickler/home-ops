@@ -53,14 +53,19 @@ machine:
       - name: nbd
       - name: nvme_tcp
       - name: vfio-pci
-
-  disks:
-    - device: /dev/sdc
-      partitions:
-        - mountpoint: /var/mnt/local-hostpath
-    - device: /dev/sdb
-      partitions:
-        - mountpoint: /var/mnt/longhorn
+  userVolumes:
+    - name: longhorn  # Mounts to /var/mnt/longhorn
+      provisioning:
+        diskSelector:
+          match: disk.dev_path == '/dev/sdb' && !system_disk  # Targets a specific disk (replace /dev/sdb with your device)
+        minSize: "800GiB"  # Minimum required size
+        grow: true  # Expand if more space is available
+    - name: local-hostpath  # Mounts to /var/mnt/local-hostpath (for OpenEBS localpv)
+      provisioning:
+        diskSelector:
+          match: disk.dev_path == '/dev/sdc' && !system_disk  # Targets a different disk (replace /dev/sdc)
+        minSize: "600GiB"
+        grow: true
   kubelet:
     defaultRuntimeSeccompProfileEnabled: true
     disableManifestsDirectory: true
@@ -69,16 +74,16 @@ machine:
         ImageVolume: true
       serializeImagePulls: false
     extraMounts:
-      - destination: /var/mnt/local-hostpath
+      - destination: /var/mnt/longhorn
         type: bind
-        source: /var/mnt/local-hostpath
+        source: /var/mnt/longhorn
         options:
           - bind
           - rshared
           - rw
-      - destination: /var/mnt/longhorn
+      - destination: /var/mnt/local-hostpath
         type: bind
-        source: /var/mnt/longhorn
+        source: /var/mnt/local-hostpath
         options:
           - bind
           - rshared
@@ -90,7 +95,6 @@ machine:
   nodeLabels:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
-
   sysctls:
     fs.inotify.max_user_instances: "8192"
     fs.inotify.max_user_watches: "1048576"
