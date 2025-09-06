@@ -6,24 +6,24 @@ namespace: default
 components:
   - ../../components/common
 resources:
-# - ./actual/ks.yaml
-# - ./atuin/ks.yaml
-# - ./autobrr/ks.yaml
-# - ./bazarr/ks.yaml
-# - ./cross-seed/ks.yaml
-# - ./fusion/ks.yaml
-# - ./it-tools/ks.yaml
-# - ./jellyseerr/ks.yaml
-# - ./karakeep/ks.yaml
-# - ./n8n/ks.yaml
-# - ./ocis/ks.yaml
-# - ./pinchflat/ks.yaml
-# - ./prowlarr/ks.yaml
-# - ./qbittorrent/ks.yaml
-# - ./radarr/ks.yaml
-# - ./recyclarr/ks.yaml
-# - ./sabnzbd/ks.yaml
-# - ./sonarr/ks.yaml
-# - ./thelounge/ks.yaml
-# - ./tqm/ks.yaml
-# - ./webhook/ks.yaml
+  - ./actual/ks.yaml
+  - ./atuin/ks.yaml
+  - ./autobrr/ks.yaml
+  - ./bazarr/ks.yaml
+  - ./cross-seed/ks.yaml
+  - ./fusion/ks.yaml
+  - ./it-tools/ks.yaml
+  - ./jellyseerr/ks.yaml
+  - ./karakeep/ks.yaml
+  - ./n8n/ks.yaml
+  - ./ocis/ks.yaml
+  - ./pinchflat/ks.yaml
+  - ./prowlarr/ks.yaml
+  - ./qbittorrent/ks.yaml
+  - ./radarr/ks.yaml
+  - ./recyclarr/ks.yaml
+  - ./sabnzbd/ks.yaml
+  - ./sonarr/ks.yaml
+  - ./thelounge/ks.yaml
+  - ./tqm/ks.yaml
+  - ./webhook/ks.yaml
