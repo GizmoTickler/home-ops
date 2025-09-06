@@ -25,6 +25,7 @@ spec:
   values:
     persistence:
       defaultDataLocality: best-effort
+      defaultDataPath: "/var/mnt/longhorn"
     defaultSettings:
       defaultDataPath: "/var/mnt/longhorn"
       defaultDataLocality: best-effort
