@@ -61,7 +61,7 @@ machine:
         - 192.168.252.0/22
   nodeLabels:
     topology.kubernetes.io/region: main
-    node.longhorn.io/create-default-disk: 'config'
+    topology.kubernetes.io/zone: m
   sysctls:
     fs.inotify.max_user_instances: "8192"
     fs.inotify.max_user_watches: "1048576"
