@@ -46,7 +46,7 @@ machine:
         noatime=True
   install:
     disk: /dev/sda
-    image: factory.talos.dev/vmware-installer/9e9feb8b7bda640bbf53ab6e6af6800f120f9439f7dd1d17c4ec3d33f68a9f04:v1.11.0
+    image: factory.talos.dev/vmware-installer/29619f9d96070abec6726aae2e9f1a41e8facaac19d1127749d559423969a5d1:v1.11.0
     wipe: false
   kernel:
     modules:
