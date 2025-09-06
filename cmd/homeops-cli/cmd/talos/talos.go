@@ -1693,6 +1693,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 			MacAddress:       vmMacAddress,
 			PhysicalFunction: getPhysicalFunction(0), // Single VM gets first PF
 			PowerOn:          false,                  // Don't power on by default
+			EnableIOMMU:      true,                   // Enable IOMMU for Talos VMs
 		}
 		configs = append(configs, config)
 	} else {
@@ -1729,6 +1730,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize, ro
 				MacAddress:       vmMacAddress,
 				PhysicalFunction: getPhysicalFunction(i - 1), // Alternate PFs based on VM index
 				PowerOn:          false,                      // Don't power on by default
+				EnableIOMMU:      true,                       // Enable IOMMU for Talos VMs
 			}
 			configs = append(configs, config)
 		}
