@@ -51,6 +51,9 @@ machine:
   kernel:
     modules:
       - name: nbd
+      - name: nvme_tcp
+      - name: vfio-pci
+
   disks:
     - device: /dev/sdc
       partitions:
