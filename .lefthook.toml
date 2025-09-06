@@ -16,7 +16,7 @@ stage_fixed = true
 [pre-commit.commands.go-lint]
 run = """
 if command -v golangci-lint >/dev/null 2>&1; then
-    golangci-lint run --fix {staged_files}
+    golangci-lint run --fix ./...
 else
     echo "⚠️  golangci-lint not found, running go vet instead"
     go vet ./...
