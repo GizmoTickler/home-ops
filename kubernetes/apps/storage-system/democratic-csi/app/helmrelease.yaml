@@ -186,8 +186,7 @@ spec:
               targetGroupAuthType: None
               targetGroupAuthGroup:
           extentInsecureTpc: true
-          extentXenCompat: false
-          extentDisablePhysicalBlocksize: true
+          extentXen: false
           extentBlocksize: 512
           extentRpm: "SSD"
           extentAvailThreshold: 0
