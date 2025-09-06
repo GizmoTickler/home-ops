@@ -162,7 +162,7 @@ spec:
         tag: latest
         pullPolicy: Always
       config:
-        driver: freenas-api-iscsi
+        driver: truenas-scale-api
         instance_id:
         httpConnection:
           protocol: http
