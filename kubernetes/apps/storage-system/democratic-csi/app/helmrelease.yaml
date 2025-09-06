@@ -6,10 +6,6 @@ metadata:
   name: democratic-csi-iscsi
 spec:
   interval: 1h
-  postBuild:
-    substituteFrom:
-      - kind: Secret
-        name: democratic-csi-secret
   chart:
     spec:
       chart: democratic-csi
