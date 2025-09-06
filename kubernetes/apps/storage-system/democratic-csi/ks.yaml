@@ -22,7 +22,3 @@ spec:
   dependsOn:
     - name: snapshot-controller
       namespace: kube-system
-  postBuild:
-    substituteFrom:
-      - kind: Secret
-        name: democratic-csi-secret
