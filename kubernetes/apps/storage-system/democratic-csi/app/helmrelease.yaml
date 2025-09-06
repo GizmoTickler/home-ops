@@ -174,9 +174,7 @@ spec:
           zvolEnableReservation: false
           zvolBlocksize:
         iscsi:
-          targetPortals:
-            - "192.168.120.10:3260"
-            - "192.168.120.4:3260"
+          targetPortal: "192.168.120.4:3260"
           interface:
           namePrefix: csi-
           nameSuffix: "-home-ops-cluster"
