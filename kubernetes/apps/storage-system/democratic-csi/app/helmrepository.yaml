@@ -1,10 +1,10 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/source.toolkit.fluxcd.io/helmrepository_v1.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/source.toolkit.fluxcd.io/helmrepository_v1.json
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
   name: democratic-csi
+  namespace: flux-system
 spec:
-  type: oci
-  url: oci://ghcr.io/democratic-csi/charts
-  interval: 12h
+  interval: 1h
+  url: https://democratic-csi.github.io/charts/
