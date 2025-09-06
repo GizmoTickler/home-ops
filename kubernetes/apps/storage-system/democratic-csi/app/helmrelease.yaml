@@ -161,8 +161,8 @@ spec:
           protocol: http
           host: 192.168.120.10
           port: 80
-          username: ${TRUENAS_USERNAME}
-          apiKey: ${TRUENAS_APIKEY}
+          username: "${TRUENAS_USERNAME}"
+          apiKey: "${TRUENAS_APIKEY}"
 
         zfs:
           datasetParentName: flashstor/kubernetes/volumes
