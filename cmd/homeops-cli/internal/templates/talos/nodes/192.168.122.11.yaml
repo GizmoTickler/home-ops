@@ -20,11 +20,3 @@ cluster:
       service:
         disabled: false
         endpoint: http://192.168.123.152:3000
----
-apiVersion: v1alpha1
-kind: UserVolumeConfig
-name: longhorn
-provisioning:
-  diskSelector:
-    match: "!system_disk"
-  minSize: 1TB
