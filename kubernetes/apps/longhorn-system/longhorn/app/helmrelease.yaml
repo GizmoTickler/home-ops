@@ -26,8 +26,6 @@ spec:
     monitoring:
       enabled: true
       createPrometheusRules: true
-    persistence:
-      defaultDataLocality: best-effort
     defaultSettings:
       defaultDataPath: "/var/mnt/longhorn"
       defaultDataLocality: best-effort
