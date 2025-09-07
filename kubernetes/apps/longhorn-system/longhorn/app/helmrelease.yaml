@@ -39,10 +39,10 @@ spec:
       storageOverProvisioningPercentage: 100
       storageMinimalAvailablePercentage: 1
       nodeDownPodDeletionPolicy: delete-both-statefulset-and-deployment-pod
-      orphanAutoDeletion: true
-      replicaAutoBalance: true
       guaranteedEngineManagerCPU: 20
       guaranteedReplicaManagerCPU: 20
+      orphanAutoDeletion: true
+      concurrentAutomaticEngineUpgradePerNodeLimit: 3
 
     ingress:
       enabled: false
