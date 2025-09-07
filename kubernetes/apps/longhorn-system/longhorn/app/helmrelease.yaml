@@ -48,7 +48,3 @@ spec:
       dataEngine: v2
     ingress:
       enabled: false
-
-    metrics:
-      serviceMonitor:
-        enabled: true
