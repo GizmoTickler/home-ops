@@ -53,6 +53,7 @@ machine:
       - name: nbd
       - name: nvme_tcp
       - name: vfio-pci
+      - name: uio_pci_generic
   kubelet:
     defaultRuntimeSeccompProfileEnabled: true
     disableManifestsDirectory: true
