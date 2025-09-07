@@ -43,7 +43,9 @@ spec:
       guaranteedReplicaManagerCPU: 20
       orphanAutoDeletion: true
       concurrentAutomaticEngineUpgradePerNodeLimit: 3
-
+      v1DataEngine: false
+      v2DataEngine: true
+      dataEngine: v2
     ingress:
       enabled: false
 
