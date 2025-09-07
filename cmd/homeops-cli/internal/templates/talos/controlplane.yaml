@@ -61,13 +61,6 @@ machine:
         ImageVolume: true
       serializeImagePulls: false
     extraMounts:
-      - destination: /var/mnt/longhorn
-        type: bind
-        source: /var/mnt/longhorn
-        options:
-          - bind
-          - rshared
-          - rw
       - destination: /var/mnt/local-hostpath
         type: bind
         source: /var/mnt/local-hostpath
