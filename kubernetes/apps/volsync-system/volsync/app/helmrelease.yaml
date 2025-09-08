@@ -17,6 +17,7 @@ spec:
     remediation:
       retries: 3
   values:
+    fullnameOverride: volsync # Required for volsync-perfectra1n fork
     image: &image
       repository: ghcr.io/perfectra1n/volsync
       tag: v0.15.42
