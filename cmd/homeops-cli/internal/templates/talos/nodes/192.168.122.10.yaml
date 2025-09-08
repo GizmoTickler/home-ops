@@ -6,6 +6,7 @@ machine:
       - deviceSelector:
           hardwareAddr: 00:a0:98:28:c8:83
         dhcp: true
+        mtu: 9000
         vip:
           ip: 192.168.120.100
   time:
