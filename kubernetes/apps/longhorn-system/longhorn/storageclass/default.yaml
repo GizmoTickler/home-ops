@@ -2,7 +2,7 @@
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: longhorn
+  name: longhorn-v2-default
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: driver.longhorn.io
