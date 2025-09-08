@@ -10,6 +10,7 @@ parameters:
   numberOfReplicas: "1"
   replicaAutoBalance: best-effort
   staleReplicaTimeout: "30"
+  dataEngine: "v2"
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer
 metadata:
@@ -25,6 +26,7 @@ parameters:
   numberOfReplicas: "1"
   replicaAutoBalance: best-effort
   staleReplicaTimeout: "30"
+  dataEngine: "v2"
 allowVolumeExpansion: true
 volumeBindingMode: WaitForFirstConsumer
 metadata:
