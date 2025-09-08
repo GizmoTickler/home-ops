@@ -1,0 +1,19 @@
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: driver.longhorn.io
+parameters:
+  dataEngine: "v2"
+  dataLocality: disabled
+  numberOfReplicas: "3"
+  staleReplicaTimeout: "30"
+  fsType: ext4
+  disableRevisionCounter: "true"
+  unmapMarkSnapChainRemoved: ignored
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
