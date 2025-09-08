@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/volsync.backube/replicationdestination_v1alpha1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/volsync.backube/replicationdestination_v1alpha1.json
 apiVersion: volsync.backube/v1alpha1
 kind: ReplicationDestination
 metadata:
@@ -10,20 +10,23 @@ spec:
   trigger:
     manual: restore-once
   kopia:
-    repository: "${APP}-volsync-secret"
-    copyMethod: Snapshot
-    volumeSnapshotClassName: "${VOLSYNC_SNAPSHOTCLASS:=longhorn-snapclass}"
-    cacheStorageClassName: "${VOLSYNC_CACHE_SNAPSHOTCLASS:=longhorn-cache}"
-    cacheAccessModes:
-      - "${VOLSYNC_CACHE_ACCESSMODES:=ReadWriteOnce}"
-    cacheCapacity: "${VOLSYNC_CACHE_CAPACITY:=8Gi}"
-    storageClassName: "${VOLSYNC_STORAGECLASS:=longhorn-snapshot}"
     accessModes:
-      - "${VOLSYNC_ACCESSMODES:=ReadWriteOnce}"
-    capacity: "${VOLSYNC_CAPACITY:=5Gi}"
+      - ${VOLSYNC_ACCESSMODES:=ReadWriteOnce}
+    cacheAccessModes:
+      - ${VOLSYNC_CACHE_ACCESSMODES:=ReadWriteOnce}
+    cacheCapacity: ${VOLSYNC_CAPACITY:=5Gi}
+    cacheStorageClassName: ${VOLSYNC_CACHE_SNAPSHOTCLASS:=openebs-hostpath}
+    capacity: ${VOLSYNC_CAPACITY:=5Gi}
+    cleanupCachePVC: true
+    cleanupTempPVC: true
+    copyMethod: Snapshot
+    enableFileDeletion: true
     moverSecurityContext:
       runAsUser: ${VOLSYNC_PUID:=1000}
       runAsGroup: ${VOLSYNC_PGID:=1000}
       fsGroup: ${VOLSYNC_PGID:=1000}
+    repository: ${APP}-volsync-secret
     sourceIdentity:
       sourceName: ${APP}
+    storageClassName: ${VOLSYNC_STORAGECLASS:=ceph-block}
+    volumeSnapshotClassName: ${VOLSYNC_SNAPSHOTCLASS:=csi-ceph-blockpool}

@@ -6,4 +6,4 @@ resources:
   - ./externalsecret.yaml
   - ./pvc.yaml
   - ./replicationdestination.yaml
-  # - ./replicationsource.yaml  # Disabled: v2 doesn't support snapshot-based backups, using Longhorn S3 backups instead
+  - ./replicationsource.yaml
