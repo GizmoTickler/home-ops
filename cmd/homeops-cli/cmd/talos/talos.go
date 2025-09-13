@@ -101,18 +101,20 @@ func newApplyNodeCommand() *cobra.Command {
 	var (
 		nodeIP string
 		mode   string
+		dryRun bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "apply-node",
 		Short: "Apply Talos config to a node",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return applyNodeConfig(nodeIP, mode)
+			return applyNodeConfig(nodeIP, mode, dryRun)
 		},
 	}
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (required)")
 	cmd.Flags().StringVar(&mode, "mode", "auto", "Apply mode (auto, interactive, etc.)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render and validate, but do not apply the configuration")
 	_ = cmd.MarkFlagRequired("ip")
 
 	// Add completion for IP flag
@@ -121,7 +123,7 @@ func newApplyNodeCommand() *cobra.Command {
 	return cmd
 }
 
-func applyNodeConfig(nodeIP, mode string) error {
+func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 	logger := common.NewColorLogger()
 
 	// Get machine type
@@ -142,11 +144,35 @@ func applyNodeConfig(nodeIP, mode string) error {
 		return fmt.Errorf("failed to render config: %w", err)
 	}
 
-	// Resolve 1Password references in the rendered config (following bootstrap pattern)
+	// Resolve 1Password references in the rendered config with signin-once retry
 	logger.Info("Resolving 1Password references in Talos configuration...")
 	resolvedConfig, err := common.InjectSecrets(string(renderedConfig))
 	if err != nil {
-		return fmt.Errorf("failed to resolve 1Password references: %w", err)
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "not authenticated") || strings.Contains(errStr, "not signed in") || strings.Contains(errStr, "please run 'op signin'") {
+			logger.Info("Attempting 1Password CLI signin due to authentication error...")
+			if err2 := common.Ensure1PasswordAuth(); err2 != nil {
+				return fmt.Errorf("1Password signin failed: %w (original: %v)", err2, err)
+			}
+			// Retry once after successful signin
+			if retryResolved, retryErr := common.InjectSecrets(string(renderedConfig)); retryErr == nil {
+				resolvedConfig = retryResolved
+			} else {
+				return fmt.Errorf("secret resolution failed after signin: %w", retryErr)
+			}
+		} else {
+			return fmt.Errorf("failed to resolve 1Password references: %w", err)
+		}
+	}
+
+	if dryRun {
+		// Basic YAML validation to ensure the rendered config is structurally valid
+		var any interface{}
+		if err := yaml.Unmarshal([]byte(resolvedConfig), &any); err != nil {
+			return fmt.Errorf("rendered config failed YAML validation: %w", err)
+		}
+		logger.Info("[DRY RUN] Would apply config to %s (type: %s)", nodeIP, machineType)
+		return nil
 	}
 
 	// Apply the configuration

@@ -639,41 +639,13 @@ func checkDNSResolution(config *BootstrapConfig, logger *common.ColorLogger) *Pr
 }
 
 func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
-	// Check if 1Password CLI is authenticated
-	cmd := exec.Command("op", "whoami", "--format=json")
-	output, err := cmd.Output()
-	if err != nil {
-		// Not authenticated, attempt to sign in
-		logger.Info("1Password CLI not authenticated. Attempting to sign in...")
-		if err := check1PasswordAuth(); err != nil {
-			return &PreflightResult{
-				Name:    "1Password Authentication",
-				Status:  "FAIL",
-				Message: fmt.Sprintf("Failed to authenticate with 1Password: %v", err),
-			}
-		}
-		// Authentication successful, continue with verification
-		cmd = exec.Command("op", "whoami", "--format=json")
-		output, err = cmd.Output()
-		if err != nil {
-			return &PreflightResult{
-				Name:    "1Password Authentication",
-				Status:  "FAIL",
-				Message: "Authentication verification failed after signin",
-			}
-		}
-	}
-
-	// Verify we got valid JSON response
-	var result map[string]interface{}
-	if err := json.Unmarshal(output, &result); err != nil {
+	if err := common.Ensure1PasswordAuth(); err != nil {
 		return &PreflightResult{
 			Name:    "1Password Authentication",
 			Status:  "FAIL",
-			Message: "Invalid 1Password authentication response",
+			Message: fmt.Sprintf("1Password authentication failed: %v", err),
 		}
 	}
-
 	return &PreflightResult{
 		Name:    "1Password Authentication",
 		Status:  "PASS",
@@ -728,45 +700,7 @@ func checkTalosNodes(config *BootstrapConfig, logger *common.ColorLogger) *Prefl
 	}
 }
 
-func check1PasswordAuth() error {
-	// First, check if already authenticated
-	cmd := exec.Command("op", "whoami", "--format=json")
-	output, err := cmd.Output()
-	if err == nil {
-		// Verify we got valid JSON response
-		var result map[string]interface{}
-		if err := json.Unmarshal(output, &result); err == nil {
-			return nil // Already authenticated
-		}
-	}
-
-	// Not authenticated, attempt to sign in
-	fmt.Println("1Password CLI not authenticated. Attempting to sign in...")
-	signinCmd := exec.Command("op", "signin")
-	signinCmd.Stdin = os.Stdin
-	signinCmd.Stdout = os.Stdout
-	signinCmd.Stderr = os.Stderr
-
-	if err := signinCmd.Run(); err != nil {
-		return fmt.Errorf("failed to sign in to 1Password: %w", err)
-	}
-
-	// Verify authentication after signin
-	verifyCmd := exec.Command("op", "whoami", "--format=json")
-	verifyOutput, err := verifyCmd.Output()
-	if err != nil {
-		return fmt.Errorf("authentication verification failed: %w", err)
-	}
-
-	// Verify we got valid JSON response
-	var result map[string]interface{}
-	if err := json.Unmarshal(verifyOutput, &result); err != nil {
-		return fmt.Errorf("invalid 1Password response after signin: %w", err)
-	}
-
-	fmt.Println("Successfully authenticated with 1Password CLI")
-	return nil
-}
+// Removed local check1PasswordAuth in favor of common.Ensure1PasswordAuth
 
 func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get list of nodes from talosctl config with retry
@@ -1597,7 +1531,7 @@ func get1PasswordSecret(reference string) (string, error) {
 
 // resolve1PasswordReferences resolves all 1Password references in the content
 func resolve1PasswordReferences(content string, logger *common.ColorLogger) (string, error) {
-	// Debug: Show lines containing the problematic secret
+	// Debug: Show lines containing the problematic secret before resolution
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		if strings.Contains(line, "secretboxEncryptionSecret") {
@@ -1605,78 +1539,55 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 		}
 	}
 
-	// Extract all 1Password references
+	// Fast path: if no references present, return as-is
 	opRefs := extractOnePasswordReferences(content)
 	if len(opRefs) == 0 {
 		logger.Info("No 1Password references found to resolve")
 		return content, nil
 	}
-
 	logger.Info("Found %d 1Password references to resolve", len(opRefs))
 
-	// Create a map to store resolved secrets
-	resolvedSecrets := make(map[string]string)
-
-	// First, resolve all secrets
-	for i, ref := range opRefs {
-		logger.Debug("Resolving 1Password reference %d/%d: %s", i+1, len(opRefs), ref)
-
-		// Get the secret value
-		secretValue, err := get1PasswordSecret(ref)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve 1Password reference '%s': %w", ref, err)
+	// Use the shared, collision-safe injector so we don’t corrupt secrets
+	resolved, err := common.InjectSecrets(content)
+	if err != nil {
+		logger.Warn("Secret resolution reported an error: %v", err)
+		// If we still have refs, list them to aid debugging
+		remainingRefs := extractOnePasswordReferences(content)
+		for _, ref := range remainingRefs {
+			logger.Warn("Unresolved reference: %s", ref)
 		}
 
-		// Validate the secret value is not empty
-		if len(secretValue) < 1 {
-			return "", fmt.Errorf("1Password reference '%s' resolved to empty value", ref)
-		}
-
-		logger.Debug("Resolved reference: '%s' to secret value (first 20 chars): '%.20s...' (length: %d)", ref, secretValue, len(secretValue))
-		resolvedSecrets[ref] = secretValue
-	}
-
-	// Sort references by length (longest first) to prevent substring replacement
-	// This ensures CLUSTER_SECRETBOXENCRYPTIONSECRET is replaced before CLUSTER_SECRET
-	var sortedRefs []string
-	for ref := range resolvedSecrets {
-		sortedRefs = append(sortedRefs, ref)
-	}
-
-	// Simple sort by length (longest first)
-	for i := 0; i < len(sortedRefs); i++ {
-		for j := i + 1; j < len(sortedRefs); j++ {
-			if len(sortedRefs[j]) > len(sortedRefs[i]) {
-				sortedRefs[i], sortedRefs[j] = sortedRefs[j], sortedRefs[i]
+		// If error indicates unauthenticated op CLI, attempt interactive signin and retry once
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "not authenticated") || strings.Contains(errStr, "not signed in") || strings.Contains(errStr, "please run 'op signin'") {
+			logger.Info("Attempting 1Password CLI signin due to authentication error...")
+			if authErr := common.Ensure1PasswordAuth(); authErr != nil {
+				return "", fmt.Errorf("1Password signin failed: %w (original: %v)", authErr, err)
 			}
+			// Retry resolution once after successful signin
+			if retryResolved, retryErr := common.InjectSecrets(content); retryErr == nil {
+				resolved = retryResolved
+				err = nil
+			} else {
+				return "", fmt.Errorf("secret resolution failed after signin: %w", retryErr)
+			}
+		} else {
+			return "", err
 		}
 	}
 
-	// Replace each resolved secret in order (longest first)
-	result := content
-	for _, ref := range sortedRefs {
-		secretValue := resolvedSecrets[ref]
-		occurrences := strings.Count(result, ref)
-		if occurrences > 0 {
-			result = strings.ReplaceAll(result, ref, secretValue)
-			logger.Debug("Replaced %d occurrences of reference '%s'", occurrences, ref)
-		}
-	}
-
-	logger.Info("All 1Password references resolved successfully")
-
-	// Debug: Show the final result for secretboxEncryptionSecret
-	finalLines := strings.Split(result, "\n")
+	// Debug: Show the final result for secretboxEncryptionSecret after resolution
+	finalLines := strings.Split(resolved, "\n")
 	for i, line := range finalLines {
 		if strings.Contains(line, "secretboxEncryptionSecret") {
 			logger.Debug("Final line %d with secretboxEncryptionSecret: '%s'", i+1, line)
 		}
 	}
 
-	// Validate that all secrets were properly resolved by checking against 1Password
-	if strings.Contains(result, "op://") {
-		logger.Warn("Warning: Rendered configuration still contains unresolved 1Password references")
-		remainingRefs := extractOnePasswordReferences(result)
+	// Optional validation message
+	if strings.Contains(resolved, "op://") {
+		logger.Warn("Warning: Resolved content still contains 1Password references")
+		remainingRefs := extractOnePasswordReferences(resolved)
 		for _, ref := range remainingRefs {
 			logger.Warn("Unresolved reference: %s", ref)
 		}
@@ -1686,15 +1597,14 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 
 	// Save rendered configuration for validation if debug is enabled
 	if os.Getenv("DEBUG") == "1" || os.Getenv("SAVE_RENDERED_CONFIG") == "1" {
-		// Generate a unique filename based on content hash to avoid overwriting
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(result)))
+		hash := fmt.Sprintf("%x", md5.Sum([]byte(resolved)))
 		filename := fmt.Sprintf("rendered-config-%s.yaml", hash[:8])
-		if err := saveRenderedConfig(result, filename, logger); err != nil {
+		if err := saveRenderedConfig(resolved, filename, logger); err != nil {
 			logger.Warn("Failed to save rendered configuration: %v", err)
 		}
 	}
 
-	return result, nil
+	return resolved, nil
 }
 
 // saveRenderedConfig saves the rendered configuration to a file for inspection

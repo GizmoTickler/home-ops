@@ -8,6 +8,7 @@ import (
 
 	"github.com/1Password/connect-sdk-go/connect"
 	"github.com/flosch/pongo2/v6"
+	"homeops-cli/internal/common"
 	"homeops-cli/internal/errors"
 	"homeops-cli/internal/metrics"
 )
@@ -108,8 +109,8 @@ func (r *Renderer) RenderToFile(templatePath, outputPath string, vars map[string
 // injectSecrets replaces op:// references with actual secrets from 1Password
 func (r *Renderer) injectSecrets(content []byte) ([]byte, error) {
 	result, err := r.metrics.TrackOperationWithResult("secret_injection", func() (interface{}, error) {
-		// Regex to match op://vault/item/field patterns
-		opRegex := regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
+		// Use shared regex for 1Password references
+		opRegex := common.OpRefRegex
 
 		// Cache secrets to avoid multiple lookups
 		cache := make(map[string][]byte)
