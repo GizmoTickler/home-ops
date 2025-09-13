@@ -6,7 +6,7 @@ import (
 	"os/exec"
 
 	"github.com/spf13/cobra"
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
 	"homeops-cli/internal/templates"
 )
 
@@ -53,11 +53,14 @@ func newKrewCommand() *cobra.Command {
 
 // installBrewPackages installs packages from embedded Brewfile
 func installBrewPackages() error {
-	logger := common.NewColorLogger()
-	logger.Info("Installing Homebrew packages from Brewfile...")
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Info("Installing Homebrew packages from Brewfile...")
 
 	// Check if Homebrew is installed
-	if err := common.CheckCLI("brew"); err != nil {
+	if _, err := exec.LookPath("brew"); err != nil {
 		return fmt.Errorf("homebrew is not installed. Please install Homebrew first: %w", err)
 	}
 
@@ -86,7 +89,7 @@ func installBrewPackages() error {
 		return fmt.Errorf("failed to write Brewfile content: %w", err)
 	}
 
-	logger.Info("Using embedded Brewfile")
+	log.Info("Using embedded Brewfile")
 
 	// Run brew bundle install
 	cmd := exec.Command("brew", "bundle", "install", "--file", tempFile.Name())
@@ -97,17 +100,20 @@ func installBrewPackages() error {
 		return fmt.Errorf("failed to install Homebrew packages: %w", err)
 	}
 
-	logger.Success("Successfully installed Homebrew packages")
+	log.Infof("✅ Successfully installed Homebrew packages")
 	return nil
 }
 
 // installKrewPlugins installs kubectl plugins using Krew
 func installKrewPlugins() error {
-	logger := common.NewColorLogger()
-	logger.Info("Installing kubectl plugins using Krew...")
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Info("Installing kubectl plugins using Krew...")
 
 	// Check if kubectl is installed
-	if err := common.CheckCLI("kubectl"); err != nil {
+	if _, err := exec.LookPath("kubectl"); err != nil {
 		return fmt.Errorf("kubectl is not installed. Please install kubectl first: %w", err)
 	}
 
@@ -122,29 +128,29 @@ func installKrewPlugins() error {
 
 	// Check if krew is installed
 	if !isKrewInstalled() {
-		logger.Info("Krew not found, installing...")
+		log.Info("Krew not found, installing...")
 		if err := installKrew(); err != nil {
 			return fmt.Errorf("failed to install Krew: %w", err)
 		}
 	}
 
 	// Update krew
-	logger.Info("Updating Krew plugin index...")
+	log.Info("Updating Krew plugin index...")
 	if err := runKrewCommand("update"); err != nil {
-		logger.Warn("Failed to update Krew index: %v", err)
+		log.Warnf("Failed to update Krew index: %v", err)
 	}
 
 	// Install each plugin
 	for _, plugin := range plugins {
-		logger.Info("Installing kubectl plugin: %s", plugin)
+		log.Infof("Installing kubectl plugin: %s", plugin)
 		if err := runKrewCommand("install", plugin); err != nil {
-			logger.Warn("Failed to install plugin %s: %v", plugin, err)
+			log.Warnf("Failed to install plugin %s: %v", plugin, err)
 			continue
 		}
-		logger.Success("✓ Installed plugin: %s", plugin)
+		log.Infof("✅ Installed plugin: %s", plugin)
 	}
 
-	logger.Success("Krew plugin installation completed")
+	log.Info("✅ Krew plugin installation completed")
 	return nil
 }
 

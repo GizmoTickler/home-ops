@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"homeops-cli/internal/common"
+	"go.uber.org/zap"
 )
 
 // SSHClient represents an SSH client for TrueNAS operations
@@ -16,7 +16,7 @@ type SSHClient struct {
 	username   string
 	port       string
 	sshItemRef string // 1Password SSH item reference
-	logger     *common.ColorLogger
+	logger     *zap.SugaredLogger
 }
 
 // SSHConfig holds SSH connection configuration
@@ -28,19 +28,19 @@ type SSHConfig struct {
 }
 
 // NewSSHClient creates a new SSH client instance
-func NewSSHClient(config SSHConfig) *SSHClient {
+func NewSSHClient(config SSHConfig, log *zap.SugaredLogger) *SSHClient {
 	return &SSHClient{
 		host:       config.Host,
 		username:   config.Username,
 		port:       config.Port,
 		sshItemRef: config.SSHItemRef,
-		logger:     common.NewColorLogger(),
+		logger:     log,
 	}
 }
 
 // Connect validates the SSH connection using SSH with 1Password SSH agent
 func (c *SSHClient) Connect() error {
-	c.logger.Debug("Testing SSH connection to %s@%s:%s using 1Password SSH agent", c.username, c.host, c.port)
+	c.logger.Debugf("Testing SSH connection to %s@%s:%s using 1Password SSH agent", c.username, c.host, c.port)
 
 	// Validate configuration first
 	if c.host == "" {
@@ -67,7 +67,7 @@ func (c *SSHClient) Connect() error {
 		return fmt.Errorf("SSH connection test failed - expected 'connection_test' in output")
 	}
 
-	c.logger.Success("Successfully connected to TrueNAS via SSH")
+	c.logger.Info("✅ Successfully connected to TrueNAS via SSH")
 	return nil
 }
 
@@ -79,7 +79,7 @@ func (c *SSHClient) Close() error {
 
 // ExecuteCommand executes a command on the remote server using SSH
 func (c *SSHClient) ExecuteCommand(command string) (string, error) {
-	c.logger.Debug("Executing command via SSH: %s", command)
+	c.logger.Debugf("Executing command via SSH: %s", command)
 
 	// Execute command using SSH with 1Password SSH agent
 	cmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "IdentitiesOnly=yes", "-o", "NumberOfPasswordPrompts=0", "-p", c.port, fmt.Sprintf("%s@%s", c.username, c.host), command)
@@ -99,23 +99,23 @@ func (c *SSHClient) ExecuteCommand(command string) (string, error) {
 
 // DownloadISO downloads an ISO from a URL to a specific path on TrueNAS
 func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
-	c.logger.Info("Downloading ISO from %s to %s", isoURL, remotePath)
+	c.logger.Infof("Downloading ISO from %s to %s", isoURL, remotePath)
 
 	// Create the directory if it doesn't exist (using sudo for permissions)
 	dirPath := filepath.Dir(remotePath)
 	mkdirCmd := fmt.Sprintf("sudo mkdir -p %s", dirPath)
 	if _, err := c.ExecuteCommand(mkdirCmd); err != nil {
-		c.logger.Warn("Failed to create directory (may already exist): %v", err)
+		c.logger.Warnf("Failed to create directory (may already exist): %v", err)
 	}
 
 	// Download the ISO using wget or curl (using sudo for write permissions)
 	downloadCmd := fmt.Sprintf("sudo wget -O %s %s", remotePath, isoURL)
-	c.logger.Debug("Download command: %s", downloadCmd)
+	c.logger.Debugf("Download command: %s", downloadCmd)
 
 	_, err := c.ExecuteCommand(downloadCmd)
 	if err != nil {
 		// Try with curl as fallback (using sudo for write permissions)
-		c.logger.Debug("wget failed, trying curl: %v", err)
+		c.logger.Debugf("wget failed, trying curl: %v", err)
 		curlCmd := fmt.Sprintf("sudo curl -L -o %s %s", remotePath, isoURL)
 		output, err := c.ExecuteCommand(curlCmd)
 		if err != nil {
@@ -123,13 +123,13 @@ func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
 		}
 	}
 
-	c.logger.Success("ISO downloaded successfully to %s", remotePath)
+	c.logger.Infof("✅ ISO downloaded successfully to %s", remotePath)
 	return nil
 }
 
 // VerifyFile checks if a file exists and optionally gets its size
 func (c *SSHClient) VerifyFile(remotePath string) (bool, int64, error) {
-	c.logger.Debug("Verifying file: %s", remotePath)
+	c.logger.Debugf("Verifying file: %s", remotePath)
 
 	// Check if file exists and get its size
 	statCmd := fmt.Sprintf("stat -c '%%s' %s 2>/dev/null || echo 'FILE_NOT_FOUND'", remotePath)
@@ -149,13 +149,13 @@ func (c *SSHClient) VerifyFile(remotePath string) (bool, int64, error) {
 		return true, 0, fmt.Errorf("failed to parse file size: %w", err)
 	}
 
-	c.logger.Debug("File exists with size: %d bytes", size)
+	c.logger.Debugf("File exists with size: %d bytes", size)
 	return true, size, nil
 }
 
 // RemoveFile removes a file from the remote server
 func (c *SSHClient) RemoveFile(remotePath string) error {
-	c.logger.Debug("Removing file: %s", remotePath)
+	c.logger.Debugf("Removing file: %s", remotePath)
 
 	removeCmd := fmt.Sprintf("sudo rm -f %s", remotePath)
 	_, err := c.ExecuteCommand(removeCmd)

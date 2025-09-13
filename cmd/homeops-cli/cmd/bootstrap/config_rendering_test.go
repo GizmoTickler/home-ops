@@ -1,12 +1,13 @@
 package bootstrap
 
 import (
-	"homeops-cli/internal/common"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"homeops-cli/internal/logger"
 )
 
 // TestRenderMachineConfigFromEmbedded tests machine config rendering
@@ -18,6 +19,11 @@ func TestRenderMachineConfigFromEmbedded(t *testing.T) {
 	// Skip if talosctl is not available
 	if _, err := exec.LookPath("talosctl"); err != nil {
 		t.Skip("talosctl not found, skipping test")
+	}
+
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
 	}
 
 	tests := []struct {
@@ -52,7 +58,7 @@ func TestRenderMachineConfigFromEmbedded(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := renderMachineConfigFromEmbedded(tt.baseTemplate, tt.patchTemplate, tt.machineType)
+			result, err := renderMachineConfigFromEmbedded(tt.baseTemplate, tt.patchTemplate, tt.machineType, log)
 
 			if tt.expectError {
 				if err == nil {
@@ -215,11 +221,14 @@ func TestApplyNodeConfigWithRetry(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 	config := []byte("test config")
 
 	// This will fail because we don't have a real Talos node, but test the retry logic
-	err := applyNodeConfigWithRetry("192.168.1.1", config, logger, 2)
+	err = applyNodeConfigWithRetry("192.168.1.1", config, log, 2)
 	if err == nil {
 		t.Errorf("Expected error when applying config to non-existent node")
 	}
@@ -254,9 +263,13 @@ func TestFullRenderingPipeline(t *testing.T) {
 	if _, err := exec.LookPath("talosctl"); err != nil {
 		t.Skip("talosctl not found, skipping test")
 	}
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// Test the complete flow: embed template -> merge -> resolve secrets
-	result, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+	result, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", log)
 	if err != nil {
 		t.Fatalf("Full rendering pipeline failed: %v", err)
 	}
@@ -284,10 +297,14 @@ func BenchmarkRenderMachineConfigFromEmbedded(b *testing.B) {
 	if _, err := exec.LookPath("talosctl"); err != nil {
 		b.Skip("talosctl not found, skipping benchmark")
 	}
+	log, err := logger.New()
+	if err != nil {
+		b.Fatalf("Failed to create logger: %v", err)
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+		_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", log)
 		if err != nil {
 			b.Fatalf("Rendering failed: %v", err)
 		}
@@ -303,13 +320,17 @@ func TestParallelRendering(t *testing.T) {
 	if _, err := exec.LookPath("talosctl"); err != nil {
 		t.Skip("talosctl not found, skipping test")
 	}
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	const numGoroutines = 5
 	errors := make(chan error, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+			_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", log)
 			errors <- err
 		}()
 	}

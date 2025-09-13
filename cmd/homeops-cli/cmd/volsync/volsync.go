@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"homeops-cli/cmd/completion"
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
 	"homeops-cli/internal/templates"
 
 	"github.com/spf13/cobra"
@@ -64,9 +64,12 @@ func newStateCommand() *cobra.Command {
 }
 
 func changeVolsyncState(state string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
-	logger.Info("Setting VolSync state to: %s", state)
+	log.Infof("Setting VolSync state to: %s", state)
 
 	// Suspend/resume kustomization
 	cmd := exec.Command("flux", "--namespace", "volsync-system", state, "kustomization", "volsync")
@@ -91,7 +94,7 @@ func changeVolsyncState(state string) error {
 		return fmt.Errorf("failed to scale deployment: %w\n%s", err, output)
 	}
 
-	logger.Success("VolSync state changed to: %s", state)
+	log.Infof("✅ VolSync state changed to: %s", state)
 	return nil
 }
 
@@ -126,7 +129,10 @@ func newSnapshotCommand() *cobra.Command {
 }
 
 func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Check if ReplicationSource exists
 	checkCmd := exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources", app)
@@ -134,7 +140,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 		return fmt.Errorf("ReplicationSource %s not found in namespace %s", app, namespace)
 	}
 
-	logger.Info("Triggering snapshot for %s/%s", namespace, app)
+	log.Infof("Triggering snapshot for %s/%s", namespace, app)
 
 	// Trigger manual snapshot
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
@@ -148,13 +154,13 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 	}
 
 	if !wait {
-		logger.Success("Snapshot triggered for %s/%s", namespace, app)
+		log.Infof("✅ Snapshot triggered for %s/%s", namespace, app)
 		return nil
 	}
 
 	// Wait for job to appear
 	jobName := fmt.Sprintf("volsync-src-%s", app)
-	logger.Info("Waiting for job %s to start...", jobName)
+	log.Infof("Waiting for job %s to start...", jobName)
 
 	startTime := time.Now()
 	for {
@@ -171,7 +177,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 	}
 
 	// Wait for job to complete
-	logger.Info("Waiting for snapshot to complete (timeout: %s)...", timeout)
+	log.Infof("Waiting for snapshot to complete (timeout: %s)...", timeout)
 
 	waitCmd := exec.Command("kubectl", "--namespace", namespace, "wait",
 		fmt.Sprintf("job/%s", jobName),
@@ -182,7 +188,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 		return fmt.Errorf("snapshot job failed or timed out: %w", err)
 	}
 
-	logger.Success("Snapshot completed successfully for %s/%s", namespace, app)
+	log.Infof("✅ Snapshot completed successfully for %s/%s", namespace, app)
 	return nil
 }
 
@@ -217,7 +223,10 @@ func newSnapshotAllCommand() *cobra.Command {
 }
 
 func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun bool, concurrency int) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Discover all ReplicationSources
 	replicationSources, err := discoverReplicationSources(namespace)
@@ -226,16 +235,16 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 	}
 
 	if len(replicationSources) == 0 {
-		logger.Info("No ReplicationSources found")
+		log.Info("No ReplicationSources found")
 		return nil
 	}
 
-	logger.Info("Found %d ReplicationSources to snapshot", len(replicationSources))
+	log.Infof("Found %d ReplicationSources to snapshot", len(replicationSources))
 
 	if dryRun {
-		logger.Info("Dry run mode - showing what would be snapshotted:")
+		log.Info("Dry run mode - showing what would be snapshotted:")
 		for _, rs := range replicationSources {
-			logger.Info("  - %s/%s", rs.Namespace, rs.Name)
+			log.Infof("  - %s/%s", rs.Namespace, rs.Name)
 		}
 		return nil
 	}
@@ -248,7 +257,7 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 	semaphore := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 
-	logger.Info("Processing %d snapshots with concurrency limit of %d", len(replicationSources), concurrency)
+	log.Infof("Processing %d snapshots with concurrency limit of %d", len(replicationSources), concurrency)
 
 	// Trigger snapshots for all ReplicationSources in parallel
 	for _, rs := range replicationSources {
@@ -260,17 +269,17 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
+			log.Infof("Processing %s/%s...", rs.Namespace, rs.Name)
 
 			err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
 
 			// Thread-safe result tracking
 			mutex.Lock()
 			if err != nil {
-				logger.Error("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
+				log.Errorf("Failed to snapshot %s/%s: %v", rs.Namespace, rs.Name, err)
 				failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
 			} else {
-				logger.Success("✓ Completed snapshot for %s/%s", rs.Namespace, rs.Name)
+				log.Infof("✅ Completed snapshot for %s/%s", rs.Namespace, rs.Name)
 				successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
 			}
 			mutex.Unlock()
@@ -281,18 +290,18 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 	wg.Wait()
 
 	// Report results
-	logger.Info("Snapshot operation completed:")
-	logger.Success("Successful: %d", len(successful))
+	log.Info("Snapshot operation completed:")
+	log.Infof("✅ Successful: %d", len(successful))
 	if len(successful) > 0 {
 		for _, app := range successful {
-			logger.Success("  ✓ %s", app)
+			log.Infof("  ✓ %s", app)
 		}
 	}
 
 	if len(failed) > 0 {
-		logger.Error("Failed: %d", len(failed))
+		log.Errorf("❌ Failed: %d", len(failed))
 		for _, app := range failed {
-			logger.Error("  ✗ %s", app)
+			log.Errorf("  ✗ %s", app)
 		}
 		return fmt.Errorf("%d snapshots failed", len(failed))
 	}
@@ -365,6 +374,10 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 
 // detectController determines the controller type for an application
 func detectController(namespace, app string) (string, error) {
+	log, err := logger.New()
+	if err != nil {
+		return "", fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Validate inputs
 	if namespace == "" {
 		return "", fmt.Errorf("namespace cannot be empty")
@@ -439,32 +452,35 @@ func newRestoreCommand() *cobra.Command {
 }
 
 func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
-	logger.Info("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
+	log.Infof("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
 
 	// Get controller type by checking what exists
 	controller, err := detectController(namespace, app)
 	if err != nil {
 		// Log the warning but continue since detectController returns a fallback controller type
-		logger.Warn("Controller detection: %v", err)
+		log.Warnf("Controller detection: %v", err)
 	}
 
 	// Step 1: Suspend Flux resources
-	logger.Info("Suspending Flux resources...")
+	log.Info("Suspending Flux resources...")
 
 	cmd := exec.Command("flux", "--namespace", namespace, "suspend", "kustomization", app)
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to suspend kustomization: %v", err)
+		log.Warnf("Failed to suspend kustomization: %v", err)
 	}
 
 	cmd = exec.Command("flux", "--namespace", namespace, "suspend", "helmrelease", app)
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to suspend helmrelease: %v", err)
+		log.Warnf("Failed to suspend helmrelease: %v", err)
 	}
 
 	// Step 2: Scale down application
-	logger.Info("Scaling down %s/%s...", controller, app)
+	log.Infof("Scaling down %s/%s...", controller, app)
 
 	cmd = exec.Command("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0")
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -472,16 +488,16 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 	}
 
 	// Wait for pods to be deleted
-	logger.Info("Waiting for pods to terminate...")
+	log.Info("Waiting for pods to terminate...")
 	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
 		"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
 		"--timeout=5m")
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Some pods may still be terminating: %v", err)
+		log.Warnf("Some pods may still be terminating: %v", err)
 	}
 
 	// Step 3: Get ReplicationSource details
-	logger.Info("Getting restore configuration...")
+	log.Info("Getting restore configuration...")
 
 	// Get claim name
 	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
@@ -554,7 +570,7 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 	}
 
 	// Step 4: Create ReplicationDestination
-	logger.Info("Creating ReplicationDestination...")
+	log.Info("Creating ReplicationDestination...")
 
 	// Create the ReplicationDestination YAML using embedded template
 	rdYAML, err := templates.RenderVolsyncTemplate("replicationdestination.yaml.j2", env)
@@ -570,7 +586,7 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 
 	// Step 5: Wait for restore job to complete
 	jobName := fmt.Sprintf("volsync-dst-%s-manual", app)
-	logger.Info("Waiting for restore job %s to complete...", jobName)
+	log.Infof("Waiting for restore job %s to complete...", jobName)
 
 	// Wait for job to appear
 	for i := 0; i < 60; i++ {
@@ -592,45 +608,45 @@ func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) e
 	}
 
 	// Step 6: Clean up ReplicationDestination
-	logger.Info("Cleaning up...")
+	log.Info("Cleaning up...")
 	cmd = exec.Command("kubectl", "--namespace", namespace, "delete", "replicationdestination", fmt.Sprintf("%s-manual", app))
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to delete ReplicationDestination: %v", err)
+		log.Warnf("Failed to delete ReplicationDestination: %v", err)
 	}
 
 	// Step 7: Resume Flux resources
-	logger.Info("Resuming application...")
+	log.Info("Resuming application...")
 
 	cmd = exec.Command("flux", "--namespace", namespace, "resume", "kustomization", app)
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to resume kustomization: %v", err)
+		log.Warnf("Failed to resume kustomization: %v", err)
 	}
 
 	cmd = exec.Command("flux", "--namespace", namespace, "resume", "helmrelease", app)
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to resume helmrelease: %v", err)
+		log.Warnf("Failed to resume helmrelease: %v", err)
 	}
 
 	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "kustomization", app, "--with-source")
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to reconcile kustomization: %v", err)
+		log.Warnf("Failed to reconcile kustomization: %v", err)
 	}
 
 	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "helmrelease", app, "--force")
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Failed to reconcile helmrelease: %v", err)
+		log.Warnf("Failed to reconcile helmrelease: %v", err)
 	}
 
 	// Wait for pods to be ready
-	logger.Info("Waiting for application to be ready...")
+	log.Info("Waiting for application to be ready...")
 	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
 		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
 		"--timeout=5m")
 	if err := cmd.Run(); err != nil {
-		logger.Warn("Application may still be starting: %v", err)
+		log.Warnf("Application may still be starting: %v", err)
 	}
 
-	logger.Success("Restore completed successfully for %s/%s", namespace, app)
+	log.Infof("✅ Restore completed successfully for %s/%s", namespace, app)
 	return nil
 }
 
@@ -674,7 +690,10 @@ func newRestoreAllCommand() *cobra.Command {
 }
 
 func restoreAllApps(namespace, previous string, dryRun bool) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Discover all ReplicationSources in the specified namespace
 	replicationSources, err := discoverReplicationSources(namespace)
@@ -683,16 +702,16 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	}
 
 	if len(replicationSources) == 0 {
-		logger.Info("No ReplicationSources found in namespace %s", namespace)
+		log.Infof("No ReplicationSources found in namespace %s", namespace)
 		return nil
 	}
 
-	logger.Info("Found %d ReplicationSources to restore in namespace %s", len(replicationSources), namespace)
+	log.Infof("Found %d ReplicationSources to restore in namespace %s", len(replicationSources), namespace)
 
 	if dryRun {
-		logger.Info("Dry run mode - showing what would be restored:")
+		log.Info("Dry run mode - showing what would be restored:")
 		for _, rs := range replicationSources {
-			logger.Info("  - %s/%s (snapshot: %s)", rs.Namespace, rs.Name, previous)
+			log.Infof("  - %s/%s (snapshot: %s)", rs.Namespace, rs.Name, previous)
 		}
 		return nil
 	}
@@ -702,34 +721,34 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 
 	// Restore all ReplicationSources
 	for _, rs := range replicationSources {
-		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
+		log.Infof("Processing restore for %s/%s...", rs.Namespace, rs.Name)
 
 		err := restoreApp(rs.Namespace, rs.Name, previous, 120*time.Minute)
 		if err != nil {
-			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
+			log.Errorf("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
 			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
 		} else {
-			logger.Success("✓ Successfully restored %s/%s", rs.Namespace, rs.Name)
+			log.Infof("✅ Successfully restored %s/%s", rs.Namespace, rs.Name)
 			successful = append(successful, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
 		}
 	}
 
 	// Report results
-	logger.Info("\nRestore Summary:")
-	logger.Info("  Successful: %d", len(successful))
+	log.Info("\nRestore Summary:")
+	log.Infof("  Successful: %d", len(successful))
 	for _, app := range successful {
-		logger.Info("    ✓ %s", app)
+		log.Infof("    ✓ %s", app)
 	}
 
 	if len(failed) > 0 {
-		logger.Info("  Failed: %d", len(failed))
+		log.Infof("  Failed: %d", len(failed))
 		for _, app := range failed {
-			logger.Error("    ✗ %s", app)
+			log.Errorf("    ✗ %s", app)
 		}
 		return fmt.Errorf("%d restore(s) failed", len(failed))
 	}
 
-	logger.Success("All restores completed successfully!")
+	log.Info("✅ All restores completed successfully!")
 	return nil
 }
 
@@ -758,7 +777,10 @@ func newSnapshotsCommand() *cobra.Command {
 }
 
 func listSnapshots(appFilter, format string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Find kopia pod in volsync-system namespace
 	kopiaPod, err := findKopiaPod()
@@ -780,16 +802,16 @@ func listSnapshots(appFilter, format string) error {
 
 	if len(snapshots) == 0 {
 		if appFilter != "" {
-			logger.Info("No snapshots found for app: %s", appFilter)
+			log.Infof("No snapshots found for app: %s", appFilter)
 		} else {
-			logger.Info("No snapshots found")
+			log.Info("No snapshots found")
 		}
 		return nil
 	}
 
 	switch format {
 	case "table":
-		displaySnapshotsTable(snapshots, logger)
+		displaySnapshotsTable(snapshots, log)
 	case "json":
 		displaySnapshotsJSON(snapshots)
 	case "yaml":
@@ -927,9 +949,9 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 	return snapshots, nil
 }
 
-func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) {
-	logger.Info("VolSync Snapshots Summary:")
-	logger.Info("")
+func displaySnapshotsTable(snapshots []AppSnapshot, log *zap.SugaredLogger) {
+	log.Info("VolSync Snapshots Summary:")
+	log.Info("")
 
 	// Header
 	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "APP", "NAMESPACE", "COUNT", "LATEST", "SIZE", "RETENTION")

@@ -15,7 +15,7 @@ import (
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-	"homeops-cli/internal/common"
+	"go.uber.org/zap"
 )
 
 // Client represents a vSphere/ESXi client
@@ -23,16 +23,16 @@ type Client struct {
 	client     *govmomi.Client
 	vim        *vim25.Client
 	finder     *find.Finder
-	logger     *common.ColorLogger
+	logger     *zap.SugaredLogger
 	ctx        context.Context
 	cancel     context.CancelFunc
 	datacenter *object.Datacenter
 }
 
 // NewClient creates a new vSphere client
-func NewClient(host, username, password string, insecure bool) *Client {
+func NewClient(host, username, password string, insecure bool, log *zap.SugaredLogger) *Client {
 	return &Client{
-		logger: common.NewColorLogger(),
+		logger: log,
 	}
 }
 
@@ -65,7 +65,7 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 	c.datacenter = datacenter
 	c.finder.SetDatacenter(datacenter)
 
-	c.logger.Success("Connected to vSphere/ESXi: %s", host)
+	c.logger.Infof("✅ Connected to vSphere/ESXi: %s", host)
 	return nil
 }
 
@@ -153,7 +153,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 	// Log IOMMU status
 	if config.EnableIOMMU {
-		c.logger.Debug("IOMMU/VT-d enabled for VM %s", config.Name)
+		c.logger.Debugf("IOMMU/VT-d enabled for VM %s", config.Name)
 	}
 
 	// Create devices
@@ -276,7 +276,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	}
 
 	vm := object.NewVirtualMachine(c.vim, info.Result.(types.ManagedObjectReference))
-	c.logger.Success("VM %s created successfully", config.Name)
+	c.logger.Infof("✅ VM %s created successfully", config.Name)
 
 	return vm, nil
 }
@@ -306,7 +306,7 @@ func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, _ stri
 	}
 
 	// Debug: log what we're actually setting
-	c.logger.Info("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB)*1024*1024, int64(sizeGB)*1024*1024*1024)
+	c.logger.Infof("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB)*1024*1024, int64(sizeGB)*1024*1024*1024)
 
 	return disk
 }
@@ -323,7 +323,7 @@ func (c *Client) PowerOnVM(vm *object.VirtualMachine) error {
 		return fmt.Errorf("failed to power on VM: %w", err)
 	}
 
-	c.logger.Success("VM powered on successfully")
+	c.logger.Info("✅ VM powered on successfully")
 	return nil
 }
 
@@ -338,7 +338,7 @@ func (c *Client) PowerOffVM(vm *object.VirtualMachine) error {
 		return fmt.Errorf("failed to power off VM: %w", err)
 	}
 
-	c.logger.Success("VM powered off successfully")
+	c.logger.Info("✅ VM powered off successfully")
 	return nil
 }
 
@@ -350,7 +350,7 @@ func (c *Client) DeleteVM(vm *object.VirtualMachine) error {
 	if propErr == nil && mvm.Runtime.PowerState == types.VirtualMachinePowerStatePoweredOn {
 		c.logger.Info("Powering off VM before deletion...")
 		if err := c.PowerOffVM(vm); err != nil {
-			c.logger.Warn("Failed to power off VM: %v", err)
+			c.logger.Warnf("Failed to power off VM: %v", err)
 		}
 	}
 
@@ -364,7 +364,7 @@ func (c *Client) DeleteVM(vm *object.VirtualMachine) error {
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
 
-	c.logger.Success("VM deleted successfully")
+	c.logger.Info("✅ VM deleted successfully")
 	return nil
 }
 
@@ -398,7 +398,7 @@ func (c *Client) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error
 
 // UploadISOToDatastore uploads an ISO file to a vSphere datastore
 func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileName string) error {
-	c.logger.Debug("Uploading ISO %s to datastore %s as %s", localFilePath, datastoreName, remoteFileName)
+	c.logger.Debugf("Uploading ISO %s to datastore %s as %s", localFilePath, datastoreName, remoteFileName)
 
 	// Find the datastore
 	datastore, err := c.finder.Datastore(c.ctx, datastoreName)
@@ -412,14 +412,14 @@ func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileNa
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
 
-	c.logger.Info("Uploading %s (%d MB) to datastore...", remoteFileName, fileInfo.Size()/(1024*1024))
+	c.logger.Infof("Uploading %s (%d MB) to datastore...", remoteFileName, fileInfo.Size()/(1024*1024))
 
 	// Upload file using datastore UploadFile method
 	if err := datastore.UploadFile(c.ctx, localFilePath, remoteFileName, nil); err != nil {
 		return fmt.Errorf("failed to upload file to datastore: %w", err)
 	}
 
-	c.logger.Success("ISO uploaded successfully to [%s] %s", datastoreName, remoteFileName)
+	c.logger.Infof("✅ ISO uploaded successfully to [%s] %s", datastoreName, remoteFileName)
 	return nil
 }
 
@@ -440,7 +440,7 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			c.logger.Info("Starting deployment of VM: %s", cfg.Name)
+			c.logger.Infof("Starting deployment of VM: %s", cfg.Name)
 			startTime := time.Now()
 
 			// Create VM
@@ -458,7 +458,7 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 				}
 			}
 
-			c.logger.Success("VM %s deployed in %v", cfg.Name, time.Since(startTime))
+			c.logger.Infof("✅ VM %s deployed in %v", cfg.Name, time.Since(startTime))
 		}(config)
 	}
 

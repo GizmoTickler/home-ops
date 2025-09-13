@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"homeops-cli/internal/common"
+	"go.uber.org/zap"
 	"homeops-cli/internal/ssh"
 )
 
@@ -25,20 +25,20 @@ type DownloadConfig struct {
 
 // Downloader handles ISO download operations
 type Downloader struct {
-	logger *common.ColorLogger
+	logger *zap.SugaredLogger
 }
 
 // NewDownloader creates a new ISO downloader
-func NewDownloader() *Downloader {
+func NewDownloader(log *zap.SugaredLogger) *Downloader {
 	return &Downloader{
-		logger: common.NewColorLogger(),
+		logger: log,
 	}
 }
 
 // DownloadCustomISO downloads a custom ISO to TrueNAS storage
 func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 	d.logger.Info("Starting custom ISO download to TrueNAS")
-	d.logger.Debug("Config: Host=%s, Username=%s, Port=%s, URL=%s, Path=%s",
+	d.logger.Debugf("Config: Host=%s, Username=%s, Port=%s, URL=%s, Path=%s",
 		config.TrueNASHost, config.TrueNASUsername, config.TrueNASPort,
 		config.ISOURL, config.ISOStoragePath)
 
@@ -55,7 +55,7 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 		SSHItemRef: config.SSHItemRef,
 	}
 
-	sshClient := ssh.NewSSHClient(sshConfig)
+	sshClient := ssh.NewSSHClient(sshConfig, d.logger)
 
 	// Connect to TrueNAS
 	d.logger.Debug("Connecting to TrueNAS via op SSH")
@@ -64,27 +64,27 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 	}
 	defer func() {
 		if closeErr := sshClient.Close(); closeErr != nil {
-			d.logger.Warn("Failed to close SSH connection: %v", closeErr)
+			d.logger.Warnf("Failed to close SSH connection: %v", closeErr)
 		}
 	}()
 
 	// Construct full ISO path
 	fullISOPath := filepath.Join(config.ISOStoragePath, config.ISOFilename)
-	d.logger.Debug("Full ISO path: %s", fullISOPath)
+	d.logger.Debugf("Full ISO path: %s", fullISOPath)
 
 	// Check if ISO already exists and remove it
 	exists, size, err := sshClient.VerifyFile(fullISOPath)
 	if err != nil {
-		d.logger.Warn("Failed to check existing ISO file: %v", err)
+		d.logger.Warnf("Failed to check existing ISO file: %v", err)
 	} else if exists {
-		d.logger.Info("Existing ISO found (size: %d bytes), removing it", size)
+		d.logger.Infof("Existing ISO found (size: %d bytes), removing it", size)
 		if err := sshClient.RemoveFile(fullISOPath); err != nil {
-			d.logger.Warn("Failed to remove existing ISO: %v", err)
+			d.logger.Warnf("Failed to remove existing ISO: %v", err)
 		}
 	}
 
 	// Download the new ISO
-	d.logger.Info("Downloading ISO from %s", config.ISOURL)
+	d.logger.Infof("Downloading ISO from %s", config.ISOURL)
 	if err := sshClient.DownloadISO(config.ISOURL, fullISOPath); err != nil {
 		return fmt.Errorf("failed to download ISO: %w", err)
 	}
@@ -101,7 +101,7 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 		return fmt.Errorf("downloaded ISO file is empty")
 	}
 
-	d.logger.Success("Custom ISO downloaded successfully to %s (size: %d bytes)", fullISOPath, size)
+	d.logger.Infof("✅ Custom ISO downloaded successfully to %s (size: %d bytes)", fullISOPath, size)
 	return nil
 }
 

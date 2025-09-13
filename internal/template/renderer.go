@@ -8,7 +8,6 @@ import (
 
 	"github.com/1Password/connect-sdk-go/connect"
 	"github.com/flosch/pongo2/v6"
-	"homeops-cli/internal/common"
 	"homeops-cli/internal/errors"
 	"homeops-cli/internal/metrics"
 )
@@ -110,7 +109,7 @@ func (r *Renderer) RenderToFile(templatePath, outputPath string, vars map[string
 func (r *Renderer) injectSecrets(content []byte) ([]byte, error) {
 	result, err := r.metrics.TrackOperationWithResult("secret_injection", func() (interface{}, error) {
 		// Use shared regex for 1Password references
-		opRegex := common.OpRefRegex
+		opRegex := regexp.MustCompile(`op://([a-zA-Z0-9\s_'-]+)/([a-zA-Z0-9\s_'-]+)/([a-zA-Z0-9\s_'-]+)`)
 
 		// Cache secrets to avoid multiple lookups
 		cache := make(map[string][]byte)

@@ -1,4 +1,4 @@
-package common
+package onepassword
 
 import (
 	"encoding/json"

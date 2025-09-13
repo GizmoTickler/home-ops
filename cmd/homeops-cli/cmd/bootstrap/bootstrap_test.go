@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
+	"homeops-cli/internal/onepassword"
 )
 
 // TestBootstrapConfig tests the BootstrapConfig structure
@@ -130,7 +131,7 @@ func TestGet1PasswordSecret(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := get1PasswordSecret(tt.reference)
+			_, err := onepassword.GetSecret(tt.reference)
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error for %s", tt.reference)
 			}
@@ -143,7 +144,10 @@ func TestGet1PasswordSecret(t *testing.T) {
 
 // TestResolve1PasswordReferences tests 1Password reference resolution
 func TestResolve1PasswordReferences(t *testing.T) {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -164,7 +168,7 @@ func TestResolve1PasswordReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := resolve1PasswordReferences(tt.content, logger)
+			result, err := onepassword.ResolveReferencesInContent(tt.content, log)
 			if err != nil && tt.name == "no references" {
 				t.Errorf("Unexpected error for content without references: %v", err)
 			}
@@ -207,11 +211,14 @@ current-context: invalid
 	config := &BootstrapConfig{
 		KubeConfig: kubeconfig,
 	}
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// This should timeout quickly with invalid config
 	start := time.Now()
-	err := waitForNodesAvailable(config, logger)
+	err = waitForNodesAvailable(config, log)
 	duration := time.Since(start)
 
 	if err == nil {
@@ -255,7 +262,7 @@ func TestExtractOnePasswordReferences(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractOnePasswordReferences(tt.content)
+			result := onepassword.ExtractReferences(tt.content)
 
 			if len(result) != len(tt.expected) {
 				t.Errorf("Expected %d references, got %d", len(tt.expected), len(result))
@@ -307,7 +314,7 @@ func TestValidate1PasswordReference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validate1PasswordReference(tt.reference)
+			err := onepassword.ValidateReferenceFormat(tt.reference)
 			if tt.valid && err != nil {
 				t.Errorf("Expected valid reference, got error: %v", err)
 			}
@@ -399,6 +406,6 @@ secret4: op://vault/item4/field4
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		extractOnePasswordReferences(content)
+		onepassword.ExtractReferences(content)
 	}
 }

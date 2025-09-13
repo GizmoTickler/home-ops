@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
 )
 
 // VersionConfig holds version information extracted from system-upgrade plans
@@ -31,7 +31,10 @@ type SystemUpgradePlan struct {
 
 // LoadVersionsFromSystemUpgrade extracts version information from system-upgrade controller plans
 func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Path to system-upgrade plans
 	plansDir := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
@@ -48,10 +51,10 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	if err != nil {
 		loadErrors = append(loadErrors, fmt.Sprintf("kubernetes: %v", err))
 		config.KubernetesVersion = "v1.34.0" // emergency fallback
-		logger.Debug("Using fallback Kubernetes version due to load error: %v", err)
+		log.Debugf("Using fallback Kubernetes version due to load error: %v", err)
 	} else {
 		config.KubernetesVersion = k8sVersion
-		logger.Debug("✅ Loaded Kubernetes version from system-upgrade plan: %s", k8sVersion)
+		log.Debugf("✅ Loaded Kubernetes version from system-upgrade plan: %s", k8sVersion)
 	}
 
 	// Load Talos version from talos.yaml
@@ -59,16 +62,16 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	if err != nil {
 		loadErrors = append(loadErrors, fmt.Sprintf("talos: %v", err))
 		config.TalosVersion = "v1.11.0" // emergency fallback
-		logger.Debug("Using fallback Talos version due to load error: %v", err)
+		log.Debugf("Using fallback Talos version due to load error: %v", err)
 	} else {
 		config.TalosVersion = talosVersion
-		logger.Debug("✅ Loaded Talos version from system-upgrade plan: %s", talosVersion)
+		log.Debugf("✅ Loaded Talos version from system-upgrade plan: %s", talosVersion)
 	}
 
 	// If we had any load errors but managed to get at least some versions, warn but continue
 	if len(loadErrors) > 0 {
-		logger.Warn("Some versions could not be loaded from system-upgrade plans: %v", strings.Join(loadErrors, ", "))
-		logger.Warn("Using emergency fallbacks for failed versions")
+		log.Warnf("Some versions could not be loaded from system-upgrade plans: %v", strings.Join(loadErrors, ", "))
+		log.Warn("Using emergency fallbacks for failed versions")
 	}
 
 	return config, nil
@@ -125,20 +128,24 @@ func getDefaultVersions() *VersionConfig {
 // GetVersions is a convenience function that loads versions from system-upgrade plans as primary source.
 // This is the main entry point for the CLI.
 func GetVersions(rootDir string) *VersionConfig {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		fmt.Printf("failed to create logger: %v", err)
+		return getDefaultVersions()
+	}
 
 	// Always try to load from system-upgrade plans first (primary source)
 	config, err := LoadVersionsFromSystemUpgrade(rootDir)
 	if err != nil {
-		logger.Warn("Failed to load versions from system-upgrade plans: %v", err)
-		logger.Warn("Using hardcoded fallback versions - this should not happen in production")
+		log.Warnf("Failed to load versions from system-upgrade plans: %v", err)
+		log.Warn("Using hardcoded fallback versions - this should not happen in production")
 		return getDefaultVersions()
 	}
 
 	// Log what we're using for transparency
-	logger.Debug("Loaded versions from system-upgrade controller plans:")
-	logger.Debug("  Kubernetes: %s", config.KubernetesVersion)
-	logger.Debug("  Talos: %s", config.TalosVersion)
+	log.Debug("Loaded versions from system-upgrade controller plans:")
+	log.Debugf("  Kubernetes: %s", config.KubernetesVersion)
+	log.Debugf("  Talos: %s", config.TalosVersion)
 
 	return config
 }

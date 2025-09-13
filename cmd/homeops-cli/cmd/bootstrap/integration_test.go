@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
 )
 
 // TestBootstrapWorkflowDryRun tests the complete bootstrap workflow in dry-run mode
@@ -41,7 +41,17 @@ func TestBootstrapWorkflowDryRun(t *testing.T) {
 
 	// Test dry run execution
 	start := time.Now()
-	err := runBootstrap(config)
+	cmd := NewCommand()
+	cmd.SetArgs([]string{
+		"--root-dir", config.RootDir,
+		"--kubeconfig", config.KubeConfig,
+		"--talosconfig", config.TalosConfig,
+		"--k8s-version", config.K8sVersion,
+		"--talos-version", config.TalosVersion,
+		"--dry-run",
+		"--skip-preflight",
+	})
+	err := cmd.Execute()
 	duration := time.Since(start)
 
 	// Dry run should complete quickly without errors
@@ -94,7 +104,17 @@ func TestBootstrapConfigValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := runBootstrap(tt.config)
+			cmd := NewCommand()
+			cmd.SetArgs([]string{
+				"--root-dir", tt.config.RootDir,
+				"--kubeconfig", tt.config.KubeConfig,
+				"--talosconfig", tt.config.TalosConfig,
+				"--k8s-version", tt.config.K8sVersion,
+				"--talos-version", tt.config.TalosVersion,
+				"--dry-run",
+				"--skip-preflight",
+			})
+			err := cmd.Execute()
 
 			if tt.expectError && err == nil {
 				t.Errorf("Expected error but got none")
@@ -127,10 +147,13 @@ func TestPreflightChecks(t *testing.T) {
 		SkipPreflight: false, // Enable preflight checks
 	}
 
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// This will likely fail due to missing tools/configs in test environment
-	err := runPreflightChecks(config, logger)
+	err = runPreflightChecks(config, log)
 	if err != nil {
 		t.Logf("Preflight checks failed as expected in test environment: %v", err)
 	}
@@ -168,11 +191,14 @@ current-context: invalid-test
 		KubeConfig: kubeconfigPath,
 	}
 
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// Test node availability check (should fail quickly with invalid config)
 	start := time.Now()
-	err := waitForNodesAvailable(config, logger)
+	err = waitForNodesAvailable(config, log)
 	duration := time.Since(start)
 
 	if err == nil {
@@ -204,7 +230,10 @@ func TestBootstrapStages(t *testing.T) {
 		SkipPreflight: true,
 	}
 
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// Create mock files
 	if err := os.WriteFile(config.KubeConfig, []byte("mock kubeconfig"), 0600); err != nil {
@@ -217,9 +246,9 @@ func TestBootstrapStages(t *testing.T) {
 	// Test individual stages in dry-run mode
 	tests := []struct {
 		name      string
-		stageFunc func(*BootstrapConfig, *common.ColorLogger) error
+		stageFunc func(*BootstrapConfig, *zap.SugaredLogger) error
 	}{
-		{"validate prerequisites", func(config *BootstrapConfig, logger *common.ColorLogger) error {
+		{"validate prerequisites", func(config *BootstrapConfig, log *zap.SugaredLogger) error {
 			return validatePrerequisites(config)
 		}},
 		{"wait for nodes", waitForNodes},
@@ -232,7 +261,7 @@ func TestBootstrapStages(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			start := time.Now()
-			err := tt.stageFunc(config, logger)
+			err := tt.stageFunc(config, log)
 			duration := time.Since(start)
 
 			// Most stages should complete quickly in dry-run mode or fail gracefully
@@ -287,7 +316,17 @@ func TestErrorHandlingAndRecovery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := runBootstrap(tt.config)
+			cmd := NewCommand()
+			cmd.SetArgs([]string{
+				"--root-dir", tt.config.RootDir,
+				"--kubeconfig", tt.config.KubeConfig,
+				"--talosconfig", tt.config.TalosConfig,
+				"--k8s-version", tt.config.K8sVersion,
+				"--talos-version", tt.config.TalosVersion,
+				"--dry-run",
+				"--skip-preflight",
+			})
+			err := cmd.Execute()
 
 			// Log the result - some errors are expected and acceptable
 			if err != nil {
@@ -304,13 +343,16 @@ func TestErrorHandlingAndRecovery(t *testing.T) {
 
 // TestResourceValidation tests validation of embedded resources
 func TestResourceValidation(t *testing.T) {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		t.Fatalf("Failed to create logger: %v", err)
+	}
 
 	// Test validation functions with mock data
 	tests := []struct {
 		name     string
 		content  string
-		validate func(string, *common.ColorLogger) error
+		validate func(string, *zap.SugaredLogger) error
 	}{
 		{
 			name: "valid clustersecretstore YAML",
@@ -353,7 +395,7 @@ metadata:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.validate(tt.content, logger)
+			err := tt.validate(tt.content, log)
 			if err != nil {
 				t.Errorf("Validation failed for %s: %v", tt.name, err)
 			}
@@ -384,7 +426,17 @@ func BenchmarkBootstrapDryRun(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		err := runBootstrap(config)
+		cmd := NewCommand()
+		cmd.SetArgs([]string{
+			"--root-dir", config.RootDir,
+			"--kubeconfig", config.KubeConfig,
+			"--talosconfig", config.TalosConfig,
+			"--k8s-version", config.K8sVersion,
+			"--talos-version", config.TalosVersion,
+			"--dry-run",
+			"--skip-preflight",
+		})
+		err := cmd.Execute()
 		if err != nil {
 			b.Fatalf("Bootstrap failed: %v", err)
 		}

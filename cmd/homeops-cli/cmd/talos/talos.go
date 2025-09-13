@@ -14,10 +14,11 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/onepassword"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
@@ -62,8 +63,8 @@ func getEnvOrDefault(key, defaultValue string) string {
 // getTrueNASCredentials retrieves TrueNAS credentials from 1Password or environment variables
 func getTrueNASCredentials() (host, apiKey string, err error) {
 	// Try 1Password first
-	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
+	host = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+	apiKey = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_API")
 
 	// Fall back to environment variables if 1Password fails
 	if host == "" {
@@ -81,15 +82,10 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	return host, apiKey, nil
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the shared common function
-func get1PasswordSecret(reference string) string {
-	return common.Get1PasswordSecretSilent(reference)
-}
-
 // getSpicePassword retrieves SPICE password from 1Password or environment variables
 func getSpicePassword() string {
 	// Try 1Password first
-	password := get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS")
+	password := onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS")
 	if password != "" {
 		return password
 	}
@@ -124,45 +120,34 @@ func newApplyNodeCommand() *cobra.Command {
 }
 
 func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get machine type
-	machineType, err := getMachineTypeFromNode(nodeIP)
+	machineType, err := getMachineTypeFromNode(nodeIP, log)
 	if err != nil {
 		return fmt.Errorf("failed to get machine type: %w", err)
 	}
 
-	logger.Info("Applying configuration to node %s (type: %s)", nodeIP, machineType)
+	log.Infof("Applying configuration to node %s (type: %s)", nodeIP, machineType)
 
 	// Render machine config using embedded templates
 	machineConfigTemplate := fmt.Sprintf("talos/%s.yaml", machineType)
 	nodeConfigTemplate := fmt.Sprintf("talos/nodes/%s.yaml", nodeIP)
 
 	// Render the configuration
-	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate)
+	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate, log)
 	if err != nil {
 		return fmt.Errorf("failed to render config: %w", err)
 	}
 
 	// Resolve 1Password references in the rendered config with signin-once retry
-	logger.Info("Resolving 1Password references in Talos configuration...")
-	resolvedConfig, err := common.InjectSecrets(string(renderedConfig))
+	log.Info("Resolving 1Password references in Talos configuration...")
+	resolvedConfig, err := onepassword.ResolveReferencesInContent(string(renderedConfig), log)
 	if err != nil {
-		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "not authenticated") || strings.Contains(errStr, "not signed in") || strings.Contains(errStr, "please run 'op signin'") {
-			logger.Info("Attempting 1Password CLI signin due to authentication error...")
-			if err2 := common.Ensure1PasswordAuth(); err2 != nil {
-				return fmt.Errorf("1Password signin failed: %w (original: %v)", err2, err)
-			}
-			// Retry once after successful signin
-			if retryResolved, retryErr := common.InjectSecrets(string(renderedConfig)); retryErr == nil {
-				resolvedConfig = retryResolved
-			} else {
-				return fmt.Errorf("secret resolution failed after signin: %w", retryErr)
-			}
-		} else {
-			return fmt.Errorf("failed to resolve 1Password references: %w", err)
-		}
+		return fmt.Errorf("failed to resolve 1Password references: %w", err)
 	}
 
 	if dryRun {
@@ -171,7 +156,7 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 		if err := yaml.Unmarshal([]byte(resolvedConfig), &any); err != nil {
 			return fmt.Errorf("rendered config failed YAML validation: %w", err)
 		}
-		logger.Info("[DRY RUN] Would apply config to %s (type: %s)", nodeIP, machineType)
+		log.Infof("[DRY RUN] Would apply config to %s (type: %s)", nodeIP, machineType)
 		return nil
 	}
 
@@ -184,29 +169,28 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 		return fmt.Errorf("failed to apply config: %w\n%s", err, output)
 	}
 
-	logger.Success("Configuration applied successfully to %s", nodeIP)
+	log.Infof("✅ Configuration applied successfully to %s", nodeIP)
 	return nil
 }
 
-func getMachineTypeFromNode(nodeIP string) (string, error) {
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "get", "machinetypes", "--output=jsonpath={.spec}")
-	output, err := cmd.Output()
+func getMachineTypeFromNode(nodeIP string, log *zap.SugaredLogger) (string, error) {
+	runner := talosctl.NewRunner(log)
+	output, err := runner.Run("--nodes", nodeIP, "get", "machinetypes", "--output=jsonpath={.spec}")
 	if err != nil {
 		return "", fmt.Errorf("failed to get machine type: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
 
-func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte, error) {
-	return renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, "")
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string, log *zap.SugaredLogger) ([]byte, error) {
+	return renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, "", log)
 }
 
-func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
-	logger := common.NewColorLogger()
+func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string, log *zap.SugaredLogger) ([]byte, error) {
 	metricsCollector := metrics.NewPerformanceCollector()
 
 	// Create unified template renderer
-	renderer := templates.NewTemplateRenderer(".", logger, metricsCollector)
+	renderer := templates.NewTemplateRenderer(".", log, metricsCollector)
 
 	// Prepare environment variables for template rendering
 	env := make(map[string]string)
@@ -246,7 +230,10 @@ func newUpgradeNodeCommand() *cobra.Command {
 }
 
 func upgradeNode(nodeIP, mode string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get factory image from controlplane config instead of individual node configs
 	controlplaneTemplate := "talos/controlplane.yaml"
@@ -276,22 +263,19 @@ func upgradeNode(nodeIP, mode string) error {
 		return fmt.Errorf("factory image is not a string: %v", factoryImageValue)
 	}
 
-	logger.Info("Upgrading node %s to image: %s", nodeIP, factoryImage)
+	log.Infof("Upgrading node %s to image: %s", nodeIP, factoryImage)
 
 	// Perform upgrade
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "upgrade",
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("--nodes", nodeIP, "upgrade",
 		"--image", factoryImage,
 		"--reboot-mode", mode,
 		"--timeout", "10m")
-
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err != nil {
 		return fmt.Errorf("upgrade failed: %w", err)
 	}
 
-	logger.Success("Node %s upgraded successfully", nodeIP)
+	log.Infof("✅ Node %s upgraded successfully", nodeIP)
 	return nil
 }
 
@@ -308,10 +292,13 @@ func newUpgradeK8sCommand() *cobra.Command {
 }
 
 func upgradeK8s() error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get a random node
-	node, err := getRandomNode()
+	node, err := getRandomNode(log)
 	if err != nil {
 		return err
 	}
@@ -322,7 +309,7 @@ func upgradeK8s() error {
 		return fmt.Errorf("KUBERNETES_VERSION environment variable not set")
 	}
 
-	logger.Info("Upgrading Kubernetes to version %s via node %s", k8sVersion, node)
+	log.Infof("Upgrading Kubernetes to version %s via node %s", k8sVersion, node)
 
 	cmd := exec.Command("talosctl", "--nodes", node, "upgrade-k8s", "--to", k8sVersion)
 	cmd.Stdout = os.Stdout
@@ -332,13 +319,13 @@ func upgradeK8s() error {
 		return fmt.Errorf("kubernetes upgrade failed: %w", err)
 	}
 
-	logger.Success("Kubernetes upgraded successfully to %s", k8sVersion)
+	log.Infof("✅ Kubernetes upgraded successfully to %s", k8sVersion)
 	return nil
 }
 
-func getRandomNode() (string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
-	output, err := cmd.Output()
+func getRandomNode(log *zap.SugaredLogger) (string, error) {
+	runner := talosctl.NewRunner(log)
+	output, err := runner.Run("config", "info", "--output", "json")
 	if err != nil {
 		return "", err
 	}
@@ -346,7 +333,7 @@ func getRandomNode() (string, error) {
 	var configInfo struct {
 		Endpoints []string `json:"endpoints"`
 	}
-	if err := json.Unmarshal(output, &configInfo); err != nil {
+	if err := json.Unmarshal([]byte(output), &configInfo); err != nil {
 		return "", err
 	}
 
@@ -382,16 +369,19 @@ func newRebootNodeCommand() *cobra.Command {
 }
 
 func rebootNode(nodeIP, mode string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Rebooting node %s with mode %s", nodeIP, mode)
-
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "reboot", "--mode", mode)
-	output, err := cmd.CombinedOutput()
+	log, err := logger.New()
 	if err != nil {
-		return fmt.Errorf("reboot failed: %w\n%s", err, output)
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Rebooting node %s with mode %s", nodeIP, mode)
+
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("--nodes", nodeIP, "reboot", "--mode", mode)
+	if err != nil {
+		return fmt.Errorf("reboot failed: %w", err)
 	}
 
-	logger.Success("Node %s reboot initiated", nodeIP)
+	log.Infof("✅ Node %s reboot initiated", nodeIP)
 	return nil
 }
 
@@ -420,29 +410,32 @@ func newShutdownClusterCommand() *cobra.Command {
 }
 
 func shutdownCluster() error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get all nodes
-	nodes, err := getAllNodes()
+	nodes, err := getAllNodes(log)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("Shutting down cluster nodes: %s", strings.Join(nodes, ", "))
+	log.Infof("Shutting down cluster nodes: %s", strings.Join(nodes, ", "))
 
-	cmd := exec.Command("talosctl", "shutdown", "--nodes", strings.Join(nodes, ","), "--force")
-	output, err := cmd.CombinedOutput()
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("shutdown", "--nodes", strings.Join(nodes, ","), "--force")
 	if err != nil {
-		return fmt.Errorf("shutdown failed: %w\n%s", err, output)
+		return fmt.Errorf("shutdown failed: %w", err)
 	}
 
-	logger.Success("Cluster shutdown initiated")
+	log.Info("✅ Cluster shutdown initiated")
 	return nil
 }
 
-func getAllNodes() ([]string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
-	output, err := cmd.Output()
+func getAllNodes(log *zap.SugaredLogger) ([]string, error) {
+	runner := talosctl.NewRunner(log)
+	output, err := runner.Run("config", "info", "--output", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +443,7 @@ func getAllNodes() ([]string, error) {
 	var configInfo struct {
 		Nodes []string `json:"nodes"`
 	}
-	if err := json.Unmarshal(output, &configInfo); err != nil {
+	if err := json.Unmarshal([]byte(output), &configInfo); err != nil {
 		return nil, err
 	}
 
@@ -490,16 +483,19 @@ func newResetNodeCommand() *cobra.Command {
 }
 
 func resetNode(nodeIP string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Resetting node %s", nodeIP)
-
-	cmd := exec.Command("talosctl", "reset", "--nodes", nodeIP, "--graceful=false")
-	output, err := cmd.CombinedOutput()
+	log, err := logger.New()
 	if err != nil {
-		return fmt.Errorf("reset failed: %w\n%s", err, output)
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Resetting node %s", nodeIP)
+
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("reset", "--nodes", nodeIP, "--graceful=false")
+	if err != nil {
+		return fmt.Errorf("reset failed: %w", err)
 	}
 
-	logger.Success("Node %s reset initiated", nodeIP)
+	log.Infof("✅ Node %s reset initiated", nodeIP)
 	return nil
 }
 
@@ -528,23 +524,26 @@ func newResetClusterCommand() *cobra.Command {
 }
 
 func resetCluster() error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get all nodes
-	nodes, err := getAllNodes()
+	nodes, err := getAllNodes(log)
 	if err != nil {
 		return err
 	}
 
-	logger.Info("Resetting cluster nodes: %s", strings.Join(nodes, ", "))
+	log.Infof("Resetting cluster nodes: %s", strings.Join(nodes, ", "))
 
-	cmd := exec.Command("talosctl", "reset", "--nodes", strings.Join(nodes, ","), "--graceful=false")
-	output, err := cmd.CombinedOutput()
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("reset", "--nodes", strings.Join(nodes, ","), "--graceful=false")
 	if err != nil {
-		return fmt.Errorf("reset failed: %w\n%s", err, output)
+		return fmt.Errorf("reset failed: %w", err)
 	}
 
-	logger.Success("Cluster reset initiated")
+	log.Info("✅ Cluster reset initiated")
 	return nil
 }
 
@@ -561,26 +560,28 @@ func newKubeconfigCommand() *cobra.Command {
 }
 
 func generateKubeconfig() error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get a random node
-	node, err := getRandomNode()
+	node, err := getRandomNode(log)
 	if err != nil {
 		return err
 	}
 
 	rootDir := "."
-	logger.Info("Generating kubeconfig from node %s", node)
+	log.Infof("Generating kubeconfig from node %s", node)
 
-	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node,
+	runner := talosctl.NewRunner(log)
+	_, err = runner.Run("kubeconfig", "--nodes", node,
 		"--force", "--force-context-name", "home-ops-cluster", rootDir)
-
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to generate kubeconfig: %w\n%s", err, output)
+		return fmt.Errorf("failed to generate kubeconfig: %w", err)
 	}
 
-	logger.Success("Kubeconfig generated successfully")
+	log.Info("✅ Kubeconfig generated successfully")
 	return nil
 }
 
@@ -614,7 +615,7 @@ For vSphere/ESXi: Deploys to specified datastore with iSCSI storage.
 Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if provider == "vsphere" || provider == "esxi" {
-				return deployVMOnVSphere(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+				return deployVMOnVSphere(baseName, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 			}
 			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 		},
@@ -654,9 +655,12 @@ func validateVMName(name string) error {
 }
 
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO bool) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting VM deployment: %s", name)
-	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, longhornSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Starting VM deployment: %s", name)
+	log.Debugf("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, longhornSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
 		pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 
 	// Validate input parameters
@@ -680,45 +684,45 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 	}
 
 	// Validate VM name - no dashes allowed
-	logger.Debug("Validating VM name: %s", name)
+	log.Debugf("Validating VM name: %s", name)
 	if err := validateVMName(name); err != nil {
 		return fmt.Errorf("VM name validation failed: %w", err)
 	}
 
 	// Get TrueNAS connection details
-	logger.Debug("Retrieving TrueNAS credentials")
+	log.Debug("Retrieving TrueNAS credentials")
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
 		return fmt.Errorf("failed to get TrueNAS credentials: %w", err)
 	}
-	logger.Debug("TrueNAS host: %s", host)
+	log.Debugf("TrueNAS host: %s", host)
 
 	// FIRST STEP: ISO generation and download to TrueNAS (if requested)
 	var isoURL, schematicID, talosVersion string
 	var customISO bool
 
-	logger.Debug("Determining ISO configuration (generateISO=%t)", generateISO)
+	log.Debugf("Determining ISO configuration (generateISO=%t)", generateISO)
 	if generateISO {
-		logger.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
+		log.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
 
 		// Create factory client
-		logger.Debug("Creating Talos factory client")
-		factoryClient := talos.NewFactoryClient()
+		log.Debug("Creating Talos factory client")
+		factoryClient := talos.NewFactoryClient(log)
 		if factoryClient == nil {
 			return fmt.Errorf("failed to create factory client")
 		}
 
 		// Load schematic from embedded templates
-		logger.Debug("Loading schematic from embedded template")
+		log.Debug("Loading schematic from embedded template")
 		schematic, err := factoryClient.LoadSchematicFromTemplate()
 		if err != nil {
 			return fmt.Errorf("failed to load schematic template: %w", err)
 		}
-		logger.Debug("Schematic loaded successfully")
+		log.Debug("Schematic loaded successfully")
 
 		// Generate ISO with default parameters
 		versionConfig := versionconfig.GetVersions(".")
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
+		log.Debugf("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
 		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
 		if err != nil {
 			return fmt.Errorf("ISO generation failed: %w", err)
@@ -735,22 +739,22 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 
 		// Set schematic ID as environment variable for template rendering
 		if err := os.Setenv("SCHEMATIC_ID", schematicID); err != nil {
-			logger.Warn("Failed to set SCHEMATIC_ID environment variable: %v", err)
+			log.Warnf("Failed to set SCHEMATIC_ID environment variable: %v", err)
 		} else {
-			logger.Debug("Set SCHEMATIC_ID environment variable: %s", schematicID)
+			log.Debugf("Set SCHEMATIC_ID environment variable: %s", schematicID)
 		}
 
-		logger.Success("Custom ISO generated successfully")
-		logger.Debug("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoURL, schematicID, talosVersion)
+		log.Info("✅ Custom ISO generated successfully")
+		log.Debugf("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoURL, schematicID, talosVersion)
 
 		// CRITICAL: Download custom ISO to TrueNAS BEFORE any VM operations
-		logger.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
-		downloader := iso.NewDownloader()
+		log.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
+		downloader := iso.NewDownloader(log)
 
 		// Create download configuration
 		downloadConfig := iso.GetDefaultConfig()
-		downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-		downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+		downloadConfig.TrueNASHost = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+		downloadConfig.TrueNASUsername = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
 		downloadConfig.ISOURL = isoURL
 		downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", schematicID[:8]) // Use schematic ID prefix for unique filename
 
@@ -758,15 +762,15 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 			return fmt.Errorf("CRITICAL: Failed to download custom ISO to TrueNAS - VM deployment cannot proceed: %w", err)
 		}
 
-		logger.Success("Custom ISO downloaded to TrueNAS successfully")
+		log.Info("✅ Custom ISO downloaded to TrueNAS successfully")
 		// Update ISO URL to point to local TrueNAS path
 		isoURL = filepath.Join(downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
-		logger.Debug("Updated ISO path: %s", isoURL)
-		logger.Info("ISO preparation completed - proceeding with VM deployment...")
+		log.Debugf("Updated ISO path: %s", isoURL)
+		log.Info("ISO preparation completed - proceeding with VM deployment...")
 	} else {
 		// Check if a prepared ISO exists at the standard location
 		standardISOPath := "/mnt/flashstor/ISO/vmware-amd64.iso"
-		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
+		log.Debugf("Checking for prepared ISO at: %s", standardISOPath)
 
 		// Connect to TrueNAS to check if the prepared ISO exists
 		host, _, err := getTrueNASCredentials()
@@ -777,39 +781,39 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		// Create SSH client to check if ISO exists
 		sshConfig := ssh.SSHConfig{
 			Host:       host,
-			Username:   get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME"),
+			Username:   onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_USERNAME"),
 			Port:       "22",
 			SSHItemRef: "op://Infrastructure/NAS01/private key",
 		}
-		sshClient := ssh.NewSSHClient(sshConfig)
+		sshClient := ssh.NewSSHClient(sshConfig, log)
 
 		if err := sshClient.Connect(); err != nil {
-			logger.Warn("Cannot verify prepared ISO due to SSH connection failure: %v", err)
+			log.Warnf("Cannot verify prepared ISO due to SSH connection failure: %v", err)
 			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
 		}
 		defer func() {
 			if closeErr := sshClient.Close(); closeErr != nil {
-				logger.Warn("Failed to close SSH client: %v", closeErr)
+				log.Warnf("Failed to close SSH client: %v", closeErr)
 			}
 		}()
 
 		// Check if the standard ISO exists
 		exists, size, err := sshClient.VerifyFile(standardISOPath)
 		if err != nil {
-			logger.Warn("Failed to verify prepared ISO: %v", err)
+			log.Warnf("Failed to verify prepared ISO: %v", err)
 			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
 		}
 
 		if !exists {
-			logger.Info("No prepared ISO found at %s", standardISOPath)
+			log.Info("No prepared ISO found at %s", standardISOPath)
 			return fmt.Errorf("no prepared ISO found. Please run 'homeops talos prepare-iso' first to prepare the ISO, or use the --generate-iso flag to generate a new one")
 		}
 
 		// Prepared ISO exists, use it
 		isoURL = standardISOPath
 		customISO = true // Mark as custom since it's from prepare-iso
-		logger.Success("Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
-		logger.Info("Prepared ISO found - proceeding with VM deployment...")
+		log.Infof("✅ Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
+		log.Info("Prepared ISO found - proceeding with VM deployment...")
 
 		// Get version info for logging
 		versionConfig := versionconfig.GetVersions(".")
@@ -818,39 +822,39 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 	}
 
 	// Get SPICE password
-	logger.Debug("Retrieving SPICE password")
+	log.Debug("Retrieving SPICE password")
 	spicePassword := getSpicePassword()
 	if spicePassword == "" {
 		return fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
 	}
-	logger.Debug("SPICE password retrieved successfully")
+	log.Debug("SPICE password retrieved successfully")
 
 	// Create VM manager
-	logger.Debug("Creating VM manager for TrueNAS host: %s", host)
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	log.Debugf("Creating VM manager for TrueNAS host: %s", host)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if vmManager == nil {
 		return fmt.Errorf("failed to create VM manager")
 	}
 
-	logger.Debug("Connecting to TrueNAS API")
+	log.Debug("Connecting to TrueNAS API")
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("TrueNAS connection failed: %w", err)
 	}
-	logger.Debug("Successfully connected to TrueNAS")
+	log.Debug("Successfully connected to TrueNAS")
 
 	defer func() {
-		logger.Debug("Closing VM manager connection")
+		log.Debug("Closing VM manager connection")
 		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
+			log.Warnf("Failed to close VM manager: %v", closeErr)
 		} else {
-			logger.Debug("VM manager connection closed successfully")
+			log.Debug("VM manager connection closed successfully")
 		}
 	}()
 
 	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
-	logger.Debug("Building VM configuration")
+	log.Debug("Building VM configuration")
 	networkBridge := getEnvOrDefault("NETWORK_BRIDGE", "br0")
-	logger.Debug("Network bridge: %s", networkBridge)
+	log.Debugf("Network bridge: %s", networkBridge)
 
 	config := truenas.VMConfig{
 		Name:          name,
@@ -877,41 +881,41 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		CustomISO:    customISO,
 	}
 
-	logger.Debug("VM configuration built successfully")
-	logger.Debug("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s",
+	log.Debug("VM configuration built successfully")
+	log.Debugf("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s",
 		name, memory, vcpus, isoURL, networkBridge, pool)
 
 	// STEP 3: Deploy the VM (ISO is now ready on TrueNAS)
-	logger.Info("STEP 3: Starting VM deployment process...")
-	logger.Debug("Calling vmManager.DeployVM with configuration")
+	log.Info("STEP 3: Starting VM deployment process...")
+	log.Debug("Calling vmManager.DeployVM with configuration")
 
 	if err := vmManager.DeployVM(config); err != nil {
-		logger.Error("VM deployment failed: %v", err)
+		log.Errorf("VM deployment failed: %v", err)
 		return fmt.Errorf("VM deployment failed: %w", err)
 	}
 
-	logger.Success("VM %s deployed successfully!", name)
-	logger.Info("VM deployment completed with the following configuration:")
-	logger.Info("  VM Name:      %s", name)
-	logger.Info("  Memory:       %d MB", memory)
-	logger.Info("  vCPUs:        %d", vcpus)
-	logger.Info("  Storage Pool: %s", pool)
-	logger.Info("  Network:      %s", networkBridge)
+	log.Infof("✅ VM %s deployed successfully!", name)
+	log.Info("VM deployment completed with the following configuration:")
+	log.Infof("  VM Name:      %s", name)
+	log.Infof("  Memory:       %d MB", memory)
+	log.Infof("  vCPUs:        %d", vcpus)
+	log.Infof("  Storage Pool: %s", pool)
+	log.Infof("  Network:      %s", networkBridge)
 	if macAddress != "" {
-		logger.Info("  MAC Address:  %s", macAddress)
+		log.Infof("  MAC Address:  %s", macAddress)
 	}
-	logger.Info("  ISO Source:   %s", isoURL)
+	log.Infof("  ISO Source:   %s", isoURL)
 	if customISO {
-		logger.Info("  Schematic ID: %s", schematicID)
-		logger.Info("  Talos Ver:    %s", talosVersion)
+		log.Infof("  Schematic ID: %s", schematicID)
+		log.Infof("  Talos Ver:    %s", talosVersion)
 	}
-	logger.Info("ZVol naming pattern:")
-	logger.Info("  Boot/OpenEBS disk: %s/%s-boot (%dGB)", pool, name, diskSize)
+	log.Info("ZVol naming pattern:")
+	log.Infof("  Boot/OpenEBS disk: %s/%s-boot (%dGB)", pool, name, diskSize)
 	if longhornSize > 0 {
-		logger.Info("  Longhorn disk:     %s/%s-longhorn (%dGB)", pool, name, longhornSize)
+		log.Infof("  Longhorn disk:     %s/%s-longhorn (%dGB)", pool, name, longhornSize)
 	}
 
-	logger.Debug("VM deployment function completed successfully")
+	log.Debug("VM deployment function completed successfully")
 	return nil
 }
 
@@ -947,6 +951,10 @@ func newListVMsCommand() *cobra.Command {
 }
 
 func listVMs() error {
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -954,7 +962,7 @@ func listVMs() error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
@@ -988,6 +996,10 @@ func newStartVMCommand() *cobra.Command {
 }
 
 func startVM(name string) error {
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -995,7 +1007,7 @@ func startVM(name string) error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
@@ -1029,6 +1041,10 @@ func newStopVMCommand() *cobra.Command {
 }
 
 func stopVM(name string) error {
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -1036,7 +1052,7 @@ func stopVM(name string) error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
@@ -1093,6 +1109,10 @@ func newDeleteVMCommand() *cobra.Command {
 }
 
 func deleteVM(name string) error {
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -1100,7 +1120,7 @@ func deleteVM(name string) error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
@@ -1138,6 +1158,10 @@ func newInfoVMCommand() *cobra.Command {
 }
 
 func infoVM(name string) error {
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -1145,7 +1169,7 @@ func infoVM(name string) error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
@@ -1186,8 +1210,11 @@ and deploy multiple VMs using the same custom configuration.`,
 
 // prepareISOWithProvider handles the ISO generation and upload process for different providers
 func prepareISOWithProvider(provider string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for provider: %s", provider)
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Starting custom Talos ISO preparation for provider: %s", provider)
 
 	switch provider {
 	case "truenas":
@@ -1201,31 +1228,34 @@ func prepareISOWithProvider(provider string) error {
 
 // prepareISOForTrueNAS handles TrueNAS-specific ISO preparation
 func prepareISOForTrueNAS() error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for TrueNAS...")
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Info("Starting custom Talos ISO preparation for TrueNAS...")
 
 	// Load version configuration
 	versionConfig := versionconfig.GetVersions(".")
-	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+	log.Debugf("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
 
 	// Create factory client
-	logger.Debug("Creating Talos factory client")
-	factoryClient := talos.NewFactoryClient()
+	log.Debug("Creating Talos factory client")
+	factoryClient := talos.NewFactoryClient(log)
 	if factoryClient == nil {
 		return fmt.Errorf("failed to create factory client")
 	}
 
 	// Load schematic from embedded templates
-	logger.Info("STEP 1: Loading schematic configuration...")
+	log.Info("STEP 1: Loading schematic configuration...")
 	schematic, err := factoryClient.LoadSchematicFromTemplate()
 	if err != nil {
 		return fmt.Errorf("failed to load schematic template: %w", err)
 	}
-	logger.Success("Schematic configuration loaded successfully")
+	log.Info("✅ Schematic configuration loaded successfully")
 
 	// Generate ISO from schematic
-	logger.Info("STEP 2: Generating custom Talos ISO...")
-	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
+	log.Info("STEP 2: Generating custom Talos ISO...")
+	log.Debugf("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
 
 	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
 	if err != nil {
@@ -1236,20 +1266,20 @@ func prepareISOForTrueNAS() error {
 		return fmt.Errorf("ISO generation returned nil result")
 	}
 
-	logger.Success("Custom ISO generated successfully")
-	logger.Info("ISO Details:")
-	logger.Info("  URL: %s", isoInfo.URL)
-	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+	log.Info("✅ Custom ISO generated successfully")
+	log.Info("ISO Details:")
+	log.Infof("  URL: %s", isoInfo.URL)
+	log.Infof("  Schematic ID: %s", isoInfo.SchematicID)
+	log.Infof("  Talos Version: %s", isoInfo.TalosVersion)
 
 	// Upload ISO to TrueNAS
-	logger.Info("STEP 3: Uploading ISO to TrueNAS...")
-	downloader := iso.NewDownloader()
+	log.Info("STEP 3: Uploading ISO to TrueNAS...")
+	downloader := iso.NewDownloader(log)
 
 	// Create download configuration with standard filename
 	downloadConfig := iso.GetDefaultConfig()
-	downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-	downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+	downloadConfig.TrueNASHost = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_HOST")
+	downloadConfig.TrueNASUsername = onepassword.GetSecretSilent("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
 	downloadConfig.ISOURL = isoInfo.URL
 	downloadConfig.ISOFilename = "vmware-amd64.iso" // Standard filename for vSphere provider
 
@@ -1257,59 +1287,62 @@ func prepareISOForTrueNAS() error {
 		return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)
 	}
 
-	logger.Success("Custom ISO uploaded to TrueNAS successfully")
-	logger.Info("ISO Location: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
+	log.Info("✅ Custom ISO uploaded to TrueNAS successfully")
+	log.Infof("ISO Location: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
 
 	// Update node templates with schematic ID
-	logger.Info("STEP 4: Updating node configuration templates...")
+	log.Info("STEP 4: Updating node configuration templates...")
 	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
-		logger.Warn("Failed to update node templates: %v", err)
-		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+		log.Warnf("Failed to update node templates: %v", err)
+		log.Warnf("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
 	} else {
-		logger.Success("Node configuration templates updated successfully")
+		log.Info("✅ Node configuration templates updated successfully")
 	}
 
-	logger.Success("ISO preparation completed successfully!")
-	logger.Info("Summary:")
-	logger.Info("  - Custom ISO generated and uploaded to TrueNAS")
-	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
-	logger.Info("  - ISO Path: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
-	logger.Info("  - Node templates updated with new schematic ID")
-	logger.Info("")
-	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --name <vm_name> [other flags]")
-	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
+	log.Info("✅ ISO preparation completed successfully!")
+	log.Info("Summary:")
+	log.Infof("  - Custom ISO generated and uploaded to TrueNAS")
+	log.Infof("  - Schematic ID: %s", isoInfo.SchematicID)
+	log.Infof("  - Talos Version: %s", isoInfo.TalosVersion)
+	log.Infof("  - ISO Path: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
+	log.Info("  - Node templates updated with new schematic ID")
+	log.Info("")
+	log.Info("You can now deploy VMs using: homeops talos deploy-vm --name <vm_name> [other flags]")
+	log.Info("(The deploy-vm command will automatically use the prepared ISO)")
 
 	return nil
 }
 
 // prepareISOForVSphere handles vSphere-specific ISO preparation
 func prepareISOForVSphere() error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for vSphere...")
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Info("Starting custom Talos ISO preparation for vSphere...")
 
 	// Load version configuration
 	versionConfig := versionconfig.GetVersions(".")
-	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+	log.Debugf("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
 
 	// Create factory client
-	logger.Debug("Creating Talos factory client")
-	factoryClient := talos.NewFactoryClient()
+	log.Debug("Creating Talos factory client")
+	factoryClient := talos.NewFactoryClient(log)
 	if factoryClient == nil {
 		return fmt.Errorf("failed to create factory client")
 	}
 
 	// Load schematic from embedded templates
-	logger.Info("STEP 1: Loading schematic configuration...")
+	log.Info("STEP 1: Loading schematic configuration...")
 	schematic, err := factoryClient.LoadSchematicFromTemplate()
 	if err != nil {
 		return fmt.Errorf("failed to load schematic template: %w", err)
 	}
-	logger.Success("Schematic configuration loaded successfully")
+	log.Info("✅ Schematic configuration loaded successfully")
 
 	// Generate ISO from schematic
-	logger.Info("STEP 2: Generating custom Talos ISO...")
-	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=vmware", versionConfig.TalosVersion)
+	log.Info("STEP 2: Generating custom Talos ISO...")
+	log.Debugf("Generating ISO with parameters: version=%s, arch=amd64, platform=vmware", versionConfig.TalosVersion)
 
 	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "vmware")
 	if err != nil {
@@ -1320,95 +1353,110 @@ func prepareISOForVSphere() error {
 		return fmt.Errorf("ISO generation returned nil result")
 	}
 
-	logger.Success("Custom ISO generated successfully")
-	logger.Info("ISO Details:")
-	logger.Info("  URL: %s", isoInfo.URL)
-	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+	log.Info("✅ Custom ISO generated successfully")
+	log.Info("ISO Details:")
+	log.Infof("  URL: %s", isoInfo.URL)
+	log.Infof("  Schematic ID: %s", isoInfo.SchematicID)
+	log.Infof("  Talos Version: %s", isoInfo.TalosVersion)
 
 	// Upload ISO to vSphere datastore
-	logger.Info("STEP 3: Uploading ISO to vSphere datastore...")
+	log.Info("STEP 3: Uploading ISO to vSphere datastore...")
 	if err := uploadISOToVSphere(isoInfo.URL); err != nil {
 		return fmt.Errorf("failed to upload custom ISO to vSphere: %w", err)
 	}
 
-	logger.Success("Custom ISO uploaded to vSphere datastore successfully")
-	logger.Info("ISO Location: [datastore1] vmware-amd64.iso")
+	log.Info("✅ Custom ISO uploaded to vSphere datastore successfully")
+	log.Info("ISO Location: [datastore1] vmware-amd64.iso")
 
 	// Update node templates with schematic ID
-	logger.Info("STEP 4: Updating node configuration templates...")
+	log.Info("STEP 4: Updating node configuration templates...")
 	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
-		logger.Warn("Failed to update node templates: %v", err)
-		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+		log.Warnf("Failed to update node templates: %v", err)
+		log.Warnf("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
 	} else {
-		logger.Success("Node configuration templates updated successfully")
+		log.Info("✅ Node configuration templates updated successfully")
 	}
 
-	logger.Success("ISO preparation completed successfully!")
-	logger.Info("Summary:")
-	logger.Info("  - Custom ISO generated and uploaded to vSphere datastore1")
-	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
-	logger.Info("  - ISO Path: [datastore1] vmware-amd64.iso")
-	logger.Info("  - Node templates updated with new schematic ID")
-	logger.Info("")
-	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --provider vsphere --name <vm_name> [other flags]")
-	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
+	log.Info("✅ ISO preparation completed successfully!")
+	log.Info("Summary:")
+	log.Info("  - Custom ISO generated and uploaded to vSphere datastore1")
+	log.Infof("  - Schematic ID: %s", isoInfo.SchematicID)
+	log.Infof("  - Talos Version: %s", isoInfo.TalosVersion)
+	log.Info("  - ISO Path: [datastore1] vmware-amd64.iso")
+	log.Info("  - Node templates updated with new schematic ID")
+	log.Info("")
+	log.Info("You can now deploy VMs using: homeops talos deploy-vm --provider vsphere --name <vm_name> [other flags]")
+	log.Info("(The deploy-vm command will automatically use the prepared ISO)")
 
 	return nil
 }
 
 // uploadISOToVSphere downloads ISO from URL and uploads it to vSphere datastore
 func uploadISOToVSphere(isoURL string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Get vSphere credentials
-	host := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/host")
-	username := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/username")
-	password := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/password")
+	host := onepassword.GetSecretSilent("op://Infrastructure/esxi/host")
+	if host == "" {
+		host = os.Getenv("VSPHERE_HOST")
+	}
+	username := onepassword.GetSecretSilent("op://Infrastructure/esxi/username")
+	if username == "" {
+		username = os.Getenv("VSPHERE_USERNAME")
+	}
+	password := onepassword.GetSecretSilent("op://Infrastructure/esxi/password")
+	if password == "" {
+		password = os.Getenv("VSPHERE_PASSWORD")
+	}
 
 	if host == "" || username == "" || password == "" {
 		return fmt.Errorf("failed to get vSphere credentials from 1Password")
 	}
 
-	logger.Debug("Connecting to vSphere host: %s", host)
-	client := vsphere.NewClient(host, username, password, true)
+	log.Debugf("Connecting to vSphere host: %s", host)
+	client := vsphere.NewClient(host, username, password, true, log)
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+			log.Warnf("Failed to close vSphere connection: %v", err)
 		}
 	}()
 
 	// Download ISO to temporary file
-	logger.Info("Downloading ISO from factory...")
+	log.Info("Downloading ISO from factory...")
 	tempFile, err := downloadISOToTemp(isoURL)
 	if err != nil {
 		return fmt.Errorf("failed to download ISO: %w", err)
 	}
 	defer func() {
 		if err := os.Remove(tempFile); err != nil {
-			logger.Warn("Failed to remove temporary file %s: %v", tempFile, err)
+			log.Warnf("Failed to remove temporary file %s: %v", tempFile, err)
 		}
 	}()
 
-	logger.Success("ISO downloaded to temporary file: %s", tempFile)
+	log.Infof("✅ ISO downloaded to temporary file: %s", tempFile)
 
 	// Upload to vSphere datastore
-	logger.Info("Uploading ISO to vSphere datastore1...")
+	log.Info("Uploading ISO to vSphere datastore1...")
 	if err := client.UploadISOToDatastore(tempFile, "datastore1", "vmware-amd64.iso"); err != nil {
 		return fmt.Errorf("failed to upload ISO to datastore: %w", err)
 	}
 
-	logger.Success("ISO uploaded to vSphere datastore successfully")
+	log.Info("✅ ISO uploaded to vSphere datastore successfully")
 	return nil
 }
 
 // downloadISOToTemp downloads ISO from URL to a temporary file and returns the file path
 func downloadISOToTemp(isoURL string) (string, error) {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return "", fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Create temporary file
 	tempFile, err := os.CreateTemp("", "talos-*.iso")
@@ -1420,10 +1468,10 @@ func downloadISOToTemp(isoURL string) (string, error) {
 	}
 
 	tempPath := tempFile.Name()
-	logger.Debug("Created temporary file: %s", tempPath)
+	log.Debugf("Created temporary file: %s", tempPath)
 
 	// Download ISO
-	logger.Debug("Downloading from URL: %s", isoURL)
+	log.Debugf("Downloading from URL: %s", isoURL)
 	resp, err := http.Get(isoURL)
 	if err != nil {
 		_ = os.Remove(tempPath)
@@ -1447,7 +1495,7 @@ func downloadISOToTemp(isoURL string) (string, error) {
 	// Copy with progress tracking
 	size := resp.ContentLength
 	if size > 0 {
-		logger.Info("Downloading %d MB ISO...", size/(1024*1024))
+		log.Infof("Downloading %d MB ISO...", size/(1024*1024))
 	}
 
 	_, err = io.Copy(outFile, resp.Body)
@@ -1461,11 +1509,14 @@ func downloadISOToTemp(isoURL string) (string, error) {
 
 // updateNodeTemplatesWithSchematic updates the controlplane template with the new schematic ID
 func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Update controlplane.yaml template with schematic ID
 	templateFile := "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
-	logger.Debug("Updating controlplane template: %s", templateFile)
+	log.Debugf("Updating controlplane template: %s", templateFile)
 
 	// Read the template file
 	content, err := os.ReadFile(templateFile)
@@ -1492,7 +1543,7 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 				}
 			}
 			lines[i] = indent + "image: " + newFactoryImage
-			logger.Debug("Updated factory image to: %s", newFactoryImage)
+			log.Debugf("Updated factory image to: %s", newFactoryImage)
 			break
 		}
 	}
@@ -1504,7 +1555,7 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 		return fmt.Errorf("failed to write controlplane template %s: %w", templateFile, err)
 	}
 
-	logger.Debug("Updated controlplane template %s with schematic ID %s", templateFile, schematicID)
+	log.Debugf("Updated controlplane template %s with schematic ID %s", templateFile, schematicID)
 	return nil
 }
 
@@ -1543,8 +1594,11 @@ func newCleanupZVolsCommand() *cobra.Command {
 
 // cleanupOrphanedZVols deletes orphaned ZVols for a VM that no longer exists
 func cleanupOrphanedZVols(vmName, storagePool string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting cleanup of orphaned ZVols for VM: %s", vmName)
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Starting cleanup of orphaned ZVols for VM: %s", vmName)
 
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
@@ -1553,13 +1607,13 @@ func cleanupOrphanedZVols(vmName, storagePool string) error {
 	}
 
 	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
+	vmManager := truenas.NewVMManager(host, apiKey, 443, true, log)
 	if err := vmManager.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
 	defer func() {
 		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
+			log.Warnf("Failed to close VM manager: %v", closeErr)
 		}
 	}()
 
@@ -1568,7 +1622,7 @@ func cleanupOrphanedZVols(vmName, storagePool string) error {
 		return fmt.Errorf("failed to cleanup orphaned ZVols: %w", err)
 	}
 
-	logger.Success("Successfully cleaned up orphaned ZVols for VM: %s", vmName)
+	log.Infof("✅ Successfully cleaned up orphaned ZVols for VM: %s", vmName)
 	return nil
 }
 
@@ -1634,19 +1688,22 @@ func getPhysicalFunction(vmIndex int) string {
 }
 
 func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting vSphere/ESXi VM deployment")
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Info("Starting vSphere/ESXi VM deployment")
 
 	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	host := onepassword.GetSecretSilent("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv("VSPHERE_HOST")
 	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	username := onepassword.GetSecretSilent("op://Infrastructure/esxi/username")
 	if username == "" {
 		username = os.Getenv("VSPHERE_USERNAME")
 	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	password := onepassword.GetSecretSilent("op://Infrastructure/esxi/password")
 	if password == "" {
 		password = os.Getenv("VSPHERE_PASSWORD")
 	}
@@ -1656,24 +1713,24 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 	}
 
 	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
+	client := vsphere.NewClient(host, username, password, true, log)
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+			log.Warnf("Failed to close vSphere connection: %v", err)
 		}
 	}()
 
 	// Handle ISO generation if requested
 	var isoPath string
 	if generateISO {
-		logger.Info("Generating custom Talos ISO...")
+		log.Info("Generating custom Talos ISO...")
 		// Note: For vSphere, we assume the ISO is already on the datastore
 		// The user should run prepare-iso first or we need to handle upload differently
-		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the datastore")
-		logger.Warn("Run 'homeops talos prepare-iso' first if needed")
+		log.Warn("For vSphere, please ensure the ISO is already uploaded to the datastore")
+		log.Warn("Run 'homeops talos prepare-iso' first if needed")
 		isoPath = "[datastore1] vmware-amd64.iso" // Use datastore1 to match manual VMs
 	} else {
 		// Use existing ISO on datastore1 (matches manual VMs)
@@ -1690,10 +1747,10 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		if vmMacAddress == "" && strings.HasPrefix(baseName, "k8s-") {
 			// Try to read MAC address from node configuration
 			if mac, err := getNodeMacAddress(baseName); err != nil {
-				logger.Warn("Failed to read MAC address from node config: %v", err)
+				log.Warnf("Failed to read MAC address from node config: %v", err)
 			} else if mac != "" {
 				vmMacAddress = mac
-				logger.Info("Using MAC address from node config: %s", mac)
+				log.Infof("Using MAC address from node config: %s", mac)
 			}
 		}
 
@@ -1726,10 +1783,10 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			vmMacAddress := ""
 			if strings.HasPrefix(vmName, "k8s-") {
 				if mac, err := getNodeMacAddress(vmName); err != nil {
-					logger.Warn("Failed to read MAC address for %s: %v", vmName, err)
+					log.Warnf("Failed to read MAC address for %s: %v", vmName, err)
 				} else if mac != "" {
 					vmMacAddress = mac
-					logger.Info("Using MAC address from config for %s: %s", vmName, mac)
+					log.Infof("Using MAC address from config for %s: %s", vmName, mac)
 				}
 			}
 
@@ -1754,15 +1811,15 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 	// Deploy VMs
 	if len(configs) == 1 {
 		// Single VM deployment
-		logger.Info("Deploying VM: %s", configs[0].Name)
-		logger.Info("Configuration:")
-		logger.Info("  Memory: %d MB", configs[0].Memory)
-		logger.Info("  vCPUs: %d", configs[0].VCPUs)
-		logger.Info("  Boot/OpenEBS Disk: %d GB", configs[0].DiskSize)
-		logger.Info("  Longhorn Disk: %d GB", configs[0].LonghornSize)
-		logger.Info("  Datastore: %s", configs[0].Datastore)
-		logger.Info("  Network: %s", configs[0].Network)
-		logger.Info("  ISO: %s", configs[0].ISO)
+		log.Infof("Deploying VM: %s", configs[0].Name)
+		log.Info("Configuration:")
+		log.Infof("  Memory: %d MB", configs[0].Memory)
+		log.Infof("  vCPUs: %d", configs[0].VCPUs)
+		log.Infof("  Boot/OpenEBS Disk: %d GB", configs[0].DiskSize)
+		log.Infof("  Longhorn Disk: %d GB", configs[0].LonghornSize)
+		log.Infof("  Datastore: %s", configs[0].Datastore)
+		log.Infof("  Network: %s", configs[0].Network)
+		log.Infof("  ISO: %s", configs[0].ISO)
 
 		vm, err := client.CreateVM(configs[0])
 		if err != nil {
@@ -1775,25 +1832,25 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			}
 		}
 
-		logger.Success("VM %s deployed successfully!", configs[0].Name)
+		log.Infof("✅ VM %s deployed successfully!", configs[0].Name)
 	} else {
 		// Parallel VM deployment
-		logger.Info("Deploying %d VMs in parallel (max concurrent: %d)", len(configs), concurrent)
-		logger.Info("VM Configuration (for all VMs):")
-		logger.Info("  Memory: %d MB", memory)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot/OpenEBS Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
-		logger.Info("  Datastore: %s", datastore)
-		logger.Info("  Network: %s", network)
-		logger.Info("  ISO: %s", isoPath)
-		logger.Info("")
-		logger.Info("VMs to deploy:")
+		log.Infof("Deploying %d VMs in parallel (max concurrent: %d)", len(configs), concurrent)
+		log.Info("VM Configuration (for all VMs):")
+		log.Infof("  Memory: %d MB", memory)
+		log.Infof("  vCPUs: %d", vcpus)
+		log.Infof("  Boot/OpenEBS Disk: %d GB", diskSize)
+		log.Infof("  Longhorn Disk: %d GB", longhornSize)
+		log.Infof("  Datastore: %s", datastore)
+		log.Infof("  Network: %s", network)
+		log.Infof("  ISO: %s", isoPath)
+		log.Info("")
+		log.Info("VMs to deploy:")
 		for _, config := range configs {
 			if config.MacAddress != "" {
-				logger.Info("  - %s (MAC: %s, PF: %s)", config.Name, config.MacAddress, config.PhysicalFunction)
+				log.Infof("  - %s (MAC: %s, PF: %s)", config.Name, config.MacAddress, config.PhysicalFunction)
 			} else {
-				logger.Info("  - %s (PF: %s)", config.Name, config.PhysicalFunction)
+				log.Infof("  - %s (PF: %s)", config.Name, config.PhysicalFunction)
 			}
 		}
 
@@ -1801,7 +1858,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			return fmt.Errorf("parallel deployment failed: %w", err)
 		}
 
-		logger.Success("Successfully deployed %d VMs!", len(configs))
+		log.Infof("✅ Successfully deployed %d VMs!", len(configs))
 	}
 
 	return nil
@@ -1809,19 +1866,22 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 
 // deleteVMOnVSphere deletes a VM from vSphere/ESXi
 func deleteVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting vSphere/ESXi VM deletion for: %s", vmName)
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Starting vSphere/ESXi VM deletion for: %s", vmName)
 
 	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	host := onepassword.GetSecretSilent("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv("VSPHERE_HOST")
 	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	username := onepassword.GetSecretSilent("op://Infrastructure/esxi/username")
 	if username == "" {
 		username = os.Getenv("VSPHERE_USERNAME")
 	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	password := onepassword.GetSecretSilent("op://Infrastructure/esxi/password")
 	if password == "" {
 		password = os.Getenv("VSPHERE_PASSWORD")
 	}
@@ -1831,13 +1891,13 @@ func deleteVMOnVSphere(vmName string) error {
 	}
 
 	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
+	client := vsphere.NewClient(host, username, password, true, log)
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+			log.Warnf("Failed to close vSphere connection: %v", err)
 		}
 	}()
 
@@ -1847,14 +1907,14 @@ func deleteVMOnVSphere(vmName string) error {
 		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
 	}
 
-	logger.Info("Found VM: %s", vmName)
+	log.Infof("Found VM: %s", vmName)
 
 	// Delete the VM
 	if err := client.DeleteVM(vm); err != nil {
 		return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
 	}
 
-	logger.Success("VM %s deleted successfully!", vmName)
+	log.Infof("✅ VM %s deleted successfully!", vmName)
 	return nil
 }
 
@@ -1910,19 +1970,22 @@ func newPowerOffVMCommand() *cobra.Command {
 
 // powerOnVMOnVSphere powers on a VM on vSphere/ESXi
 func powerOnVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Powering on vSphere/ESXi VM: %s", vmName)
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Powering on vSphere/ESXi VM: %s", vmName)
 
 	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	host := onepassword.GetSecretSilent("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv("VSPHERE_HOST")
 	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	username := onepassword.GetSecretSilent("op://Infrastructure/esxi/username")
 	if username == "" {
 		username = os.Getenv("VSPHERE_USERNAME")
 	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	password := onepassword.GetSecretSilent("op://Infrastructure/esxi/password")
 	if password == "" {
 		password = os.Getenv("VSPHERE_PASSWORD")
 	}
@@ -1932,13 +1995,13 @@ func powerOnVMOnVSphere(vmName string) error {
 	}
 
 	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
+	client := vsphere.NewClient(host, username, password, true, log)
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+			log.Warnf("Failed to close vSphere connection: %v", err)
 		}
 	}()
 
@@ -1950,28 +2013,31 @@ func powerOnVMOnVSphere(vmName string) error {
 
 	// Power on the VM
 	if err := client.PowerOnVM(vm); err != nil {
-		return fmt.Errorf("failed to power on VM %s: %w", vmName, err)
+		return fmt.Errorf("failed to power on VM %s: %w", err)
 	}
 
-	logger.Success("VM %s powered on successfully!", vmName)
+	log.Infof("✅ VM %s powered on successfully!", vmName)
 	return nil
 }
 
 // powerOffVMOnVSphere powers off a VM on vSphere/ESXi
 func powerOffVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Powering off vSphere/ESXi VM: %s", vmName)
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
+	log.Infof("Powering off vSphere/ESXi VM: %s", vmName)
 
 	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	host := onepassword.GetSecretSilent("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv("VSPHERE_HOST")
 	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
+	username := onepassword.GetSecretSilent("op://Infrastructure/esxi/username")
 	if username == "" {
 		username = os.Getenv("VSPHERE_USERNAME")
 	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
+	password := onepassword.GetSecretSilent("op://Infrastructure/esxi/password")
 	if password == "" {
 		password = os.Getenv("VSPHERE_PASSWORD")
 	}
@@ -1981,13 +2047,13 @@ func powerOffVMOnVSphere(vmName string) error {
 	}
 
 	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
+	client := vsphere.NewClient(host, username, password, true, log)
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+			log.Warnf("Failed to close vSphere connection: %v", err)
 		}
 	}()
 
@@ -2002,6 +2068,6 @@ func powerOffVMOnVSphere(vmName string) error {
 		return fmt.Errorf("failed to power off VM %s: %w", vmName, err)
 	}
 
-	logger.Success("VM %s powered off successfully!", vmName)
+	log.Infof("✅ VM %s powered off successfully!", vmName)
 	return nil
 }

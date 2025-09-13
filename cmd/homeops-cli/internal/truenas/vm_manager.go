@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"homeops-cli/internal/common"
+	"go.uber.org/zap"
 )
 
 // VMConfig represents the configuration for VM deployment
@@ -38,15 +38,15 @@ type VMConfig struct {
 // VMManager handles VM operations
 type VMManager struct {
 	client *WorkingClient
-	logger *common.ColorLogger
+	logger *zap.SugaredLogger
 }
 
 // NewVMManager creates a new VM manager
-func NewVMManager(host, apiKey string, port int, useSSL bool) *VMManager {
+func NewVMManager(host, apiKey string, port int, useSSL bool, log *zap.SugaredLogger) *VMManager {
 	client := NewWorkingClient(host, apiKey, port, useSSL)
 	return &VMManager{
 		client: client,
-		logger: common.NewColorLogger(),
+		logger: log,
 	}
 }
 
@@ -62,7 +62,7 @@ func (vm *VMManager) Close() error {
 
 // DeployVM deploys a new VM with the specified configuration
 func (vm *VMManager) DeployVM(config VMConfig) error {
-	vm.logger.Info("Starting VM deployment: %s", config.Name)
+	vm.logger.Infof("Starting VM deployment: %s", config.Name)
 
 	// Check if VM already exists
 	allVMs, err := vm.client.QueryVMs(nil)
@@ -96,14 +96,14 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		return fmt.Errorf("failed to create VM: %w", err)
 	}
 
-	vm.logger.Info("VM created with ID: %d", createdVM.ID)
+	vm.logger.Infof("VM created with ID: %d", createdVM.ID)
 
 	// Create VM devices
 	if err := vm.createVMDevices(createdVM.ID, config); err != nil {
 		return fmt.Errorf("failed to create VM devices: %w", err)
 	}
 
-	vm.logger.Success("Successfully deployed VM: %s", config.Name)
+	vm.logger.Infof("✅ Successfully deployed VM: %s", config.Name)
 	return nil
 }
 
@@ -149,13 +149,13 @@ func (vm *VMManager) StartVM(name string) error {
 		return err
 	}
 
-	vm.logger.Info("Starting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
+	vm.logger.Infof("Starting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
 
 	if err := vm.client.StartVM(vmItem.ID); err != nil {
 		return fmt.Errorf("failed to start VM: %w", err)
 	}
 
-	vm.logger.Success("VM %s started successfully", name)
+	vm.logger.Infof("✅ VM %s started successfully", name)
 	return nil
 }
 
@@ -170,13 +170,13 @@ func (vm *VMManager) StopVM(name string, force bool) error {
 	if force {
 		action = "Force stopping"
 	}
-	vm.logger.Info("%s VM: %s (ID: %d)", action, vmItem.Name, vmItem.ID)
+	vm.logger.Infof("%s VM: %s (ID: %d)", action, vmItem.Name, vmItem.ID)
 
 	if err := vm.client.StopVM(vmItem.ID); err != nil {
 		return fmt.Errorf("failed to stop VM: %w", err)
 	}
 
-	vm.logger.Success("VM %s stopped successfully", name)
+	vm.logger.Infof("✅ VM %s stopped successfully", name)
 	return nil
 }
 
@@ -187,65 +187,65 @@ func (vm *VMManager) DeleteVM(name string, deleteZVol bool, storagePool string) 
 		return err
 	}
 
-	vm.logger.Info("Deleting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
+	vm.logger.Infof("Deleting VM: %s (ID: %d)", vmItem.Name, vmItem.ID)
 
 	// Discover ZVols BEFORE deleting the VM
 	// This ensures we can still query the VM's devices
 	var zvolPaths []string
 	if deleteZVol {
-		vm.logger.Info("ZVol deletion requested for VM %s", name)
+		vm.logger.Infof("ZVol deletion requested for VM %s", name)
 
 		// Try primary discovery through VM devices
 		zvolPaths, err = vm.discoverVMZVols(vmItem)
 		if err != nil {
-			vm.logger.Warn("Primary ZVol discovery failed for VM %s: %v", name, err)
+			vm.logger.Warnf("Primary ZVol discovery failed for VM %s: %v", name, err)
 		} else if len(zvolPaths) > 0 {
-			vm.logger.Success("Primary discovery found %d ZVols: %v", len(zvolPaths), zvolPaths)
+			vm.logger.Infof("✅ Primary discovery found %d ZVols: %v", len(zvolPaths), zvolPaths)
 		} else {
 			vm.logger.Info("Primary discovery found no ZVols, will try pattern matching")
 		}
 
 		// If primary discovery didn't find ZVols, try pattern matching immediately
 		if len(zvolPaths) == 0 {
-			vm.logger.Info("Attempting pattern-based ZVol discovery for VM %s", name)
+			vm.logger.Infof("Attempting pattern-based ZVol discovery for VM %s", name)
 			fallbackPaths := vm.discoverZVolsByPattern(storagePool, name)
 			if len(fallbackPaths) > 0 {
-				vm.logger.Success("Pattern matching found %d ZVols: %v", len(fallbackPaths), fallbackPaths)
+				vm.logger.Infof("✅ Pattern matching found %d ZVols: %v", len(fallbackPaths), fallbackPaths)
 				zvolPaths = fallbackPaths
 			} else {
 				vm.logger.Warn("No ZVols found using pattern matching")
 				// Last resort: try querying all VOLUMEs and filter by VM name
-				vm.logger.Info("Attempting comprehensive ZVol search for VM %s", name)
+				vm.logger.Infof("Attempting comprehensive ZVol search for VM %s", name)
 				datasets, err := vm.client.QueryDatasets(nil)
 				if err == nil {
 					for _, dataset := range datasets {
 						if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, name) {
-							vm.logger.Info("Found potential ZVol: %s", dataset.Name)
+							vm.logger.Infof("Found potential ZVol: %s", dataset.Name)
 							zvolPaths = append(zvolPaths, dataset.Name)
 						}
 					}
 					if len(zvolPaths) > 0 {
-						vm.logger.Success("Comprehensive search found %d potential ZVols", len(zvolPaths))
+						vm.logger.Infof("✅ Comprehensive search found %d potential ZVols", len(zvolPaths))
 					}
 				}
 			}
 		}
 	} else {
-		vm.logger.Info("ZVol deletion not requested for VM %s", name)
+		vm.logger.Infof("ZVol deletion not requested for VM %s", name)
 	}
 
 	// Log discovered ZVols before VM deletion
 	if deleteZVol && len(zvolPaths) > 0 {
-		vm.logger.Info("Will attempt to delete the following ZVols after VM deletion: %v", zvolPaths)
+		vm.logger.Infof("Will attempt to delete the following ZVols after VM deletion: %v", zvolPaths)
 	}
 
 	// Delete the VM
-	vm.logger.Info("Calling TrueNAS API to delete VM ID: %d", vmItem.ID)
+	vm.logger.Infof("Calling TrueNAS API to delete VM ID: %d", vmItem.ID)
 	if err := vm.client.DeleteVM(vmItem.ID); err != nil {
-		vm.logger.Error("VM deletion API call failed: %v", err)
+		vm.logger.Errorf("VM deletion API call failed: %v", err)
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
-	vm.logger.Success("VM deletion API call completed successfully")
+	vm.logger.Info("✅ VM deletion API call completed successfully")
 
 	// Brief wait to ensure VM deletion is processed
 	time.Sleep(2 * time.Second)
@@ -262,26 +262,26 @@ func (vm *VMManager) DeleteVM(name string, deleteZVol bool, storagePool string) 
 		}
 	}
 	if verifyErr != nil {
-		vm.logger.Success("VM deletion verified - VM no longer exists")
+		vm.logger.Info("✅ VM deletion verified - VM no longer exists")
 	}
 
 	// Delete ZVols if requested and we found any
 	if deleteZVol && len(zvolPaths) > 0 {
-		vm.logger.Info("Starting deletion of %d ZVols for VM %s", len(zvolPaths), name)
+		vm.logger.Infof("Starting deletion of %d ZVols for VM %s", len(zvolPaths), name)
 		deletionErr := vm.deleteZVolsByPaths(zvolPaths, name)
 		if deletionErr != nil {
-			vm.logger.Error("Failed to delete some ZVols: %v", deletionErr)
+			vm.logger.Errorf("Failed to delete some ZVols: %v", deletionErr)
 			vm.logger.Warn("Manual cleanup may be required for remaining ZVols")
 			// Return error to indicate partial failure
 			return fmt.Errorf("VM deleted but failed to delete all ZVols: %w", deletionErr)
 		} else {
-			vm.logger.Success("All %d ZVols deleted successfully", len(zvolPaths))
+			vm.logger.Infof("✅ All %d ZVols deleted successfully", len(zvolPaths))
 		}
 	} else if deleteZVol && len(zvolPaths) == 0 {
-		vm.logger.Warn("No ZVols were found for VM %s - they may have been manually deleted or may require manual cleanup", name)
+		vm.logger.Warnf("No ZVols were found for VM %s - they may have been manually deleted or may require manual cleanup", name)
 	}
 
-	vm.logger.Success("VM %s deletion completed", name)
+	vm.logger.Infof("✅ VM %s deletion completed", name)
 	return nil
 }
 
@@ -364,7 +364,7 @@ func (vm *VMManager) verifyZVols(config VMConfig) error {
 			return fmt.Errorf("%s ZVol %s does not exist", zvolType, zvolPath)
 		}
 
-		vm.logger.Info("✓ %s ZVol verified: %s", zvolType, zvolPath)
+		vm.logger.Infof("✅ %s ZVol verified: %s", zvolType, zvolPath)
 	}
 
 	return nil
@@ -399,7 +399,7 @@ func (vm *VMManager) getZVolPaths(config VMConfig) map[string]string {
 }
 
 func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType string) error {
-	vm.logger.Info("Creating thin provisioned %s ZVol: %s (%dGB)", zvolType, zvolPath, sizeGB)
+	vm.logger.Infof("Creating thin provisioned %s ZVol: %s (%dGB)", zvolType, zvolPath, sizeGB)
 
 	// Check if ZVol already exists
 	allDatasets, err := vm.client.QueryDatasets(nil)
@@ -410,7 +410,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 	// Check if ZVol already exists
 	for _, dataset := range allDatasets {
 		if dataset.Name == zvolPath {
-			vm.logger.Info("✓ %s ZVol already exists: %s", zvolType, zvolPath)
+			vm.logger.Infof("✅ %s ZVol already exists: %s", zvolType, zvolPath)
 			return nil
 		}
 	}
@@ -440,7 +440,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 		}
 
 		if !parentExists {
-			vm.logger.Info("Creating parent dataset: %s", parentPath)
+			vm.logger.Infof("Creating parent dataset: %s", parentPath)
 			// Create parent dataset using raw API call for compatibility
 			parentConfig := map[string]interface{}{
 				"name": parentPath,
@@ -456,7 +456,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 	// Use the specified size
 	volsize := int64(sizeGB) * 1024 * 1024 * 1024 // Convert GB to bytes
 
-	vm.logger.Info("Creating thin provisioned %s ZVol: %s (%.1fGB)", zvolType, zvolPath, float64(volsize)/(1024*1024*1024))
+	vm.logger.Infof("Creating thin provisioned %s ZVol: %s (%.1fGB)", zvolType, zvolPath, float64(volsize)/(1024*1024*1024))
 
 	// Create thin provisioned ZVol with basic parameters - matching the working script
 	zvolConfig := map[string]interface{}{
@@ -471,7 +471,7 @@ func (vm *VMManager) createSingleZVol(zvolPath string, sizeGB int, zvolType stri
 		return fmt.Errorf("failed to create thin provisioned ZVol: %w", err)
 	}
 
-	vm.logger.Success("✓ Created thin provisioned %s ZVol: %s (%dGB)", zvolType, zvolPath, sizeGB)
+	vm.logger.Infof("✅ Created thin provisioned %s ZVol: %s (%dGB)", zvolType, zvolPath, sizeGB)
 	return nil
 }
 
@@ -551,7 +551,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	if _, err := vm.client.Call("vm.device.create", []interface{}{cdromDevice}, 30); err != nil {
 		return fmt.Errorf("failed to create CD-ROM device: %w", err)
 	}
-	vm.logger.Info("Created CD-ROM device with ISO: %s", isoPath)
+	vm.logger.Infof("Created CD-ROM device with ISO: %s", isoPath)
 
 	// Create network device (order 1002) - matching working script structure
 	nicDevice := map[string]interface{}{
@@ -569,7 +569,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	if _, err := vm.client.Call("vm.device.create", []interface{}{nicDevice}, 30); err != nil {
 		return fmt.Errorf("failed to create NIC device: %w", err)
 	}
-	vm.logger.Info("Created NIC device with MAC %s on bridge %s", macAddress, config.NetworkBridge)
+	vm.logger.Infof("Created NIC device with MAC %s on bridge %s", macAddress, config.NetworkBridge)
 
 	// Create disk devices with correct order matching working script
 	zvolPaths := vm.getZVolPaths(config)
@@ -596,7 +596,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if _, err := vm.client.Call("vm.device.create", []interface{}{bootDevice}, 30); err != nil {
 			return fmt.Errorf("failed to create boot/OpenEBS disk device: %w", err)
 		}
-		vm.logger.Info("Created boot/OpenEBS disk device (500GB): /dev/zvol/%s", bootPath)
+		vm.logger.Infof("Created boot/OpenEBS disk device (500GB): /dev/zvol/%s", bootPath)
 	}
 
 	// Longhorn disk (order 1004) - 1TB disk
@@ -621,7 +621,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if _, err := vm.client.Call("vm.device.create", []interface{}{longhornDevice}, 30); err != nil {
 			return fmt.Errorf("failed to create Longhorn disk device: %w", err)
 		}
-		vm.logger.Info("Created Longhorn disk device (1TB): /dev/zvol/%s", longhornPath)
+		vm.logger.Infof("Created Longhorn disk device (1TB): /dev/zvol/%s", longhornPath)
 	}
 
 	// Create SPICE display device (order 1003) - matching working script
@@ -652,12 +652,12 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	vm.logger.Info("Created SPICE display device with password from config")
 	vm.logger.Info("Display access: SPICE://192.168.120.10:[auto-assigned] (web: https://192.168.120.10:[auto-assigned])")
 
-	vm.logger.Success("All VM devices created successfully")
+	vm.logger.Info("✅ All VM devices created successfully")
 	return nil
 }
 
 func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
-	vm.logger.Info("Discovering ZVols for VM %s (ID: %d)", vmItem.Name, vmItem.ID)
+	vm.logger.Infof("Discovering ZVols for VM %s (ID: %d)", vmItem.Name, vmItem.ID)
 	var zvolPaths []string
 
 	// Query VM devices to find disk devices
@@ -666,33 +666,33 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 		return nil, fmt.Errorf("failed to query VM devices: %w", err)
 	}
 
-	vm.logger.Info("Found %d devices for VM %s", len(devices), vmItem.Name)
+	vm.logger.Infof("Found %d devices for VM %s", len(devices), vmItem.Name)
 
 	for i, device := range devices {
-		vm.logger.Info("Device %d: %+v", i+1, device)
+		vm.logger.Infof("Device %d: %+v", i+1, device)
 		if attributes, ok := device["attributes"].(map[string]interface{}); ok {
-			vm.logger.Info("Device attributes: %+v", attributes)
+			vm.logger.Infof("Device attributes: %+v", attributes)
 
 			// Check dtype field
 			if dtype, ok := attributes["dtype"].(string); ok {
-				vm.logger.Info("Device type (dtype): %s", dtype)
+				vm.logger.Infof("Device type (dtype): %s", dtype)
 				if dtype == "DISK" {
-					vm.logger.Info("Found DISK device: %+v", device)
+					vm.logger.Infof("Found DISK device: %+v", device)
 					if path, ok := attributes["path"].(string); ok {
-						vm.logger.Info("Device path: %s", path)
+						vm.logger.Infof("Device path: %s", path)
 						// Extract ZVol path from device path
 						if strings.HasPrefix(path, "/dev/zvol/") {
 							zvolPath := strings.TrimPrefix(path, "/dev/zvol/")
 							zvolPaths = append(zvolPaths, zvolPath)
-							vm.logger.Success("✓ Found ZVol: %s", zvolPath)
+							vm.logger.Infof("✅ Found ZVol: %s", zvolPath)
 						} else {
-							vm.logger.Info("Device path is not a ZVol (doesn't start with /dev/zvol/): %s", path)
+							vm.logger.Infof("Device path is not a ZVol (doesn't start with /dev/zvol/): %s", path)
 						}
 					} else {
 						vm.logger.Warn("DISK device has no path attribute")
 					}
 				} else {
-					vm.logger.Info("Skipping non-DISK device type: %s", dtype)
+					vm.logger.Infof("Skipping non-DISK device type: %s", dtype)
 				}
 			} else {
 				vm.logger.Warn("Device has no dtype attribute or dtype is not a string")
@@ -702,24 +702,24 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 		}
 	}
 
-	vm.logger.Info("Discovered %d ZVols for VM %s: %v", len(zvolPaths), vmItem.Name, zvolPaths)
+	vm.logger.Infof("Discovered %d ZVols for VM %s: %v", len(zvolPaths), vmItem.Name, zvolPaths)
 	return zvolPaths, nil
 }
 
 func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error {
 	var failedZVols []string
 
-	vm.logger.Info("Starting ZVol deletion process for %d ZVols", len(zvolPaths))
+	vm.logger.Infof("Starting ZVol deletion process for %d ZVols", len(zvolPaths))
 	for i, zvolPath := range zvolPaths {
-		vm.logger.Info("Deleting ZVol %d/%d: %s", i+1, len(zvolPaths), zvolPath)
+		vm.logger.Infof("Deleting ZVol %d/%d: %s", i+1, len(zvolPaths), zvolPath)
 
 		// Always use recursive=true to handle snapshots
 		// ZVols often have automatic snapshots that prevent deletion without recursive flag
 		if err := vm.client.DeleteDataset(zvolPath, true); err != nil {
-			vm.logger.Error("Failed to delete ZVol %s: %v", zvolPath, err)
+			vm.logger.Errorf("Failed to delete ZVol %s: %v", zvolPath, err)
 			failedZVols = append(failedZVols, fmt.Sprintf("%s (error: %v)", zvolPath, err))
 		} else {
-			vm.logger.Success("✓ Deleted ZVol (including any snapshots): %s", zvolPath)
+			vm.logger.Infof("✅ Deleted ZVol (including any snapshots): %s", zvolPath)
 		}
 	}
 
@@ -732,31 +732,31 @@ func (vm *VMManager) deleteZVolsByPaths(zvolPaths []string, vmName string) error
 
 // CleanupOrphanedZVols deletes ZVols for a VM that no longer exists
 func (vm *VMManager) CleanupOrphanedZVols(vmName, storagePool string) error {
-	vm.logger.Info("Searching for orphaned ZVols for VM: %s", vmName)
+	vm.logger.Infof("Searching for orphaned ZVols for VM: %s", vmName)
 
 	// Use pattern discovery to find ZVols
 	zvolPaths := vm.discoverZVolsByPattern(storagePool, vmName)
 
 	if len(zvolPaths) == 0 {
-		vm.logger.Warn("No orphaned ZVols found for VM %s", vmName)
+		vm.logger.Warnf("No orphaned ZVols found for VM %s", vmName)
 		return nil
 	}
 
-	vm.logger.Info("Found %d orphaned ZVols for VM %s: %v", len(zvolPaths), vmName, zvolPaths)
+	vm.logger.Infof("Found %d orphaned ZVols for VM %s: %v", len(zvolPaths), vmName, zvolPaths)
 
 	// Delete the discovered ZVols
 	if err := vm.deleteZVolsByPaths(zvolPaths, vmName); err != nil {
 		return fmt.Errorf("failed to delete orphaned ZVols: %w", err)
 	}
 
-	vm.logger.Success("Successfully cleaned up %d orphaned ZVols for VM %s", len(zvolPaths), vmName)
+	vm.logger.Infof("✅ Successfully cleaned up %d orphaned ZVols for VM %s", len(zvolPaths), vmName)
 	return nil
 }
 
 // discoverZVolsByPattern attempts to find ZVols using naming patterns when device discovery fails
 func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string {
 	vm.logger.Info("Attempting fallback ZVol discovery using naming patterns")
-	vm.logger.Info("Search parameters: storagePool=%s, vmName=%s", storagePool, vmName)
+	vm.logger.Infof("Search parameters: storagePool=%s, vmName=%s", storagePool, vmName)
 	var zvolPaths []string
 
 	// Build multiple pattern variations to handle different pool configurations
@@ -786,16 +786,16 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		)
 	}
 
-	vm.logger.Info("Looking for ZVols matching patterns: %v", patterns)
+	vm.logger.Infof("Looking for ZVols matching patterns: %v", patterns)
 
 	// Query all datasets to find matches
 	datasets, err := vm.client.QueryDatasets(nil)
 	if err != nil {
-		vm.logger.Warn("Failed to query datasets for pattern matching: %v", err)
+		vm.logger.Warnf("Failed to query datasets for pattern matching: %v", err)
 		return zvolPaths
 	}
 
-	vm.logger.Info("Queried %d total datasets for pattern matching", len(datasets))
+	vm.logger.Infof("Queried %d total datasets for pattern matching", len(datasets))
 
 	// Convert patterns to map for faster lookup
 	patternMap := make(map[string]bool)
@@ -808,13 +808,13 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 	for _, dataset := range datasets {
 		// First check exact pattern matches
 		if patternMap[dataset.Name] {
-			vm.logger.Info("Found exact pattern match: %s (type: %s)", dataset.Name, dataset.Type)
+			vm.logger.Infof("Found exact pattern match: %s (type: %s)", dataset.Name, dataset.Type)
 			// Check if it's actually a ZVol (type should be "VOLUME")
 			if dataset.Type == "VOLUME" {
 				zvolPaths = append(zvolPaths, dataset.Name)
-				vm.logger.Success("✓ Found ZVol by exact pattern: %s", dataset.Name)
+				vm.logger.Infof("✅ Found ZVol by exact pattern: %s", dataset.Name)
 			} else {
-				vm.logger.Warn("Pattern matched but not a VOLUME: %s (type: %s)", dataset.Name, dataset.Type)
+				vm.logger.Warnf("Pattern matched but not a VOLUME: %s (type: %s)", dataset.Name, dataset.Type)
 			}
 		} else if dataset.Type == "VOLUME" && strings.Contains(dataset.Name, vmName) {
 			// Flexible matching: if it's a VOLUME and contains the VM name
@@ -822,7 +822,7 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 			if strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-boot", vmName)) ||
 				strings.HasSuffix(dataset.Name, fmt.Sprintf("%s-longhorn", vmName)) {
 				zvolPaths = append(zvolPaths, dataset.Name)
-				vm.logger.Success("✓ Found ZVol by flexible pattern: %s", dataset.Name)
+				vm.logger.Infof("✅ Found ZVol by flexible pattern: %s", dataset.Name)
 			}
 		}
 	}
@@ -837,6 +837,6 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		}
 	}
 
-	vm.logger.Info("Pattern-based discovery found %d unique ZVols", len(uniquePaths))
+	vm.logger.Infof("Pattern-based discovery found %d unique ZVols", len(uniquePaths))
 	return uniquePaths
 }

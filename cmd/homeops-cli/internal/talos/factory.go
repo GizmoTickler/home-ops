@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
-	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
 )
 
@@ -30,7 +30,7 @@ const (
 type FactoryClient struct {
 	baseURL    string
 	httpClient *http.Client
-	logger     *common.ColorLogger
+	logger     *zap.SugaredLogger
 	cacheDir   string
 }
 
@@ -67,13 +67,13 @@ type ISOInfo struct {
 }
 
 // NewFactoryClient creates a new Talos factory client
-func NewFactoryClient() *FactoryClient {
+func NewFactoryClient(log *zap.SugaredLogger) *FactoryClient {
 	return &FactoryClient{
 		baseURL: TalosFactoryBaseURL,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		logger:   common.NewColorLogger(),
+		logger:   log,
 		cacheDir: CacheDir,
 	}
 }
@@ -115,7 +115,7 @@ func (fc *FactoryClient) LoadSchematicFromTemplate() (*SchematicConfig, error) {
 
 // CreateSchematic creates a new schematic in the Talos factory
 func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion string) (*SchematicResponse, error) {
-	fc.logger.Info("Creating Talos schematic for version %s", talosVersion)
+	fc.logger.Infof("Creating Talos schematic for version %s", talosVersion)
 
 	// Validate input configuration
 	if err := fc.ValidateSchematic(config); err != nil {
@@ -149,7 +149,7 @@ func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion s
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			fc.logger.Warn("Failed to close response body: %v", closeErr)
+			fc.logger.Warnf("Failed to close response body: %v", closeErr)
 		}
 	}()
 
@@ -170,7 +170,7 @@ func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion s
 		return nil, fmt.Errorf("schematic response validation failed: %w", err)
 	}
 
-	fc.logger.Success("Created schematic with ID: %s", schematicResp.ID)
+	fc.logger.Infof("✅ Created schematic with ID: %s", schematicResp.ID)
 	return &schematicResp, nil
 }
 
@@ -181,12 +181,12 @@ func (fc *FactoryClient) GenerateISO(req ISOGenerationRequest) (*ISOInfo, error)
 		return nil, fmt.Errorf("ISO request validation failed: %w", err)
 	}
 
-	fc.logger.Info("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)",
+	fc.logger.Infof("Generating Talos ISO for schematic %s (version: %s, platform: %s, arch: %s)",
 		req.SchematicID, req.TalosVersion, req.Platform, req.Architecture)
 
 	// Check cache first
 	if isoInfo, found := fc.checkCache(req); found {
-		fc.logger.Info("Using cached ISO: %s", isoInfo.CacheFile)
+		fc.logger.Infof("Using cached ISO: %s", isoInfo.CacheFile)
 		return isoInfo, nil
 	}
 
@@ -201,7 +201,7 @@ func (fc *FactoryClient) GenerateISO(req ISOGenerationRequest) (*ISOInfo, error)
 
 	// Validate that the ISO URL is accessible (optional check)
 	if err := fc.validateISOURL(isoURL); err != nil {
-		fc.logger.Warn("ISO URL validation failed: %v", err)
+		fc.logger.Warnf("ISO URL validation failed: %v", err)
 	}
 
 	// Create ISO info
@@ -214,12 +214,12 @@ func (fc *FactoryClient) GenerateISO(req ISOGenerationRequest) (*ISOInfo, error)
 
 	// Cache the ISO info
 	if err := fc.cacheISOInfo(isoInfo); err != nil {
-		fc.logger.Warn("Failed to cache ISO info: %v", err)
+		fc.logger.Warnf("Failed to cache ISO info: %v", err)
 	} else {
 		fc.logger.Debug("Successfully cached ISO info")
 	}
 
-	fc.logger.Success("Generated ISO URL: %s", isoURL)
+	fc.logger.Infof("✅ Generated ISO URL: %s", isoURL)
 	return isoInfo, nil
 }
 
@@ -283,7 +283,7 @@ func (fc *FactoryClient) validateISOURL(url string) error {
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			fc.logger.Warn("Failed to close response body: %v", closeErr)
+			fc.logger.Warnf("Failed to close response body: %v", closeErr)
 		}
 	}()
 
@@ -297,7 +297,7 @@ func (fc *FactoryClient) validateISOURL(url string) error {
 
 // GenerateISOFromSchematic is a convenience method that creates a schematic and generates an ISO
 func (fc *FactoryClient) GenerateISOFromSchematic(config *SchematicConfig, talosVersion, architecture, platform string) (*ISOInfo, error) {
-	fc.logger.Info("Starting ISO generation from schematic (version: %s, platform: %s, arch: %s)", talosVersion, platform, architecture)
+	fc.logger.Infof("Starting ISO generation from schematic (version: %s, platform: %s, arch: %s)", talosVersion, platform, architecture)
 
 	// Validate input parameters
 	if config == nil {
@@ -320,7 +320,7 @@ func (fc *FactoryClient) GenerateISOFromSchematic(config *SchematicConfig, talos
 		return nil, fmt.Errorf("failed to create schematic: %w", err)
 	}
 
-	fc.logger.Debug("Schematic created successfully with ID: %s", schematicResp.ID)
+	fc.logger.Debugf("Schematic created successfully with ID: %s", schematicResp.ID)
 
 	// Generate the ISO
 	req := ISOGenerationRequest{
@@ -336,7 +336,7 @@ func (fc *FactoryClient) GenerateISOFromSchematic(config *SchematicConfig, talos
 		return nil, fmt.Errorf("failed to generate ISO: %w", err)
 	}
 
-	fc.logger.Success("Successfully generated ISO from schematic: %s", isoInfo.URL)
+	fc.logger.Infof("✅ Successfully generated ISO from schematic: %s", isoInfo.URL)
 	return isoInfo, nil
 }
 
@@ -416,7 +416,7 @@ func (fc *FactoryClient) ValidateSchematic(config *SchematicConfig) error {
 		}
 		// Basic validation for kernel arguments format
 		if !strings.Contains(arg, "=") && !isValidKernelFlag(arg) {
-			fc.logger.Warn("Kernel argument '%s' may not be in expected format", arg)
+			fc.logger.Warnf("Kernel argument '%s' may not be in expected format", arg)
 		}
 	}
 
@@ -447,7 +447,7 @@ func (fc *FactoryClient) ValidateAPIResponse(resp *http.Response, expectedConten
 
 	contentType := resp.Header.Get("Content-Type")
 	if expectedContentType != "" && !strings.Contains(contentType, expectedContentType) {
-		fc.logger.Warn("Unexpected content type: got %s, expected %s", contentType, expectedContentType)
+		fc.logger.Warnf("Unexpected content type: got %s, expected %s", contentType, expectedContentType)
 	}
 
 	return nil
@@ -468,7 +468,7 @@ func (fc *FactoryClient) ValidateSchematicResponse(resp *SchematicResponse) erro
 		return fmt.Errorf("schematic ID '%s' appears to be too short", resp.ID)
 	}
 
-	fc.logger.Debug("Schematic response validation passed: ID=%s", resp.ID)
+	fc.logger.Debugf("Schematic response validation passed: ID=%s", resp.ID)
 	return nil
 }
 
@@ -477,6 +477,6 @@ func (fc *FactoryClient) ClearCache() error {
 	if err := os.RemoveAll(fc.cacheDir); err != nil {
 		return fmt.Errorf("failed to clear cache: %w", err)
 	}
-	fc.logger.Success("Cache cleared successfully")
+	fc.logger.Info("✅ Cache cleared successfully")
 	return nil
 }

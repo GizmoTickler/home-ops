@@ -7,9 +7,21 @@ import (
 	"strings"
 	"time"
 
+	"context"
+
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
-	"homeops-cli/internal/common"
+	"homeops-cli/internal/logger"
+	"homeops-cli/internal/kubernetes"
+	esv1beta1 "github.com/external-secrets/external-secrets/apis/externalsecrets/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	cliconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/cli"
+	"homeops-cli/internal/flux"
 )
 
 func NewCommand() *cobra.Command {
@@ -58,7 +70,10 @@ func newBrowsePVCCommand() *cobra.Command {
 }
 
 func browsePVC(namespace, claim, image string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Check if PVC exists
 	checkCmd := exec.Command("kubectl", "--namespace", namespace, "get", "persistentvolumeclaims", claim)
@@ -68,14 +83,14 @@ func browsePVC(namespace, claim, image string) error {
 
 	// Check if kubectl browse-pvc plugin is installed
 	if _, err := exec.LookPath("kubectl-browse-pvc"); err != nil {
-		logger.Warn("kubectl browse-pvc plugin not installed, installing via krew...")
+		log.Warn("kubectl browse-pvc plugin not installed, installing via krew...")
 		installCmd := exec.Command("kubectl", "krew", "install", "browse-pvc")
 		if err := installCmd.Run(); err != nil {
 			return fmt.Errorf("failed to install browse-pvc plugin: %w", err)
 		}
 	}
 
-	logger.Info("Mounting PVC %s/%s to temporary container", namespace, claim)
+	log.Infof("Mounting PVC %s/%s to temporary container", namespace, claim)
 
 	// Execute browse-pvc
 	cmd := exec.Command("kubectl", "browse-pvc",
@@ -112,7 +127,10 @@ func newNodeShellCommand() *cobra.Command {
 }
 
 func nodeShell(node string) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
 	// Check if node exists
 	checkCmd := exec.Command("kubectl", "get", "nodes", node)
@@ -122,14 +140,14 @@ func nodeShell(node string) error {
 
 	// Check if kubectl node-shell plugin is installed
 	if _, err := exec.LookPath("kubectl-node-shell"); err != nil {
-		logger.Warn("kubectl node-shell plugin not installed, installing via krew...")
+		log.Warn("kubectl node-shell plugin not installed, installing via krew...")
 		installCmd := exec.Command("kubectl", "krew", "install", "node-shell")
 		if err := installCmd.Run(); err != nil {
 			return fmt.Errorf("failed to install node-shell plugin: %w", err)
 		}
 	}
 
-	logger.Info("Opening shell to node %s", node)
+	log.Infof("Opening shell to node %s", node)
 
 	// Execute node-shell
 	cmd := exec.Command("kubectl", "node-shell", "-n", "kube-system", "-x", node)
@@ -158,60 +176,61 @@ func newSyncSecretsCommand() *cobra.Command {
 }
 
 func syncSecrets(dryRun bool) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
-	// Get all ExternalSecrets
-	cmd := exec.Command("kubectl", "get", "externalsecret", "--all-namespaces",
-		"--no-headers", "--output=jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}")
+	s := scheme.Scheme
+	if err := esv1beta1.AddToScheme(s); err != nil {
+		return fmt.Errorf("failed to add external-secrets scheme: %w", err)
+	}
 
-	output, err := cmd.Output()
+	cfg, err := cliconfig.GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get kubeconfig: %w", err)
+	}
+
+	cl, err := client.New(cfg, client.Options{Scheme: s})
+	if err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+
+	secrets := &esv1beta1.ExternalSecretList{}
+	err = cl.List(context.Background(), secrets)
 	if err != nil {
 		return fmt.Errorf("failed to get ExternalSecrets: %w", err)
 	}
 
-	secrets := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(secrets) == 0 || (len(secrets) == 1 && secrets[0] == "") {
-		logger.Info("No ExternalSecrets found")
+	if len(secrets.Items) == 0 {
+		log.Info("No ExternalSecrets found")
 		return nil
 	}
 
-	logger.Info("Found %d ExternalSecrets to sync", len(secrets))
+	log.Infof("Found %d ExternalSecrets to sync", len(secrets.Items))
 
-	// Sync each secret
-	for _, secret := range secrets {
-		if secret == "" {
-			continue
-		}
-
-		parts := strings.Split(secret, ",")
-		if len(parts) != 2 {
-			logger.Warn("Invalid secret format: %s", secret)
-			continue
-		}
-
-		namespace := parts[0]
-		name := parts[1]
-
+	for _, secret := range secrets.Items {
 		if dryRun {
-			logger.Info("[DRY RUN] Would sync ExternalSecret %s/%s", namespace, name)
+			log.Infof("[DRY RUN] Would sync ExternalSecret %s/%s", secret.Namespace, secret.Name)
 			continue
 		}
 
 		// Annotate to force sync
 		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		annotateCmd := exec.Command("kubectl", "--namespace", namespace,
-			"annotate", "externalsecret", name,
-			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite")
+		if secret.Annotations == nil {
+			secret.Annotations = make(map[string]string)
+		}
+		secret.Annotations["force-sync"] = timestamp
 
-		if err := annotateCmd.Run(); err != nil {
-			logger.Error("Failed to sync %s/%s: %v", namespace, name, err)
+		if err := cl.Update(context.Background(), &secret); err != nil {
+			log.Errorf("Failed to sync %s/%s: %v", secret.Namespace, secret.Name, err)
 			continue
 		}
 
-		logger.Info("Synced ExternalSecret %s/%s", namespace, name)
+		log.Infof("Synced ExternalSecret %s/%s", secret.Namespace, secret.Name)
 	}
 
-	logger.Success("ExternalSecrets sync completed")
+	log.Info("✅ ExternalSecrets sync completed")
 	return nil
 }
 
@@ -240,77 +259,59 @@ func newCleansePodsCommand() *cobra.Command {
 }
 
 func cleansePods(namespace string, dryRun bool) error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
-	phases := []string{"Failed", "Pending", "Succeeded"}
+	clientset, err := kubernetes.NewClient("") // Empty string for in-cluster config or KUBECONFIG env
+	if err != nil {
+		return fmt.Errorf("failed to create kubernetes client: %w", err)
+	}
+
+	phases := []string{string(corev1.PodFailed), string(corev1.PodPending), string(corev1.PodSucceeded)}
 	totalDeleted := 0
 
 	for _, phase := range phases {
-		logger.Info("Cleaning pods in %s phase", phase)
+		log.Infof("Cleaning pods in %s phase", phase)
 
-		// Build kubectl command
-		args := []string{"delete", "pods"}
-		if namespace != "" {
-			args = append(args, "--namespace", namespace)
-		} else {
-			args = append(args, "--all-namespaces")
+		pods, err := clientset.CoreV1().Pods(namespace).List(context.Background(), metav1.ListOptions{
+			FieldSelector: fmt.Sprintf("status.phase=%s", phase),
+		})
+		if err != nil {
+			log.Warnf("Failed to list pods in %s phase: %v", phase, err)
+			continue
 		}
-		args = append(args, "--field-selector", fmt.Sprintf("status.phase=%s", phase))
+
+		if len(pods.Items) == 0 {
+			continue
+		}
 
 		if dryRun {
-			// First get the list of pods that would be deleted
-			listArgs := []string{"get", "pods"}
-			if namespace != "" {
-				listArgs = append(listArgs, "--namespace", namespace)
-			} else {
-				listArgs = append(listArgs, "--all-namespaces")
-			}
-			listArgs = append(listArgs, "--field-selector", fmt.Sprintf("status.phase=%s", phase), "-o", "name")
-
-			listCmd := exec.Command("kubectl", listArgs...)
-			output, err := listCmd.Output()
-			if err != nil {
-				logger.Warn("Failed to list pods in %s phase: %v", phase, err)
-				continue
-			}
-
-			pods := strings.Split(strings.TrimSpace(string(output)), "\n")
-			if len(pods) > 0 && pods[0] != "" {
-				logger.Info("[DRY RUN] Would delete %d pods in %s phase", len(pods), phase)
-				for _, pod := range pods {
-					if pod != "" {
-						logger.Debug("  %s", pod)
-					}
-				}
+			log.Infof("[DRY RUN] Would delete %d pods in %s phase", len(pods.Items), phase)
+			for _, pod := range pods.Items {
+				log.Debugf("  %s/%s", pod.Namespace, pod.Name)
 			}
 		} else {
-			args = append(args, "--ignore-not-found=true")
-
-			cmd := exec.Command("kubectl", args...)
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				logger.Error("Failed to delete pods in %s phase: %v", phase, err)
-				continue
-			}
-
-			// Count deleted pods from output
-			lines := strings.Split(string(output), "\n")
-			deleted := 0
-			for _, line := range lines {
-				if strings.Contains(line, "deleted") {
-					deleted++
+			deletedCount := 0
+			for _, pod := range pods.Items {
+				err := clientset.CoreV1().Pods(pod.Namespace).Delete(context.Background(), pod.Name, metav1.DeleteOptions{})
+				if err != nil {
+					log.Errorf("Failed to delete pod %s/%s: %v", pod.Namespace, pod.Name, err)
+				} else {
+					log.Infof("Deleted pod %s/%s", pod.Namespace, pod.Name)
+					deletedCount++
 				}
 			}
-
-			if deleted > 0 {
-				logger.Info("Deleted %d pods in %s phase", deleted, phase)
-				totalDeleted += deleted
+			if deletedCount > 0 {
+				log.Infof("Deleted %d pods in %s phase", deletedCount, phase)
+				totalDeleted += deletedCount
 			}
 		}
 	}
 
 	if !dryRun {
-		logger.Success("Pod cleanup completed. Total pods deleted: %d", totalDeleted)
+		log.Infof("✅ Pod cleanup completed. Total pods deleted: %d", totalDeleted)
 	}
 
 	return nil
@@ -342,48 +343,49 @@ func newUpgradeARCCommand() *cobra.Command {
 }
 
 func upgradeARC() error {
-	logger := common.NewColorLogger()
+	log, err := logger.New()
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
+	}
 
-	logger.Info("Starting ARC upgrade process")
+	log.Info("Starting ARC upgrade process")
+
+	settings := cli.New()
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), "actions-runner-system", os.Getenv("HELM_DRIVER"), log.Infof); err != nil {
+		return fmt.Errorf("failed to initialize helm action config: %w", err)
+	}
 
 	// Uninstall runner
-	logger.Info("Uninstalling home-ops-runner...")
-	cmd := exec.Command("helm", "-n", "actions-runner-system", "uninstall", "home-ops-runner")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		// It might not exist, which is okay
-		if !strings.Contains(string(output), "not found") {
-			return fmt.Errorf("failed to uninstall home-ops-runner: %w\n%s", err, output)
-		}
+	log.Info("Uninstalling home-ops-runner...")
+	uninstall := action.NewUninstall(actionConfig)
+	if _, err := uninstall.Run("home-ops-runner"); err != nil && !strings.Contains(err.Error(), "not found") {
+		return fmt.Errorf("failed to uninstall home-ops-runner: %w", err)
 	}
 
 	// Uninstall controller
-	logger.Info("Uninstalling actions-runner-controller...")
-	cmd = exec.Command("helm", "-n", "actions-runner-system", "uninstall", "actions-runner-controller")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		// It might not exist, which is okay
-		if !strings.Contains(string(output), "not found") {
-			return fmt.Errorf("failed to uninstall actions-runner-controller: %w\n%s", err, output)
-		}
+	log.Info("Uninstalling actions-runner-controller...")
+	if _, err := uninstall.Run("actions-runner-controller"); err != nil && !strings.Contains(err.Error(), "not found") {
+		return fmt.Errorf("failed to uninstall actions-runner-controller: %w", err)
 	}
 
 	// Wait a bit for cleanup
-	logger.Info("Waiting for cleanup...")
+	log.Info("Waiting for cleanup...")
 	time.Sleep(5 * time.Second)
 
 	// Reconcile controller
-	logger.Info("Reconciling actions-runner-controller HelmRelease...")
-	cmd = exec.Command("flux", "-n", "actions-runner-system", "reconcile", "hr", "actions-runner-controller")
-	if err := cmd.Run(); err != nil {
+	log.Info("Reconciling actions-runner-controller HelmRelease...")
+	runner := flux.NewRunner(log)
+	if _, err := runner.Run("-n", "actions-runner-system", "reconcile", "hr", "actions-runner-controller"); err != nil {
 		return fmt.Errorf("failed to reconcile actions-runner-controller: %w", err)
 	}
 
 	// Reconcile runner
-	logger.Info("Reconciling home-ops-runner HelmRelease...")
-	cmd = exec.Command("flux", "-n", "actions-runner-system", "reconcile", "hr", "home-ops-runner")
-	if err := cmd.Run(); err != nil {
+	log.Info("Reconciling home-ops-runner HelmRelease...")
+	if _, err := runner.Run("-n", "actions-runner-system", "reconcile", "hr", "home-ops-runner"); err != nil {
 		return fmt.Errorf("failed to reconcile home-ops-runner: %w", err)
 	}
 
-	logger.Success("ARC upgrade completed successfully")
+	log.Info("✅ ARC upgrade completed successfully")
 	return nil
 }

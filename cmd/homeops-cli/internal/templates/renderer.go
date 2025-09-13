@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"homeops-cli/internal/common"
+	"go.uber.org/zap"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/template"
 	"homeops-cli/internal/yaml"
@@ -13,16 +13,16 @@ import (
 // TemplateRenderer provides a unified interface for different template engines
 type TemplateRenderer struct {
 	rootDir    string
-	logger     *common.ColorLogger
+	logger     *zap.SugaredLogger
 	metrics    *metrics.PerformanceCollector
 	goRenderer *template.GoTemplateRenderer
 }
 
 // NewTemplateRenderer creates a new unified template renderer
-func NewTemplateRenderer(rootDir string, logger *common.ColorLogger, metrics *metrics.PerformanceCollector) *TemplateRenderer {
+func NewTemplateRenderer(rootDir string, log *zap.SugaredLogger, metrics *metrics.PerformanceCollector) *TemplateRenderer {
 	return &TemplateRenderer{
 		rootDir:    rootDir,
-		logger:     logger,
+		logger:     log,
 		metrics:    metrics,
 		goRenderer: template.NewGoTemplateRenderer(rootDir, metrics),
 	}
@@ -40,7 +40,7 @@ func (r *TemplateRenderer) RenderTemplate(templateName, content string, env map[
 		}
 		return r.goRenderer.RenderTemplate(content, templateData)
 
-	case strings.Contains(templateName, ".j2") || strings.Contains(content, "{%") || strings.Contains(content, "{{ ENV."):
+	case strings.Contains(templateName, ".j2") || strings.Contains(content, "{{ ENV."):
 		// Use Jinja2 renderer for Talos templates
 		if strings.HasPrefix(templateName, "talos/") {
 			return RenderTalosTemplate(strings.TrimPrefix(templateName, "talos/"), env)
