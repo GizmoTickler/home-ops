@@ -58,26 +58,34 @@ func Get1PasswordSecretSilent(reference string) string {
 func InjectSecrets(content string) (string, error) {
 	// Regex to match op://vault/item/field patterns
 	opRegex := regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
-	result := content
 
-	// Find all op:// references
-	matches := opRegex.FindAllStringSubmatch(content, -1)
-	if len(matches) == 0 {
-		return result, nil // No secrets to inject
-	}
+	// Cache to avoid duplicate CLI calls when the same ref appears multiple times
+	cache := make(map[string]string)
 
-	// Process each secret reference
-	for _, match := range matches {
-		fullMatch := match[0]
-
-		// Get secret from 1Password
+	// Replace using a single regex pass to avoid substring collisions
+	result := opRegex.ReplaceAllStringFunc(content, func(fullMatch string) string {
+		// If cached, return immediately
+		if v, ok := cache[fullMatch]; ok {
+			return v
+		}
+		// Fetch from 1Password
 		secret, err := Get1PasswordSecret(fullMatch)
 		if err != nil {
-			return "", fmt.Errorf("failed to inject 1Password secret %s: %w", fullMatch, err)
+			// On error, keep the original reference so caller can detect unresolved refs
+			// We cannot return an error from inside ReplaceAllStringFunc, so store a sentinel
+			// value that the outer scope can detect by presence of the unresolved reference.
+			// For robustness, leave it unchanged here.
+			return fullMatch
 		}
+		cache[fullMatch] = secret
+		return secret
+	})
 
-		// Replace the op:// reference with the actual secret
-		result = strings.ReplaceAll(result, fullMatch, secret)
+	// If any op:// references remain, surface an error so callers can handle/report it
+	if strings.Contains(result, "op://") {
+		// Find the first remaining reference for error context
+		rem := opRegex.FindString(result)
+		return "", fmt.Errorf("failed to resolve 1Password reference: %s", rem)
 	}
 
 	return result, nil
