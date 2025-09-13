@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// OpRefRegex matches 1Password references of the form op://vault/item/field
+var OpRefRegex = regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
+
 // Get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic
 // This matches the sophisticated error handling from bootstrap.go
 func Get1PasswordSecret(reference string) (string, error) {
@@ -56,36 +59,51 @@ func Get1PasswordSecretSilent(reference string) string {
 
 // InjectSecrets replaces op:// references with actual secrets from 1Password
 func InjectSecrets(content string) (string, error) {
-	// Regex to match op://vault/item/field patterns
-	opRegex := regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
+	// Use shared regex for matching op:// references
+	opRegex := OpRefRegex
 
-	// Cache to avoid duplicate CLI calls when the same ref appears multiple times
+	// Caches for successes and failures to avoid repeated CLI calls
 	cache := make(map[string]string)
+	errCache := make(map[string]error)
 
 	// Replace using a single regex pass to avoid substring collisions
 	result := opRegex.ReplaceAllStringFunc(content, func(fullMatch string) string {
-		// If cached, return immediately
 		if v, ok := cache[fullMatch]; ok {
 			return v
 		}
-		// Fetch from 1Password
+		if _, failed := errCache[fullMatch]; failed {
+			return fullMatch
+		}
 		secret, err := Get1PasswordSecret(fullMatch)
 		if err != nil {
-			// On error, keep the original reference so caller can detect unresolved refs
-			// We cannot return an error from inside ReplaceAllStringFunc, so store a sentinel
-			// value that the outer scope can detect by presence of the unresolved reference.
-			// For robustness, leave it unchanged here.
+			errCache[fullMatch] = err
 			return fullMatch
 		}
 		cache[fullMatch] = secret
 		return secret
 	})
 
-	// If any op:// references remain, surface an error so callers can handle/report it
+	// Aggregate detailed errors if any
+	if len(errCache) > 0 {
+		// Build a descriptive error including each reference and cause
+		var b strings.Builder
+		b.WriteString("failed to resolve 1Password references:\n")
+		for ref, err := range errCache {
+			b.WriteString(" - ")
+			b.WriteString(ref)
+			b.WriteString(": ")
+			b.WriteString(err.Error())
+			b.WriteByte('\n')
+		}
+		// Wrap the aggregated message in a single error
+		msg := strings.TrimRight(b.String(), "\n")
+		return "", fmt.Errorf("%s", msg)
+	}
+
+	// Extra safety: if any references still remain (e.g., in comments), report the first
 	if strings.Contains(result, "op://") {
-		// Find the first remaining reference for error context
 		rem := opRegex.FindString(result)
-		return "", fmt.Errorf("failed to resolve 1Password reference: %s", rem)
+		return "", fmt.Errorf("unresolved 1Password reference remains: %s", rem)
 	}
 
 	return result, nil
