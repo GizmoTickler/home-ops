@@ -51,14 +51,6 @@ spec:
             probes:
               liveness:
                 enabled: true
-                custom: true
-                spec: &probe
-                  exec:
-                    command:
-                      - /bin/sh
-                      - -c
-                      - >-
-                        [ $(wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/openvpn/portforwarded) != '{"port":0}' ]
                   initialDelaySeconds: 10
                   periodSeconds: 10
                   successThreshold: 1
@@ -66,15 +58,6 @@ spec:
                   failureThreshold: 30
               startup:
                 enabled: true
-                custom: true
-                spec:
-                  <<: *probe
-                  exec:
-                    command:
-                      - /bin/sh
-                      - -c
-                      - >-
-                        wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/publicip/ip
             lifecycle:
               postStart:
                 exec:
