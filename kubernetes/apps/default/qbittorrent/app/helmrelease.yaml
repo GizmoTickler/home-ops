@@ -242,6 +242,7 @@ spec:
       tmpfs:
         type: emptyDir
         advancedMounts:
+          *app:
             app:
               - path: /addons
                 subPath: addons
