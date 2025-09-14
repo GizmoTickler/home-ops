@@ -9,9 +9,9 @@ _Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos
 
 <div align="center">
 
-[![Talos](https://img.shields.io/badge/Talos-v1.11.rc0-blue?style=for-the-badge&logo=talos&logoColor=white)](https://www.talos.dev/)
-[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.33.4-blue?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Flux](https://img.shields.io/badge/Flux-v2.4.0-blue?style=for-the-badge&logo=flux&logoColor=white)](https://fluxcd.io/)
+[![Talos](https://img.shields.io/badge/Talos-v1.11.1-blue?style=for-the-badge&logo=talos&logoColor=white)](https://www.talos.dev/)
+[![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.34.1-blue?style=for-the-badge&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Flux](https://img.shields.io/badge/Flux-v2.6.4-blue?style=for-the-badge&logo=flux&logoColor=white)](https://fluxcd.io/)
 [![Renovate](https://img.shields.io/badge/Renovate-enabled-blue?style=for-the-badge&logo=renovatebot&logoColor=white)](https://renovatebot.com/)
 
 </div>
@@ -35,8 +35,8 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Hypervisor**: VMware ESXi with advanced virtualization features
 - **Storage Backend**: TrueNAS providing NFS 4.1 datastores with multipath over 4x10Gbps link aggregation
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
-- **Kubernetes Distribution**: Talos Linux v1.11.rc0 (immutable, minimal, secure)
-- **Kubernetes Version**: v1.33.4
+- **Kubernetes Distribution**: Talos Linux v1.11.1 (immutable, minimal, secure)
+- **Kubernetes Version**: v1.34.1
 - **VM Configuration**: 3 control plane nodes, each with 8 vCPUs and 48GB RAM
 - **Storage Strategy**: Dual NVMe controller architecture:
   - **Controller 1**: 500GB vdisk for boot and OpenEBS local-path storage
