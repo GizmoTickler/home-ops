@@ -103,9 +103,10 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 keda      # Autoscaling components
 │   │   └── 📁 volsync   # Backup and recovery
 │   └── 📁 flux          # Flux system configuration
+├── 📁 cmd               # HomeOps CLI source code
+│   └── 📁 homeops-cli   # Go-based automation tool
 ├── 📁 scripts           # Automation and utility scripts
-├── 📁 talos             # Talos Linux configuration templates
-└── 📁 .taskfiles        # Task automation definitions
+└── 📁 talos             # Talos Linux configuration templates
 ```
 
 ### Flux Workflow
@@ -123,11 +124,37 @@ graph TD
 
 ### Automation & Tooling
 
-The repository includes comprehensive automation for cluster management:
+The repository includes comprehensive automation for cluster management through a custom Go-based CLI:
 
-- **Task Automation**: [Task](https://taskfile.dev/) for common operations (bootstrap, upgrades, maintenance)
-- **Template Rendering**: [minijinja-cli](https://github.com/mitsuhiko/minijinja) for Jinja2 template processing
-- **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) for secure secret injection
+#### HomeOps CLI (`cmd/homeops-cli`)
+
+A purpose-built Go application that provides complete infrastructure automation:
+
+**Core Capabilities:**
+- **Bootstrap**: Complete cluster initialization with preflight checks and 1Password integration
+- **Talos Operations**: Node configuration, VM deployment, ISO generation, and Kubernetes upgrades
+- **VM Management**: ESXi VM creation with custom Talos ISOs and dedicated storage controllers
+- **Volume Operations**: VolSync-based backup and restore with Kopia integration
+- **Kubernetes Management**: Deployment restarts, PVC browsing, and maintenance operations
+
+**Key Commands:**
+```bash
+# Bootstrap entire cluster
+./homeops-cli bootstrap
+
+# Talos node operations
+./homeops-cli talos apply-node --ip 192.168.122.10
+./homeops-cli talos deploy-vm --name test_node --generate-iso
+./homeops-cli talos upgrade-k8s
+
+# Volume backup/restore
+./homeops-cli volsync snapshot --pvc data-pvc --namespace default
+./homeops-cli volsync restore --pvc data-pvc --namespace default
+```
+
+**Supporting Tools:**
+- **Template Rendering**: Embedded Jinja2 templates with [minijinja](https://github.com/mitsuhiko/minijinja)
+- **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) integration for secure secret management
 - **Environment Management**: [mise](https://github.com/jdx/mise) for tool and environment variable management
 - **Configuration Validation**: Pre-commit hooks with kubeconform and YAML linting
 - **CI/CD**: GitHub Actions for automated testing, schema validation, and deployment
@@ -219,11 +246,14 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 | Component                   | Specifications                                      | Function                          |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
 | **ESXi Host**               | VMware ESXi Hypervisor                             | VM compute & management           |
-| ├─ **CPU**                  | 2x Intel Xeon E5-2630 v4 @ 2.20GHz (20 cores)     | VM compute resources              |
-| ├─ **Memory**               | 384GB RAM                                           | VM memory allocation              |
-| └─ **Network**              | 4x 10GbE NICs (LACP to Cisco switch)              | High-speed VM networking          |
+| ├─ **CPU**                  | 2x Intel Xeon E5-2640 v4 @ 2.40GHz (20 cores)     | VM compute resources              |
+| ├─ **Memory**               | 256GB RAM                                           | VM memory allocation              |
+| ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | High-speed VM networking          |
+| └─ **Storage**              | 2x 500GB SATA SSD                                  | Boot and local datastore          |
 | **Storage Server**          | TrueNAS Scale                                       | NFS 4.1 datastore provider        |
-| ├─ **Network**              | 4x 10GbE NICs (LACP to Cisco switch)              | Storage network (40Gbps total)   |
+| ├─ **CPU**                  | 2x Intel Xeon E5-2630 v4 @ 2.20GHz (20 cores)     | Storage processing                |
+| ├─ **Memory**               | 384GB RAM                                           | ARC cache and services            |
+| ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | Storage network (40Gbps total)   |
 | └─ **Protocol**             | NFS 4.1 with multipath                             | VM datastore access               |
 | **Network Switch**          | Cisco Switch                                        | Infrastructure interconnect       |
 | └─ **Configuration**        | 4x10Gbps LACP between TrueNAS and ESXi            | High-bandwidth storage path       |
@@ -232,10 +262,9 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | Storage Tier                | Hardware                                            | Purpose                           |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **TrueNAS Primary Pool**    | 12x SSD (8x 4TB + 4x 1TB) in 3x RAIDZ vdevs       | NFS datastores for VMs            |
-| **Hot Spare**               | 1x 4TB SSD                                         | Automatic replacement             |
-| **SLOG (Intent Log)**       | 2x 800GB Intel NVMe (mirrored)                     | Synchronous write acceleration    |
-| **Special Metadata vdev**   | 2x 1.6TB Hitachi NVMe (mirrored)                   | Metadata & small block storage    |
+| **TrueNAS Primary Pool**    | 3x RAIDZ vdevs (4 disks each, 3.8TB SSDs)         | NFS datastores for VMs            |
+| **SLOG (Intent Log)**       | 2x 800GB NVMe (mirrored)                           | Synchronous write acceleration    |
+| **Special Metadata vdev**   | 2x 1.5TB NVMe (mirrored)                           | Metadata & small block storage    |
 
 ### Virtual Machine Configuration
 
@@ -248,7 +277,7 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 - Controller 1: 500GB vdisk for Talos boot and OpenEBS local-path storage
 - Controller 2: 1TB vdisk exclusively for Rook Ceph distributed storage
 
-**Total VM Resources**: 24 vCPUs, 144GB RAM allocated from the 40-core, 384GB host system.
+**Total VM Resources**: 24 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
 
 ---
 
