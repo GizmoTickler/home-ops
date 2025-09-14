@@ -60,12 +60,8 @@ spec:
               HEALTH_SERVER_ADDRESS: :9999
               HEALTH_SUCCESS_WAIT_DURATION: 60s
               VPN_TYPE: wireguard
-              VPN_PORT_FORWARDING: "on"
-              PORT_FORWARD_ONLY: "on"
               VPN_INTERFACE: tun0
               UPDATER_PERIOD: 24h
-              VPN_PORT_FORWARDING_UP_COMMAND: '/bin/sh -c ''wget -O- --retry-connrefused --post-data "json={\"listen_port\":{{ "{{PORTS}}" }}}" http://127.0.0.1:80/api/v2/app/setPreferences 2>&1'''
-              VPN_PORT_FORWARDING_DOWN_COMMAND: '/bin/sh -c ''wget -O- --retry-connrefused --post-data "json={\"listen_port\":65535}" http://127.0.0.1:80/api/v2/app/setPreferences 2>&1'''
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
