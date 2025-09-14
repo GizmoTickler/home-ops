@@ -30,24 +30,9 @@ spec:
               - -conf
               - /etc/coredns/Corefile
             restartPolicy: Always
-          qbrr-downloader:
-            image:
-              repository: alpine
-              tag: latest
-            command:
-              - /bin/sh
-              - -c
-              - |-
-                cd /tmp
-                wget https://github.com/buroa/qbrr/releases/download/0.0.28/qbrr_0.0.28_linux_amd64.tar.gz
-                tar -xzf qbrr_0.0.28_linux_amd64.tar.gz
-                cp qbrr /config/qbrr
-                chmod +x /config/qbrr
-                echo "qbrr binary downloaded and installed to /config/qbrr"
           gluetun:
             dependsOn:
               - coredns
-              - qbrr-downloader
             image:
               repository: ghcr.io/qdm12/gluetun
               tag: v3.40.0@sha256:2b42bfa046757145a5155acece417b65b4443c8033fb88661a8e9dcf7fda5a00
@@ -204,14 +189,12 @@ spec:
           - backendRefs:
               - name: *app
                 port: *port
-
     configMaps:
       config:
         data:
           .qbt.toml: |-
             [qbittorrent]
             addr = "http://localhost:80"
-
     persistence:
       config:
         existingClaim: *app
@@ -256,3 +239,8 @@ spec:
         globalMounts:
           - path: /media/torrents
             subPath: torrents
+      qbrr:
+        type: image
+        image: ghcr.io/buroa/qbrr:0.1.1@sha256:fe4a1d100ba896999253a5122d9c77cc4920779d618c23f765458cb6ec7383ca
+        globalMounts:
+          - readOnly: true
