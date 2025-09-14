@@ -243,10 +243,6 @@ spec:
       tmpfs:
         type: emptyDir
         advancedMounts:
-          *app :
-            port-forward:
-              - path: /config
-                subPath: config
             app:
               - path: /addons
                 subPath: addons
