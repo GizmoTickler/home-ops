@@ -49,11 +49,6 @@ spec:
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
-            probes:
-              liveness:
-                enabled: true
-              startup:
-                enabled: true
             lifecycle:
               postStart:
                 exec:
