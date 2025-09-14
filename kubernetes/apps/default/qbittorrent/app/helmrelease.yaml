@@ -40,7 +40,6 @@ spec:
               DOT: "off"
               DNS_ADDRESS: 127.0.0.2
               HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH: &gluetunAuthPath /gluetun/auth.toml
-              FIREWALL_INPUT_PORTS: 80,8388,9999
               FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16 # Allow access to k8s subnets
               HEALTH_SERVER_ADDRESS: :9999
               HEALTH_SUCCESS_WAIT_DURATION: 60s
