@@ -49,6 +49,33 @@ spec:
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
+            probes:
+              liveness:
+                enabled: true
+                custom: true
+                spec: &probe
+                  exec:
+                    command:
+                      - /bin/sh
+                      - -c
+                      - >-
+                        $(wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/publicip/ip
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  successThreshold: 1
+                  timeoutSeconds: 1
+                  failureThreshold: 30
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  <<: *probe
+                  exec:
+                    command:
+                      - /bin/sh
+                      - -c
+                      - >-
+                        wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/publicip/ip
             lifecycle:
               postStart:
                 exec:
@@ -184,8 +211,6 @@ spec:
           *app :
             app:
               - path: /config
-            qbrr-downloader:
-              - path: /config
       config-file:
         type: configMap
         name: *app
@@ -214,6 +239,14 @@ spec:
             vuetorrent:
               - path: /addons
                 subPath: addons
+      gluetun-auth:
+        type: secret
+        name: "{{ .Release.Name }}-gluetun"
+        advancedMounts:
+          *app :
+            gluetun:
+              - path: *gluetunAuthPath
+                subPath: auth.toml
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
