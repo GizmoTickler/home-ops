@@ -18,7 +18,7 @@ spec:
       retries: 3
   values:
     controllers:
-      *app :
+      *app:
         annotations:
           reloader.stakater.com/auto: "true"
         initContainers:
@@ -46,7 +46,6 @@ spec:
               HEALTH_SUCCESS_WAIT_DURATION: 60s
               VPN_TYPE: wireguard
               VPN_INTERFACE: tun0
-              UPDATER_PERIOD: 24h
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
@@ -94,7 +93,8 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: false # wants to create a user, etc
               capabilities:
-                add: [NET_ADMIN]
+                add:
+                  - NET_ADMIN
             resources:
               limits:
                 squat.ai/tun: 1
@@ -114,7 +114,7 @@ spec:
             securityContext: &securityContext
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: [ALL] }
+              capabilities: {drop: [ALL]}
         containers:
           app:
             image:
@@ -209,14 +209,14 @@ spec:
       config:
         existingClaim: *app
         advancedMounts:
-          *app :
+          *app:
             app:
               - path: /config
       config-file:
         type: configMap
         name: *app
         advancedMounts:
-          *app : # in qbit config, set "on torrent add" to "/config/qbrr --hash "%I" && qbt tag delete "cross-seed""
+          *app: # in qbit config, set "on torrent add" to "/config/qbrr --hash "%I" && qbt tag delete "cross-seed""
             app:
               - path: /config/.qbt.toml
                 subPath: .qbt.toml
@@ -233,7 +233,7 @@ spec:
       tmpfs:
         type: emptyDir
         advancedMounts:
-          *app :
+          *app:
             app:
               - path: /addons
                 subPath: addons
@@ -244,7 +244,7 @@ spec:
         type: secret
         name: "{{ .Release.Name }}-gluetun"
         advancedMounts:
-          *app :
+          *app:
             gluetun:
               - path: *gluetunAuthPath
                 subPath: auth.toml
