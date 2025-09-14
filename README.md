@@ -43,7 +43,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
   - **Controller 2**: 1TB vdisk dedicated for Rook Ceph distributed storage
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
-- **DNS**: k8s-gateway for internal resolution, external-dns for Cloudflare integration
+- **DNS**: external-dns for both Cloudflare and Unifi local DNS management
 
 ### Core Components
 
@@ -51,10 +51,9 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [cert-manager](https://github.com/cert-manager/cert-manager): Automated TLS certificate management with Google Trust Services.
 - [cilium](https://github.com/cilium/cilium): eBPF-based networking, security, and Gateway API implementation with L2 announcements.
 - [cloudflared](https://github.com/cloudflare/cloudflared): Secure tunnels to Cloudflare for external access via Cloudflare Tunnel.
-- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare integration.
+- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and Unifi API integration.
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
-- [k8s-gateway](https://github.com/ori-edge/k8s_gateway): Internal DNS resolution for cluster services and HTTPRoutes.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
 - [rook-ceph](https://github.com/rook/rook): Distributed block storage with Ceph for persistent storage and data resilience.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
@@ -185,11 +184,11 @@ The cluster implements a sophisticated networking architecture using Cilium and 
 
 ### External Access
 - **Cloudflare Tunnel**: Secure external access via `cloudflared` without port forwarding
-- **External DNS**: Automatic DNS record management in Cloudflare for public services
+- **External DNS (Cloudflare)**: Automatic DNS record management in Cloudflare for public services
 - **Gateway API**: Cilium-based ingress with dedicated LoadBalancer IPs per application
 
 ### Internal Resolution
-- **k8s-gateway**: Internal DNS resolution for cluster services and HTTPRoutes
+- **External DNS (Unifi)**: Additional external-dns deployment leveraging Unifi local API for internal DNS record updates
 - **CoreDNS**: Kubernetes cluster DNS with custom configurations
 - **Cilium Announcements**: Cilium L2/BGP announcements for LoadBalancer IP allocation
 
