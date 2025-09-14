@@ -39,6 +39,7 @@ spec:
             env:
               DOT: "off"
               DNS_ADDRESS: 127.0.0.2
+              FIREWALL_INPUT_PORTS: 80,8388,9999
               FIREWALL_OUTBOUND_SUBNETS: 10.42.0.0/16,10.43.0.0/16 # Allow access to k8s subnets
               HEALTH_SERVER_ADDRESS: :9999
               HEALTH_SUCCESS_WAIT_DURATION: 60s
@@ -51,11 +52,6 @@ spec:
             probes:
               liveness:
                 enabled: true
-                  initialDelaySeconds: 10
-                  periodSeconds: 10
-                  successThreshold: 1
-                  timeoutSeconds: 1
-                  failureThreshold: 30
               startup:
                 enabled: true
             lifecycle:
@@ -109,10 +105,18 @@ spec:
               - secretRef:
                   name: qbittorrent-secret
             probes:
-              liveness:
+              liveness: &probes
                 enabled: true
-              readiness:
-                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/v2/app/version
+                    port: *port
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 1
+                  failureThreshold: 3
+              readiness: *probes
               startup:
                 enabled: true
                 spec:
