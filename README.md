@@ -3,7 +3,7 @@
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes cluster running on TrueNAS Scale VMs, managed with Talos, Flux, and GitOps_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
+_Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos, Flux, and GitOps_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 </div>
 
@@ -22,21 +22,25 @@ _Kubernetes cluster running on TrueNAS Scale VMs, managed with Talos, Flux, and 
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Talos Linux](https://www.talos.dev/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on libvirt VMs hosted on TrueNAS Scale, providing a flexible virtualized environment that balances learning opportunities with production-like operations.
+**Architecture**: The cluster runs on VMware ESXi VMs with high-performance TrueNAS storage backing via NFS 4.1 multipath over 4x10Gbps link aggregation, providing production-grade virtualization with dedicated NVMe storage controllers for optimal performance.
 
 ---
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on libvirt VMs running on TrueNAS Scale. This setup provides a production-like Kubernetes environment while maintaining the flexibility to experiment and learn. The cluster features a hyper-converged architecture where compute and storage are co-located on the same nodes.
+The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with high-performance storage provided by TrueNAS over high-speed network connections. This setup provides a production-like Kubernetes environment with dedicated storage controllers for optimal performance. The cluster features a hyper-converged architecture where compute and storage are co-located on the same nodes.
 
 ### Infrastructure Details
 
-- **Host OS**: TrueNAS Scale with libvirt/QEMU virtualization
+- **Hypervisor**: VMware ESXi with advanced virtualization features
+- **Storage Backend**: TrueNAS providing NFS 4.1 datastores with multipath over 4x10Gbps link aggregation
+- **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux v1.11.rc0 (immutable, minimal, secure)
 - **Kubernetes Version**: v1.33.4
-- **VM Configuration**: 3 control plane nodes, each with 10 vCPUs and 48GB RAM
-- **Storage Strategy**: Multi-tier approach using local NVMe for performance and Rook Ceph for distributed resilience
+- **VM Configuration**: 3 control plane nodes, each with 8 vCPUs and 48GB RAM
+- **Storage Strategy**: Dual NVMe controller architecture:
+  - **Controller 1**: 500GB vdisk for boot and OpenEBS local-path storage
+  - **Controller 2**: 1TB vdisk dedicated for Rook Ceph distributed storage
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: k8s-gateway for internal resolution, external-dns for Cloudflare integration
@@ -214,34 +218,43 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | Component                   | Specifications                                      | Function                          |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **Host Server**             | Intel R2000 Server                                 | Virtualization Host               |
+| **ESXi Host**               | VMware ESXi Hypervisor                             | VM compute & management           |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2630 v4 @ 2.20GHz (20 cores)     | VM compute resources              |
 | ├─ **Memory**               | 384GB RAM                                           | VM memory allocation              |
-| ├─ **Network**              | 2x 10GbE bonded NICs                               | High-speed networking             |
-| └─ **Operating System**     | TrueNAS Scale                                       | VM host & storage management      |
+| └─ **Network**              | 4x 10GbE NICs (LACP to Cisco switch)              | High-speed VM networking          |
+| **Storage Server**          | TrueNAS Scale                                       | NFS 4.1 datastore provider        |
+| ├─ **Network**              | 4x 10GbE NICs (LACP to Cisco switch)              | Storage network (40Gbps total)   |
+| └─ **Protocol**             | NFS 4.1 with multipath                             | VM datastore access               |
+| **Network Switch**          | Cisco Switch                                        | Infrastructure interconnect       |
+| └─ **Configuration**        | 4x10Gbps LACP between TrueNAS and ESXi            | High-bandwidth storage path       |
 
 ### Storage Architecture
 
 | Storage Tier                | Hardware                                            | Purpose                           |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **Primary Pool**            | 12x SSD (8x 4TB + 4x 1TB) in 3x RAIDZ vdevs       | VM storage & datasets             |
+| **TrueNAS Primary Pool**    | 12x SSD (8x 4TB + 4x 1TB) in 3x RAIDZ vdevs       | NFS datastores for VMs            |
 | **Hot Spare**               | 1x 4TB SSD                                         | Automatic replacement             |
 | **SLOG (Intent Log)**       | 2x 800GB Intel NVMe (mirrored)                     | Synchronous write acceleration    |
 | **Special Metadata vdev**   | 2x 1.6TB Hitachi NVMe (mirrored)                   | Metadata & small block storage    |
 
 ### Virtual Machine Configuration
 
-| VM Role                     | Count | vCPU | Memory | Storage Layout                    | OS            |
-|-----------------------------|-------|------|--------|-----------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 10    | 48GB   | 250GB (OS) + 1TB (local) + 800GB (ceph) | Talos Linux   |
+| VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
+|-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
+| **Kubernetes Control Plane** | 3     | 8     | 48GB   | 500GB NVMe vdisk (boot/local) + 1TB NVMe vdisk (Rook Ceph) | Talos Linux   |
 
-**Total VM Resources**: 30 vCPUs, 144GB RAM allocated from the 40-core, 384GB host system.
+**Storage Details**:
+- Each VM has two dedicated NVMe controllers for isolation and performance
+- Controller 1: 500GB vdisk for Talos boot and OpenEBS local-path storage
+- Controller 2: 1TB vdisk exclusively for Rook Ceph distributed storage
+
+**Total VM Resources**: 24 vCPUs, 144GB RAM allocated from the 40-core, 384GB host system.
 
 ---
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4da/512.gif" alt="📚" width="20" height="20"> Learning & Credits
 
-This homelab serves as a continuous learning platform for cloud-native technologies, GitOps practices, and infrastructure automation. The setup provides hands-on experience with enterprise-grade tools and practices in a controlled environment.
+This homelab serves as a continuous learning platform for cloud-native technologies, GitOps practices, and infrastructure automation. The setup provides hands-on experience with production-grade tools and practices in a controlled environment.
 
 **Special thanks to [onedr0p](https://github.com/onedr0p)** and the [k8s-at-home](https://github.com/k8s-at-home) community. This repository was heavily inspired by onedr0p's [home-ops](https://github.com/onedr0p/home-ops) repository, which served as an excellent learning resource and foundation for understanding GitOps workflows and Kubernetes cluster management.
 
