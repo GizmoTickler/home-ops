@@ -44,6 +44,8 @@ machine:
         hard=True
         nconnect=16
         noatime=True
+        rsize=1048576
+        wsize=1048576
   install:
     disk: /dev/nvme0n1
     image: factory.talos.dev/vmware-installer/e9e5424769aecd480f5fec862391b37f62e2956faa42fa23fd16ec757810fb35:v1.11.1
