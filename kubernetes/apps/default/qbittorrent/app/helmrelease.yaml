@@ -59,7 +59,7 @@ spec:
                       - /bin/sh
                       - -c
                       - >-
-                        $(wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/publicip/ip
+                        wget -O - -q --header="X-API-KEY: $GLUETUN_CONTROL_SERVER_API_KEY" http://localhost:8000/v1/publicip/ip
                   initialDelaySeconds: 10
                   periodSeconds: 10
                   successThreshold: 1
