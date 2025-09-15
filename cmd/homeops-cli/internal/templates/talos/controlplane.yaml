@@ -44,8 +44,6 @@ machine:
         hard=True
         nconnect=16
         noatime=True
-        rsize=1048576
-        wsize=1048576
   install:
     disk: /dev/nvme0n1
     image: factory.talos.dev/vmware-installer/e9e5424769aecd480f5fec862391b37f62e2956faa42fa23fd16ec757810fb35:v1.11.1
@@ -79,33 +77,21 @@ machine:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
   sysctls:
-    # Existing settings (keep these)
-    fs.inotify.max_user_instances: "8192"
-    fs.inotify.max_user_watches: "1048576"
-    net.core.default_qdisc: fq
-    net.ipv4.neigh.default.gc_thresh1: "4096"
-    net.ipv4.neigh.default.gc_thresh2: "8192"
-    net.ipv4.neigh.default.gc_thresh3: "16384"
-    net.ipv4.tcp_congestion_control: bbr
-    net.ipv4.tcp_fastopen: "3"
-    net.ipv4.tcp_mtu_probing: "1"
-    net.ipv4.tcp_window_scaling: "1"
-    sunrpc.tcp_max_slot_table_entries: "128"
-    sunrpc.tcp_slot_table_entries: "128"
-    user.max_user_namespaces: "11255"
-    vm.nr_hugepages: "1024"
-
-    # INCREASE THESE for 10Gbps NFS
-    net.core.rmem_max: "134217728" # 128MB (was 64MB)
-    net.core.wmem_max: "134217728" # 128MB (was 64MB)
-    net.ipv4.tcp_rmem: "4096 131072 134217728" # 128MB max (was 32MB)
-    net.ipv4.tcp_wmem: "4096 65536 134217728" # 128MB max (was 32MB)
-
-    # ADD THESE for NFS optimization
-    net.core.netdev_max_backlog: "30000"
-    net.ipv4.tcp_slow_start_after_idle: "0"
-    net.ipv4.tcp_timestamps: "1"
-    net.ipv4.tcp_sack: "1"
+    fs.inotify.max_user_watches: 1048576 # Watchdog
+    fs.inotify.max_user_instances: 8192 # Watchdog
+    net.core.default_qdisc: fq # 10Gb/s
+    net.core.rmem_max: 67108864 # 10Gb/s | Cloudflared / QUIC
+    net.core.wmem_max: 67108864 # 10Gb/s | Cloudflared / QUIC
+    net.ipv4.tcp_congestion_control: bbr # 10Gb/s
+    net.ipv4.tcp_fastopen: 3 # Send and accept data in the opening SYN packet
+    net.ipv4.tcp_mtu_probing: 1 # 10Gb/s | Jumbo frames
+    net.ipv4.tcp_rmem: 4096 87380 33554432 # 10Gb/s
+    net.ipv4.tcp_wmem: 4096 65536 33554432 # 10Gb/s
+    net.ipv4.tcp_window_scaling: 1 # 10Gb/s
+    sunrpc.tcp_slot_table_entries: 128 # 10Gb/s | NFS
+    sunrpc.tcp_max_slot_table_entries: 128 # 10Gb/s | NFS
+    user.max_user_namespaces: 11255 # User Namespaces
+    vm.nr_hugepages: 1024 # HugePages
   token: op://Infrastructure/talos/MACHINE_TOKEN
 cluster:
   ca:
