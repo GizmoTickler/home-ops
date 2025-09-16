@@ -16,6 +16,7 @@ resources:
   - ./jellyseerr/ks.yaml
   - ./karakeep/ks.yaml
   - ./n8n/ks.yaml
+  - ./nzbget/ks.yaml
   - ./ocis/ks.yaml
   - ./pinchflat/ks.yaml
   - ./prowlarr/ks.yaml
