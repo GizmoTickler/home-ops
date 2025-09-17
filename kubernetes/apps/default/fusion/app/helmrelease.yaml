@@ -43,7 +43,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 50m
@@ -76,6 +76,6 @@ spec:
             sectionName: https-fusion
     persistence:
       config:
-        existingClaim: fusion
+        existingClaim: "{{ .Release.Name }}"
         globalMounts:
           - path: /data

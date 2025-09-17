@@ -35,11 +35,12 @@ spec:
             envFrom:
               - secretRef:
                   name: recyclarr-secret
-            args: ["sync"]
+            args:
+              - "sync"
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 5m
@@ -57,14 +58,13 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
     persistence:
       config:
-        existingClaim: recyclarr
+        existingClaim: "{{ .Release.Name }}"
       config-file:
         type: configMap
         name: recyclarr-configmap
         globalMounts:
           - path: /config/recyclarr.yml
             subPath: recyclarr.yml
-            readOnly: true
       tmpfs:
         type: emptyDir
         advancedMounts:

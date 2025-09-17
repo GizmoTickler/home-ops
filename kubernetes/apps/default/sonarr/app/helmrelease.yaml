@@ -55,7 +55,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 20m
@@ -76,14 +76,15 @@ spec:
             port: *port
     route:
       app:
-        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
           - name: sonarr-gateway
             namespace: default
             sectionName: https
     persistence:
       config:
-        existingClaim: sonarr
+        existingClaim: "{{ .Release.Name }}"
       config-cache:
         existingClaim: sonarr-cache
         globalMounts:

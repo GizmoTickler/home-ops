@@ -46,7 +46,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 15m
@@ -60,7 +60,8 @@ spec:
         runAsGroup: 1000
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
-        supplementalGroups: [44]
+        supplementalGroups:
+          - 44
     service:
       app:
         ports:
@@ -68,14 +69,15 @@ spec:
             port: *port
     route:
       app:
-        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
           - name: pinchflat-gateway
             namespace: default
             sectionName: https
     persistence:
       config:
-        existingClaim: pinchflat
+        existingClaim: "{{ .Release.Name }}"
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
