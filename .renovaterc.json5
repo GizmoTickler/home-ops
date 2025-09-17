@@ -5,6 +5,7 @@
     "docker:enableMajor",
     "helpers:pinGitHubActionDigests",
     "github>GizmoTickler/home-ops//.renovate/autoMerge.json5",
+    "github>GizmoTickler/home-ops//.renovate/changelogs.json5",
     "github>GizmoTickler/home-ops//.renovate/customManagers.json5",
     "github>GizmoTickler/home-ops//.renovate/grafanaDashboards.json5",
     "github>GizmoTickler/home-ops//.renovate/groups.json5",
