@@ -1,13 +1,10 @@
-# yamllint disable rule:line-length
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/source.toolkit.fluxcd.io/ocirepository_v1.json
-# yamllint enable rule:line-length
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
   name: fluent-bit
 spec:
-  interval: 15m
+  interval: 5m
   layerSelector:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
