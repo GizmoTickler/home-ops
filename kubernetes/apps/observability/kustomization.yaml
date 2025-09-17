@@ -6,7 +6,6 @@ namespace: observability
 components:
   - ../../components/common
 resources:
-  - ./alloy/ks.yaml
   - ./blackbox-exporter/ks.yaml
   - ./grafana/ks.yaml
   - ./keda/ks.yaml
@@ -14,5 +13,5 @@ resources:
   - ./kube-prometheus-stack/ks.yaml
   - ./loki/ks.yaml
   - ./silence-operator/ks.yaml
-  #  - ./fluent-bit/ks.yaml
+  - ./fluent-bit/ks.yaml
   - ./unpoller/ks.yaml
