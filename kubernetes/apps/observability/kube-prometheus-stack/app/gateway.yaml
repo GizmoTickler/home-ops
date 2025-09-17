@@ -41,7 +41,7 @@ spec:
         certificateRefs:
           - kind: Secret
             name: prometheus-tls
-    - name: https-atuin
+    - name: https-alertmanager
       protocol: HTTPS
       port: 443
       hostname: "alertmanager.${SECRET_DOMAIN}"
