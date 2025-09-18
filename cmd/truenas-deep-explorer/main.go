@@ -34,7 +34,7 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	// Try 1Password first
 	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
 	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
-	
+
 	// Fall back to environment variables if 1Password fails
 	if host == "" {
 		host = os.Getenv("TRUENAS_HOST")
@@ -42,12 +42,12 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 	if apiKey == "" {
 		apiKey = os.Getenv("TRUENAS_API_KEY")
 	}
-	
+
 	// Check if we have both credentials
 	if host == "" || apiKey == "" {
 		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set TRUENAS_HOST and TRUENAS_API_KEY environment variables or configure 1Password with 'op://Infrastructure/talosdeploy/TRUENAS_HOST' and 'op://Infrastructure/talosdeploy/TRUENAS_API'")
 	}
-	
+
 	return host, apiKey, nil
 }
 
@@ -357,7 +357,7 @@ func generateDeepMarkdown(methods []APIMethodInfo, vmExamples, datasetExamples [
 			// Determine if this is an error or parameter discovery
 			exampleStr := fmt.Sprintf("%v", method.Example)
 			if strings.Contains(exampleStr, "missing") ||
-			   strings.Contains(exampleStr, "required") {
+				strings.Contains(exampleStr, "required") {
 				md.WriteString("**Parameter Requirements (discovered from errors):**\n\n")
 			} else {
 				md.WriteString("**Error/Additional Info:**\n\n")
