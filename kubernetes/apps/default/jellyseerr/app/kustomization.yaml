@@ -7,5 +7,3 @@ resources:
   - ./externalsecret.yaml
   - ./pvc.yaml
   - ./helmrelease.yaml
-  - ./gateway.yaml
-  - ./certificate.yaml
