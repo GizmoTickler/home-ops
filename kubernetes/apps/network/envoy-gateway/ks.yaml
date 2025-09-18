@@ -10,8 +10,8 @@ spec:
     labels:
       app.kubernetes.io/name: *app
   dependsOn:
-    - name: cert-manager
-      namespace: cert-manager
+    - name: certificates-import
+      namespace: network
     - name: envoy-gateway-crds
       namespace: network
   interval: 1h
