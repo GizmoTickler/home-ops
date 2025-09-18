@@ -195,8 +195,8 @@ spec:
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: qbittorrent-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
         rules:
           - backendRefs:

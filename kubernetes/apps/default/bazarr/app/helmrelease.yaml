@@ -68,8 +68,8 @@ spec:
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: bazarr-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
     persistence:
       config:
