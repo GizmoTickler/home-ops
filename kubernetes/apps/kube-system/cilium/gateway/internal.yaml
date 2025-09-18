@@ -21,14 +21,26 @@ spec:
       hostname: "*.${SECRET_DOMAIN}"
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - "default"
     - name: https
       protocol: HTTPS
       port: 443
       hostname: "*.${SECRET_DOMAIN}"
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                  - "default"
       tls:
         certificateRefs:
           - kind: Secret
