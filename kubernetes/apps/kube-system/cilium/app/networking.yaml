@@ -16,10 +16,8 @@ metadata:
   name: l2-policy
 spec:
   loadBalancerIPs: true
-  # NOTE: interfaces might need to be set if you have more than one active NIC on your hosts
-  # interfaces:
-  #   - ^eno[0-9]+
-  #   - ^eth[0-9]+
+  interfaces:
+    - eth0
   nodeSelector:
     matchLabels:
       kubernetes.io/os: linux
@@ -35,10 +33,11 @@ spec:
   advertisements:
     - advertisementType: Service
       service:
-        addresses: ["LoadBalancerIP"]
+        addresses:
+          - "LoadBalancerIP"
       selector:
         matchExpressions:
-          - { key: somekey, operator: NotIn, values: ["never-used-value"] }
+          - {key: somekey, operator: NotIn, values: ["never-used-value"]}
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cilium.io/ciliumbgppeerconfig_v2.json
 apiVersion: cilium.io/v2
@@ -71,3 +70,20 @@ spec:
           peerAddress: 192.168.123.254
           peerConfigRef:
             name: l3-bgp-peer-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-api
+  annotations:
+    lbipam.cilium.io/ips: 192.168.120.100
+spec:
+  type: LoadBalancer
+  selector:
+    k8s-app: kube-apiserver
+    tier: control-plane
+  ports:
+    - name: https
+      port: 6443
+      protocol: TCP
+      targetPort: 6443
