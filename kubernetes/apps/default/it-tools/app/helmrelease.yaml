@@ -42,7 +42,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 5m
@@ -66,8 +66,8 @@ spec:
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: it-tools-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
     persistence:
       tmpfs:
