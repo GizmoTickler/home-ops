@@ -8,5 +8,3 @@ resources:
   - ./externalsecret.yaml
   - ./helmrelease.yaml
   - ./scrapeconfig.yaml
-  - ./certificate.yaml
-  - ./gateway.yaml
