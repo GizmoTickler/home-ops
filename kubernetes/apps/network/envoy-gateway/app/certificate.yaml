@@ -1,0 +1,13 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cert-manager.io/certificate_v1.json
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: home-ops-wc
+spec:
+  secretName: home-ops-wc-tls
+  issuerRef:
+    name: gts-production
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.${SECRET_DOMAIN}"
