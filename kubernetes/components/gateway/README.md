@@ -19,6 +19,7 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
+      GATEWAY_CLASS: cilium
       GATEWAY_IP: "192.168.1.100"
     substituteFrom:
       - name: cluster-secrets
@@ -40,6 +41,7 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
+      GATEWAY_CLASS: cilium
       GATEWAY_IP: "192.168.123.107"
     substituteFrom:
       - name: cluster-secrets
@@ -59,6 +61,7 @@ For applications needing custom hostnames (not following the `${APP}.${SECRET_DO
 
 - `${APP}` - Used for gateway name, hostname subdomain, and TLS secret name
 - `${NAMESPACE}` - Namespace for the Gateway and Certificate resources
+- `${GATEWAY_CLASS}` - GatewayClass to use (`cilium` or `envoy`)
 - `${GATEWAY_IP}` - IP address for the Gateway listener
 - `${SECRET_DOMAIN}` - Domain suffix (from cluster secrets)
       annotations:
@@ -94,6 +97,7 @@ substitute:
   PRIMARY_HOSTNAME: "jellyseerr.${SECRET_DOMAIN}"
   ADDITIONAL_SANS: |
     - "requests.${SECRET_DOMAIN}"
+  GATEWAY_CLASS: envoy
   GATEWAY_IP: "192.168.123.105"
   # External DNS settings as needed
 ```

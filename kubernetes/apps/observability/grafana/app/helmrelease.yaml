@@ -234,8 +234,8 @@ spec:
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: grafana-gateway
-            namespace: observability
+          - name: envoy-internal
+            namespace: network
             sectionName: https
     persistence:
       enabled: false

@@ -9,15 +9,12 @@ spec:
   commonMetadata:
     labels:
       app.kubernetes.io/name: *app
-  components:
-    - ../../../../components/gateway
   interval: 1h
   path: ./kubernetes/apps/default/webhook/app
   postBuild:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.123.116"
   prune: true
   retryInterval: 2m
   sourceRef:

@@ -53,7 +53,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 10m
@@ -80,10 +80,11 @@ spec:
           - port: metrics
     route:
       app:
-        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: autobrr-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
     persistence:
       config:

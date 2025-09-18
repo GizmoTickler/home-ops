@@ -75,12 +75,9 @@ spec:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
           - sh.${SECRET_DOMAIN}
         parentRefs:
-          - name: atuin-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
-          - name: atuin-gateway
-            namespace: default
-            sectionName: https-atuin
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"

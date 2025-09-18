@@ -80,7 +80,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: false
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 10m
@@ -164,10 +164,11 @@ spec:
                 subPath: meilisearch
     route:
       app:
-        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: karakeep-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
         rules:
           - backendRefs:

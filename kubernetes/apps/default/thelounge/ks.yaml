@@ -11,7 +11,6 @@ spec:
       app.kubernetes.io/name: *app
   components:
     - ../../../../components/volsync
-    - ../../../../components/gateway
   dependsOn:
     - name: rook-ceph-cluster
       namespace: rook-ceph
@@ -22,7 +21,6 @@ spec:
       APP: *app
       VOLSYNC_CAPACITY: 5Gi
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.123.119"
   prune: true
   retryInterval: 2m
   sourceRef:

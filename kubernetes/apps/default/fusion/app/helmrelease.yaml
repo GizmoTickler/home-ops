@@ -68,12 +68,9 @@ spec:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
           - feeds.${SECRET_DOMAIN}
         parentRefs:
-          - name: fusion-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
-          - name: fusion-gateway
-            namespace: default
-            sectionName: https-fusion
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"

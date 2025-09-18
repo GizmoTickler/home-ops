@@ -31,7 +31,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             probes:
               liveness:
                 enabled: true
@@ -57,10 +57,11 @@ spec:
             port: 9000
     route:
       app:
-        hostnames: ["{{ .Release.Name }}.${SECRET_DOMAIN}"]
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: thelounge-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
     persistence:
       config:

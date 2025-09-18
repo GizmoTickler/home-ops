@@ -30,9 +30,9 @@ spec:
           hostnames:
             - "alertmanager.${SECRET_DOMAIN}"
           parentRefs:
-            - name: kube-prometheus-gateway
-              namespace: observability
-              sectionName: https-alertmanager
+            - name: envoy-internal
+              namespace: network
+              sectionName: https
       alertmanagerSpec:
         alertmanagerConfiguration:
           name: alertmanager
@@ -59,8 +59,8 @@ spec:
           hostnames:
             - "prometheus.${SECRET_DOMAIN}"
           parentRefs:
-            - name: kube-prometheus-gateway
-              namespace: observability
+            - name: envoy-internal
+              namespace: network
               sectionName: https
       prometheusSpec:
         image:

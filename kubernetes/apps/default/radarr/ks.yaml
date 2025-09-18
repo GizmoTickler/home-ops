@@ -12,7 +12,6 @@ spec:
   components:
     - ../../../../components/keda/nfs-scaler
     - ../../../../components/volsync
-    - ../../../../components/gateway
   dependsOn:
     - name: keda
       namespace: observability
@@ -25,7 +24,6 @@ spec:
       APP: *app
       VOLSYNC_CAPACITY: 5Gi
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.123.104"
   prune: true
   retryInterval: 2m
   sourceRef:
