@@ -11,7 +11,6 @@ spec:
       app.kubernetes.io/name: *app
   components:
     - ../../../../components/keda/nfs-scaler
-    - ../../../../components/gateway
   dependsOn:
     - name: volsync
       namespace: volsync-system
@@ -26,7 +25,6 @@ spec:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.123.125"
   prune: true
   retryInterval: 2m
   sourceRef:

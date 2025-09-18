@@ -10,10 +10,10 @@ metadata:
     cert-manager.io/private-key-algorithm: ECDSA
     cert-manager.io/private-key-size: "384"
 spec:
-  gatewayClassName: cilium
-  addresses:
-    - type: IPAddress
-      value: ${GATEWAY_IP}
+  gatewayClassName: ${GATEWAY_CLASS}
+  infrastructure:
+    annotations:
+      lbipam.cilium.io/ips: ${GATEWAY_IP}
   listeners:
     - name: http
       protocol: HTTP

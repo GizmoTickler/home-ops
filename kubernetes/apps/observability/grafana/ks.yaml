@@ -9,15 +9,12 @@ spec:
   commonMetadata:
     labels:
       app.kubernetes.io/name: *app
-  components:
-    - ../../../../components/gateway
   interval: 1h
   path: ./kubernetes/apps/observability/grafana/app
   postBuild:
     substitute:
       APP: *app
       NAMESPACE: *namespace
-      GATEWAY_IP: "192.168.123.113"
   prune: true
   retryInterval: 2m
   sourceRef:

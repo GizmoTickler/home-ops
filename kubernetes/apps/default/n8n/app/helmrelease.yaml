@@ -74,23 +74,25 @@ spec:
         hostnames:
           - *hostName
         parentRefs:
-          - name: n8n-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
       webhooks:
         hostnames:
           - "{{ .Release.Name }}-webhook.${SECRET_DOMAIN}"
         parentRefs:
-          - name: external
-            namespace: kube-system
+          - name: envoy-external
+            namespace: network
             sectionName: https
         rules:
           - matches:
               - path:
                   value: /webhook
-            backendRefs: [{}]
+            backendRefs:
+              - {}
           - matches:
               - path:
                   type: PathPrefix
                   value: /form
-            backendRefs: [{}]
+            backendRefs:
+              - {}

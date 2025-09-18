@@ -74,12 +74,9 @@ spec:
           - requests.${SECRET_DOMAIN}
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: jellyseerr-gateway
-            namespace: default
+          - name: envoy-internal
+            namespace: network
             sectionName: https
-          - name: jellyseerr-gateway
-            namespace: default
-            sectionName: https-jellyseerr
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"

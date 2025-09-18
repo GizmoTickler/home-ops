@@ -12,7 +12,6 @@ spec:
   components:
     - ../../../../components/keda/nfs-scaler
     - ../../../../components/volsync
-    - ../../../../components/gateway
   dependsOn:
     - name: rook-ceph-cluster
       namespace: rook-ceph
@@ -22,7 +21,6 @@ spec:
     substitute:
       APP: *app
       VOLSYNC_CAPACITY: 1Gi
-      GATEWAY_IP: "192.168.123.127"
       NAMESPACE: *namespace
   prune: true
   retryInterval: 2m
