@@ -6,8 +6,7 @@ This guide covers deploying Talos VMs on vSphere/ESXi using the homeops-cli tool
 
 1. **ESXi Configuration**:
    - ESXi 8 standalone host configured
-   - iSCSI datastore `truenas-flash` mounted
-   - NFS datastore `truenas-iso-nfs` with Talos ISO
+   - NFS datastore `truenas-nfs` with Talos ISO
    - Network port group `vl999` configured
 
 2. **Environment Variables or 1Password**:
@@ -23,8 +22,8 @@ This guide covers deploying Talos VMs on vSphere/ESXi using the homeops-cli tool
      - `op://Infrastructure/esxi/password`
 
 3. **Talos ISO**:
-   - Upload the Talos ISO to the `truenas-iso-nfs` datastore
-   - Default location: `[truenas-iso-nfs] vmware-amd64.iso`
+   - Upload the Talos ISO to the `datastore1` datastore
+   - Default location: `[datastore1] vmware-amd64.iso`
 
 ## Usage Examples
 
@@ -35,12 +34,11 @@ Deploy a single Talos VM with default specifications:
 ```bash
 ./homeops-cli talos deploy-vm \
   --provider vsphere \
-  --name talos-node-01 \
+  --name k8s-01 \
   --memory 49152 \
-  --vcpus 10 \
-  --disk-size 250 \
-  --openebs-size 1024 \
-  --rook-size 800
+  --vcpus 8 \
+  --disk-size 500 \
+  --rook-size 1024
 ```
 
 ### Deploy Multiple VMs in Parallel
@@ -50,20 +48,19 @@ Deploy 3 VMs concurrently with automatic numbering:
 ```bash
 ./homeops-cli talos deploy-vm \
   --provider vsphere \
-  --name talos-node \
+  --name k8s \
   --node-count 3 \
   --concurrent 3 \
   --memory 49152 \
-  --vcpus 10 \
-  --disk-size 250 \
-  --openebs-size 1024 \
-  --rook-size 800
+  --vcpus 8 \
+  --disk-size 500 \
+  --rook-size 1024
 ```
 
 This will create:
-- talos-node-01
-- talos-node-02
-- talos-node-03
+- k8s-01
+- k8s-02
+- k8s-03
 
 ### Deploy k8s Cluster Nodes
 
@@ -76,10 +73,9 @@ Deploy the 3 k8s cluster nodes with their predefined MAC addresses:
   --node-count 3 \
   --concurrent 3 \
   --memory 49152 \
-  --vcpus 10 \
-  --disk-size 250 \
-  --openebs-size 1024 \
-  --rook-size 800
+  --vcpus 8 \
+  --disk-size 500 \
+  --rook-size 1024
 ```
 
 This will create:
@@ -120,27 +116,19 @@ Deploy with a specific MAC address:
 
 The default VM specifications match your requirements:
 - **Memory**: 48GB (49152 MB)
-- **vCPUs**: 10
-- **Boot Disk**: 250GB (thin provisioned)
-- **OpenEBS Disk**: 1024GB / 1TB (thin provisioned)
-- **Rook Disk**: 800GB (thick provisioned for optimal Ceph performance)
-- **Datastore**: truenas-flash (iSCSI)
-- **Network**: vl999 (SR-IOV adapter)
+- **vCPUs**: 8
+- **Boot Disk**: 500GB (thin provisioned)
+- **Rook Disk**: 1024GB / 1TB (thin provisioned)
+- **Datastore**: truenas-nfs
+- **Network**: vl999
 - **ISO**: [datastore1] vmware-amd64.iso
 - **Guest OS**: Other 6.x or later Linux (64-bit)
-- **Network Adapter**: SR-IOV Ethernet Card
-- **SCSI Controller**: ParaVirtual SCSI
+- **Network Adapter**: vmxnet3
+- **NVMe Controller**: NVMe Controller per disk
 - **SATA Controller**: AHCI (for CD-ROM)
-
-Note: The Rook disk uses thick provisioning (eager zeroed) for better Ceph performance, while boot and OpenEBS disks use thin provisioning to save space.
-
-### SR-IOV Physical Function Distribution
-
-When deploying multiple VMs, the CLI automatically distributes them across available SR-IOV physical functions for optimal network performance:
-- VM 1, 3, 5, ... → Physical Function 0000:04:00.0
-- VM 2, 4, 6, ... → Physical Function 0000:04:00.1
-
-This ensures balanced network load across both physical functions of the dual-port X540-AT2 controller.
+- **Add Watchdog Timer**: Yes
+- **Disable UEFI Secure Boot**: Yes
+- **Add Precision Clock**: Yes
 
 ## Parallel Deployment
 
@@ -176,8 +164,8 @@ While the deployment command creates VMs on vSphere, you can manage them using s
 ## Troubleshooting
 
 1. **Connection Failed**: Verify ESXi host is reachable and credentials are correct
-2. **Datastore Not Found**: Ensure `truenas-flash` iSCSI datastore is mounted
-3. **ISO Not Found**: Check that the ISO exists at `[truenas-iso-nfs] vmware-amd64.iso`
+2. **Datastore Not Found**: Ensure `truenas-nfs` NFS datastore is mounted
+3. **ISO Not Found**: Check that the ISO exists at `[datastore1] vmware-amd64.iso`
 4. **Network Not Found**: Verify port group `vl999` exists in ESXi networking
 
 ## Notes
