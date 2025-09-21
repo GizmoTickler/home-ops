@@ -1,0 +1,21 @@
+---
+version: v1alpha1
+debug: false
+
+machine:
+  type: invalid-type # Invalid machine type
+  # Missing required token
+  ca:
+    crt: invalid-cert # Invalid certificate
+  install:
+    # Missing disk
+    image: invalid-image
+
+cluster:
+  # Missing id and secret
+  controlPlane:
+    endpoint: invalid-endpoint # Invalid endpoint format
+  # Missing clusterName
+  network:
+# Missing required network configuration
+# Missing token and other required fields
