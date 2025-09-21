@@ -12,15 +12,19 @@ type VMConfig struct {
 	LonghornSize int // Longhorn disk size in GB (default: 1000GB)
 
 	// vSphere specific configuration
-	Datastore        string // Datastore name (e.g., "truenas-flash")
-	Network          string // Network name (e.g., "VM Network")
-	ISO              string // ISO path on datastore (e.g., "[truenas-iso-nfs] metal-amd64.iso")
+	Datastore        string // Datastore name (e.g., "truenas-nfs")
+	Network          string // Network name (e.g., "vl999")
+	ISO              string // ISO path on datastore (e.g., "[truenas-nfs] vmware-amd64.iso")
 	MacAddress       string // Optional MAC address
 	PhysicalFunction string // SR-IOV Physical Function (e.g., "0000:04:00.0")
 
 	// Deployment options
-	PowerOn     bool // Power on VM after creation
-	EnableIOMMU bool // Enable IOMMU/VT-d for VM
+	PowerOn              bool // Power on VM after creation
+	EnableIOMMU          bool // Enable IOMMU/VT-d for VM
+	ExposeCounters       bool // Expose CPU performance counters
+	ThinProvisioned      bool // Use thin provisioned disks (default: true)
+	EnablePrecisionClock bool // Add precision clock device (default: true)
+	EnableWatchdog       bool // Add watchdog timer device (default: true)
 
 	// Talos specific
 	SchematicID  string // Optional: Talos factory schematic ID
@@ -54,15 +58,19 @@ type VMDeploymentConfig struct {
 // GetDefaultVMConfig returns a VM configuration with default Talos specs
 func GetDefaultVMConfig(name string) VMConfig {
 	return VMConfig{
-		Name:         name,
-		Memory:       48 * 1024, // 48GB
-		VCPUs:        8,
-		DiskSize:     500,  // 500GB boot/OpenEBS
-		LonghornSize: 1000, // 1TB Longhorn
-		Datastore:    "truenas",
-		Network:      "vl999",
-		PowerOn:      true,
-		EnableIOMMU:  true, // Enable IOMMU/VT-d by default for Talos VMs
+		Name:                 name,
+		Memory:               48 * 1024, // 48GB
+		VCPUs:                8,
+		DiskSize:             500,           // 500GB boot/OpenEBS
+		LonghornSize:         1000,          // 1TB Longhorn
+		Datastore:            "truenas-nfs", // Match the actual datastore name
+		Network:              "vl999",
+		PowerOn:              false, // Don't power on by default
+		EnableIOMMU:          true,  // Enable IOMMU/VT-d by default for Talos VMs
+		ExposeCounters:       true,  // Expose CPU performance counters
+		ThinProvisioned:      true,  // Use thin provisioned disks by default
+		EnablePrecisionClock: true,  // Add precision clock device
+		EnableWatchdog:       true,  // Add watchdog timer device
 	}
 }
 
