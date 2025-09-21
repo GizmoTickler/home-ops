@@ -94,7 +94,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to find datastore %s: %w", config.Datastore, err)
 	}
 
-	// Find network - needed for SR-IOV network backing
+	// Find network
 	network, err := c.finder.Network(c.ctx, config.Network)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find network %s: %w", config.Network, err)
@@ -106,48 +106,39 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to get folders: %w", err)
 	}
 
-	// Create VM spec
+	// Create extra config for specific requirements
+	extraConfig := []types.BaseOptionValue{
+		&types.OptionValue{Key: "disk.EnableUUID", Value: "TRUE"},
+	}
+
+	// Add CPU counter exposure if requested
+	if config.ExposeCounters {
+		extraConfig = append(extraConfig, &types.OptionValue{Key: "monitor.phys_bits_used", Value: "45"})
+	}
+
+	// Create VM spec with basic configuration
 	spec := types.VirtualMachineConfigSpec{
 		Name:     config.Name,
-		GuestId:  "other6xLinux64Guest", // Other 6.x or later Linux (64-bit) - matches manual VMs
-		NumCPUs:  int32(config.VCPUs),
-		MemoryMB: int64(config.Memory),
+		GuestId:  "other6xLinux64Guest", // Other 6.x or later Linux (64-bit)
+		NumCPUs:  int32(config.VCPUs),   // Set to 8 vCPUs
+		MemoryMB: int64(config.Memory),  // Set to 48GB (49152 MB)
 		Files: &types.VirtualMachineFileInfo{
 			VmPathName: fmt.Sprintf("[%s]", config.Datastore),
 		},
-		Firmware: "efi", // Use EFI for Talos
+		Firmware: "efi", // Use EFI boot
 		BootOptions: &types.VirtualMachineBootOptions{
-			EfiSecureBootEnabled: types.NewBool(false), // Disable secure boot for Talos
+			EfiSecureBootEnabled: types.NewBool(false), // Disable UEFI secure boot
 		},
 		Flags: &types.VirtualMachineFlagInfo{
 			VirtualMmuUsage:  "automatic",
 			VirtualExecUsage: "hvAuto",
-			VvtdEnabled:      types.NewBool(config.EnableIOMMU), // Enable IOMMU/VT-d based on config
+			VvtdEnabled:      types.NewBool(config.EnableIOMMU), // Enable IOMMU
 		},
-		// Memory reservation - reserve all guest memory for SR-IOV
-		MemoryReservationLockedToMax: types.NewBool(true),
-		MemoryAllocation: &types.ResourceAllocationInfo{
-			Reservation: types.NewInt64(int64(config.Memory)), // Reserve all memory in MB
-			Limit:       types.NewInt64(-1),                   // No limit
-			Shares: &types.SharesInfo{
-				Level: types.SharesLevelNormal,
-			},
-		},
-		// CPU allocation with high shares
-		CpuAllocation: &types.ResourceAllocationInfo{
-			Reservation: types.NewInt64(10000), // 10000MHz CPU reservation
-			Limit:       types.NewInt64(-1),    // No limit
-			Shares: &types.SharesInfo{
-				Level: types.SharesLevelHigh, // Set CPU shares to high
-			},
-		},
-		// VMware Tools configuration
+		VPMCEnabled: types.NewBool(config.ExposeCounters), // Enable virtualized CPU performance counters
+		ExtraConfig: extraConfig,
+		// VMware Tools configuration - sync time with host
 		Tools: &types.ToolsConfigInfo{
-			SyncTimeWithHost: types.NewBool(true), // Synchronize guest time with host
-		},
-		// Latency sensitivity configuration
-		LatencySensitivity: &types.LatencySensitivity{
-			Level: types.LatencySensitivitySensitivityLevelMedium, // Set latency sensitivity to medium
+			SyncTimeWithHost: types.NewBool(true),
 		},
 	}
 
@@ -156,42 +147,91 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		c.logger.Debug("IOMMU/VT-d enabled for VM %s", config.Name)
 	}
 
-	// Create devices
+	// Create only the specific additional devices needed
 	var devices []types.BaseVirtualDevice
 
-	// Add SCSI controller
-	scsiController := &types.ParaVirtualSCSIController{
-		VirtualSCSIController: types.VirtualSCSIController{
-			SharedBus: types.VirtualSCSISharingNoSharing,
-			VirtualController: types.VirtualController{
-				BusNumber: 0,
-				VirtualDevice: types.VirtualDevice{
-					Key: 1000,
-				},
+	// Create NVME controller 0 for boot disk
+	nvmeController0 := &types.VirtualNVMEController{
+		VirtualController: types.VirtualController{
+			VirtualDevice: types.VirtualDevice{
+				Key: -100, // Use negative key for automatic assignment
 			},
+			BusNumber: 0,
 		},
 	}
-	devices = append(devices, scsiController)
+	devices = append(devices, nvmeController0)
 
-	// Add SR-IOV network adapter - uses regular network backing, not physical function backing
+	// Create NVME controller 1 for Longhorn disk
+	nvmeController1 := &types.VirtualNVMEController{
+		VirtualController: types.VirtualController{
+			VirtualDevice: types.VirtualDevice{
+				Key: -101, // Use negative key for automatic assignment
+			},
+			BusNumber: 1,
+		},
+	}
+	devices = append(devices, nvmeController1)
+
+	// Create boot disk (500GB) on NVME controller 0
+	datastoreRef := datastore.Reference()
+	bootDisk := &types.VirtualDisk{
+		VirtualDevice: types.VirtualDevice{
+			Key:           -102, // Use negative key for automatic assignment
+			ControllerKey: -100, // NVME controller 0
+			UnitNumber:    types.NewInt32(0),
+			Backing: &types.VirtualDiskFlatVer2BackingInfo{
+				VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+					FileName:  fmt.Sprintf("[%s] %s/%s.vmdk", config.Datastore, config.Name, config.Name),
+					Datastore: &datastoreRef,
+				},
+				DiskMode:        "persistent",
+				ThinProvisioned: types.NewBool(config.ThinProvisioned),
+			},
+		},
+		CapacityInKB: int64(config.DiskSize) * 1024 * 1024, // GB to KB
+	}
+	devices = append(devices, bootDisk)
+
+	// Create Longhorn disk (1TB) on NVME controller 1
+	if config.LonghornSize > 0 {
+		longhornDisk := &types.VirtualDisk{
+			VirtualDevice: types.VirtualDevice{
+				Key:           -103, // Use negative key for automatic assignment
+				ControllerKey: -101, // NVME controller 1
+				UnitNumber:    types.NewInt32(0),
+				Backing: &types.VirtualDiskFlatVer2BackingInfo{
+					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+						FileName:  fmt.Sprintf("[%s] %s/%s_1.vmdk", config.Datastore, config.Name, config.Name),
+						Datastore: &datastoreRef,
+					},
+					DiskMode:        "persistent",
+					ThinProvisioned: types.NewBool(config.ThinProvisioned),
+				},
+			},
+			CapacityInKB: int64(config.LonghornSize) * 1024 * 1024, // GB to KB
+		}
+		devices = append(devices, longhornDisk)
+	}
+
+	// Create vmxnet3 network adapter and set to vl999 portgroup
 	backing, err := network.EthernetCardBackingInfo(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network backing: %w", err)
 	}
 
-	netDevice := &types.VirtualSriovEthernetCard{
-		VirtualEthernetCard: types.VirtualEthernetCard{
-			VirtualDevice: types.VirtualDevice{
-				Key:           13031,   // Match manual VM key exactly
-				ControllerKey: 100,     // PCI controller key from manual VM
-				Backing:       backing, // Use regular network backing for vl999
-			},
-			AddressType: "generated",
-		},
-		AllowGuestOSMtuChange: types.NewBool(false), // Disable guest OS MTU changes
-		SriovBacking: &types.VirtualSriovEthernetCardSriovBackingInfo{
-			PhysicalFunctionBacking: &types.VirtualPCIPassthroughDeviceBackingInfo{
-				Id: config.PhysicalFunction,
+	netDevice := &types.VirtualVmxnet3{
+		VirtualVmxnet: types.VirtualVmxnet{
+			VirtualEthernetCard: types.VirtualEthernetCard{
+				VirtualDevice: types.VirtualDevice{
+					Key:     -104, // Use negative key for automatic assignment
+					Backing: backing,
+					Connectable: &types.VirtualDeviceConnectInfo{
+						Connected:         true,
+						StartConnected:    true,
+						AllowGuestControl: true,
+					},
+				},
+				AddressType: "generated",
 			},
 		},
 	}
@@ -204,33 +244,35 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 	devices = append(devices, netDevice)
 
-	// Add SATA controller for CD-ROM (matches manual VMs)
-	sataController := &types.VirtualAHCIController{
-		VirtualSATAController: types.VirtualSATAController{
-			VirtualController: types.VirtualController{
-				VirtualDevice: types.VirtualDevice{
-					Key: 15000,
-				},
-				BusNumber: 0,
-			},
-		},
-	}
-	devices = append(devices, sataController)
-
-	// Add CD-ROM with ISO on SATA controller
+	// Add CD-ROM with ISO if specified - use SATA controller for CD-ROM
 	if config.ISO != "" {
+		// Create SATA controller for CD-ROM
+		sataController := &types.VirtualAHCIController{
+			VirtualSATAController: types.VirtualSATAController{
+				VirtualController: types.VirtualController{
+					VirtualDevice: types.VirtualDevice{
+						Key: -105, // Use negative key for automatic assignment
+					},
+					BusNumber: 0,
+				},
+			},
+		}
+		devices = append(devices, sataController)
+
+		// Create CD-ROM on SATA controller
 		cdrom := &types.VirtualCdrom{
 			VirtualDevice: types.VirtualDevice{
-				Key:           16000,
-				ControllerKey: 15000, // SATA controller
+				Key:           -106, // Use negative key for automatic assignment
+				ControllerKey: -105, // SATA controller
 				UnitNumber:    types.NewInt32(0),
 				Backing: &types.VirtualCdromIsoBackingInfo{
 					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
-						FileName: config.ISO,
+						FileName:  config.ISO,
+						Datastore: &datastoreRef,
 					},
 				},
 				Connectable: &types.VirtualDeviceConnectInfo{
-					Connected:         true, // Connect ISO for booting
+					Connected:         true,
 					StartConnected:    true,
 					AllowGuestControl: true,
 				},
@@ -239,28 +281,42 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		devices = append(devices, cdrom)
 	}
 
-	// Add boot/OpenEBS disk (500GB)
-	bootDisk := c.createDisk(config.DiskSize, 0, datastore.Reference().Value, config.Datastore, config.Name)
-	devices = append(devices, bootDisk)
+	// Add precision clock device with NTP protocol
+	if config.EnablePrecisionClock {
+		precisionClock := &types.VirtualPrecisionClock{
+			VirtualDevice: types.VirtualDevice{
+				Key: -107, // Use negative key for automatic assignment
+				Backing: &types.VirtualPrecisionClockSystemClockBackingInfo{
+					Protocol: "ntp", // Set protocol to NTP as requested
+				},
+			},
+		}
+		devices = append(devices, precisionClock)
+	}
 
-	// Add Longhorn disk (1TB)
-	if config.LonghornSize > 0 {
-		longhornDisk := c.createDisk(config.LonghornSize, 1, datastore.Reference().Value, config.Datastore, config.Name)
-		devices = append(devices, longhornDisk)
+	// Add watchdog timer device (set to start with BIOS/UEFI)
+	if config.EnableWatchdog {
+		watchdog := &types.VirtualWDT{
+			VirtualDevice: types.VirtualDevice{
+				Key: -108, // Use negative key for automatic assignment
+			},
+			RunOnBoot: true, // Start with BIOS/UEFI
+		}
+		devices = append(devices, watchdog)
 	}
 
 	// Add devices to spec
 	var deviceChanges []types.BaseVirtualDeviceConfigSpec
 	for _, device := range devices {
-		spec := &types.VirtualDeviceConfigSpec{
+		deviceSpec := &types.VirtualDeviceConfigSpec{
 			Operation: types.VirtualDeviceConfigSpecOperationAdd,
 			Device:    device,
 		}
 		// For VirtualDisk devices, specify file operation to create new disk
 		if _, isDisk := device.(*types.VirtualDisk); isDisk {
-			spec.FileOperation = types.VirtualDeviceConfigSpecFileOperationCreate
+			deviceSpec.FileOperation = types.VirtualDeviceConfigSpecFileOperationCreate
 		}
-		deviceChanges = append(deviceChanges, spec)
+		deviceChanges = append(deviceChanges, deviceSpec)
 	}
 	spec.DeviceChange = deviceChanges
 
@@ -279,36 +335,6 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	c.logger.Success("VM %s created successfully", config.Name)
 
 	return vm, nil
-}
-
-// createDisk creates a virtual disk specification
-func (c *Client) createDisk(sizeGB int, unitNumber int, _, datastoreName, _ string) *types.VirtualDisk {
-	// All disks are thick provisioned as requested
-	// Unit 0: Boot/OpenEBS disk (500GB) - thick provisioned
-	// Unit 1: Longhorn disk (1000GB) - thick provisioned
-	thinProvisioned := false
-
-	disk := &types.VirtualDisk{
-		VirtualDevice: types.VirtualDevice{
-			Key:           int32(2000 + unitNumber),
-			ControllerKey: 1000, // SCSI controller key
-			UnitNumber:    types.NewInt32(int32(unitNumber)),
-			Backing: &types.VirtualDiskFlatVer2BackingInfo{
-				VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
-					FileName: fmt.Sprintf("[%s]", datastoreName),
-				},
-				DiskMode:        "persistent",
-				ThinProvisioned: types.NewBool(thinProvisioned),
-			},
-		},
-		CapacityInKB:    int64(sizeGB) * 1024 * 1024,        // GB to KB: 1GB = 1024*1024 KB
-		CapacityInBytes: int64(sizeGB) * 1024 * 1024 * 1024, // GB to Bytes: 1GB = 1024*1024*1024 Bytes
-	}
-
-	// Debug: log what we're actually setting
-	c.logger.Info("Disk %d: Input %d GB = %d KB = %d Bytes", unitNumber, sizeGB, int64(sizeGB)*1024*1024, int64(sizeGB)*1024*1024*1024)
-
-	return disk
 }
 
 // PowerOnVM powers on a VM
