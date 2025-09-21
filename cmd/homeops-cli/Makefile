@@ -54,21 +54,112 @@ install: build
 ## test: Run all tests
 test:
 	@echo "$(GREEN)Running tests...$(RESET)"
-	go test -v ./...
+	go test -v -race -timeout 30s ./...
 	@echo "$(GREEN)✅ Tests completed$(RESET)"
+
+## test-unit: Run unit tests only
+test-unit:
+	@echo "$(GREEN)Running unit tests...$(RESET)"
+	go test -v -short -race ./...
+	@echo "$(GREEN)✅ Unit tests completed$(RESET)"
+
+## test-integration: Run integration tests
+test-integration:
+	@echo "$(GREEN)Running integration tests...$(RESET)"
+	go test -v -tags=integration -timeout 30m ./...
+	@echo "$(GREEN)✅ Integration tests completed$(RESET)"
 
 ## test-coverage: Run tests with coverage
 test-coverage:
 	@echo "$(GREEN)Running tests with coverage...$(RESET)"
-	go test -v -coverprofile=coverage.out ./...
+	go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "$(GREEN)✅ Coverage report generated: coverage.html$(RESET)"
+	@echo "$(BLUE)Coverage summary:$(RESET)"
+	@go tool cover -func=coverage.out | tail -n 1
+
+## test-coverage-threshold: Check if coverage meets threshold
+test-coverage-threshold: test-coverage
+	@echo "$(GREEN)Checking coverage threshold (80%)...$(RESET)"
+	@coverage=$$(go tool cover -func=coverage.out | grep total | awk '{print $$3}' | sed 's/%//'); \
+	if [ $$(echo "$$coverage >= 80" | bc) -eq 1 ]; then \
+		echo "$(GREEN)✅ Coverage $$coverage% meets threshold$(RESET)"; \
+	else \
+		echo "$(RED)❌ Coverage $$coverage% is below 80% threshold$(RESET)"; \
+		exit 1; \
+	fi
+
+## test-verbose: Run tests with verbose output
+test-verbose:
+	@echo "$(GREEN)Running tests with verbose output...$(RESET)"
+	go test -v -race -count=1 ./...
+
+## test-specific: Run a specific test (usage: make test-specific TEST=TestName)
+test-specific:
+	@echo "$(GREEN)Running specific test: $(TEST)$(RESET)"
+	go test -v -race -run $(TEST) ./...
+
+## test-package: Test a specific package (usage: make test-package PKG=./cmd/talos)
+test-package:
+	@echo "$(GREEN)Testing package: $(PKG)$(RESET)"
+	go test -v -race $(PKG)
 
 ## benchmark: Run benchmarks
 benchmark:
 	@echo "$(GREEN)Running benchmarks...$(RESET)"
-	go test -bench=. -benchmem ./...
+	go test -bench=. -benchmem -benchtime=10s ./...
 	@echo "$(GREEN)✅ Benchmarks completed$(RESET)"
+
+## benchmark-compare: Compare benchmark results (requires benchstat)
+benchmark-compare:
+	@echo "$(GREEN)Running benchmark comparison...$(RESET)"
+	@if command -v benchstat >/dev/null 2>&1; then \
+		go test -bench=. -benchmem -count=10 ./... > new.bench; \
+		if [ -f old.bench ]; then \
+			benchstat old.bench new.bench; \
+		fi; \
+		mv new.bench old.bench; \
+	else \
+		echo "$(YELLOW)⚠️  benchstat not found. Install with: go install golang.org/x/perf/cmd/benchstat@latest$(RESET)"; \
+	fi
+
+## test-watch: Run tests in watch mode (requires entr)
+test-watch:
+	@echo "$(GREEN)Watching for changes and running tests...$(RESET)"
+	@if command -v entr >/dev/null 2>&1; then \
+		find . -name '*.go' | entr -c go test -v -short ./...; \
+	else \
+		echo "$(YELLOW)⚠️  entr not found. Install with: brew install entr$(RESET)"; \
+	fi
+
+## test-tdd: TDD mode - watch and run tests on changes
+test-tdd:
+	@echo "$(GREEN)Starting TDD mode...$(RESET)"
+	@if command -v entr >/dev/null 2>&1; then \
+		find . -name '*.go' | entr -c sh -c 'clear && go test -v -short -failfast ./...'; \
+	else \
+		echo "$(YELLOW)⚠️  entr not found. Install with: brew install entr$(RESET)"; \
+	fi
+
+## test-fuzz: Run fuzz tests
+test-fuzz:
+	@echo "$(GREEN)Running fuzz tests...$(RESET)"
+	go test -fuzz=. -fuzztime=10s ./...
+
+## test-report: Generate detailed test report
+test-report:
+	@echo "$(GREEN)Generating test report...$(RESET)"
+	@mkdir -p test-reports
+	go test -v -json ./... > test-reports/test-output.json
+	@echo "$(GREEN)✅ Test report generated: test-reports/test-output.json$(RESET)"
+
+## test-clean: Clean test artifacts
+test-clean:
+	@echo "$(GREEN)Cleaning test artifacts...$(RESET)"
+	rm -f coverage.out coverage.html
+	rm -rf test-reports/
+	rm -f *.bench
+	@echo "$(GREEN)✅ Test artifacts cleaned$(RESET)"
 
 ## lint: Run golangci-lint
 lint:

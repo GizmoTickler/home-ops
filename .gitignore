@@ -32,3 +32,4 @@ cmd/homeops-cli/.cache
 .cache
 talsecret.yaml
 .claude
+.serena
