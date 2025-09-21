@@ -606,21 +606,30 @@ func newDeployVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Talos VM on TrueNAS or vSphere/ESXi",
-		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.
+		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. 
+
+Auto-detection:
+- Uses vSphere when --provider is "vsphere"/"esxi" OR when vSphere datastores are detected
+- Uses TrueNAS for local VM deployment with ZVol storage
 
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
-For vSphere/ESXi: Deploys to specified datastore with iSCSI storage.
+For vSphere/ESXi: Deploys to specified datastore with enhanced VM configuration.
 
 Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if provider == "vsphere" || provider == "esxi" {
+			// Auto-detect vSphere deployment based on provider flag or datastore patterns
+			isVSphereDeployment := provider == "vsphere" || provider == "esxi" ||
+				datastore == "truenas-nfs" || datastore == "datastore1" ||
+				strings.Contains(datastore, "-nfs") || strings.Contains(datastore, "vsphere")
+
+			if isVSphereDeployment {
 				return deployVMOnVSphere(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 			}
 			return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&provider, "provider", "auto", "Virtualization provider: auto (default), truenas, or vsphere/esxi")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
@@ -632,7 +641,7 @@ Use --generate-iso to create a custom ISO using the schematic.yaml configuration
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
 
 	// vSphere specific flags
-	cmd.Flags().StringVar(&datastore, "datastore", "truenas", "Datastore name (vSphere only)")
+	cmd.Flags().StringVar(&datastore, "datastore", "truenas-nfs", "Datastore name (vSphere: truenas-nfs, datastore1, etc.)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
 	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")
@@ -1074,14 +1083,14 @@ func newDeleteVMCommand() *cobra.Command {
 				}
 			}
 
-			if provider == "vsphere" || provider == "esxi" {
-				return deleteVMOnVSphere(name)
+			if provider == "truenas" {
+				return deleteVM(name)
 			}
-			return deleteVM(name)
+			return deleteVMOnVSphere(name)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 	_ = cmd.MarkFlagRequired("name")
@@ -1179,7 +1188,7 @@ and deploy multiple VMs using the same custom configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "truenas", "Storage provider: truenas or vsphere")
+	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Storage provider: vsphere (default) or truenas")
 
 	return cmd
 }
@@ -1635,7 +1644,7 @@ func getPhysicalFunction(vmIndex int) string {
 
 func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
-	logger.Info("Starting vSphere/ESXi VM deployment")
+	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
 
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
@@ -1680,7 +1689,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		isoPath = "[datastore1] vmware-amd64.iso"
 	}
 
-	// Prepare VM configurations
+	// Prepare VM configurations with enhanced settings
 	var configs []vsphere.VMConfig
 
 	if nodeCount == 1 {
@@ -1698,18 +1707,22 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		}
 
 		config := vsphere.VMConfig{
-			Name:             baseName,
-			Memory:           memory,
-			VCPUs:            vcpus,
-			DiskSize:         diskSize,
-			LonghornSize:     longhornSize,
-			Datastore:        datastore,
-			Network:          network,
-			ISO:              isoPath,
-			MacAddress:       vmMacAddress,
-			PhysicalFunction: getPhysicalFunction(0), // Single VM gets first PF
-			PowerOn:          false,                  // Don't power on by default
-			EnableIOMMU:      true,                   // Enable IOMMU for Talos VMs
+			Name:                 baseName,
+			Memory:               memory,
+			VCPUs:                vcpus,
+			DiskSize:             diskSize,
+			LonghornSize:         longhornSize,
+			Datastore:            datastore,
+			Network:              network,
+			ISO:                  isoPath,
+			MacAddress:           vmMacAddress,
+			PhysicalFunction:     getPhysicalFunction(0), // Single VM gets first PF
+			PowerOn:              false,                  // Don't power on by default
+			EnableIOMMU:          true,                   // Enable IOMMU for Talos VMs
+			ExposeCounters:       true,                   // Expose CPU performance counters
+			ThinProvisioned:      true,                   // Use thin provisioned disks
+			EnablePrecisionClock: true,                   // Add precision clock device
+			EnableWatchdog:       true,                   // Add watchdog timer device
 		}
 		configs = append(configs, config)
 	} else {
@@ -1734,18 +1747,22 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			}
 
 			config := vsphere.VMConfig{
-				Name:             vmName,
-				Memory:           memory,
-				VCPUs:            vcpus,
-				DiskSize:         diskSize,
-				LonghornSize:     longhornSize,
-				Datastore:        datastore,
-				Network:          network,
-				ISO:              isoPath,
-				MacAddress:       vmMacAddress,
-				PhysicalFunction: getPhysicalFunction(i - 1), // Alternate PFs based on VM index
-				PowerOn:          false,                      // Don't power on by default
-				EnableIOMMU:      true,                       // Enable IOMMU for Talos VMs
+				Name:                 vmName,
+				Memory:               memory,
+				VCPUs:                vcpus,
+				DiskSize:             diskSize,
+				LonghornSize:         longhornSize,
+				Datastore:            datastore,
+				Network:              network,
+				ISO:                  isoPath,
+				MacAddress:           vmMacAddress,
+				PhysicalFunction:     getPhysicalFunction(i - 1), // Alternate PFs based on VM index
+				PowerOn:              false,                      // Don't power on by default
+				EnableIOMMU:          true,                       // Enable IOMMU for Talos VMs
+				ExposeCounters:       true,                       // Expose CPU performance counters
+				ThinProvisioned:      true,                       // Use thin provisioned disks
+				EnablePrecisionClock: true,                       // Add precision clock device
+				EnableWatchdog:       true,                       // Add watchdog timer device
 			}
 			configs = append(configs, config)
 		}
@@ -1755,14 +1772,21 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 	if len(configs) == 1 {
 		// Single VM deployment
 		logger.Info("Deploying VM: %s", configs[0].Name)
-		logger.Info("Configuration:")
+		logger.Info("Enhanced Configuration:")
 		logger.Info("  Memory: %d MB", configs[0].Memory)
 		logger.Info("  vCPUs: %d", configs[0].VCPUs)
-		logger.Info("  Boot/OpenEBS Disk: %d GB", configs[0].DiskSize)
-		logger.Info("  Longhorn Disk: %d GB", configs[0].LonghornSize)
+		logger.Info("  Boot/OpenEBS Disk: %d GB (thin provisioned: %v)", configs[0].DiskSize, configs[0].ThinProvisioned)
+		logger.Info("  Longhorn Disk: %d GB (thin provisioned: %v)", configs[0].LonghornSize, configs[0].ThinProvisioned)
 		logger.Info("  Datastore: %s", configs[0].Datastore)
-		logger.Info("  Network: %s", configs[0].Network)
+		logger.Info("  Network: %s (vmxnet3)", configs[0].Network)
 		logger.Info("  ISO: %s", configs[0].ISO)
+		logger.Info("  IOMMU Enabled: %v", configs[0].EnableIOMMU)
+		logger.Info("  CPU Counters Exposed: %v", configs[0].ExposeCounters)
+		logger.Info("  Precision Clock: %v", configs[0].EnablePrecisionClock)
+		logger.Info("  Watchdog Timer: %v", configs[0].EnableWatchdog)
+		logger.Info("  EFI Firmware: enabled")
+		logger.Info("  UEFI Secure Boot: disabled")
+		logger.Info("  NVME Controllers: 2 (separate for each disk)")
 
 		vm, err := client.CreateVM(configs[0])
 		if err != nil {
@@ -1775,18 +1799,25 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			}
 		}
 
-		logger.Success("VM %s deployed successfully!", configs[0].Name)
+		logger.Success("VM %s deployed successfully with enhanced configuration!", configs[0].Name)
 	} else {
 		// Parallel VM deployment
 		logger.Info("Deploying %d VMs in parallel (max concurrent: %d)", len(configs), concurrent)
-		logger.Info("VM Configuration (for all VMs):")
+		logger.Info("Enhanced VM Configuration (for all VMs):")
 		logger.Info("  Memory: %d MB", memory)
 		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot/OpenEBS Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
+		logger.Info("  Boot/OpenEBS Disk: %d GB (thin provisioned)", diskSize)
+		logger.Info("  Longhorn Disk: %d GB (thin provisioned)", longhornSize)
 		logger.Info("  Datastore: %s", datastore)
-		logger.Info("  Network: %s", network)
+		logger.Info("  Network: %s (vmxnet3)", network)
 		logger.Info("  ISO: %s", isoPath)
+		logger.Info("  IOMMU Enabled: true")
+		logger.Info("  CPU Counters Exposed: true")
+		logger.Info("  Precision Clock: enabled")
+		logger.Info("  Watchdog Timer: enabled")
+		logger.Info("  EFI Firmware: enabled")
+		logger.Info("  UEFI Secure Boot: disabled")
+		logger.Info("  NVME Controllers: 2 (separate for each disk)")
 		logger.Info("")
 		logger.Info("VMs to deploy:")
 		for _, config := range configs {
@@ -1801,7 +1832,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			return fmt.Errorf("parallel deployment failed: %w", err)
 		}
 
-		logger.Success("Successfully deployed %d VMs!", len(configs))
+		logger.Success("Successfully deployed %d VMs with enhanced configuration!", len(configs))
 	}
 
 	return nil
@@ -1869,14 +1900,14 @@ func newPowerOnVMCommand() *cobra.Command {
 		Short: "Power on a VM on TrueNAS or vSphere/ESXi",
 		Long:  `Power on a VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if provider == "vsphere" || provider == "esxi" {
-				return powerOnVMOnVSphere(name)
+			if provider == "truenas" {
+				return startVM(name)
 			}
-			return startVM(name)
+			return powerOnVMOnVSphere(name)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	_ = cmd.MarkFlagRequired("name")
 
@@ -1894,14 +1925,14 @@ func newPowerOffVMCommand() *cobra.Command {
 		Short: "Power off a VM on TrueNAS or vSphere/ESXi",
 		Long:  `Power off a VM on TrueNAS or vSphere/ESXi. Use --provider to select the virtualization platform.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if provider == "vsphere" || provider == "esxi" {
-				return powerOffVMOnVSphere(name)
+			if provider == "truenas" {
+				return stopVM(name)
 			}
-			return stopVM(name)
+			return powerOffVMOnVSphere(name)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "truenas", "Virtualization provider: truenas or vsphere/esxi")
+	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	_ = cmd.MarkFlagRequired("name")
 
