@@ -45,5 +45,6 @@
   "yaml.schemaStore.enable": true,
   "yaml.schemas": {
     "kubernetes": "./kubernetes/**/*.yaml"
-  }
+  },
+  "kiroAgent.configureMCP": "Enabled"
 }
