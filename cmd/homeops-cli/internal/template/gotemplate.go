@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/template"
 
+	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/errors"
 	"homeops-cli/internal/metrics"
 )
@@ -94,6 +96,45 @@ func (r *GoTemplateRenderer) createTemplateFuncs(rootDir string) template.FuncMa
 		"lower": strings.ToLower,
 		"replace": func(old, new, s string) string {
 			return strings.ReplaceAll(s, old, new)
+		},
+		// Add helmfile-compatible functions
+		"readFile": func(path string) (string, error) {
+			// Handle relative paths that go up from the template location
+			// The template expects to be in a directory structure like tempDir/helmfile.d/templates/
+			// and uses ../../../ to reach the repository root
+			var fullPath string
+			if filepath.IsAbs(path) {
+				fullPath = path
+			} else if strings.HasPrefix(path, "../") {
+				// Clean up the path and resolve it relative to rootDir
+				// Remove the ../../../ prefix since we're already at the root
+				cleanPath := strings.TrimPrefix(path, "../../../")
+				cleanPath = strings.TrimPrefix(cleanPath, "../../")
+				cleanPath = strings.TrimPrefix(cleanPath, "../")
+				fullPath = filepath.Join(rootDir, cleanPath)
+			} else {
+				fullPath = filepath.Join(rootDir, path)
+			}
+
+			content, err := os.ReadFile(fullPath)
+			if err != nil {
+				return "", fmt.Errorf("failed to read file %s (resolved to %s): %w", path, fullPath, err)
+			}
+			return string(content), nil
+		},
+		"fromYaml": func(yamlStr string) (interface{}, error) {
+			var result interface{}
+			if err := yaml.Unmarshal([]byte(yamlStr), &result); err != nil {
+				return nil, fmt.Errorf("failed to parse YAML: %w", err)
+			}
+			return result, nil
+		},
+		"toYaml": func(v interface{}) (string, error) {
+			data, err := yaml.Marshal(v)
+			if err != nil {
+				return "", fmt.Errorf("failed to marshal to YAML: %w", err)
+			}
+			return string(data), nil
 		},
 	}
 }

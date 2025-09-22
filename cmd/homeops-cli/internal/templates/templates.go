@@ -102,6 +102,17 @@ func RenderBootstrapTemplate(templateName string, env map[string]string) (string
 
 // GetBootstrapTemplate returns the content of a bootstrap template
 func GetBootstrapTemplate(templateName string) (string, error) {
+	// Check if this is the values template which is now in a different location
+	if templateName == "values.yaml.gotmpl" {
+		templateFile := "bootstrap/helmfile.d/templates/values.yaml.gotmpl"
+		content, err := bootstrapTemplates.ReadFile(templateFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
+		}
+		return string(content), nil
+	}
+
+	// For other templates, use the standard path
 	templateFile := fmt.Sprintf("bootstrap/%s", templateName)
 	content, err := bootstrapTemplates.ReadFile(templateFile)
 	if err != nil {
