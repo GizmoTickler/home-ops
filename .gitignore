@@ -25,11 +25,8 @@ talosconfig
 cmd/truenas-deep-explorer/truenas-deep-explorer
 cmd/homeops-cli/homeops-cli
 cmd/homeops-cli/homeops
-# Documentation files
-CLAUDE.md
 #Talos Factory Schematic ISO Cache
 cmd/homeops-cli/.cache
 .cache
 talsecret.yaml
-.claude
-.serena
+cmd/homeops-cli/coverage.out
