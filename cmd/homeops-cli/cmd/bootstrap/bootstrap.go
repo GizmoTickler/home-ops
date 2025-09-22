@@ -1691,13 +1691,19 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		}
 	}()
 
-	// Create values.yaml.gotmpl in temp directory
+	// Create templates subdirectory to match the new helmfile path references
+	templatesDir := filepath.Join(tempDir, "templates")
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create templates directory: %w", err)
+	}
+
+	// Create values.yaml.gotmpl in templates subdirectory
 	valuesTemplate, err := templates.GetBootstrapTemplate("values.yaml.gotmpl")
 	if err != nil {
 		return fmt.Errorf("failed to get values template: %w", err)
 	}
 
-	valuesPath := filepath.Join(tempDir, "values.yaml.gotmpl")
+	valuesPath := filepath.Join(templatesDir, "values.yaml.gotmpl")
 	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0644); err != nil {
 		return fmt.Errorf("failed to write values template: %w", err)
 	}

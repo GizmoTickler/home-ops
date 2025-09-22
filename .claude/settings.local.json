@@ -20,7 +20,11 @@
       "mcp__serena__read_memory",
       "Bash(make test-coverage:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(make test:*)",
+      "Bash(./homeops-cli bootstrap:*)",
+      "Bash(make:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
