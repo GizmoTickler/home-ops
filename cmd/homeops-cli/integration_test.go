@@ -5,19 +5,24 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	"homeops-cli/cmd/bootstrap"
+	"homeops-cli/cmd/completion"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
+	"homeops-cli/cmd/workstation"
 	"homeops-cli/internal/testutil"
 )
 
@@ -250,6 +255,260 @@ func (s *IntegrationTestSuite) TestEndToEndWorkflow() {
 		// Implementation would go here
 		s.T().Log("Backup and restore completed")
 	})
+}
+
+// TestErrorHandlingScenarios tests various error conditions and edge cases
+func (s *IntegrationTestSuite) TestErrorHandlingScenarios() {
+	s.Run("InvalidFlags", func() {
+		// Test invalid flags across all commands
+		tests := []struct {
+			name    string
+			cmd     string
+			args    []string
+			wantErr bool
+		}{
+			{
+				name:    "bootstrap with invalid flag",
+				cmd:     "bootstrap",
+				args:    []string{"--invalid-flag"},
+				wantErr: true,
+			},
+			{
+				name:    "talos with invalid flag",
+				cmd:     "talos",
+				args:    []string{"--nonexistent"},
+				wantErr: true,
+			},
+			{
+				name:    "k8s with invalid flag",
+				cmd:     "k8s",
+				args:    []string{"--bad-flag"},
+				wantErr: true,
+			},
+			{
+				name:    "volsync with invalid flag",
+				cmd:     "volsync",
+				args:    []string{"--wrong"},
+				wantErr: true,
+			},
+			{
+				name:    "workstation with invalid flag",
+				cmd:     "workstation",
+				args:    []string{"--invalid"},
+				wantErr: true,
+			},
+		}
+
+		for _, tt := range tests {
+			s.Run(tt.name, func() {
+				rootCmd := createTestRootCommand()
+				args := append([]string{tt.cmd}, tt.args...)
+				_, err := testutil.ExecuteCommand(rootCmd, args...)
+				if tt.wantErr {
+					assert.Error(s.T(), err)
+				} else {
+					assert.NoError(s.T(), err)
+				}
+			})
+		}
+	})
+
+	s.Run("InvalidSubcommands", func() {
+		tests := []struct {
+			name    string
+			cmd     string
+			subcmd  string
+			wantErr bool
+		}{
+			{
+				name:    "bootstrap invalid subcommand",
+				cmd:     "bootstrap",
+				subcmd:  "nonexistent",
+				wantErr: true,
+			},
+			{
+				name:    "talos invalid subcommand",
+				cmd:     "talos",
+				subcmd:  "invalid",
+				wantErr: true,
+			},
+			{
+				name:    "workstation invalid subcommand",
+				cmd:     "workstation",
+				subcmd:  "missing",
+				wantErr: true,
+			},
+		}
+
+		for _, tt := range tests {
+			s.Run(tt.name, func() {
+				rootCmd := createTestRootCommand()
+				_, err := testutil.ExecuteCommand(rootCmd, tt.cmd, tt.subcmd)
+				if tt.wantErr {
+					assert.Error(s.T(), err)
+				}
+			})
+		}
+	})
+
+	s.Run("EnvironmentValidation", func() {
+		// Test behavior with missing environment variables
+		originalEnv := map[string]string{
+			"KUBECONFIG":        os.Getenv("KUBECONFIG"),
+			"TALOSCONFIG":       os.Getenv("TALOSCONFIG"),
+			"SOPS_AGE_KEY_FILE": os.Getenv("SOPS_AGE_KEY_FILE"),
+		}
+
+		defer func() {
+			// Restore original environment
+			for key, value := range originalEnv {
+				if value == "" {
+					os.Unsetenv(key)
+				} else {
+					os.Setenv(key, value)
+				}
+			}
+		}()
+
+		// Test with missing environment variables
+		os.Unsetenv("KUBECONFIG")
+		os.Unsetenv("TALOSCONFIG")
+		os.Unsetenv("SOPS_AGE_KEY_FILE")
+
+		rootCmd := createTestRootCommand()
+
+		// Some commands should handle missing env vars gracefully
+		_, err := testutil.ExecuteCommand(rootCmd, "--help")
+		assert.NoError(s.T(), err, "Help should work without env vars")
+
+		_, err = testutil.ExecuteCommand(rootCmd, "--version")
+		assert.NoError(s.T(), err, "Version should work without env vars")
+	})
+}
+
+// TestCLIWorkflowEdgeCases tests edge cases in CLI workflows
+func (s *IntegrationTestSuite) TestCLIWorkflowEdgeCases() {
+	s.Run("EmptyArguments", func() {
+		rootCmd := createTestRootCommand()
+		output, err := testutil.ExecuteCommand(rootCmd)
+		assert.NoError(s.T(), err)
+		assert.Contains(s.T(), output, "Available Commands")
+	})
+
+	s.Run("HelpForAllCommands", func() {
+		commands := []string{"bootstrap", "talos", "k8s", "volsync", "workstation", "completion"}
+		rootCmd := createTestRootCommand()
+
+		for _, cmd := range commands {
+			s.Run(cmd+"_help", func() {
+				output, err := testutil.ExecuteCommand(rootCmd, cmd, "--help")
+				assert.NoError(s.T(), err)
+				assert.NotEmpty(s.T(), output)
+				assert.Contains(s.T(), output, "Usage:")
+			})
+		}
+	})
+
+	s.Run("VersionCommand", func() {
+		rootCmd := createTestRootCommand()
+		output, err := testutil.ExecuteCommand(rootCmd, "version")
+		// version subcommand might not exist, so we test --version flag instead
+		if err != nil {
+			output, err = testutil.ExecuteCommand(rootCmd, "--version")
+		}
+		assert.NoError(s.T(), err)
+		assert.NotEmpty(s.T(), output)
+	})
+}
+
+// TestConcurrentOperations tests CLI behavior under concurrent usage
+func (s *IntegrationTestSuite) TestConcurrentOperations() {
+	if testing.Short() {
+		s.T().Skip("Skipping concurrent operations test in short mode")
+	}
+
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	errors := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			rootCmd := createTestRootCommand()
+			// Test concurrent help commands (safe operations)
+			_, err := testutil.ExecuteCommand(rootCmd, "--help")
+			if err != nil {
+				errors <- fmt.Errorf("goroutine %d failed: %w", id, err)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errors)
+
+	var errs []error
+	for err := range errors {
+		errs = append(errs, err)
+	}
+
+	assert.Empty(s.T(), errs, "No errors should occur during concurrent help operations")
+}
+
+// TestPerformanceBasics tests basic performance characteristics
+func (s *IntegrationTestSuite) TestPerformanceBasics() {
+	if testing.Short() {
+		s.T().Skip("Skipping performance tests in short mode")
+	}
+
+	s.Run("CommandCreationSpeed", func() {
+		start := time.Now()
+		for i := 0; i < 100; i++ {
+			_ = createTestRootCommand()
+		}
+		duration := time.Since(start)
+
+		// Command creation should be fast (under 1 second for 100 iterations)
+		assert.Less(s.T(), duration, time.Second, "Command creation should be fast")
+	})
+
+	s.Run("HelpCommandSpeed", func() {
+		rootCmd := createTestRootCommand()
+
+		start := time.Now()
+		for i := 0; i < 10; i++ {
+			_, err := testutil.ExecuteCommand(rootCmd, "--help")
+			assert.NoError(s.T(), err)
+		}
+		duration := time.Since(start)
+
+		// Help commands should be fast (under 1 second for 10 iterations)
+		assert.Less(s.T(), duration, time.Second, "Help commands should be fast")
+	})
+}
+
+// createTestRootCommand creates a root command for testing
+func createTestRootCommand() *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:     "homeops",
+		Short:   "HomeOps Infrastructure Management CLI",
+		Long:    `A comprehensive CLI tool for managing home infrastructure including Talos clusters, Kubernetes applications, VolSync backups, and more.`,
+		Version: "test-version",
+	}
+
+	// Add all subcommands
+	rootCmd.AddCommand(
+		bootstrap.NewCommand(),
+		completion.NewCommand(),
+		kubernetes.NewCommand(),
+		talos.NewCommand(),
+		volsync.NewCommand(),
+		workstation.NewCommand(),
+	)
+
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	return rootCmd
 }
 
 // Helper functions
