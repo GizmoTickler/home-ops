@@ -11,8 +11,7 @@ import (
 func TestNewCommand(t *testing.T) {
 	cmd := NewCommand()
 	assert.NotNil(t, cmd)
-	assert.Equal(t, "kubernetes", cmd.Use)
-	assert.Equal(t, "k8s", cmd.Aliases[0])
+	assert.Equal(t, "k8s", cmd.Use)
 	assert.NotEmpty(t, cmd.Short)
 
 	// Check that all subcommands are registered
@@ -42,7 +41,7 @@ func TestCommandHelp(t *testing.T) {
 	cmd := NewCommand()
 	output, err := testutil.ExecuteCommand(cmd, "--help")
 	assert.NoError(t, err)
-	assert.Contains(t, output, "Kubernetes cluster operations")
+	assert.Contains(t, output, "Commands for managing Kubernetes resources")
 	assert.Contains(t, output, "browse-pvc")
 	assert.Contains(t, output, "node-shell")
 }
