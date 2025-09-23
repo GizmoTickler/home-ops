@@ -22,11 +22,11 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(make test:*)",
-      "Bash(./homeops-cli bootstrap:*)",
       "Bash(make:*)",
       "Bash(cat:*)",
-      "Bash(kubectl get helmrelease:*)",
-      "Bash(flux get kustomizations:*)"
+      "Bash(kubectl get:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl logs:*)"
     ],
     "deny": [],
     "ask": []
