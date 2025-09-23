@@ -24,7 +24,9 @@
       "Bash(make test:*)",
       "Bash(./homeops-cli bootstrap:*)",
       "Bash(make:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(kubectl get helmrelease:*)",
+      "Bash(flux get kustomizations:*)"
     ],
     "deny": [],
     "ask": []
