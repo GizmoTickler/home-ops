@@ -26,7 +26,9 @@
       "Bash(cat:*)",
       "Bash(kubectl get:*)",
       "Bash(kubectl describe:*)",
-      "Bash(kubectl logs:*)"
+      "Bash(kubectl logs:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh repo view:*)"
     ],
     "deny": [],
     "ask": []
