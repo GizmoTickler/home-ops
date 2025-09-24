@@ -1,5 +1,6 @@
 ---
 name: Claude Code
+# This workflow enables Claude to respond to mentions in issues and PRs
 
 on:
   issue_comment:
