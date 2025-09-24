@@ -6,12 +6,12 @@ on:
     types:
       - opened
       - synchronize
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+      # Optional: Only run on specific file changes
+      # paths:
+      #   - "src/**/*.ts"
+      #   - "src/**/*.tsx"
+      #   - "src/**/*.js"
+      #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
@@ -24,8 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write # Changed from read to write
+      issues: write # Changed from read to write
       id-token: write
 
     steps:
