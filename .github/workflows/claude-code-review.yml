@@ -15,6 +15,9 @@ on:
 
 jobs:
   claude-review:
+    # Skip Claude review for bot PRs (recommended for home-ops)
+    if: github.event.pull_request.user.type != 'Bot'
+
     # Optional: Filter by PR author
     # if: |
     #   github.event.pull_request.user.login == 'external-contributor' ||
