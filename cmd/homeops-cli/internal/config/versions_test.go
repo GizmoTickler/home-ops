@@ -73,41 +73,39 @@ func TestGetDefaultVersions(t *testing.T) {
 }
 
 func TestLoadVersionsFromSystemUpgrade(t *testing.T) {
-	t.Run("valid plans directory", func(t *testing.T) {
+	t.Run("valid tuppr upgrades", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		// Create the full nested directory structure that the function expects
-		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
+		// Create directory structure for tuppr
+		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
 		err := os.MkdirAll(plansDir, 0755)
 		require.NoError(t, err)
 
-		// Create talos plan file with expected component "installer"
-		talosPlan := filepath.Join(plansDir, "talos.yaml")
-		talosPlanContent := `
-apiVersion: upgrade.cattle.io/v1
-kind: Plan
+		// Create talos upgrade file
+		talosUpgrade := filepath.Join(plansDir, "talosupgrade.yaml")
+		talosUpgradeContent := `
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: TalosUpgrade
 metadata:
   name: talos
 spec:
-  version: v1.9.0
-  image: factory.talos.dev/installer/v1.9.0
+  talos:
+    version: v1.9.0
 `
-		err = os.WriteFile(talosPlan, []byte(talosPlanContent), 0644)
+		err = os.WriteFile(talosUpgrade, []byte(talosUpgradeContent), 0644)
 		require.NoError(t, err)
 
-		// Create kubernetes plan file with expected component "kubelet"
-		k8sPlan := filepath.Join(plansDir, "kubernetes.yaml")
-		k8sPlanContent := `
-apiVersion: upgrade.cattle.io/v1
-kind: Plan
+		// Create kubernetes upgrade file
+		k8sUpgrade := filepath.Join(plansDir, "kubernetesupgrade.yaml")
+		k8sUpgradeContent := `
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: KubernetesUpgrade
 metadata:
   name: kubernetes
 spec:
-  version: v1.32.0
-  image: registry.k8s.io/kube-apiserver:v1.32.0
-  command:
-    - kubelet
+  kubernetes:
+    version: v1.32.0
 `
-		err = os.WriteFile(k8sPlan, []byte(k8sPlanContent), 0644)
+		err = os.WriteFile(k8sUpgrade, []byte(k8sUpgradeContent), 0644)
 		require.NoError(t, err)
 
 		versions, err := LoadVersionsFromSystemUpgrade(tmpDir)
@@ -117,16 +115,16 @@ spec:
 		assert.Equal(t, "v1.32.0", versions.KubernetesVersion)
 	})
 
-	t.Run("missing plans directory", func(t *testing.T) {
+	t.Run("missing upgrades directory", func(t *testing.T) {
 		versions, err := LoadVersionsFromSystemUpgrade("/non/existent/path")
 		assert.Error(t, err)
 		assert.Nil(t, versions)
 	})
 
-	t.Run("empty plans directory", func(t *testing.T) {
+	t.Run("empty upgrades directory", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		// Create empty nested directory structure
-		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
+		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
 		err := os.MkdirAll(plansDir, 0755)
 		require.NoError(t, err)
 
@@ -141,15 +139,15 @@ spec:
 		assert.Equal(t, "v1.34.0", versions.KubernetesVersion)
 	})
 
-	t.Run("invalid yaml in plan file", func(t *testing.T) {
+	t.Run("invalid yaml in upgrade file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
+		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
 		err := os.MkdirAll(plansDir, 0755)
 		require.NoError(t, err)
 
-		invalidPlan := filepath.Join(plansDir, "talos.yaml")
+		invalidUpgrade := filepath.Join(plansDir, "talosupgrade.yaml")
 		invalidContent := `invalid: yaml: content:`
-		err = os.WriteFile(invalidPlan, []byte(invalidContent), 0644)
+		err = os.WriteFile(invalidUpgrade, []byte(invalidContent), 0644)
 		require.NoError(t, err)
 
 		// Function will use fallback versions on error, not fail completely
@@ -160,23 +158,23 @@ spec:
 		assert.Equal(t, "v1.11.0", versions.TalosVersion)
 	})
 
-	t.Run("missing version field in plan", func(t *testing.T) {
+	t.Run("missing version field in upgrade", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
+		plansDir := filepath.Join(tmpDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
 		err := os.MkdirAll(plansDir, 0755)
 		require.NoError(t, err)
 
-		planWithoutVersion := filepath.Join(plansDir, "talos.yaml")
+		upgradeWithoutVersion := filepath.Join(plansDir, "talosupgrade.yaml")
 		content := `
-apiVersion: upgrade.cattle.io/v1
-kind: Plan
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: TalosUpgrade
 metadata:
   name: talos
 spec:
-  image: factory.talos.dev/installer/v1.9.0
-  # version field missing
+  talos:
+    # version field missing
 `
-		err = os.WriteFile(planWithoutVersion, []byte(content), 0644)
+		err = os.WriteFile(upgradeWithoutVersion, []byte(content), 0644)
 		require.NoError(t, err)
 
 		// Function will use fallback versions on error, not fail completely
@@ -235,6 +233,75 @@ spec:
 
 	t.Run("non-existent file", func(t *testing.T) {
 		version, err := loadVersionFromPlan("/non/existent/file.yaml", "talos")
+		assert.Error(t, err)
+		assert.Empty(t, version)
+	})
+}
+
+func TestLoadVersionFromTuppr(t *testing.T) {
+	t.Run("valid talos upgrade", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "talos-*.yaml")
+		require.NoError(t, err)
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+		content := `
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: TalosUpgrade
+metadata:
+  name: talos
+spec:
+  talos:
+    version: v1.9.0
+`
+		_, err = tmpFile.WriteString(content)
+		require.NoError(t, err)
+		_ = tmpFile.Close()
+
+		version, err := loadVersionFromTuppr(tmpFile.Name(), "talos")
+		require.NoError(t, err)
+		assert.Equal(t, "v1.9.0", version)
+	})
+
+	t.Run("valid kubernetes upgrade", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "kubernetes-*.yaml")
+		require.NoError(t, err)
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+		content := `
+apiVersion: tuppr.home-operations.com/v1alpha1
+kind: KubernetesUpgrade
+metadata:
+  name: kubernetes
+spec:
+  kubernetes:
+    version: v1.32.0
+`
+		_, err = tmpFile.WriteString(content)
+		require.NoError(t, err)
+		_ = tmpFile.Close()
+
+		version, err := loadVersionFromTuppr(tmpFile.Name(), "kubernetes")
+		require.NoError(t, err)
+		assert.Equal(t, "v1.32.0", version)
+	})
+
+	t.Run("non-existent file", func(t *testing.T) {
+		version, err := loadVersionFromTuppr("/non/existent/file.yaml", "talos")
+		assert.Error(t, err)
+		assert.Empty(t, version)
+	})
+
+	t.Run("invalid upgrade type", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "test-*.yaml")
+		require.NoError(t, err)
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
+
+		content := `apiVersion: tuppr.home-operations.com/v1alpha1`
+		_, err = tmpFile.WriteString(content)
+		require.NoError(t, err)
+		_ = tmpFile.Close()
+
+		version, err := loadVersionFromTuppr(tmpFile.Name(), "invalid")
 		assert.Error(t, err)
 		assert.Empty(t, version)
 	})
