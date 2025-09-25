@@ -5,8 +5,7 @@ kind: OCIRepository
 metadata:
   name: envoy-gateway
 spec:
-  interval: 6h # Increased interval to avoid rate limits
-  timeout: 5m # Increased timeout for TLS handshake issues
+  interval: 15m
   layerSelector:
     mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
     operation: copy
