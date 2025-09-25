@@ -29,45 +29,75 @@ type SystemUpgradePlan struct {
 	} `yaml:"spec"`
 }
 
+// TupprTalosUpgrade represents the structure of tuppr TalosUpgrade CRD
+type TupprTalosUpgrade struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Talos struct {
+			Version string `yaml:"version"`
+		} `yaml:"talos"`
+	} `yaml:"spec"`
+}
+
+// TupprKubernetesUpgrade represents the structure of tuppr KubernetesUpgrade CRD
+type TupprKubernetesUpgrade struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Metadata   struct {
+		Name string `yaml:"name"`
+	} `yaml:"metadata"`
+	Spec struct {
+		Kubernetes struct {
+			Version string `yaml:"version"`
+		} `yaml:"kubernetes"`
+	} `yaml:"spec"`
+}
+
 // LoadVersionsFromSystemUpgrade extracts version information from system-upgrade controller plans
+// LoadVersionsFromSystemUpgrade dynamically loads versions from tuppr upgrade plans
+// This is the primary source of truth for versions in the cluster
 func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	logger := common.NewColorLogger()
 
-	// Path to system-upgrade plans
-	plansDir := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade", "system-upgrade-controller", "plans")
+	// Updated path to use tuppr instead of system-upgrade-controller
+	plansDir := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
 
 	if _, err := os.Stat(plansDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("system upgrade plans directory not found: %s", plansDir)
+		return nil, fmt.Errorf("tuppr upgrades directory not found: %s", plansDir)
 	}
 
 	config := &VersionConfig{}
 	var loadErrors []string
 
-	// Load Kubernetes version from kubernetes.yaml
-	k8sVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "kubernetes.yaml"), "kubelet")
+	// Load Kubernetes version from kubernetesupgrade.yaml
+	k8sVersion, err := loadVersionFromTuppr(filepath.Join(plansDir, "kubernetesupgrade.yaml"), "kubernetes")
 	if err != nil {
 		loadErrors = append(loadErrors, fmt.Sprintf("kubernetes: %v", err))
 		config.KubernetesVersion = "v1.34.0" // emergency fallback
 		logger.Debug("Using fallback Kubernetes version due to load error: %v", err)
 	} else {
 		config.KubernetesVersion = k8sVersion
-		logger.Debug("✅ Loaded Kubernetes version from system-upgrade plan: %s", k8sVersion)
+		logger.Debug("✅ Loaded Kubernetes version from tuppr upgrade: %s", k8sVersion)
 	}
 
-	// Load Talos version from talos.yaml
-	talosVersion, err := loadVersionFromPlan(filepath.Join(plansDir, "talos.yaml"), "installer")
+	// Load Talos version from talosupgrade.yaml
+	talosVersion, err := loadVersionFromTuppr(filepath.Join(plansDir, "talosupgrade.yaml"), "talos")
 	if err != nil {
 		loadErrors = append(loadErrors, fmt.Sprintf("talos: %v", err))
 		config.TalosVersion = "v1.11.0" // emergency fallback
 		logger.Debug("Using fallback Talos version due to load error: %v", err)
 	} else {
 		config.TalosVersion = talosVersion
-		logger.Debug("✅ Loaded Talos version from system-upgrade plan: %s", talosVersion)
+		logger.Debug("✅ Loaded Talos version from tuppr upgrade: %s", talosVersion)
 	}
 
 	// If we had any load errors but managed to get at least some versions, warn but continue
 	if len(loadErrors) > 0 {
-		logger.Warn("Some versions could not be loaded from system-upgrade plans: %v", strings.Join(loadErrors, ", "))
+		logger.Warn("Some versions could not be loaded from tuppr upgrades: %v", strings.Join(loadErrors, ", "))
 		logger.Warn("Using emergency fallbacks for failed versions")
 	}
 
@@ -75,6 +105,8 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 }
 
 // loadVersionFromPlan loads version from a specific system-upgrade plan file
+// loadVersionFromPlan loads version from a specific system-upgrade plan file
+// DEPRECATED: This is kept for backward compatibility but should not be used for new code
 func loadVersionFromPlan(planPath, expectedComponent string) (string, error) {
 	data, err := os.ReadFile(planPath)
 	if err != nil {
@@ -107,6 +139,54 @@ func loadVersionFromPlan(planPath, expectedComponent string) (string, error) {
 	return version, nil
 }
 
+// loadVersionFromTuppr loads version from a tuppr upgrade file
+func loadVersionFromTuppr(upgradePath, upgradeType string) (string, error) {
+	data, err := os.ReadFile(upgradePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read upgrade file %s: %w", upgradePath, err)
+	}
+
+	var version string
+
+	switch upgradeType {
+	case "talos":
+		var upgrade TupprTalosUpgrade
+		if err := yaml.Unmarshal(data, &upgrade); err != nil {
+			return "", fmt.Errorf("failed to parse Talos upgrade YAML: %w", err)
+		}
+
+		// Validate it's a tuppr TalosUpgrade
+		if upgrade.APIVersion != "tuppr.home-operations.com/v1alpha1" || upgrade.Kind != "TalosUpgrade" {
+			return "", fmt.Errorf("invalid tuppr TalosUpgrade format")
+		}
+
+		version = upgrade.Spec.Talos.Version
+
+	case "kubernetes":
+		var upgrade TupprKubernetesUpgrade
+		if err := yaml.Unmarshal(data, &upgrade); err != nil {
+			return "", fmt.Errorf("failed to parse Kubernetes upgrade YAML: %w", err)
+		}
+
+		// Validate it's a tuppr KubernetesUpgrade
+		if upgrade.APIVersion != "tuppr.home-operations.com/v1alpha1" || upgrade.Kind != "KubernetesUpgrade" {
+			return "", fmt.Errorf("invalid tuppr KubernetesUpgrade format")
+		}
+
+		version = upgrade.Spec.Kubernetes.Version
+
+	default:
+		return "", fmt.Errorf("unknown upgrade type: %s", upgradeType)
+	}
+
+	// Validate version format
+	if !isValidVersionFormat(version) {
+		return "", fmt.Errorf("invalid version format: %s", version)
+	}
+
+	return version, nil
+}
+
 // isValidVersionFormat validates that the version string looks like a semantic version
 func isValidVersionFormat(version string) bool {
 	// Match patterns like v1.33.4, v1.11.0-rc.0, etc.
@@ -124,21 +204,23 @@ func getDefaultVersions() *VersionConfig {
 
 // GetVersions is a convenience function that loads versions from system-upgrade plans as primary source.
 // This is the main entry point for the CLI.
+// GetVersions is a convenience function that loads versions from tuppr upgrades as primary source.
+// This is the main entry point for the CLI.
 func GetVersions(rootDir string) *VersionConfig {
 	logger := common.NewColorLogger()
 
-	// Always try to load from system-upgrade plans first (primary source)
+	// Always try to load from tuppr upgrades first (primary source)
 	config, err := LoadVersionsFromSystemUpgrade(rootDir)
 	if err != nil {
-		logger.Warn("Failed to load versions from system-upgrade plans: %v", err)
+		logger.Warn("Failed to load versions from tuppr upgrades: %v", err)
 		logger.Warn("Using hardcoded fallback versions - this should not happen in production")
 		return getDefaultVersions()
 	}
 
 	// Log what we're using for transparency
-	logger.Debug("Loaded versions from system-upgrade controller plans:")
-	logger.Debug("  Kubernetes: %s", config.KubernetesVersion)
-	logger.Debug("  Talos: %s", config.TalosVersion)
+	logger.Debug("Loaded versions from tuppr upgrade configurations:")
+	logger.Debug("  - Kubernetes: %s", config.KubernetesVersion)
+	logger.Debug("  - Talos: %s", config.TalosVersion)
 
 	return config
 }
