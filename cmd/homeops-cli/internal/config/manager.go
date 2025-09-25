@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/viper"
+	"homeops-cli/internal/common"
 )
 
 // Config represents the application configuration
@@ -22,7 +23,7 @@ type Config struct {
 // DefaultConfig returns a configuration with sensible defaults
 func DefaultConfig() *Config {
 	// Load versions dynamically from system-upgrade plans
-	versions := GetVersions(".")
+	versions := GetVersions(common.GetWorkingDirectory())
 
 	return &Config{
 		TalosVersion:      versions.TalosVersion,

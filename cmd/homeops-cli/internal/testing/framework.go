@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
 	"homeops-cli/internal/errors"
 	"homeops-cli/internal/metrics"
@@ -106,7 +107,7 @@ func (tf *TestFramework) CreateTempFile(name, content string) (string, error) {
 // CreateTestConfig creates a test configuration file
 func (tf *TestFramework) CreateTestConfig(configData map[string]interface{}) (string, error) {
 	// Get dynamic versions from the version config
-	versions := config.GetVersions(".")
+	versions := config.GetVersions(common.GetWorkingDirectory())
 
 	// Create a basic config manager to write the config
 	cfg := &config.Config{

@@ -206,14 +206,14 @@ func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, s
 	metricsCollector := metrics.NewPerformanceCollector()
 
 	// Create unified template renderer
-	renderer := templates.NewTemplateRenderer(".", logger, metricsCollector)
+	renderer := templates.NewTemplateRenderer(common.GetWorkingDirectory(), logger, metricsCollector)
 
 	// Prepare environment variables for template rendering
 	env := make(map[string]string)
 	env["SCHEMATIC_ID"] = schematicID
 
 	// Add other common environment variables
-	versionConfig := versionconfig.GetVersions(".")
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 	env["KUBERNETES_VERSION"] = versionConfig.KubernetesVersion
 	env["TALOS_VERSION"] = versionConfig.TalosVersion
 
@@ -316,7 +316,7 @@ func upgradeK8s() error {
 		return err
 	}
 
-	versionConfig := versionconfig.GetVersions(".")
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 	k8sVersion := getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion)
 	if k8sVersion == "" {
 		return fmt.Errorf("KUBERNETES_VERSION environment variable not set")
@@ -569,7 +569,7 @@ func generateKubeconfig() error {
 		return err
 	}
 
-	rootDir := "."
+	rootDir := common.GetWorkingDirectory()
 	logger.Info("Generating kubeconfig from node %s", node)
 
 	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node,
@@ -726,7 +726,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		logger.Debug("Schematic loaded successfully")
 
 		// Generate ISO with default parameters
-		versionConfig := versionconfig.GetVersions(".")
+		versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
 		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
 		if err != nil {
@@ -821,7 +821,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		logger.Info("Prepared ISO found - proceeding with VM deployment...")
 
 		// Get version info for logging
-		versionConfig := versionconfig.GetVersions(".")
+		versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 		talosVersion = versionConfig.TalosVersion
 		// Note: schematicID won't be available here, but that's okay for VM creation
 	}
@@ -1214,7 +1214,7 @@ func prepareISOForTrueNAS() error {
 	logger.Info("Starting custom Talos ISO preparation for TrueNAS...")
 
 	// Load version configuration
-	versionConfig := versionconfig.GetVersions(".")
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
 
 	// Create factory client
@@ -1298,7 +1298,7 @@ func prepareISOForVSphere() error {
 	logger.Info("Starting custom Talos ISO preparation for vSphere...")
 
 	// Load version configuration
-	versionConfig := versionconfig.GetVersions(".")
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
 
 	// Create factory client
