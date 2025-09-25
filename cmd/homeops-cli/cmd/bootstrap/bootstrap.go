@@ -67,8 +67,9 @@ func NewCommand() *cobra.Command {
 		},
 	}
 
-	// Add flags
-	cmd.Flags().StringVar(&config.RootDir, "root-dir", ".", "Root directory of the project")
+	// Add flags - default root-dir to git repository root
+	defaultRootDir := common.GetWorkingDirectory()
+	cmd.Flags().StringVar(&config.RootDir, "root-dir", defaultRootDir, "Root directory of the project")
 	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", os.Getenv("KUBECONFIG"), "Path to kubeconfig file")
 	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", os.Getenv("TALOSCONFIG"), "Path to talosconfig file")
 	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv("KUBERNETES_VERSION"), "Kubernetes version")
