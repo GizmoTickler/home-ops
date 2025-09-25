@@ -53,7 +53,7 @@ make deps-update  # Update all dependencies
 
 The CLI relies on several environment variables. The following must be set globally:
 - `KUBECONFIG` - Path to your Kubernetes config file
-- `TALOSCONFIG` - Path to your Talos config file  
+- `TALOSCONFIG` - Path to your Talos config file
 - `SOPS_AGE_KEY_FILE` - Path to your SOPS age key file
 
 The following is automatically set by main.go if not already defined:
@@ -96,6 +96,13 @@ flux <command>
 ./homeops-cli volsync snapshot --pvc data-pvc --namespace default
 ./homeops-cli volsync restore --pvc data-pvc --namespace default
 ```
+**Always run format, type-check, and test before completing any task.**
+
+### Memory & Knowledge System
+- **Markdown-based storage** in `.serena/memories/` directories
+- **Project-specific knowledge** persistence across sessions
+- **Contextual retrieval** based on relevance
+- **Onboarding support** for new projects
 
 ## Architecture Overview
 
