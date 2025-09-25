@@ -12,6 +12,7 @@ import (
 )
 
 // VersionConfig holds version information extracted from system-upgrade plans
+
 type VersionConfig struct {
 	KubernetesVersion string
 	TalosVersion      string
@@ -202,15 +203,26 @@ func getDefaultVersions() *VersionConfig {
 	}
 }
 
-// GetVersions is a convenience function that loads versions from system-upgrade plans as primary source.
-// This is the main entry point for the CLI.
 // GetVersions is a convenience function that loads versions from tuppr upgrades as primary source.
+// This function automatically finds the git repository root regardless of where it's called from.
 // This is the main entry point for the CLI.
 func GetVersions(rootDir string) *VersionConfig {
 	logger := common.NewColorLogger()
 
+	// Try to find the git repository root if rootDir is "." (default)
+	actualRootDir := rootDir
+	if rootDir == "." {
+		gitRoot, err := common.FindGitRoot(".")
+		if err != nil {
+			logger.Debug("Could not find git root, using current directory: %v", err)
+		} else {
+			actualRootDir = gitRoot
+			logger.Debug("Found git repository root: %s", gitRoot)
+		}
+	}
+
 	// Always try to load from tuppr upgrades first (primary source)
-	config, err := LoadVersionsFromSystemUpgrade(rootDir)
+	config, err := LoadVersionsFromSystemUpgrade(actualRootDir)
 	if err != nil {
 		logger.Warn("Failed to load versions from tuppr upgrades: %v", err)
 		logger.Warn("Using hardcoded fallback versions - this should not happen in production")
