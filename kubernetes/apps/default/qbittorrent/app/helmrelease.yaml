@@ -95,7 +95,7 @@ spec:
                       (ip rule del table 51820;
                        ip -6 rule del table 51820) || true
             restartPolicy: Always
-            securityContext: &securityContext
+            securityContext:
               # can't be non-root, or it has no access to tunnel
               runAsNonRoot: false
               runAsUser: 0
@@ -130,7 +130,12 @@ spec:
                 spec:
                   failureThreshold: 30
                   periodSeconds: 10
-            securityContext: *securityContext
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop:
+                  - ALL
             resources:
               requests:
                 cpu: 200m
