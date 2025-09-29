@@ -29,7 +29,9 @@
       "Bash(kubectl logs:*)",
       "WebFetch(domain:github.com)",
       "Bash(gh repo view:*)",
-      "mcp__deepwiki__ask_question"
+      "mcp__deepwiki__ask_question",
+      "Bash(awk:*)",
+      "Bash(flux reconcile:*)"
     ],
     "deny": [],
     "ask": []
