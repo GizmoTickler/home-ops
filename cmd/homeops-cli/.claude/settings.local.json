@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(hash -r)",
+      "Bash(go:*)",
+      "Bash(echo $GOROOT)",
+      "Read(//Users/varuntirumalareddy/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
