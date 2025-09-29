@@ -3,12 +3,12 @@
 ## Purpose
 This is a comprehensive home infrastructure repository containing a Go-based CLI tool for infrastructure automation. The CLI manages:
 - **Kubernetes cluster configuration** using GitOps with Flux
-- **Talos Linux** cluster management on TrueNAS VMs  
+- **Talos Linux** cluster management on TrueNAS VMs
 - **HomeOps CLI** for infrastructure automation
 - **Kubernetes applications** deployed via Helm and Kustomize
 
 ## Tech Stack
-- **Language**: Go 1.25.0
+- **Language**: Go 1.25.1
 - **CLI Framework**: Cobra + Viper for configuration
 - **Testing**: testify/assert and testify/require
 - **Logging**: Zap structured logging
@@ -19,7 +19,7 @@ This is a comprehensive home infrastructure repository containing a Go-based CLI
 
 ## Main CLI Commands Structure
 - `bootstrap/` - Complete cluster bootstrap with preflight checks
-- `talos/` - Talos Linux node and VM management  
+- `talos/` - Talos Linux node and VM management
 - `kubernetes/` - Kubernetes cluster operations
 - `volsync/` - Volume backup and restore operations
 - `workstation/` - Local development environment setup
