@@ -43,8 +43,6 @@ spec:
                 metadata:
                   name: not-used
                 spec:
-                  driftDetection:
-                    mode: warn
                   install:
                     crds: CreateReplace
                     strategy:
@@ -52,7 +50,10 @@ spec:
                   upgrade:
                     crds: CreateReplace
                     strategy:
-                      name: RetryOnFailure
+                      name: RemediateOnFailure
+                    remediation:
+                      remediateLastFailure: true
+                      retries: 2
               target:
                 group: helm.toolkit.fluxcd.io
                 kind: HelmRelease
