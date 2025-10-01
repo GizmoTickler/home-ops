@@ -133,6 +133,11 @@ spec:
   clientIPDetection:
     xForwardedFor:
       numTrustedHops: 1
+  connection:
+    bufferLimit: 64Mi
+    maxAcceptPerSocketEvent: 0
+  http2:
+    onInvalidMessage: TerminateStream
   http3: {}
   targetSelectors:
     - group: gateway.networking.k8s.io
