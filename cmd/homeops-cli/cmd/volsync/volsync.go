@@ -32,6 +32,8 @@ func NewCommand() *cobra.Command {
 
 	cmd.AddCommand(
 		newStateCommand(),
+		newSuspendCommand(),
+		newResumeCommand(),
 		newSnapshotCommand(),
 		newSnapshotAllCommand(),
 		newSnapshotsCommand(),
@@ -92,6 +94,230 @@ func changeVolsyncState(state string) error {
 	}
 
 	logger.Success("VolSync state changed to: %s", state)
+	return nil
+}
+
+func newSuspendCommand() *cobra.Command {
+	var (
+		namespace string
+		all       bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "suspend [name]",
+		Short: "Suspend VolSync ReplicationSource or ReplicationDestination",
+		Long:  `Suspends a specific ReplicationSource/ReplicationDestination or all in a namespace`,
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !all && len(args) == 0 {
+				return fmt.Errorf("either provide resource name or use --all flag")
+			}
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return suspendVolsyncResource(namespace, name, all)
+		},
+	}
+
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (required)")
+	cmd.Flags().BoolVar(&all, "all", false, "Suspend all ReplicationSources and ReplicationDestinations in namespace")
+	_ = cmd.MarkFlagRequired("namespace")
+
+	return cmd
+}
+
+func suspendVolsyncResource(namespace, name string, all bool) error {
+	logger := common.NewColorLogger()
+
+	if all {
+		return suspendAllVolsyncResources(namespace)
+	}
+
+	// Try ReplicationSource first
+	cmd := exec.Command("kubectl", "patch", "replicationsource", name,
+		"-n", namespace,
+		"--type=merge",
+		"-p", `{"spec":{"suspend":true}}`)
+
+	if err := cmd.Run(); err != nil {
+		// Try ReplicationDestination
+		cmd = exec.Command("kubectl", "patch", "replicationdestination", name,
+			"-n", namespace,
+			"--type=merge",
+			"-p", `{"spec":{"suspend":true}}`)
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s", name, namespace)
+		}
+		logger.Success("Suspended ReplicationDestination %s/%s", namespace, name)
+	} else {
+		logger.Success("Suspended ReplicationSource %s/%s", namespace, name)
+	}
+
+	return nil
+}
+
+func suspendAllVolsyncResources(namespace string) error {
+	logger := common.NewColorLogger()
+
+	// Suspend all ReplicationSources
+	cmd := exec.Command("kubectl", "get", "replicationsource",
+		"-n", namespace,
+		"-o", "jsonpath={.items[*].metadata.name}")
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Warn("Failed to list ReplicationSources: %v", err)
+	} else {
+		sources := strings.Fields(string(output))
+		for _, source := range sources {
+			patchCmd := exec.Command("kubectl", "patch", "replicationsource", source,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"suspend":true}}`)
+			if err := patchCmd.Run(); err != nil {
+				logger.Error("Failed to suspend ReplicationSource %s: %v", source, err)
+			} else {
+				logger.Info("Suspended ReplicationSource %s", source)
+			}
+		}
+	}
+
+	// Suspend all ReplicationDestinations
+	cmd = exec.Command("kubectl", "get", "replicationdestination",
+		"-n", namespace,
+		"-o", "jsonpath={.items[*].metadata.name}")
+	output, err = cmd.Output()
+	if err != nil {
+		logger.Warn("Failed to list ReplicationDestinations: %v", err)
+	} else {
+		destinations := strings.Fields(string(output))
+		for _, dest := range destinations {
+			patchCmd := exec.Command("kubectl", "patch", "replicationdestination", dest,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"suspend":true}}`)
+			if err := patchCmd.Run(); err != nil {
+				logger.Error("Failed to suspend ReplicationDestination %s: %v", dest, err)
+			} else {
+				logger.Info("Suspended ReplicationDestination %s", dest)
+			}
+		}
+	}
+
+	logger.Success("Suspended all VolSync resources in namespace %s", namespace)
+	return nil
+}
+
+func newResumeCommand() *cobra.Command {
+	var (
+		namespace string
+		all       bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "resume [name]",
+		Short: "Resume VolSync ReplicationSource or ReplicationDestination",
+		Long:  `Resumes a specific ReplicationSource/ReplicationDestination or all in a namespace`,
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !all && len(args) == 0 {
+				return fmt.Errorf("either provide resource name or use --all flag")
+			}
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
+			}
+			return resumeVolsyncResource(namespace, name, all)
+		},
+	}
+
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (required)")
+	cmd.Flags().BoolVar(&all, "all", false, "Resume all ReplicationSources and ReplicationDestinations in namespace")
+	_ = cmd.MarkFlagRequired("namespace")
+
+	return cmd
+}
+
+func resumeVolsyncResource(namespace, name string, all bool) error {
+	logger := common.NewColorLogger()
+
+	if all {
+		return resumeAllVolsyncResources(namespace)
+	}
+
+	// Try ReplicationSource first
+	cmd := exec.Command("kubectl", "patch", "replicationsource", name,
+		"-n", namespace,
+		"--type=merge",
+		"-p", `{"spec":{"suspend":false}}`)
+
+	if err := cmd.Run(); err != nil {
+		// Try ReplicationDestination
+		cmd = exec.Command("kubectl", "patch", "replicationdestination", name,
+			"-n", namespace,
+			"--type=merge",
+			"-p", `{"spec":{"suspend":false}}`)
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s", name, namespace)
+		}
+		logger.Success("Resumed ReplicationDestination %s/%s", namespace, name)
+	} else {
+		logger.Success("Resumed ReplicationSource %s/%s", namespace, name)
+	}
+
+	return nil
+}
+
+func resumeAllVolsyncResources(namespace string) error {
+	logger := common.NewColorLogger()
+
+	// Resume all ReplicationSources
+	cmd := exec.Command("kubectl", "get", "replicationsource",
+		"-n", namespace,
+		"-o", "jsonpath={.items[*].metadata.name}")
+	output, err := cmd.Output()
+	if err != nil {
+		logger.Warn("Failed to list ReplicationSources: %v", err)
+	} else {
+		sources := strings.Fields(string(output))
+		for _, source := range sources {
+			patchCmd := exec.Command("kubectl", "patch", "replicationsource", source,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"suspend":false}}`)
+			if err := patchCmd.Run(); err != nil {
+				logger.Error("Failed to resume ReplicationSource %s: %v", source, err)
+			} else {
+				logger.Info("Resumed ReplicationSource %s", source)
+			}
+		}
+	}
+
+	// Resume all ReplicationDestinations
+	cmd = exec.Command("kubectl", "get", "replicationdestination",
+		"-n", namespace,
+		"-o", "jsonpath={.items[*].metadata.name}")
+	output, err = cmd.Output()
+	if err != nil {
+		logger.Warn("Failed to list ReplicationDestinations: %v", err)
+	} else {
+		destinations := strings.Fields(string(output))
+		for _, dest := range destinations {
+			patchCmd := exec.Command("kubectl", "patch", "replicationdestination", dest,
+				"-n", namespace,
+				"--type=merge",
+				"-p", `{"spec":{"suspend":false}}`)
+			if err := patchCmd.Run(); err != nil {
+				logger.Error("Failed to resume ReplicationDestination %s: %v", dest, err)
+			} else {
+				logger.Info("Resumed ReplicationDestination %s", dest)
+			}
+		}
+	}
+
+	logger.Success("Resumed all VolSync resources in namespace %s", namespace)
 	return nil
 }
 
