@@ -12,10 +12,6 @@ spec:
   components:
     - ../../../../components/keda/nfs-scaler
     - ../../../../components/volsync
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-age
   dependsOn:
     - name: keda
       namespace: observability
