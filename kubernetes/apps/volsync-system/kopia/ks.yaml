@@ -10,7 +10,7 @@ spec:
     labels:
       app.kubernetes.io/name: *app
   components:
-    - ../../../../components/keda/nfs-scaler
+    - ../../../../components/nfs-scaler
   dependsOn:
     - name: volsync
       namespace: volsync-system
@@ -26,10 +26,8 @@ spec:
       APP: *app
       NAMESPACE: *namespace
   prune: true
-  retryInterval: 2m
   sourceRef:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
   targetNamespace: *namespace
-  timeout: 5m
