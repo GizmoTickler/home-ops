@@ -5,10 +5,10 @@ kind: HelmRelease
 metadata:
   name: pinchflat
 spec:
-  interval: 1h
   chartRef:
     kind: OCIRepository
     name: pinchflat
+  interval: 1h
   values:
     controllers:
       pinchflat:

@@ -22,11 +22,9 @@ spec:
       VOLSYNC_CAPACITY: 5Gi
       NAMESPACE: *namespace
   prune: true
-  retryInterval: 2m
   sourceRef:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
   targetNamespace: *namespace
-  timeout: 5m
   wait: false
