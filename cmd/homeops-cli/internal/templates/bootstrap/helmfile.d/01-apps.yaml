@@ -23,13 +23,10 @@ releases:
           - postsync
         showlogs: true
       - # Apply Cilium Resources
-        command: kubectl
+        command: bash
         args:
-          - apply
-          - --namespace=kube-system
-          - --server-side
-          - --field-manager=kustomize-controller
-          - --filename=../../kubernetes/apps/kube-system/cilium/app/networking.yaml
+          - -c
+          - kubectl apply --namespace=kube-system --server-side --field-manager=kustomize-controller --filename="${ROOT_DIR}/kubernetes/apps/kube-system/cilium/app/networking.yaml"
         events:
           - postsync
         showlogs: true
