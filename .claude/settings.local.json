@@ -32,7 +32,11 @@
       "mcp__deepwiki__ask_question",
       "Bash(awk:*)",
       "Bash(flux reconcile:*)",
-      "Bash(yq:*)"
+      "Bash(yq:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh api:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh workflow run:*)"
     ],
     "deny": [],
     "ask": []
