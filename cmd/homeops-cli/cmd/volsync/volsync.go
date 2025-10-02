@@ -13,6 +13,7 @@ import (
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
+	"homeops-cli/internal/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -106,7 +107,7 @@ func newSuspendCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "suspend [name]",
 		Short: "Suspend VolSync ReplicationSource or ReplicationDestination",
-		Long:  `Suspends a specific ReplicationSource/ReplicationDestination or all in a namespace`,
+		Long:  `Suspends a specific ReplicationSource/ReplicationDestination or all in a namespace. If namespace is not specified, presents an interactive selector.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !all && len(args) == 0 {
@@ -120,15 +121,37 @@ func newSuspendCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (required)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&all, "all", false, "Suspend all ReplicationSources and ReplicationDestinations in namespace")
-	_ = cmd.MarkFlagRequired("namespace")
 
 	return cmd
 }
 
 func suspendVolsyncResource(namespace, name string, all bool) error {
 	logger := common.NewColorLogger()
+
+	// If namespace is not provided, prompt for selection
+	if namespace == "" {
+		getNamespacesCmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+		output, err := getNamespacesCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get namespaces: %w", err)
+		}
+
+		namespaces := strings.Fields(string(output))
+		if len(namespaces) == 0 {
+			return fmt.Errorf("no namespaces found in cluster")
+		}
+
+		selectedNS, err := ui.Choose("Select namespace:", namespaces)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return fmt.Errorf("namespace selection failed: %w", err)
+		}
+		namespace = selectedNS
+	}
 
 	if all {
 		return suspendAllVolsyncResources(namespace)
@@ -218,7 +241,7 @@ func newResumeCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "resume [name]",
 		Short: "Resume VolSync ReplicationSource or ReplicationDestination",
-		Long:  `Resumes a specific ReplicationSource/ReplicationDestination or all in a namespace`,
+		Long:  `Resumes a specific ReplicationSource/ReplicationDestination or all in a namespace. If namespace is not specified, presents an interactive selector.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !all && len(args) == 0 {
@@ -232,15 +255,37 @@ func newResumeCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (required)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&all, "all", false, "Resume all ReplicationSources and ReplicationDestinations in namespace")
-	_ = cmd.MarkFlagRequired("namespace")
 
 	return cmd
 }
 
 func resumeVolsyncResource(namespace, name string, all bool) error {
 	logger := common.NewColorLogger()
+
+	// If namespace is not provided, prompt for selection
+	if namespace == "" {
+		getNamespacesCmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+		output, err := getNamespacesCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get namespaces: %w", err)
+		}
+
+		namespaces := strings.Fields(string(output))
+		if len(namespaces) == 0 {
+			return fmt.Errorf("no namespaces found in cluster")
+		}
+
+		selectedNS, err := ui.Choose("Select namespace:", namespaces)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return fmt.Errorf("namespace selection failed: %w", err)
+		}
+		namespace = selectedNS
+	}
 
 	if all {
 		return resumeAllVolsyncResources(namespace)
@@ -332,17 +377,16 @@ func newSnapshotCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "snapshot",
 		Short: "Trigger a snapshot for an application",
-		Long:  `Manually triggers a VolSync snapshot for the specified application`,
+		Long:  `Manually triggers a VolSync snapshot for the specified application. If app is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return snapshotApp(namespace, app, wait, timeout)
 		},
 	}
 
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
-	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
+	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for snapshot to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for snapshot completion")
-	_ = cmd.MarkFlagRequired("app")
 
 	// Register completion functions
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
@@ -353,6 +397,31 @@ func newSnapshotCommand() *cobra.Command {
 
 func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error {
 	logger := common.NewColorLogger()
+
+	// If app is not provided, prompt for selection
+	if app == "" {
+		// Get list of ReplicationSources in namespace
+		getAppsCmd := exec.Command("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+		output, err := getAppsCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
+		}
+
+		apps := strings.Fields(string(output))
+		if len(apps) == 0 {
+			return fmt.Errorf("no ReplicationSources found in namespace %s", namespace)
+		}
+
+		// Use interactive selector
+		selectedApp, err := ui.Choose(fmt.Sprintf("Select application to snapshot in %s:", namespace), apps)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return fmt.Errorf("application selection failed: %w", err)
+		}
+		app = selectedApp
+	}
 
 	// Check if ReplicationSource exists
 	checkCmd := exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources", app)
@@ -635,27 +704,17 @@ func newRestoreCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore an application from a VolSync snapshot",
-		Long:  `Restores an application's PVC from a previous VolSync snapshot`,
+		Long:  `Restores an application's PVC from a previous VolSync snapshot. If app or snapshot is not specified, presents interactive selectors.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !force {
-				fmt.Printf("This will restore %s from snapshot %s. Data will be overwritten. Continue? (y/N): ", app, previous)
-				var response string
-				_, _ = fmt.Scanln(&response)
-				if response != "y" && response != "Y" {
-					return fmt.Errorf("restore cancelled")
-				}
-			}
-			return restoreApp(namespace, app, previous, restoreTimeout)
+			return restoreApp(namespace, app, previous, force, restoreTimeout)
 		},
 	}
 
 	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
-	cmd.Flags().StringVar(&app, "app", "", "Application name (required)")
-	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
+	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
+	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
 	cmd.Flags().DurationVar(&restoreTimeout, "restore-timeout", 120*time.Minute, "Timeout for restore job completion")
-	_ = cmd.MarkFlagRequired("app")
-	_ = cmd.MarkFlagRequired("previous")
 
 	// Register completion functions
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
@@ -664,8 +723,75 @@ func newRestoreCommand() *cobra.Command {
 	return cmd
 }
 
-func restoreApp(namespace, app, previous string, restoreTimeout time.Duration) error {
+func restoreApp(namespace, app, previous string, force bool, restoreTimeout time.Duration) error {
 	logger := common.NewColorLogger()
+
+	// If app is not provided, prompt for selection
+	if app == "" {
+		// Get list of ReplicationSources in namespace
+		getAppsCmd := exec.Command("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+		output, err := getAppsCmd.Output()
+		if err != nil {
+			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
+		}
+
+		apps := strings.Fields(string(output))
+		if len(apps) == 0 {
+			return fmt.Errorf("no ReplicationSources found in namespace %s", namespace)
+		}
+
+		// Use interactive selector
+		selectedApp, err := ui.Choose(fmt.Sprintf("Select application to restore in %s:", namespace), apps)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return fmt.Errorf("application selection failed: %w", err)
+		}
+		app = selectedApp
+	}
+
+	// If previous snapshot is not provided, list and prompt for selection
+	if previous == "" {
+		// Get list of snapshots for the app
+		getSnapshotsCmd := exec.Command("kubectl", "get", "snapshots", "-n", namespace,
+			"-l", fmt.Sprintf("app=%s", app),
+			"-o", "jsonpath={.items[*].spec.snapshotNum}")
+		output, err := getSnapshotsCmd.Output()
+		if err != nil {
+			// Try alternative approach - list from ReplicationSource status
+			logger.Warn("Could not list snapshots via Snapshot CRs, checking ReplicationSource status")
+			// For now, require manual input
+			return fmt.Errorf("snapshot number required - use --previous flag")
+		}
+
+		snapshots := strings.Fields(string(output))
+		if len(snapshots) == 0 {
+			return fmt.Errorf("no snapshots found for app %s in namespace %s", app, namespace)
+		}
+
+		// Use Filter for better search experience
+		selectedSnapshot, err := ui.Filter("Search for snapshot number:", snapshots)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return fmt.Errorf("snapshot selection failed: %w", err)
+		}
+		previous = selectedSnapshot
+	}
+
+	// Add confirmation for restore
+	if !force {
+		confirmed, err := ui.Confirm(fmt.Sprintf("Restore %s from snapshot %s? Data will be overwritten!", app, previous), false)
+		if err != nil {
+			return fmt.Errorf("confirmation failed: %w", err)
+		}
+		if !confirmed {
+			logger.Info("Restore cancelled")
+			return fmt.Errorf("restore cancelled")
+		}
+	}
 
 	logger.Info("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
 
@@ -930,7 +1056,7 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	for _, rs := range replicationSources {
 		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
 
-		err := restoreApp(rs.Namespace, rs.Name, previous, 120*time.Minute)
+		err := restoreApp(rs.Namespace, rs.Name, previous, false, 120*time.Minute)
 		if err != nil {
 			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
 			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))

@@ -19,7 +19,7 @@ func TestNewCommand(t *testing.T) {
 		"browse-pvc",
 		"node-shell",
 		"sync-secrets",
-		"cleanse-pods",
+		"prune-pods",
 		"upgrade-arc",
 	}
 
@@ -53,7 +53,7 @@ func TestSubcommandHelp(t *testing.T) {
 		"browse-pvc",
 		"node-shell",
 		"sync-secrets",
-		"cleanse-pods",
+		"prune-pods",
 		"upgrade-arc",
 	}
 

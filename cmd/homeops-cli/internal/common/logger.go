@@ -24,6 +24,7 @@ const (
 // ColorLogger provides colored console output
 type ColorLogger struct {
 	Level LogLevel
+	Quiet bool // When true, suppress all output
 }
 
 // NewColorLogger creates a new colored logger
@@ -37,6 +38,9 @@ func NewColorLogger() *ColorLogger {
 
 // Debug logs debug messages
 func (l *ColorLogger) Debug(msg string, args ...interface{}) {
+	if l.Quiet {
+		return
+	}
 	if l.Level <= DebugLevel {
 		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 		color.Blue("%s DEBUG %s", timestamp, fmt.Sprintf(msg, args...))
@@ -45,6 +49,9 @@ func (l *ColorLogger) Debug(msg string, args ...interface{}) {
 
 // Info logs info messages
 func (l *ColorLogger) Info(msg string, args ...interface{}) {
+	if l.Quiet {
+		return
+	}
 	if l.Level <= InfoLevel {
 		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 		color.Cyan("%s INFO %s", timestamp, fmt.Sprintf(msg, args...))
@@ -53,6 +60,9 @@ func (l *ColorLogger) Info(msg string, args ...interface{}) {
 
 // Warn logs warning messages
 func (l *ColorLogger) Warn(msg string, args ...interface{}) {
+	if l.Quiet {
+		return
+	}
 	if l.Level <= WarnLevel {
 		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 		color.Yellow("%s WARN %s", timestamp, fmt.Sprintf(msg, args...))
@@ -61,12 +71,18 @@ func (l *ColorLogger) Warn(msg string, args ...interface{}) {
 
 // Error logs error messages
 func (l *ColorLogger) Error(msg string, args ...interface{}) {
+	if l.Quiet {
+		return
+	}
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	color.Red("%s ERROR %s", timestamp, fmt.Sprintf(msg, args...))
 }
 
 // Success logs success messages (always shown)
 func (l *ColorLogger) Success(msg string, args ...interface{}) {
+	if l.Quiet {
+		return
+	}
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
 	color.Green("%s SUCCESS %s", timestamp, fmt.Sprintf(msg, args...))
 }

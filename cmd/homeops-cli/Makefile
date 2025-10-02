@@ -51,10 +51,10 @@ install: build
 
 ##@ Development Tasks
 
-## test: Run all tests
+## test: Run all tests (unit tests only, skip long-running integration tests)
 test:
 	@echo "$(GREEN)Running tests...$(RESET)"
-	go test -v -race -timeout 30s ./...
+	go test -v -race -short -timeout 30s ./...
 	@echo "$(GREEN)✅ Tests completed$(RESET)"
 
 ## test-unit: Run unit tests only

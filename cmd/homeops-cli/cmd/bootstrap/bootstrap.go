@@ -20,6 +20,7 @@ import (
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/templates"
+	"homeops-cli/internal/ui"
 )
 
 type BootstrapConfig struct {
@@ -33,6 +34,7 @@ type BootstrapConfig struct {
 	SkipResources bool
 	SkipHelmfile  bool
 	SkipPreflight bool
+	Verbose       bool
 }
 
 type PreflightResult struct {
@@ -40,6 +42,22 @@ type PreflightResult struct {
 	Status  string
 	Message string
 	Error   error
+}
+
+// runWithSpinner runs a function with a spinner if verbose mode is disabled,
+// otherwise runs it directly with full logger output
+func runWithSpinner(title string, verbose bool, logger *common.ColorLogger, fn func() error) error {
+	if verbose {
+		// In verbose mode, show the title and run without spinner
+		logger.Info("%s", title)
+		return fn()
+	}
+	// In normal mode, use spinner and suppress logger output
+	return ui.SpinWithFunc(title, func() error {
+		logger.Quiet = true
+		defer func() { logger.Quiet = false }()
+		return fn()
+	})
 }
 
 // buildTalosctlCmd builds a talosctl command with optional talosconfig
@@ -79,13 +97,109 @@ func NewCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&config.SkipResources, "skip-resources", false, "Skip resource creation")
 	cmd.Flags().BoolVar(&config.SkipHelmfile, "skip-helmfile", false, "Skip Helmfile sync")
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
+	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
 
 	return cmd
+}
+
+func promptBootstrapOptions(config *BootstrapConfig, logger *common.ColorLogger) error {
+	// Step 1: Ask if this is a dry-run
+	dryRunOptions := []string{
+		"Real Bootstrap - Actually perform the bootstrap",
+		"Dry-Run - Preview what would be done without making changes",
+	}
+
+	selectedMode, err := ui.Choose("Select bootstrap mode:", dryRunOptions)
+	if err != nil {
+		// User cancelled
+		return fmt.Errorf("bootstrap cancelled")
+	}
+
+	if strings.HasPrefix(selectedMode, "Dry-Run") {
+		config.DryRun = true
+		logger.Info("🔍 Dry-run mode enabled - no changes will be made")
+	}
+
+	// Step 2: Ask what to include/skip (multi-select)
+	// Show options regardless of dry-run or real
+	skipOptions := []string{
+		"Skip Preflight Checks",
+		"Skip CRDs",
+		"Skip Resources",
+		"Skip Helmfile",
+		"Enable Verbose Mode",
+	}
+
+	selectedOptions, err := ui.ChooseMulti("Select options to customize (use 'x' to toggle, Enter to confirm - or just press Enter for full bootstrap):", skipOptions, 0)
+	if err != nil {
+		// User cancelled or error
+		return fmt.Errorf("options selection cancelled")
+	}
+
+	// Apply selected options
+	for _, option := range selectedOptions {
+		switch {
+		case strings.HasPrefix(option, "Skip Preflight"):
+			config.SkipPreflight = true
+			logger.Warn("⚠️  Skipping preflight checks")
+		case strings.HasPrefix(option, "Skip CRDs"):
+			config.SkipCRDs = true
+			logger.Info("📋 Skipping CRD installation")
+		case strings.HasPrefix(option, "Skip Resources"):
+			config.SkipResources = true
+			logger.Info("📦 Skipping resource creation")
+		case strings.HasPrefix(option, "Skip Helmfile"):
+			config.SkipHelmfile = true
+			logger.Info("⚙️  Skipping Helmfile sync")
+		case strings.HasPrefix(option, "Enable Verbose"):
+			config.Verbose = true
+			logger.Info("📢 Verbose mode enabled")
+		}
+	}
+
+	// Show summary of what will be done
+	if config.DryRun {
+		logger.Info("📋 Summary: Dry-run mode with selected skips")
+	} else if len(selectedOptions) == 0 {
+		logger.Info("🚀 Summary: Full bootstrap - all steps will be performed")
+	} else {
+		logger.Info("🎯 Summary: Real bootstrap with %d step(s) skipped", len(selectedOptions))
+	}
+
+	return nil
+}
+
+// resetTerminal resets terminal state to prevent escape code leakage
+func resetTerminal() {
+	// Run stty sane to fully restore terminal
+	resetCmd := exec.Command("stty", "sane")
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err == nil {
+		resetCmd.Stdin = tty
+		resetCmd.Stdout = tty
+		resetCmd.Stderr = tty
+		_ = resetCmd.Run()
+
+		// Also send ANSI reset codes
+		_, _ = tty.WriteString("\033[0m\033[?25h\r")
+		_ = tty.Sync()
+		tty.Close()
+	}
+
+	// Small delay to let terminal settle
+	time.Sleep(50 * time.Millisecond)
 }
 
 func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
+
+	// If no flags were set, show interactive menus
+	if !config.DryRun && !config.SkipCRDs && !config.SkipResources && !config.SkipHelmfile && !config.SkipPreflight && !config.Verbose {
+		if err := promptBootstrapOptions(config, logger); err != nil {
+			return err
+		}
+	}
 
 	logger.Info("🚀 Starting cluster bootstrap process")
 
@@ -118,11 +232,11 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Run comprehensive preflight checks
 	if !config.SkipPreflight {
-		logger.Info("🔍 Running preflight checks...")
-		if err := runPreflightChecks(config, logger); err != nil {
+		if err := runWithSpinner("🔍 Running preflight checks", config.Verbose, logger, func() error {
+			return runPreflightChecks(config, logger)
+		}); err != nil {
 			return fmt.Errorf("preflight checks failed: %w", err)
 		}
-		logger.Success("✅ All preflight checks passed")
 	} else {
 		logger.Warn("⚠️  Skipping preflight checks - this may cause failures during bootstrap")
 		// Still run basic prerequisite validation
@@ -136,72 +250,91 @@ func runBootstrap(config *BootstrapConfig) error {
 	if err := applyTalosConfig(config, logger); err != nil {
 		return fmt.Errorf("failed to apply Talos config: %w", err)
 	}
-	logger.Success("✅ Talos configuration applied successfully")
+
+	// Reset terminal after Step 1 completes (multiple spinners)
+	resetTerminal()
 
 	// Step 2: Bootstrap Talos
-	logger.Info("🎯 Step 2: Bootstrapping Talos cluster")
-
-	// Wait a moment for configurations to be fully processed (following onedr0p's pattern)
-	logger.Debug("Waiting for configurations to be processed...")
-	time.Sleep(5 * time.Second)
-	if err := bootstrapTalos(config, logger); err != nil {
+	if err := runWithSpinner("🎯 Step 2: Bootstrapping Talos cluster", config.Verbose, logger, func() error {
+		// Wait a moment for configurations to be fully processed (following onedr0p's pattern)
+		logger.Debug("Waiting for configurations to be processed...")
+		time.Sleep(5 * time.Second)
+		return bootstrapTalos(config, logger)
+	}); err != nil {
 		return fmt.Errorf("failed to bootstrap Talos: %w", err)
 	}
-	logger.Success("✅ Talos cluster bootstrapped successfully")
 
 	// Step 3: Fetch kubeconfig
-	logger.Info("🔑 Step 3: Fetching kubeconfig")
-	if err := fetchKubeconfig(config, logger); err != nil {
-		return fmt.Errorf("failed to fetch kubeconfig: %w", err)
+	if err := runWithSpinner("🔑 Step 3: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
+		if err := fetchKubeconfig(config, logger); err != nil {
+			return fmt.Errorf("failed to fetch kubeconfig: %w", err)
+		}
+		// Validate kubeconfig is working
+		if err := validateKubeconfig(config, logger); err != nil {
+			return fmt.Errorf("kubeconfig validation failed: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
-	// Validate kubeconfig is working
-	if err := validateKubeconfig(config, logger); err != nil {
-		return fmt.Errorf("kubeconfig validation failed: %w", err)
-	}
-	logger.Success("✅ Kubeconfig fetched and validated successfully")
 
 	// Step 4: Wait for nodes to be ready
-	logger.Info("⏳ Step 4: Waiting for nodes to be ready")
-	if err := waitForNodes(config, logger); err != nil {
+	if err := runWithSpinner("⏳ Step 4: Waiting for nodes to be ready", config.Verbose, logger, func() error {
+		return waitForNodes(config, logger)
+	}); err != nil {
 		return fmt.Errorf("failed waiting for nodes: %w", err)
 	}
-	logger.Success("✅ All nodes are ready")
 
 	// Step 5: Apply namespaces first (following onedr0p pattern)
-	logger.Info("📦 Step 5: Creating initial namespaces")
-	if err := applyNamespaces(config, logger); err != nil {
+	if err := runWithSpinner("📦 Step 5: Creating initial namespaces", config.Verbose, logger, func() error {
+		return applyNamespaces(config, logger)
+	}); err != nil {
 		return fmt.Errorf("failed to apply namespaces: %w", err)
 	}
-	logger.Success("✅ Initial namespaces created successfully")
 
 	// Step 6: Apply initial resources
 	if !config.SkipResources {
-		logger.Info("🔧 Step 6: Applying initial resources")
-		if err := applyResources(config, logger); err != nil {
+		if err := runWithSpinner("🔧 Step 6: Applying initial resources", config.Verbose, logger, func() error {
+			return applyResources(config, logger)
+		}); err != nil {
 			return fmt.Errorf("failed to apply resources: %w", err)
 		}
-		logger.Success("✅ Initial resources applied successfully")
 	}
 
 	// Step 7: Apply CRDs
 	if !config.SkipCRDs {
-		logger.Info("📜 Step 7: Applying Custom Resource Definitions")
-		if err := applyCRDs(config, logger); err != nil {
+		if err := runWithSpinner("📜 Step 7: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
+			return applyCRDs(config, logger)
+		}); err != nil {
 			return fmt.Errorf("failed to apply CRDs: %w", err)
 		}
-		logger.Success("✅ CRDs applied successfully")
 	}
 
 	// Step 8: Sync Helm releases
 	if !config.SkipHelmfile {
-		logger.Info("⚙️  Step 8: Syncing Helm releases")
-		if err := syncHelmReleases(config, logger); err != nil {
+		if err := runWithSpinner("⚙️  Step 8: Syncing Helm releases", config.Verbose, logger, func() error {
+			return syncHelmReleases(config, logger)
+		}); err != nil {
 			return fmt.Errorf("failed to sync Helm releases: %w", err)
 		}
-		logger.Success("✅ Helm releases synced successfully")
 	}
 
 	logger.Success("🎉 Congrats! The cluster is bootstrapped and Flux is syncing the Git repository")
+
+	// Explicitly reset terminal state to prevent escape code leakage
+	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+	if err == nil {
+		// Send ANSI reset sequences directly to TTY
+		// \033[0m - Reset all attributes
+		// \033[?25h - Show cursor
+		// \r\n - Clear line and move to next
+		_, _ = tty.WriteString("\033[0m\033[?25h\r\n")
+		tty.Close()
+	} else {
+		// Fallback if we can't open TTY
+		fmt.Println()
+	}
+
 	return nil
 }
 
@@ -659,7 +792,7 @@ func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLo
 	// Use a sample node template for patch testing
 	patchTemplate := "nodes/192.168.122.10.yaml"
 
-	_, err := renderMachineConfigFromEmbedded("controlplane.yaml", patchTemplate, "controlplane")
+	_, err := renderMachineConfigFromEmbedded("controlplane.yaml", patchTemplate, "controlplane", logger)
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Machine Config Rendering",
@@ -717,15 +850,13 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 	for _, node := range nodes {
 		nodeTemplate := fmt.Sprintf("nodes/%s.yaml", node)
 
-		// Get machine type from embedded node template
+		// Get machine type from embedded node template - do this outside spinner for better error messages
 		machineType, err := getMachineTypeFromEmbedded(nodeTemplate)
 		if err != nil {
 			logger.Error("Failed to determine machine type for %s: %v", node, err)
 			failures = append(failures, node)
 			continue
 		}
-
-		logger.Debug("Applying Talos configuration to %s (type: %s)", node, machineType)
 
 		// Determine base template
 		var baseTemplate string
@@ -740,32 +871,44 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 			continue
 		}
 
-		// Render machine config using embedded templates
-		renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate, machineType)
+		// Apply config with spinner showing the node being configured
+		spinnerTitle := fmt.Sprintf("  Applying config to %s (%s)", node, machineType)
+		err = runWithSpinner(spinnerTitle, config.Verbose, logger, func() error {
+			// Render machine config using embedded templates
+			renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate, machineType, logger)
+			if err != nil {
+				return fmt.Errorf("failed to render config: %w", err)
+			}
+
+			if config.DryRun {
+				// For dry-run, just simulate a brief delay so spinner is visible
+				time.Sleep(500 * time.Millisecond)
+				return nil
+			}
+
+			// Apply the config with retry
+			if err := applyNodeConfigWithRetry(node, renderedConfig, logger, 3); err != nil {
+				// Check if node is already configured
+				if strings.Contains(err.Error(), "certificate required") || strings.Contains(err.Error(), "already configured") {
+					return nil // Silent skip for already configured nodes
+				}
+				return fmt.Errorf("failed to apply config after retries: %w", err)
+			}
+
+			return nil
+		})
+
 		if err != nil {
-			logger.Error("Failed to render config for %s: %v", node, err)
+			logger.Error("Failed to configure %s: %v", node, err)
 			failures = append(failures, node)
 			continue
 		}
 
 		if config.DryRun {
 			logger.Info("[DRY RUN] Would apply config to %s (type: %s)", node, machineType)
-			continue
+		} else {
+			logger.Success("Successfully applied configuration to %s", node)
 		}
-
-		// Apply the config with retry
-		if err := applyNodeConfigWithRetry(node, renderedConfig, logger, 3); err != nil {
-			// Check if node is already configured
-			if strings.Contains(err.Error(), "certificate required") || strings.Contains(err.Error(), "already configured") {
-				logger.Warn("Node %s is already configured, skipping", node)
-				continue
-			}
-			logger.Error("Failed to apply config to %s after retries: %v", node, err)
-			failures = append(failures, node)
-			continue
-		}
-
-		logger.Success("Successfully applied configuration to %s", node)
 	}
 
 	if len(failures) > 0 {
@@ -877,7 +1020,7 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	return "controlplane", nil
 }
 
-func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType string) ([]byte, error) {
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType string, logger *common.ColorLogger) ([]byte, error) {
 	// Get base config from embedded YAML file with proper talos/ prefix
 	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
 	baseConfig, err := templates.GetTalosTemplate(fullBaseTemplatePath)
@@ -920,8 +1063,7 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType st
 	}
 
 	// Resolve 1Password references in both configs BEFORE merging
-	// Create a minimal logger for 1Password resolution
-	logger := common.NewColorLogger()
+	// Use the logger passed in (which can be in quiet mode during spinners)
 
 	resolvedBaseConfig, err := resolve1PasswordReferences(baseConfig, logger)
 	if err != nil {

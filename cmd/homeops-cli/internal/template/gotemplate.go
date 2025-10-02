@@ -97,6 +97,13 @@ func (r *GoTemplateRenderer) createTemplateFuncs(rootDir string) template.FuncMa
 		"replace": func(old, new, s string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
+		"env": func(key string) string {
+			// Special handling for ROOT_DIR - use the rootDir passed to the renderer
+			if key == "ROOT_DIR" && rootDir != "" {
+				return rootDir
+			}
+			return os.Getenv(key)
+		},
 		// Add helmfile-compatible functions
 		"readFile": func(path string) (string, error) {
 			// Handle relative paths that go up from the template location
