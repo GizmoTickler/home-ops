@@ -524,9 +524,6 @@ func viewSecret(namespace, secretName, format, key string) error {
 		// Use Filter for better search experience with many secrets
 		selectedSecret, err := ui.Filter("Search for secret:", secrets)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("secret selection failed: %w", err)
 		}
 		secretName = selectedSecret
@@ -680,9 +677,6 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 		}
 		selected, err := ui.Choose("Select resource type to sync:", options)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("resource type selection failed: %w", err)
 		}
 		// Extract the resource type from the selection
@@ -1223,7 +1217,7 @@ func applyKustomization(ksPath string, dryRun bool) error {
 
 func selectKustomizationFile() (string, error) {
 	logger := common.NewColorLogger()
-
+	
 	// Find git repository root
 	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	gitRootOutput, err := gitRootCmd.Output()
@@ -1231,25 +1225,25 @@ func selectKustomizationFile() (string, error) {
 		return "", fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
 	}
 	gitRoot := strings.TrimSpace(string(gitRootOutput))
-
+	
 	// Search for all ks.yaml files in kubernetes/apps
 	appsDir := fmt.Sprintf("%s/kubernetes/apps", gitRoot)
 	if _, err := os.Stat(appsDir); err != nil {
 		return "", fmt.Errorf("kubernetes/apps directory not found at %s", appsDir)
 	}
-
+	
 	// Find all ks.yaml files recursively
 	findCmd := exec.Command("find", appsDir, "-name", "ks.yaml", "-type", "f")
 	output, err := findCmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to find ks.yaml files: %w", err)
 	}
-
+	
 	ksFiles := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(ksFiles) == 0 || (len(ksFiles) == 1 && ksFiles[0] == "") {
 		return "", fmt.Errorf("no ks.yaml files found in %s", appsDir)
 	}
-
+	
 	// Make paths relative to git root for cleaner display
 	var relativeFiles []string
 	for _, file := range ksFiles {
@@ -1259,16 +1253,16 @@ func selectKustomizationFile() (string, error) {
 		relPath := strings.TrimPrefix(file, gitRoot+"/")
 		relativeFiles = append(relativeFiles, relPath)
 	}
-
+	
 	logger.Info("Found %d Kustomization files", len(relativeFiles))
-
+	
 	// Use Filter for better search experience with many files
 	selected, err := ui.Filter("Search for Kustomization:", relativeFiles)
 	if err != nil {
 		// User cancelled - exit gracefully without error
 		return "", nil
 	}
-
+	
 	// Return full path
 	return fmt.Sprintf("%s/%s", gitRoot, selected), nil
 }
