@@ -137,9 +137,6 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 		// Use interactive selector
 		selectedNode, err := ui.Choose("Select a Talos node:", nodeIPs)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("node selection failed: %w", err)
 		}
 		nodeIP = selectedNode
@@ -413,9 +410,6 @@ func upgradeNode(nodeIP, mode string) error {
 		// Use interactive selector
 		selectedNode, err := ui.Choose("Select a Talos node to upgrade:", nodeIPs)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("node selection failed: %w", err)
 		}
 		nodeIP = selectedNode
@@ -565,9 +559,6 @@ func rebootNode(nodeIP, mode string) error {
 		// Use interactive selector
 		selectedNode, err := ui.Choose("Select a Talos node to reboot:", nodeIPs)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("node selection failed: %w", err)
 		}
 		nodeIP = selectedNode
@@ -693,9 +684,6 @@ func resetNode(nodeIP string, force bool) error {
 		// Use interactive selector
 		selectedNode, err := ui.Choose("Select a Talos node to reset:", nodeIPs)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("node selection failed: %w", err)
 		}
 		nodeIP = selectedNode
@@ -806,208 +794,6 @@ func generateKubeconfig() error {
 	return nil
 }
 
-func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, longhornSize *int, generateISO, dryRun *bool, datastore, network *string, nodeCount, concurrent *int) error {
-	logger := common.NewColorLogger()
-
-	// Step 1: Select deployment pattern
-	patternOptions := []string{
-		"Default - 3-node k8s cluster (8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each)",
-		"Custom - Choose your own configuration",
-	}
-
-	selectedPattern, err := ui.Choose("Select deployment pattern:", patternOptions)
-	if err != nil {
-		return err
-	}
-
-	isCustom := strings.HasPrefix(selectedPattern, "Custom")
-
-	// Step 2: Select provider
-	providerOptions := []string{
-		"vSphere/ESXi - Deploy to vSphere or ESXi (default)",
-		"TrueNAS - Deploy to TrueNAS Scale",
-	}
-
-	selectedProvider, err := ui.Choose("Select virtualization provider:", providerOptions)
-	if err != nil {
-		return err
-	}
-
-	if strings.HasPrefix(selectedProvider, "TrueNAS") {
-		*provider = "truenas"
-		logger.Info("Selected provider: TrueNAS")
-	} else {
-		*provider = "vsphere"
-		logger.Info("Selected provider: vSphere/ESXi")
-	}
-
-	// Step 3: Get VM name
-	vmName, err := ui.Input("Enter VM name (base name for multi-node):", "k8s")
-	if err != nil {
-		return err
-	}
-	if vmName == "" {
-		vmName = "k8s" // Use default if empty
-	}
-	*name = vmName
-	logger.Info("VM name: %s", vmName)
-
-	// Step 4: Configure resources based on pattern
-	if isCustom {
-		// Custom configuration
-		logger.Info("Custom configuration mode - enter resource values")
-
-		// Node count (vSphere only)
-		if *provider == "vsphere" {
-			nodeCountInput, err := ui.Input("Enter number of VMs to deploy:", "3")
-			if err != nil {
-				return err
-			}
-			if nodeCountInput != "" {
-				fmt.Sscanf(nodeCountInput, "%d", nodeCount)
-			} else {
-				*nodeCount = 3 // Default
-			}
-
-			// Concurrent deployments
-			concurrentInput, err := ui.Input("Enter number of concurrent deployments:", "3")
-			if err != nil {
-				return err
-			}
-			if concurrentInput != "" {
-				fmt.Sscanf(concurrentInput, "%d", concurrent)
-			} else {
-				*concurrent = 3 // Default
-			}
-		}
-
-		// vCPUs
-		vcpuInput, err := ui.Input("Enter number of vCPUs:", "8")
-		if err != nil {
-			return err
-		}
-		if vcpuInput != "" {
-			fmt.Sscanf(vcpuInput, "%d", vcpus)
-		} else {
-			*vcpus = 8 // Default
-		}
-
-		// Memory
-		memoryInput, err := ui.Input("Enter memory in GB:", "48")
-		if err != nil {
-			return err
-		}
-		if memoryInput != "" {
-			var memoryGB int
-			fmt.Sscanf(memoryInput, "%d", &memoryGB)
-			*memory = memoryGB * 1024 // Convert to MB
-		} else {
-			*memory = 49152 // Default (48GB)
-		}
-
-		// Boot disk
-		bootDiskInput, err := ui.Input("Enter boot/OpenEBS disk size in GB:", "500")
-		if err != nil {
-			return err
-		}
-		if bootDiskInput != "" {
-			fmt.Sscanf(bootDiskInput, "%d", diskSize)
-		} else {
-			*diskSize = 500 // Default
-		}
-
-		// Longhorn disk
-		longhornInput, err := ui.Input("Enter Longhorn disk size in GB:", "1024")
-		if err != nil {
-			return err
-		}
-		if longhornInput != "" {
-			fmt.Sscanf(longhornInput, "%d", longhornSize)
-		} else {
-			*longhornSize = 1024 // Default
-		}
-
-		if *provider == "vsphere" {
-			logger.Info("Custom resources: %d VMs with %d vCPUs, %dGB RAM, %dGB boot, %dGB Longhorn each",
-				*nodeCount, *vcpus, *memory/1024, *diskSize, *longhornSize)
-		} else {
-			logger.Info("Custom resources: %d vCPUs, %dGB RAM, %dGB boot, %dGB Longhorn",
-				*vcpus, *memory/1024, *diskSize, *longhornSize)
-		}
-	} else {
-		// Default pattern - 3-node k8s cluster
-		*vcpus = 8
-		*memory = 49152      // 48GB in MB
-		*diskSize = 500      // 500GB
-		*longhornSize = 1024 // 1TB
-
-		if *provider == "vsphere" {
-			*nodeCount = 3
-			*concurrent = 3
-			logger.Info("Default resources: 3 VMs with 8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each")
-		} else {
-			logger.Info("Default resources: 8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn")
-		}
-	}
-
-	// Step 5: vSphere-specific configuration (if applicable)
-	if *provider == "vsphere" {
-		datastoreInput, err := ui.Input("Enter datastore name:", "truenas-nfs")
-		if err != nil {
-			return err
-		}
-		if datastoreInput != "" {
-			*datastore = datastoreInput
-		} else {
-			*datastore = "truenas-nfs"
-		}
-
-		networkInput, err := ui.Input("Enter network port group:", "vl999")
-		if err != nil {
-			return err
-		}
-		if networkInput != "" {
-			*network = networkInput
-		} else {
-			*network = "vl999"
-		}
-	}
-
-	// Step 6: Ask about ISO generation
-	generateOptions := []string{
-		"No - Use existing ISO",
-		"Yes - Generate custom ISO using schematic.yaml",
-	}
-
-	selectedGenerate, err := ui.Choose("Generate custom Talos ISO?", generateOptions)
-	if err != nil {
-		return err
-	}
-
-	*generateISO = strings.HasPrefix(selectedGenerate, "Yes")
-	if *generateISO {
-		logger.Info("Will generate custom ISO using schematic.yaml")
-	}
-
-	// Step 7: Ask about dry-run mode
-	dryRunOptions := []string{
-		"Real Deployment - Actually create the VM",
-		"Dry-Run - Preview what would be done without creating the VM",
-	}
-
-	selectedDryRun, err := ui.Choose("Select deployment mode:", dryRunOptions)
-	if err != nil {
-		return err
-	}
-
-	*dryRun = strings.HasPrefix(selectedDryRun, "Dry-Run")
-	if *dryRun {
-		logger.Info("🔍 Dry-run mode enabled - no changes will be made")
-	}
-
-	return nil
-}
-
 func newDeployVMCommand() *cobra.Command {
 	var (
 		name           string
@@ -1020,7 +806,6 @@ func newDeployVMCommand() *cobra.Command {
 		skipZVolCreate bool
 		generateISO    bool
 		provider       string
-		dryRun         bool
 		// vSphere specific flags
 		datastore  string
 		network    string
@@ -1038,39 +823,13 @@ Defaults to vSphere/ESXi deployment. Use --provider truenas for TrueNAS deployme
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
 For vSphere/ESXi: Deploys to specified datastore with enhanced VM configuration.
 
-Use --generate-iso to create a custom ISO using the schematic.yaml configuration.
-
-If no flags are provided, presents an interactive menu with default and custom patterns.`,
+Use --generate-iso to create a custom ISO using the schematic.yaml configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			logger := common.NewColorLogger()
-
-			// Check if running in interactive mode (no flags set)
-			if name == "" && !cmd.Flags().Changed("provider") && !cmd.Flags().Changed("dry-run") {
-				// Show interactive prompts
-				err := promptDeployVMOptions(&name, &provider, &memory, &vcpus, &diskSize, &longhornSize, &generateISO, &dryRun, &datastore, &network, &nodeCount, &concurrent)
-				if err != nil {
-					if ui.IsCancellation(err) {
-						return nil
-					}
-					return err
-				}
-			}
-
-			// Validate required name
-			if name == "" {
-				return fmt.Errorf("VM name is required (use --name flag or interactive mode)")
-			}
-
-			// Show dry-run mode indicator
-			if dryRun {
-				logger.Info("🔍 DRY-RUN MODE - No changes will be made")
-			}
-
 			// Deploy to vSphere unless explicitly set to truenas
 			if provider == "truenas" {
-				return deployVMWithPatternDryRun(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO, dryRun)
+				return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
 			}
-			return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
+			return deployVMOnVSphere(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 		},
 	}
 
@@ -1084,13 +843,14 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform a dry run without creating the VM")
 
 	// vSphere specific flags
 	cmd.Flags().StringVar(&datastore, "datastore", "truenas-nfs", "Datastore name (vSphere: truenas-nfs, datastore1, etc.)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
 	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")
+
+	_ = cmd.MarkFlagRequired("name")
 
 	return cmd
 }
@@ -1104,60 +864,6 @@ func validateVMName(name string) error {
 		return fmt.Errorf("VM name cannot be empty")
 	}
 	return nil
-}
-
-func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO, dryRun bool) error {
-	if dryRun {
-		logger := common.NewColorLogger()
-		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
-		logger.Info("  Provider: TrueNAS")
-		logger.Info("  VM Name: %s", name)
-		logger.Info("  Pool: %s", pool)
-		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
-		if macAddress != "" {
-			logger.Info("  MAC Address: %s", macAddress)
-		}
-		if generateISO {
-			logger.Info("  Generate Custom ISO: Yes")
-		}
-		if skipZVolCreate {
-			logger.Info("  Skip ZVol Creation: Yes")
-		}
-		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
-		return nil
-	}
-	return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
-}
-
-func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int, dryRun bool) error {
-	if dryRun {
-		logger := common.NewColorLogger()
-		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
-		logger.Info("  Provider: vSphere/ESXi")
-		logger.Info("  VM Name: %s", baseName)
-		logger.Info("  Datastore: %s", datastore)
-		logger.Info("  Network: %s", network)
-		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
-		if macAddress != "" {
-			logger.Info("  MAC Address: %s", macAddress)
-		}
-		if nodeCount > 1 {
-			logger.Info("  Node Count: %d", nodeCount)
-			logger.Info("  Concurrent Deployments: %d", concurrent)
-		}
-		if generateISO {
-			logger.Info("  Generate Custom ISO: Yes")
-		}
-		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
-		return nil
-	}
-	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 }
 
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO bool) error {
@@ -1574,9 +1280,6 @@ func startVMWithProvider(name, provider string) error {
 
 		selectedVM, err := ui.Choose("Select VM to start:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -1610,9 +1313,6 @@ func stopVMWithProvider(name, provider string) error {
 
 		selectedVM, err := ui.Choose("Select VM to stop:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -1646,9 +1346,6 @@ func infoVMWithProvider(name, provider string) error {
 
 		selectedVM, err := ui.Choose("Select VM to get info:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -1732,9 +1429,6 @@ func startVM(name string) error {
 
 		selectedVM, err := ui.Choose("Select VM to start:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -1794,9 +1488,6 @@ func stopVM(name string) error {
 
 		selectedVM, err := ui.Choose("Select VM to stop:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -1868,9 +1559,6 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 
 		selectedVM, err := ui.Choose("Select VM to delete:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -2465,6 +2153,16 @@ func getNodeMacAddress(nodeName string) (string, error) {
 	return "", nil // Return empty if MAC not found in config
 }
 
+// getPhysicalFunction returns the appropriate SR-IOV physical function for load balancing
+// Alternates between two physical functions: 0000:04:00.0 and 0000:04:00.1
+func getPhysicalFunction(vmIndex int) string {
+	physicalFunctions := []string{
+		"0000:04:00.0", // First physical function
+		"0000:04:00.1", // Second physical function
+	}
+	return physicalFunctions[vmIndex%len(physicalFunctions)]
+}
+
 func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
@@ -2539,18 +2237,24 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			Network:              network,
 			ISO:                  isoPath,
 			MacAddress:           vmMacAddress,
-			PowerOn:              false, // Don't power on by default
-			EnableIOMMU:          true,  // Enable IOMMU for Talos VMs
-			ExposeCounters:       true,  // Expose CPU performance counters
-			ThinProvisioned:      true,  // Use thin provisioned disks
-			EnablePrecisionClock: true,  // Add precision clock device
-			EnableWatchdog:       true,  // Add watchdog timer device
+			PhysicalFunction:     getPhysicalFunction(0), // Single VM gets first PF
+			PowerOn:              false,                  // Don't power on by default
+			EnableIOMMU:          true,                   // Enable IOMMU for Talos VMs
+			ExposeCounters:       true,                   // Expose CPU performance counters
+			ThinProvisioned:      true,                   // Use thin provisioned disks
+			EnablePrecisionClock: true,                   // Add precision clock device
+			EnableWatchdog:       true,                   // Add watchdog timer device
 		}
 		configs = append(configs, config)
 	} else {
-		// Multiple VM deployment with zero-indexed numbering (0, 1, 2, ...)
-		for i := 0; i < nodeCount; i++ {
-			vmName := fmt.Sprintf("%s-%d", baseName, i)
+		// Multiple VM deployment with numbering
+		for i := 1; i <= nodeCount; i++ {
+			vmName := fmt.Sprintf("%s-%02d", baseName, i)
+
+			// For k8s nodes, use index-based naming (k8s-0, k8s-1, k8s-2)
+			if baseName == "k8s" {
+				vmName = fmt.Sprintf("%s-%d", baseName, i-1)
+			}
 
 			// Get MAC address for k8s nodes from configuration files
 			vmMacAddress := ""
@@ -2573,12 +2277,13 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 				Network:              network,
 				ISO:                  isoPath,
 				MacAddress:           vmMacAddress,
-				PowerOn:              false, // Don't power on by default
-				EnableIOMMU:          true,  // Enable IOMMU for Talos VMs
-				ExposeCounters:       true,  // Expose CPU performance counters
-				ThinProvisioned:      true,  // Use thin provisioned disks
-				EnablePrecisionClock: true,  // Add precision clock device
-				EnableWatchdog:       true,  // Add watchdog timer device
+				PhysicalFunction:     getPhysicalFunction(i - 1), // Alternate PFs based on VM index
+				PowerOn:              false,                      // Don't power on by default
+				EnableIOMMU:          true,                       // Enable IOMMU for Talos VMs
+				ExposeCounters:       true,                       // Expose CPU performance counters
+				ThinProvisioned:      true,                       // Use thin provisioned disks
+				EnablePrecisionClock: true,                       // Add precision clock device
+				EnableWatchdog:       true,                       // Add watchdog timer device
 			}
 			configs = append(configs, config)
 		}
@@ -2596,9 +2301,6 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		logger.Info("  Datastore: %s", configs[0].Datastore)
 		logger.Info("  Network: %s (vmxnet3)", configs[0].Network)
 		logger.Info("  ISO: %s", configs[0].ISO)
-		if configs[0].MacAddress != "" {
-			logger.Info("  MAC Address: %s", configs[0].MacAddress)
-		}
 		logger.Info("  IOMMU Enabled: %v", configs[0].EnableIOMMU)
 		logger.Info("  CPU Counters Exposed: %v", configs[0].ExposeCounters)
 		logger.Info("  Precision Clock: %v", configs[0].EnablePrecisionClock)
@@ -2641,9 +2343,9 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		logger.Info("VMs to deploy:")
 		for _, config := range configs {
 			if config.MacAddress != "" {
-				logger.Info("  - %s (MAC: %s)", config.Name, config.MacAddress)
+				logger.Info("  - %s (MAC: %s, PF: %s)", config.Name, config.MacAddress, config.PhysicalFunction)
 			} else {
-				logger.Info("  - %s", config.Name)
+				logger.Info("  - %s (PF: %s)", config.Name, config.PhysicalFunction)
 			}
 		}
 
@@ -2778,9 +2480,6 @@ func powerOnVM(name, provider string) error {
 
 		selectedVM, err := ui.Choose("Select VM to power on:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM
@@ -2814,9 +2513,6 @@ func powerOffVM(name, provider string) error {
 
 		selectedVM, err := ui.Choose("Select VM to power off:", vmNames)
 		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("VM selection failed: %w", err)
 		}
 		name = selectedVM

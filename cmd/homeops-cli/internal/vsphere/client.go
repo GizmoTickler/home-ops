@@ -71,11 +71,19 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 
 // Close closes the vSphere connection
 func (c *Client) Close() error {
+	// Logout first before canceling context
+	if c.client != nil {
+		if err := c.client.Logout(c.ctx); err != nil {
+			// Cancel context even if logout fails
+			if c.cancel != nil {
+				c.cancel()
+			}
+			return err
+		}
+	}
+	// Cancel context after successful logout
 	if c.cancel != nil {
 		c.cancel()
-	}
-	if c.client != nil {
-		return c.client.Logout(c.ctx)
 	}
 	return nil
 }

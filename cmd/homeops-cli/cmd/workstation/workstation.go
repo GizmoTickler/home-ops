@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
+	"homeops-cli/internal/ui"
 )
 
 // NewCommand creates the workstation command
@@ -88,13 +89,20 @@ func installBrewPackages() error {
 
 	logger.Info("Using embedded Brewfile")
 
-	// Run brew bundle install
-	cmd := exec.Command("brew", "bundle", "install", "--file", tempFile.Name())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Run brew bundle install with spinner
+	err = ui.SpinWithFunc("📦 Installing Homebrew packages", func() error {
+		cmd := exec.Command("brew", "bundle", "install", "--file", tempFile.Name())
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to install Homebrew packages: %w", err)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to install Homebrew packages: %w", err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
 	}
 
 	logger.Success("Successfully installed Homebrew packages")
@@ -123,21 +131,29 @@ func installKrewPlugins() error {
 	// Check if krew is installed
 	if !isKrewInstalled() {
 		logger.Info("Krew not found, installing...")
-		if err := installKrew(); err != nil {
+		err := ui.SpinWithFunc("🔧 Installing Krew", func() error {
+			return installKrew()
+		})
+		if err != nil {
 			return fmt.Errorf("failed to install Krew: %w", err)
 		}
+		logger.Success("Successfully installed Krew")
 	}
 
 	// Update krew
-	logger.Info("Updating Krew plugin index...")
-	if err := runKrewCommand("update"); err != nil {
+	err := ui.SpinWithFunc("🔄 Updating Krew plugin index", func() error {
+		return runKrewCommand("update")
+	})
+	if err != nil {
 		logger.Warn("Failed to update Krew index: %v", err)
 	}
 
 	// Install each plugin
 	for _, plugin := range plugins {
-		logger.Info("Installing kubectl plugin: %s", plugin)
-		if err := runKrewCommand("install", plugin); err != nil {
+		err := ui.SpinWithFunc(fmt.Sprintf("  Installing plugin: %s", plugin), func() error {
+			return runKrewCommand("install", plugin)
+		})
+		if err != nil {
 			logger.Warn("Failed to install plugin %s: %v", plugin, err)
 			continue
 		}

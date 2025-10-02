@@ -50,9 +50,11 @@ func TestRenderMachineConfigFromEmbedded(t *testing.T) {
 		},
 	}
 
+	logger := common.NewColorLogger()
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := renderMachineConfigFromEmbedded(tt.baseTemplate, tt.patchTemplate, tt.machineType)
+			result, err := renderMachineConfigFromEmbedded(tt.baseTemplate, tt.patchTemplate, tt.machineType, logger)
 
 			if tt.expectError {
 				if err == nil {
@@ -255,8 +257,10 @@ func TestFullRenderingPipeline(t *testing.T) {
 		t.Skip("talosctl not found, skipping test")
 	}
 
+	logger := common.NewColorLogger()
+
 	// Test the complete flow: embed template -> merge -> resolve secrets
-	result, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+	result, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", logger)
 	if err != nil {
 		t.Fatalf("Full rendering pipeline failed: %v", err)
 	}
@@ -285,9 +289,11 @@ func BenchmarkRenderMachineConfigFromEmbedded(b *testing.B) {
 		b.Skip("talosctl not found, skipping benchmark")
 	}
 
+	logger := common.NewColorLogger()
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+		_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", logger)
 		if err != nil {
 			b.Fatalf("Rendering failed: %v", err)
 		}
@@ -304,12 +310,14 @@ func TestParallelRendering(t *testing.T) {
 		t.Skip("talosctl not found, skipping test")
 	}
 
+	logger := common.NewColorLogger()
+
 	const numGoroutines = 5
 	errors := make(chan error, numGoroutines)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane")
+			_, err := renderMachineConfigFromEmbedded("controlplane.yaml", "nodes/192.168.122.10.yaml", "controlplane", logger)
 			errors <- err
 		}()
 	}
