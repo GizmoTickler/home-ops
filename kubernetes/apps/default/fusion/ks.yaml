@@ -3,8 +3,8 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: &app fusion
-  namespace: &namespace default
+  name: fusion
+  namespace: default
 spec:
   components:
     - ../../../../components/volsync
@@ -15,13 +15,11 @@ spec:
   path: ./kubernetes/apps/default/fusion/app
   postBuild:
     substitute:
-      APP: *app
-      NAMESPACE: *namespace
+      APP: fusion
       VOLSYNC_CAPACITY: 1Gi
   prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: *namespace
   wait: false

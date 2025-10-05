@@ -3,8 +3,8 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: &app tqm
-  namespace: &namespace default
+  name: tqm
+  namespace: default
 spec:
   interval: 1h
   path: ./kubernetes/apps/default/tqm/app
@@ -13,5 +13,4 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: *namespace
   wait: false
