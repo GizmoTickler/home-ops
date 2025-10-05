@@ -7,9 +7,6 @@ metadata:
   namespace: &namespace system
 spec:
   targetNamespace: *namespace
-  commonMetadata:
-    labels:
-      app.kubernetes.io/name: *appname
   path: "./kubernetes/apps/system/descheduler/app"
   sourceRef:
     kind: GitRepository
