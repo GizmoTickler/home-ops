@@ -5,6 +5,8 @@ kind: Kustomization
 namespace: observability
 components:
   - ../../components/namespace
+replacements:
+  - path: ../../components/replacements/ks.yaml
 resources:
   - ./blackbox-exporter/ks.yaml
   - ./grafana/ks.yaml
@@ -15,5 +17,3 @@ resources:
   - ./silence-operator/ks.yaml
   - ./fluent-bit/ks.yaml
   - ./unpoller/ks.yaml
-replacements:
-  - path: ../../components/replacements/ks.yaml
