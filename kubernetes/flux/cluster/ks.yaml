@@ -56,7 +56,6 @@ spec:
                 metadata:
                   name: not-used
                 spec:
-                  deletionPolicy: WaitForTermination
                   install:
                     crds: CreateReplace
                     strategy:
