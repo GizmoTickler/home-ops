@@ -5,8 +5,8 @@ kind: Kustomization
 namespace: system
 components:
   - ../../components/namespace
+replacements:
+  - path: ../../components/replacements/ks.yaml
 resources:
   - ./descheduler/ks.yaml
   - ./generic-device-plugin/ks.yaml
-replacements:
-  - path: ../../components/replacements/ks.yaml
