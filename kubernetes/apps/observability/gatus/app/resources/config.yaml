@@ -44,7 +44,7 @@ endpoints:
       - "[STATUS] == 200"
   - name: "kromgo"
     group: "internal"
-    url: http://kromgo.observability.svc.cluster.local:8080
+    url: http://kromgo.observability.svc.cluster.local:8080/readyz
     interval: 1m
     conditions:
       - "[STATUS] == 200"
