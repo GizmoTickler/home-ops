@@ -38,7 +38,7 @@ spec:
               GATUS_CONFIG_PATH: /config
               GATUS_DELAY_START_SECONDS: 5
               GATUS_WEB_PORT: &port 80
-              TZ: America/Los_Angeles
+              TZ: America/New_York
             probes:
               liveness: &probes
                 enabled: true
@@ -77,8 +77,12 @@ spec:
           - port: http
     route:
       app:
+        annotations:
+          gatus.home-operations.com/endpoint: |-
+            conditions: ["[STATUS] == 200"]
         hostnames:
-          - "status.${SECRET_DOMAIN}"
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+          - status.${SECRET_DOMAIN}
         parentRefs:
           - name: envoy-external
             namespace: network
