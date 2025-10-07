@@ -21,9 +21,33 @@ web:
   port: ${GATUS_WEB_PORT}
 
 endpoints:
-  - name: "kromgo"
+  - name: "sc01"
     group: "internal"
-    url: http://kromgo.observability.svc.cluster.local:8080/readyz
+    url: https://sc01.${SECRET_DOMAIN}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+  - name: "wlc01"
+    group: "internal"
+    url: https://wlc01.${SECRET_DOMAIN}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+  - name: "unifi"
+    group: "internal"
+    url: https://unifi.${SECRET_DOMAIN}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+  - name: "vc01"
+    group: "internal"
+    url: https://vc01.${SECRET_DOMAIN}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+  - name: "nas01"
+    group: "internal"
+    url: https://nas01.${SECRET_DOMAIN}
     interval: 1m
     conditions:
       - "[STATUS] == 200"
