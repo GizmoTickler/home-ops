@@ -69,4 +69,4 @@ data:
         url: https://passwords.${SECRET_DOMAIN}
         interval: 1m
         conditions:
-          - "[STATUS] == 200"
+          - "[STATUS] == 404"
