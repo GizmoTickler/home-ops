@@ -21,12 +21,6 @@ web:
   port: ${GATUS_WEB_PORT}
 
 endpoints:
-  - name: "Gatus"
-    group: "monitoring"
-    url: http://gatus.observability.svc.cluster.local/health
-    interval: 5m
-    conditions:
-      - "[STATUS] == 200"
   - name: "kromgo"
     group: "internal"
     url: http://kromgo.observability.svc.cluster.local:8080/readyz
