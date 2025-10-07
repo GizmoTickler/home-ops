@@ -64,6 +64,10 @@ spec:
               - path: /home/node/.n8n
     route:
       app:
+        annotations:
+          gatus.home-operations.com/endpoint: |
+            conditions:
+              - "[STATUS] == 200"
         hostnames:
           - *hostName
         parentRefs:

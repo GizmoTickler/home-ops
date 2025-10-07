@@ -223,6 +223,10 @@ spec:
       enabled: true
     route:
       main:
+        annotations:
+          gatus.home-operations.com/endpoint: |
+            conditions:
+              - "[STATUS] == 200"
         enabled: true
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"

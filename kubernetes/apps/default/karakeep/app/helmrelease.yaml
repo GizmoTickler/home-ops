@@ -157,6 +157,10 @@ spec:
                 subPath: meilisearch
     route:
       app:
+        annotations:
+          gatus.home-operations.com/endpoint: |
+            conditions:
+              - "[STATUS] == 200"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
