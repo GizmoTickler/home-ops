@@ -1,0 +1,44 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/TwiN/gatus/master/config.schema.json
+connectivity:
+  checker:
+    target: 1.1.1.1:53
+    interval: 1m
+
+metrics: true
+
+ui:
+  title: Status | Gatus
+  header: Status
+  logo: https://avatars.githubusercontent.com/u/19583593?s=400&u=14439fe49fcf585a8280451db1d299c5edf466cf&v=4
+  link: https://github.com/GizmoTickler/home-ops
+  buttons:
+    - name: Github
+      link: https://github.com/GizmoTickler
+    - name: Homelab
+      link: https://github.com/GizmoTickler/home-ops
+
+web:
+  port: ${GATUS_WEB_PORT}
+
+endpoints:
+  - name: "Kubernetes API"
+    group: "internal"
+    url: https://kubernetes.default.svc/healthz
+    interval: 5m
+    client:
+      insecure: true
+    conditions:
+      - "[STATUS] == 200"
+  - name: "Gatus"
+    group: "monitoring"
+    url: http://gatus.observability.svc.cluster.local/health
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
+  - name: "Homepage"
+    group: "external"
+    url: "https://status.${SECRET_DOMAIN}"
+    interval: 5m
+    conditions:
+      - "[STATUS] == 200"
