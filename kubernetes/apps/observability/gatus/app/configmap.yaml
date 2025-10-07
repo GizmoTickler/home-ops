@@ -28,15 +28,15 @@ data:
       port: ${GATUS_WEB_PORT}
 
     endpoints:
-      - name: "sc01"
+      - name: "Core Switch"
         group: "internal"
         url: https://sc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
-      - name: "wlc01"
+      - name: "Wireless Controller"
         group: "internal"
-        url: https://wlc01.${SECRET_DOMAIN}
+        url: https://ewlc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
@@ -46,13 +46,13 @@ data:
         interval: 1m
         conditions:
           - "[STATUS] == 200"
-      - name: "vc01"
+      - name: "vSphere"
         group: "internal"
         url: https://vc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
-      - name: "nas01"
+      - name: "TrueNAS"
         group: "internal"
         url: https://nas01.${SECRET_DOMAIN}
         interval: 1m
