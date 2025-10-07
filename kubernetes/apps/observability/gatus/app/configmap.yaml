@@ -25,7 +25,7 @@ data:
           link: https://github.com/GizmoTickler/home-ops
 
     web:
-      port: ${GATUS_WEB_PORT}
+      port: 80
 
     endpoints:
       - name: "Core Switch"
