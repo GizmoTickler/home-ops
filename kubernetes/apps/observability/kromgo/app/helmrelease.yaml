@@ -60,6 +60,8 @@ spec:
             port: *healthPort
     route:
       app:
+        annotations:
+          gatus.io/enabled: "false"
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
