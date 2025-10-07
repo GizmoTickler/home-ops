@@ -16,7 +16,7 @@ data:
     ui:
       title: Status | Gatus
       header: Status
-      logo: https://avatars.githubusercontent.com/u/19583593?s=400&u=14439fe49fcf585a8280451db1d299c5edf466cf&v=4
+      logo: https://avatars.githubusercontent.com/u/19583593
       link: https://github.com/GizmoTickler/home-ops
       buttons:
         - name: Github
