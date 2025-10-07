@@ -27,6 +27,8 @@ endpoints:
     interval: 5m
     client:
       insecure: true
+      oauth2:
+        token-file: /var/run/secrets/kubernetes.io/serviceaccount/token
     conditions:
       - "[STATUS] == 200"
   - name: "Gatus"
