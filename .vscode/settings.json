@@ -1,6 +1,6 @@
 {
   "editor.bracketPairColorization.enabled": true,
-  "editor.fontFamily": "FiraCode Nerd Font",
+  "editor.fontFamily": "JetBrains Mono",
   "editor.fontLigatures": true,
   "editor.guides.bracketPairs": true,
   "editor.guides.bracketPairsHorizontal": true,
