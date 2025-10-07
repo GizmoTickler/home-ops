@@ -5,12 +5,9 @@ kind: HelmRelease
 metadata:
   name: gatus
 spec:
-  chart:
-    spec:
-      chart: app-template
-      sourceRef:
-        kind: OCIRepository
-        name: gatus
+  chartRef:
+    kind: OCIRepository
+    name: gatus
   interval: 1h
   values:
     controllers:
