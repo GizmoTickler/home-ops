@@ -1,0 +1,60 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatus-configmap
+data:
+  config.yaml: |-
+    ---
+    connectivity:
+      checker:
+        target: 1.1.1.1:53
+        interval: 1m
+
+    metrics: true
+
+    ui:
+      title: Status | Gatus
+      header: Status
+      logo: https://avatars.githubusercontent.com/u/19583593?s=400&u=14439fe49fcf585a8280451db1d299c5edf466cf&v=4
+      link: https://github.com/GizmoTickler/home-ops
+      buttons:
+        - name: Github
+          link: https://github.com/GizmoTickler
+        - name: home-ops
+          link: https://github.com/GizmoTickler/home-ops
+
+    web:
+      port: ${GATUS_WEB_PORT}
+
+    endpoints:
+      - name: "sc01"
+        group: "internal"
+        url: https://sc01.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+      - name: "wlc01"
+        group: "internal"
+        url: https://wlc01.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+      - name: "unifi"
+        group: "internal"
+        url: https://unifi.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+      - name: "vc01"
+        group: "internal"
+        url: https://vc01.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+      - name: "nas01"
+        group: "internal"
+        url: https://nas01.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
