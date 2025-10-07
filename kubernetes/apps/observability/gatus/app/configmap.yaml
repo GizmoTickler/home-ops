@@ -58,3 +58,15 @@ data:
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+      - name: "Jellyfin"
+        group: "internal"
+        url: https://jellyfin.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+      - name: "OP-Connect"
+        group: "internal"
+        url: https://passwords.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
