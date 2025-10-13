@@ -122,11 +122,6 @@ spec:
     serviceAccount:
       gatus: {}
     persistence:
-      config:
-        type: persistentVolumeClaim
-        existingClaim: config-{{ .Release.Name }}-0
-        globalMounts:
-          - path: /config
       config-file:
         type: configMap
         name: "{{ .Release.Name }}-configmap"
