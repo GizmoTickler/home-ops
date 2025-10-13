@@ -12,10 +12,12 @@ data:
         interval: 1m
 
     metrics: true
+
     storage:
       type: sqlite
       caching: true
       path: ${GATUS_CONFIG_PATH}/gatus.db
+
     ui:
       title: Status | Gatus
       header: Status
@@ -24,7 +26,7 @@ data:
       buttons:
         - name: Github
           link: https://github.com/GizmoTickler
-        - name: home-ops
+        - name: homelab
           link: https://github.com/GizmoTickler/home-ops
 
     web:
@@ -37,54 +39,63 @@ data:
         interval: 1m
         conditions:
           - "[CONNECTED] == true"
+
       - name: "Cloudflare"
         group: "connectivity"
         url: icmp://1.1.1.1
         interval: 1m
         conditions:
           - "[CONNECTED] == true"
+
       - name: Quad9
         group: connectivity
         url: icmp://9.9.9.9
         interval: 1m
         conditions:
           - "[CONNECTED] == true"
+
       - name: "Core Switch"
         group: "internal"
         url: https://sc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "Wireless Controller"
         group: "internal"
         url: https://ewlc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "unifi"
         group: "internal"
         url: https://unifi.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "vSphere"
         group: "internal"
         url: https://vc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "TrueNAS"
         group: "internal"
         url: https://nas01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "Jellyfin"
         group: "internal"
         url: https://jellyfin.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
+
       - name: "OP-Connect"
         group: "internal"
         url: https://passwords.${SECRET_DOMAIN}
