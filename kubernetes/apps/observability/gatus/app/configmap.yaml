@@ -12,7 +12,10 @@ data:
         interval: 1m
 
     metrics: true
-
+    storage:
+      type: sqlite
+      caching: true
+      path: ${GATUS_CONFIG_PATH}/gatus.db
     ui:
       title: Status | Gatus
       header: Status
@@ -28,6 +31,24 @@ data:
       port: 80
 
     endpoints:
+      - name: "Google"
+        group: "connectivity"
+        url: icmp://8.8.8.8
+        interval: 1m
+        conditions:
+          - "[CONNECTED] == true"
+      - name: "Cloudflare"
+        group: "connectivity"
+        url: icmp://1.1.1.1
+        interval: 1m
+        conditions:
+          - "[CONNECTED] == true"
+      - name: Quad9
+        group: connectivity
+        url: icmp://9.9.9.9
+        interval: 1m
+        conditions:
+          - "[CONNECTED] == true"
       - name: "Core Switch"
         group: "internal"
         url: https://sc01.${SECRET_DOMAIN}
