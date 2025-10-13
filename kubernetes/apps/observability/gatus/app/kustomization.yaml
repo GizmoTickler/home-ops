@@ -7,4 +7,3 @@ resources:
   - ./ocirepository.yaml
   - ./prometheusrule.yaml
   - ./configmap.yaml
-  - ./externalsecret.yaml
