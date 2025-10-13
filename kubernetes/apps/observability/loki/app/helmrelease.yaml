@@ -58,6 +58,12 @@ spec:
         enabled: true
         storageClass: ceph-block
         size: 50Gi
+      extraVolumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      extraVolumes:
+        - name: tmp
+          emptyDir: {}
     gateway:
       replicas: 0
     backend:
