@@ -46,11 +46,11 @@ spec:
             access: proxy
             url: http://prometheus-operated.observability.svc.cluster.local:9090
             isDefault: true
-          - name: Loki
-            type: loki
-            uid: loki
+          - name: VictoriaLogs
+            type: victorialogs-datasource
+            uid: victorialogs
             access: proxy
-            url: http://loki-headless.observability.svc.cluster.local:3100
+            url: http://victoria-logs-server.observability.svc.cluster.local:9428
             jsonData:
               maxLines: 250
           - name: Alertmanager
