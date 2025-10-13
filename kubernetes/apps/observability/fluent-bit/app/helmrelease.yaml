@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -8,13 +8,7 @@ spec:
   chartRef:
     kind: OCIRepository
     name: fluent-bit
-  maxHistory: 2
   interval: 1h
-  upgrade:
-    cleanupOnFail: true
-    remediation:
-      strategy: rollback
-      retries: 3
   values:
     config:
       service: |-
@@ -42,7 +36,6 @@ spec:
       filters: |-
         [FILTER]
           name kubernetes
-          alias kubernetes
           match kubernetes.*
           merge_log on
           kube_tag_prefix kubernetes.var.log.containers.
@@ -69,11 +62,17 @@ spec:
         [FILTER]
           name modify
           match kubernetes.*
-          rename k_labels_app.kubernetes.io/instance app
           rename k_labels_app.kubernetes.io/name app
           rename k_labels_app app
           rename k_labels_k8s-app app
-          rename k_container_name app
+
+      customParsers: |-
+        [PARSER]
+          name containerd
+          format regex
+          regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%L%z
 
       outputs: |-
         [OUTPUT]
