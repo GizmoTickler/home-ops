@@ -3,6 +3,17 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ./ocirepository.yaml
   - ./externalsecret.yaml
-  - ./helmrelease.yaml
+  - ./grafana.yaml
+  - ./grafanadatasource.yaml
+  - ./httproute.yaml
+  - ./sidecar-provider.yaml
+  - ./dashboards/cert-manager.yaml
+  - ./dashboards/ceph.yaml
+  - ./dashboards/cloudflared.yaml
+  - ./dashboards/envoy.yaml
+  - ./dashboards/external-dns.yaml
+  - ./dashboards/kubernetes.yaml
+  - ./dashboards/misc.yaml
+  - ./dashboards/node-exporters.yaml
+  - ./dashboards/unifi.yaml

@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: ceph-cluster
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="Ceph Cluster"
+  gnetId: 2842
+  gnetRevision: 18
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: ceph-osd
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="Ceph - OSD (Single)"
+  gnetId: 5336
+  gnetRevision: 9
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: ceph-pools
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="Ceph - Pools"
+  gnetId: 5342
+  gnetRevision: 9

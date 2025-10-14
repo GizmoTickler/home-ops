@@ -1,0 +1,48 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: prometheus
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="Prometheus"
+  gnetId: 19105
+  gnetRevision: 7
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: volsync
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="VolSync Dashboard"
+  gnetId: 21356
+  gnetRevision: 3
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: zfs
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_PROMETHEUS
+  # renovate: depName="ZFS"
+  gnetId: 7845
+  gnetRevision: 4
