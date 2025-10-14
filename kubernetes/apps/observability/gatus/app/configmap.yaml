@@ -13,11 +13,6 @@ data:
 
     metrics: true
 
-    storage:
-      type: sqlite
-      caching: true
-      path: ${GATUS_CONFIG_PATH}/gatus.db
-
     ui:
       title: Status | Gatus
       header: Status
