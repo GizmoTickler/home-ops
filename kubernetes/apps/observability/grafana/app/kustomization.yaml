@@ -8,12 +8,4 @@ resources:
   - ./grafanadatasource.yaml
   - ./httproute.yaml
   - ./sidecar-provider.yaml
-  - ./dashboards/cert-manager.yaml
-  - ./dashboards/ceph.yaml
-  - ./dashboards/cloudflared.yaml
-  - ./dashboards/envoy.yaml
-  - ./dashboards/external-dns.yaml
-  - ./dashboards/kubernetes.yaml
-  - ./dashboards/misc.yaml
-  - ./dashboards/node-exporters.yaml
-  - ./dashboards/unifi.yaml
+  - ./dashboards/observability.yaml

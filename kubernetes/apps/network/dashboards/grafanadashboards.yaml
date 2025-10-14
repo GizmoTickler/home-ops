@@ -3,7 +3,7 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: prometheus
+  name: cloudflared
 spec:
   instanceSelector:
     matchLabels:
@@ -11,16 +11,33 @@ spec:
   datasources:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
-  # renovate: depName="Prometheus"
+  # renovate: depName="Cloudflare Tunnels (cloudflared)"
   grafanaCom:
-    id: 19105
-    revision: 7
+    id: 17457
+    revision: 6
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: volsync
+  name: envoy
+spec:
+  instanceSelector:
+    matchLabels:
+      dashboards: grafana
+  datasources:
+    - datasourceName: Prometheus
+      inputName: DS_AFRANET_PROMETHEUS
+  # renovate: depName="Envoy Proxy Monitoring gRPC"
+  grafanaCom:
+    id: 23239
+    revision: 1
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: external-dns
 spec:
   instanceSelector:
     matchLabels:
@@ -28,24 +45,7 @@ spec:
   datasources:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
-  # renovate: depName="VolSync Dashboard"
+  # renovate: depName="External-dns"
   grafanaCom:
-    id: 21356
+    id: 15038
     revision: 3
----
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
-apiVersion: grafana.integreatly.org/v1beta1
-kind: GrafanaDashboard
-metadata:
-  name: zfs
-spec:
-  instanceSelector:
-    matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
-  # renovate: depName="ZFS"
-  grafanaCom:
-    id: 7845
-    revision: 4
