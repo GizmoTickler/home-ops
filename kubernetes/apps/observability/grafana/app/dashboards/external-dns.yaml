@@ -12,5 +12,6 @@ spec:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
   # renovate: depName="External-dns"
-  gnetId: 15038
-  gnetRevision: 3
+  grafanaCom:
+    id: 15038
+    revision: 3
