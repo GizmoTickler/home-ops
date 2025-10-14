@@ -24,7 +24,12 @@
       "Bash(curl -s https://raw.githubusercontent.com/onedr0p/home-ops/1e459cc78632c79e055ad7fb4813ce6a2e7c89c7/kubernetes/apps/observability/grafana/app/externalsecret.yaml)",
       "Bash(curl -s https://raw.githubusercontent.com/onedr0p/home-ops/1e459cc78632c79e055ad7fb4813ce6a2e7c89c7/kubernetes/apps/observability/grafana/instance/grafana.yaml)",
       "Bash(curl -s https://raw.githubusercontent.com/onedr0p/home-ops/1e459cc78632c79e055ad7fb4813ce6a2e7c89c7/kubernetes/apps/observability/grafana/instance/sidecar-provider.yaml)",
-      "Bash(curl -s https://raw.githubusercontent.com/onedr0p/home-ops/1e459cc78632c79e055ad7fb4813ce6a2e7c89c7/kubernetes/apps/observability/grafana/ks.yaml)"
+      "Bash(curl -s https://raw.githubusercontent.com/onedr0p/home-ops/1e459cc78632c79e055ad7fb4813ce6a2e7c89c7/kubernetes/apps/observability/grafana/ks.yaml)",
+      "Bash(curl -s \"https://grafana.com/api/dashboards/15038/revisions/3/download\")",
+      "Bash(curl -s \"https://grafana.com/api/dashboards/15038\")",
+      "Bash(curl:*)",
+      "Read(//private/tmp/**)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

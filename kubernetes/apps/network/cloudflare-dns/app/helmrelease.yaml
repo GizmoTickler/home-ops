@@ -10,7 +10,7 @@ spec:
     name: cloudflare-dns
   interval: 1h
   values:
-    fullnameOverride: *app
+    fullnameOverride: external-dns-cloudflare
     provider:
       name: cloudflare
     env:
