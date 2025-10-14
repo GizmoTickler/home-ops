@@ -9,5 +9,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="VolSync Dashboard"
   url: https://grafana.com/api/dashboards/21356/revisions/3/download

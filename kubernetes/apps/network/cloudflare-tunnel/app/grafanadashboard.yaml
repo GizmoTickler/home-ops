@@ -9,5 +9,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Cloudflare Tunnels (cloudflared)"
   url: https://grafana.com/api/dashboards/17457/revisions/6/download

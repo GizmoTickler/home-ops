@@ -7,38 +7,115 @@ metadata:
   labels:
     grafana.internal/instance: grafana
 spec:
-  deployment:
-    spec:
-      replicas: 1
-      template:
-        spec:
-          containers:
-            - name: grafana
-              env:
-                - name: GF_DATE_FORMATS_USE_BROWSER_LOCALE
-                  value: "true"
-                - name: GF_EXPLORE_ENABLED
-                  value: "true"
-                - name: GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS
-                  value: natel-discrete-panel,pr0ps-trackmap-panel,panodata-map-panel
-                - name: GF_SECURITY_ANGULAR_SUPPORT_ENABLED
-                  value: "true"
-                - name: GF_SERVER_ROOT_URL
-                  value: https://grafana.${SECRET_DOMAIN}
   config:
     analytics:
       check_for_updates: "false"
       check_for_plugin_updates: "false"
+      feedback_links_enabled: "false"
       reporting_enabled: "false"
     auth:
       disable_login_form: "false"
-      disable_signout_menu: "false"
     auth.anonymous:
       enabled: "true"
-      org_id: "1"
-      org_name: Main Org.
-      org_role: Viewer
     log:
       mode: console
     news:
       news_feed_enabled: "false"
+    plugins:
+      plugin_admin_enabled: "false"
+    security:
+      angular_support_enabled: "true"
+    server:
+      enable_gzip: "true"
+      root_url: https://grafana.${SECRET_DOMAIN}
+  deployment:
+    spec:
+      strategy:
+        type: Recreate
+      template:
+        spec:
+          initContainers:
+            - name: k8s-sidecar
+              image: ghcr.io/kiwigrid/k8s-sidecar:1.30.9
+              env:
+                - name: FOLDER
+                  value: /var/lib/grafana/dashboards
+                - name: FOLDER_ANNOTATION
+                  value: grafana_folder
+                - name: LABEL
+                  value: grafana_dashboard
+                - name: IGNORE_ALREADY_PROCESSED
+                  value: "true"
+                - name: METHOD
+                  value: WATCH
+                - name: NAMESPACE
+                  value: ALL
+                - name: RESOURCE
+                  value: configmap
+                - name: REQ_METHOD
+                  value: POST
+                - name: REQ_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-admin-password-secret
+                      key: GF_SECURITY_ADMIN_PASSWORD
+                - name: REQ_URL
+                  value: http://localhost:3000/api/admin/provisioning/dashboards/reload
+                - name: REQ_USERNAME
+                  value: admin
+                - name: UNIQUE_FILENAMES
+                  value: "true"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - name: grafana-sidecar-dashboards
+                  mountPath: /var/lib/grafana/dashboards
+                - name: tmpfs
+                  mountPath: /tmp
+              restartPolicy: Always
+          containers:
+            - name: grafana
+              env:
+                - name: GF_SECURITY_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-admin-password-secret
+                      key: GF_SECURITY_ADMIN_PASSWORD
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - name: grafana-sidecar-provider
+                  mountPath: /etc/grafana/provisioning/dashboards/sidecar-provider.yaml
+                  subPath: provider.yaml
+                - name: grafana-sidecar-dashboards
+                  mountPath: /var/lib/grafana/dashboards
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+          volumes:
+            - name: grafana-data
+              persistentVolumeClaim:
+                claimName: grafana-pvc
+            - name: grafana-sidecar-provider
+              configMap:
+                name: grafana-sidecar-provider
+            - name: grafana-sidecar-dashboards
+              emptyDir: {}
+            - name: tmpfs
+              emptyDir: {}
+  persistentVolumeClaim:
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+      storageClassName: ceph-block
+  disableDefaultSecurityContext: All
