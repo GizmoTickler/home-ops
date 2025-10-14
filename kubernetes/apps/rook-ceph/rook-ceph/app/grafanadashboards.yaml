@@ -9,6 +9,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Ceph Cluster"
   url: https://grafana.com/api/dashboards/2842/revisions/18/download
 ---
@@ -22,6 +25,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Ceph - OSD (Single)"
   url: https://grafana.com/api/dashboards/5336/revisions/9/download
 ---
@@ -35,5 +41,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Ceph - Pools"
   url: https://grafana.com/api/dashboards/5342/revisions/9/download

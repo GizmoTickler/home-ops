@@ -9,6 +9,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / System / API Server"
   url: https://grafana.com/api/dashboards/15761/revisions/19/download
 ---
@@ -22,6 +25,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / System / CoreDNS"
   url: https://grafana.com/api/dashboards/15762/revisions/21/download
 ---
@@ -35,6 +41,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / Views / Global"
   url: https://grafana.com/api/dashboards/15757/revisions/43/download
 ---
@@ -48,6 +57,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / Views / Namespaces"
   url: https://grafana.com/api/dashboards/15758/revisions/42/download
 ---
@@ -61,6 +73,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / Views / Nodes"
   url: https://grafana.com/api/dashboards/15759/revisions/37/download
 ---
@@ -74,6 +89,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Kubernetes / Views / Pods"
   url: https://grafana.com/api/dashboards/15760/revisions/36/download
 ---
@@ -87,5 +105,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="K8s / Storage / Volumes / Cluster"
   url: https://grafana.com/api/dashboards/11454/revisions/14/download
