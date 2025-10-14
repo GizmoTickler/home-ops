@@ -5,6 +5,7 @@ kind: GrafanaDashboard
 metadata:
   name: cloudflared
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -22,6 +23,7 @@ kind: GrafanaDashboard
 metadata:
   name: envoy
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -39,6 +41,7 @@ kind: GrafanaDashboard
 metadata:
   name: external-dns
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
