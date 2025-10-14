@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -8,11 +8,6 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="External-dns"
-  grafanaCom:
-    id: 15038
-    revision: 3
+  url: https://grafana.com/api/dashboards/15038/revisions/3/download
