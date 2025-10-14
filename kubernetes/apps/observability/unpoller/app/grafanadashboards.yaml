@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -7,16 +7,11 @@ metadata:
 spec:
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="UniFi-Poller: PDU Insights - Prometheus"
-  grafanaCom:
-    id: 11310
-    revision: 5
+  url: https://grafana.com/api/dashboards/11310/revisions/5/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -24,16 +19,11 @@ metadata:
 spec:
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="UniFi-Poller: Client Insights - Prometheus"
-  grafanaCom:
-    id: 11315
-    revision: 9
+  url: https://grafana.com/api/dashboards/11315/revisions/9/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -41,16 +31,11 @@ metadata:
 spec:
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="UniFi-Poller: Network Sites - Prometheus"
-  grafanaCom:
-    id: 11311
-    revision: 5
+  url: https://grafana.com/api/dashboards/11311/revisions/5/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -58,11 +43,6 @@ metadata:
 spec:
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="UniFi-Poller: USW Insights - Prometheus"
-  grafanaCom:
-    id: 11312
-    revision: 9
+  url: https://grafana.com/api/dashboards/11312/revisions/9/download
