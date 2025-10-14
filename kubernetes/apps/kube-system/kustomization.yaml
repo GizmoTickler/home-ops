@@ -10,6 +10,7 @@ replacements:
 resources:
   - ./cilium/ks.yaml
   - ./coredns/ks.yaml
+  - ./dashboards/grafanadashboards.yaml
   - ./descheduler/ks.yaml
   - ./gateway-api-crds/ks.yaml
   - ./metrics-server/ks.yaml

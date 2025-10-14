@@ -3,7 +3,7 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: external-dns
+  name: volsync
 spec:
   instanceSelector:
     matchLabels:
@@ -11,7 +11,7 @@ spec:
   datasources:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
-  # renovate: depName="External-dns"
+  # renovate: depName="VolSync Dashboard"
   grafanaCom:
-    id: 15038
+    id: 21356
     revision: 3

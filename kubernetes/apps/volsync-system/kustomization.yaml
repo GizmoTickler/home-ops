@@ -8,5 +8,6 @@ components:
 replacements:
   - path: ../../components/replacements/ks.yaml
 resources:
+  - ./dashboards/grafanadashboard.yaml
   - ./kopia/ks.yaml
   - ./volsync/ks.yaml
