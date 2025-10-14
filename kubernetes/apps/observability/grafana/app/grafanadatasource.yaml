@@ -27,7 +27,7 @@ spec:
     matchLabels:
       dashboards: grafana
   datasource:
-    name: VictoriaLogs
+    name: victoriaLogs
     type: victorialogs-datasource
     uid: victorialogs
     access: proxy
@@ -46,7 +46,7 @@ spec:
     matchLabels:
       dashboards: grafana
   datasource:
-    name: Alertmanager
+    name: alertmanager
     type: alertmanager
     uid: alertmanager
     access: proxy
