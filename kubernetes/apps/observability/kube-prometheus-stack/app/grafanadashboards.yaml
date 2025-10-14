@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -8,16 +8,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / System / API Server"
-  grafanaCom:
-    id: 15761
-    revision: 19
+  url: https://grafana.com/api/dashboards/15761/revisions/19/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -26,16 +21,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / System / CoreDNS"
-  grafanaCom:
-    id: 15762
-    revision: 21
+  url: https://grafana.com/api/dashboards/15762/revisions/21/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -44,16 +34,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / Views / Global"
-  grafanaCom:
-    id: 15757
-    revision: 43
+  url: https://grafana.com/api/dashboards/15757/revisions/43/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -62,16 +47,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / Views / Namespaces"
-  grafanaCom:
-    id: 15758
-    revision: 42
+  url: https://grafana.com/api/dashboards/15758/revisions/42/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -80,16 +60,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / Views / Nodes"
-  grafanaCom:
-    id: 15759
-    revision: 37
+  url: https://grafana.com/api/dashboards/15759/revisions/37/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -98,16 +73,11 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="Kubernetes / Views / Pods"
-  grafanaCom:
-    id: 15760
-    revision: 36
+  url: https://grafana.com/api/dashboards/15760/revisions/36/download
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
@@ -116,11 +86,6 @@ spec:
   allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
-      dashboards: grafana
-  datasources:
-    - datasourceName: Prometheus
-      inputName: DS_PROMETHEUS
+      grafana.internal/instance: grafana
   # renovate: depName="K8s / Storage / Volumes / Cluster"
-  grafanaCom:
-    id: 11454
-    revision: 14
+  url: https://grafana.com/api/dashboards/11454/revisions/14/download
