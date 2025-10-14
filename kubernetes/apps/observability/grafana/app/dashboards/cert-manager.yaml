@@ -12,5 +12,6 @@ spec:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
   # renovate: depName="Cert-manager-Kubernetes"
-  gnetId: 20842
-  gnetRevision: 3
+  grafanaCom:
+    id: 20842
+    revision: 3

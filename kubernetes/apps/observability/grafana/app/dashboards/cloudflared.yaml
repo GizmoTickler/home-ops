@@ -12,5 +12,6 @@ spec:
     - datasourceName: Prometheus
       inputName: DS_PROMETHEUS
   # renovate: depName="Cloudflare Tunnels (cloudflared)"
-  gnetId: 17457
-  gnetRevision: 6
+  grafanaCom:
+    id: 17457
+    revision: 6

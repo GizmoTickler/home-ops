@@ -12,5 +12,6 @@ spec:
     - datasourceName: Prometheus
       inputName: DS_AFRANET_PROMETHEUS
   # renovate: depName="Envoy Proxy Monitoring gRPC"
-  gnetId: 23239
-  gnetRevision: 1
+  grafanaCom:
+    id: 23239
+    revision: 1

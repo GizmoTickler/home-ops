@@ -1,7 +1,13 @@
 {
   "includeCoAuthoredBy": false,
   "permissions": {
-    "allow": [],
+    "allow": [
+      "Bash(kubectl get:*)",
+      "Bash(flux reconcile kustomization observability:*)",
+      "Bash(flux get kustomizations:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ],
     "deny": [],
     "ask": []
   }
