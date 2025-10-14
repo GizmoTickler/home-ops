@@ -29,7 +29,8 @@
       "Bash(curl -s \"https://grafana.com/api/dashboards/15038\")",
       "Bash(curl:*)",
       "Read(//private/tmp/**)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
