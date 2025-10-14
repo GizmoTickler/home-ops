@@ -8,6 +8,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="UniFi-Poller: PDU Insights - Prometheus"
   url: https://grafana.com/api/dashboards/11310/revisions/5/download
 ---
@@ -20,6 +23,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="UniFi-Poller: Client Insights - Prometheus"
   url: https://grafana.com/api/dashboards/11315/revisions/9/download
 ---
@@ -32,6 +38,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="UniFi-Poller: Network Sites - Prometheus"
   url: https://grafana.com/api/dashboards/11311/revisions/5/download
 ---
@@ -44,5 +53,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="UniFi-Poller: USW Insights - Prometheus"
   url: https://grafana.com/api/dashboards/11312/revisions/9/download

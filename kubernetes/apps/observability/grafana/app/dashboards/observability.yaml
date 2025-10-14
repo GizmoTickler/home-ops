@@ -8,6 +8,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Prometheus"
   url: https://grafana.com/api/dashboards/19105/revisions/7/download
 ---
@@ -20,6 +23,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="Node Exporter Full"
   url: https://grafana.com/api/dashboards/1860/revisions/42/download
 ---
@@ -32,6 +38,9 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="SMARTctl Exporter Dashboard"
   url: https://grafana.com/api/dashboards/22604/revisions/2/download
 ---
@@ -44,5 +53,8 @@ spec:
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: prometheus
+      inputName: DS_PROMETHEUS
   # renovate: depName="ZFS"
   url: https://grafana.com/api/dashboards/7845/revisions/4/download
