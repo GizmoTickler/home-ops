@@ -5,6 +5,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-api-server
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -22,6 +23,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-coredns
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -39,6 +41,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-global
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -56,6 +59,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-namespaces
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -73,6 +77,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-nodes
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -90,6 +95,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-pods
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -107,6 +113,7 @@ kind: GrafanaDashboard
 metadata:
   name: kubernetes-volumes
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
