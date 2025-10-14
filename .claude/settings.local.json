@@ -9,7 +9,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(kubectl describe:*)",
       "Bash(kubectl logs:*)",
-      "Bash(kubectl:*)"
+      "Bash(kubectl:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nrefactor: reorganize Grafana dashboards by application namespace\n\nThis refactoring moves Grafana dashboards from a centralized location\nto be co-located with their respective applications, following GitOps\nbest practices where each application owns its observability resources.\n\nDashboard Organization:\n- cert-manager namespace: Cert-Manager dashboard\n- network namespace: Cloudflared, Envoy, External-DNS dashboards\n- rook-ceph namespace: Ceph Cluster, OSD, Pools dashboards\n- kube-system namespace: Kubernetes system dashboards (API Server, CoreDNS,\n  Global, Namespaces, Nodes, Pods, Volumes)\n- volsync-system namespace: VolSync dashboard\n- observability/unpoller: UniFi dashboards (Client DPI, Insights, Sites, USW)\n- observability/grafana: Node-exporters, Prometheus, SMARTctl, ZFS dashboards\n\nChanges:\n- Enable allowCrossNamespaceImport in Grafana instance configuration\n- Add external admin credentials configuration to Grafana CRD\n- Update all namespace kustomizations to include dashboard resources\n- Remove centralized dashboards directory\n- Dashboards now appear organized by namespace/folder in Grafana UI\n\nBenefits:\n- Better separation of concerns\n- Easier to manage dashboards with their applications\n- Clear ownership of observability resources\n- Proper namespace organization in Grafana\n- Follows declarative GitOps patterns\nEOF\n)\")",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

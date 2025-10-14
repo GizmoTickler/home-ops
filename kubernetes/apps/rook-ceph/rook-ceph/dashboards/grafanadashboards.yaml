@@ -5,6 +5,7 @@ kind: GrafanaDashboard
 metadata:
   name: ceph-cluster
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -22,6 +23,7 @@ kind: GrafanaDashboard
 metadata:
   name: ceph-osd
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
@@ -39,6 +41,7 @@ kind: GrafanaDashboard
 metadata:
   name: ceph-pools
 spec:
+  allowCrossNamespaceImport: true
   instanceSelector:
     matchLabels:
       dashboards: grafana
