@@ -49,36 +49,43 @@ data:
         conditions:
           - "[CONNECTED] == true"
 
+      - name: Cisco Umbrella
+        group: connectivity
+        url: icmp://208.67.220.220
+        interval: 1m
+        conditions:
+          - "[CONNECTED] == true"
+
       - name: "Core Switch"
-        group: "internal"
+        group: "infrastructure"
         url: https://sc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
 
       - name: "Wireless Controller"
-        group: "internal"
+        group: "infrastructure"
         url: https://ewlc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
 
       - name: "unifi"
-        group: "internal"
+        group: "infrastructure"
         url: https://unifi.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
 
       - name: "vSphere"
-        group: "internal"
+        group: "infrastructure"
         url: https://vc01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
 
       - name: "TrueNAS"
-        group: "internal"
+        group: "infrastructure"
         url: https://nas01.${SECRET_DOMAIN}
         interval: 1m
         conditions:
