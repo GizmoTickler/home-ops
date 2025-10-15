@@ -1823,6 +1823,12 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return nil
 	}
 
+	// Fix any existing CRDs that may lack proper Helm ownership metadata
+	// This prevents Helm from failing when trying to adopt pre-existing CRDs
+	if err := fixExistingCRDMetadata(config, logger); err != nil {
+		logger.Warn("Failed to fix existing CRD metadata (continuing anyway): %v", err)
+	}
+
 	// Retry helmfile sync with exponential backoff
 	maxAttempts := 3
 	var lastErr error
@@ -2060,6 +2066,108 @@ func isRetryableHelmError(err error) bool {
 	}
 
 	return false
+}
+
+// fixExistingCRDMetadata adds Helm ownership metadata to existing CRDs that lack it
+// This allows Helm to adopt CRDs that were previously installed manually or by other means
+func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger) error {
+	logger.Info("Checking for CRDs that need Helm ownership metadata...")
+
+	// Define known CRD groups and their Helm release ownership
+	crdGroups := map[string]struct {
+		releaseName      string
+		releaseNamespace string
+	}{
+		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: "external-secrets"},
+		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: "cert-manager"},
+		"gateway.networking.k8s.io": {releaseName: "cilium", releaseNamespace: "kube-system"},
+	}
+
+	// Get all CRDs
+	cmd := exec.Command("kubectl", "get", "crds", "-o", "json", "--kubeconfig", config.KubeConfig)
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("failed to get CRDs: %w", err)
+	}
+
+	// Parse the JSON output
+	var crdList struct {
+		Items []struct {
+			Metadata struct {
+				Name        string            `json:"name"`
+				Labels      map[string]string `json:"labels"`
+				Annotations map[string]string `json:"annotations"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+
+	if err := json.Unmarshal(output, &crdList); err != nil {
+		return fmt.Errorf("failed to parse CRD list: %w", err)
+	}
+
+	fixedCount := 0
+	for _, crd := range crdList.Items {
+		// Check if CRD already has Helm ownership metadata
+		if crd.Metadata.Labels["app.kubernetes.io/managed-by"] == "Helm" &&
+			crd.Metadata.Annotations["meta.helm.sh/release-name"] != "" {
+			continue
+		}
+
+		// Determine which Helm release should own this CRD based on its group
+		var owner *struct {
+			releaseName      string
+			releaseNamespace string
+		}
+
+		for groupSuffix, groupOwner := range crdGroups {
+			if strings.HasSuffix(crd.Metadata.Name, groupSuffix) {
+				owner = &groupOwner
+				break
+			}
+		}
+
+		// If we don't know the owner, skip this CRD
+		if owner == nil {
+			continue
+		}
+
+		logger.Debug("Adding Helm metadata to CRD: %s (owner: %s/%s)",
+			crd.Metadata.Name, owner.releaseNamespace, owner.releaseName)
+
+		// Patch the CRD with Helm ownership metadata
+		patchCmd := exec.Command("kubectl", "annotate", "crd", crd.Metadata.Name,
+			fmt.Sprintf("meta.helm.sh/release-name=%s", owner.releaseName),
+			fmt.Sprintf("meta.helm.sh/release-namespace=%s", owner.releaseNamespace),
+			"--overwrite",
+			"--kubeconfig", config.KubeConfig)
+
+		if output, err := patchCmd.CombinedOutput(); err != nil {
+			logger.Warn("Failed to add annotations to CRD %s: %v\nOutput: %s",
+				crd.Metadata.Name, err, string(output))
+			continue
+		}
+
+		labelCmd := exec.Command("kubectl", "label", "crd", crd.Metadata.Name,
+			"app.kubernetes.io/managed-by=Helm",
+			"--overwrite",
+			"--kubeconfig", config.KubeConfig)
+
+		if output, err := labelCmd.CombinedOutput(); err != nil {
+			logger.Warn("Failed to add labels to CRD %s: %v\nOutput: %s",
+				crd.Metadata.Name, err, string(output))
+			continue
+		}
+
+		fixedCount++
+	}
+
+	if fixedCount > 0 {
+		logger.Success("Added Helm ownership metadata to %d CRDs", fixedCount)
+	} else {
+		logger.Info("All CRDs already have proper Helm ownership metadata")
+	}
+
+	return nil
 }
 
 // testAPIServerConnectivity is a simpler version for retry checks
