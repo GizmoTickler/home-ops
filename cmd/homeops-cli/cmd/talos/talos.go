@@ -281,7 +281,7 @@ func getESXiVMNames() ([]string, error) {
 	if err := client.Connect(host, username, password, true); err != nil {
 		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// List VMs
 	vmObjects, err := client.ListVMs()
@@ -320,7 +320,7 @@ func getTrueNASVMNames() ([]string, error) {
 	if err := client.Connect(); err != nil {
 		return nil, fmt.Errorf("failed to connect to TrueNAS: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Query VMs
 	vms, err := client.QueryVMs(nil)
@@ -864,7 +864,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 				return err
 			}
 			if nodeCountInput != "" {
-				fmt.Sscanf(nodeCountInput, "%d", nodeCount)
+				_, _ = fmt.Sscanf(nodeCountInput, "%d", nodeCount)
 			} else {
 				*nodeCount = 3 // Default
 			}
@@ -875,7 +875,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 				return err
 			}
 			if concurrentInput != "" {
-				fmt.Sscanf(concurrentInput, "%d", concurrent)
+				_, _ = fmt.Sscanf(concurrentInput, "%d", concurrent)
 			} else {
 				*concurrent = 3 // Default
 			}
@@ -887,7 +887,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 			return err
 		}
 		if vcpuInput != "" {
-			fmt.Sscanf(vcpuInput, "%d", vcpus)
+			_, _ = fmt.Sscanf(vcpuInput, "%d", vcpus)
 		} else {
 			*vcpus = 8 // Default
 		}
@@ -899,7 +899,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 		}
 		if memoryInput != "" {
 			var memoryGB int
-			fmt.Sscanf(memoryInput, "%d", &memoryGB)
+			_, _ = fmt.Sscanf(memoryInput, "%d", &memoryGB)
 			*memory = memoryGB * 1024 // Convert to MB
 		} else {
 			*memory = 49152 // Default (48GB)
@@ -911,7 +911,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 			return err
 		}
 		if bootDiskInput != "" {
-			fmt.Sscanf(bootDiskInput, "%d", diskSize)
+			_, _ = fmt.Sscanf(bootDiskInput, "%d", diskSize)
 		} else {
 			*diskSize = 500 // Default
 		}
@@ -922,7 +922,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 			return err
 		}
 		if longhornInput != "" {
-			fmt.Sscanf(longhornInput, "%d", longhornSize)
+			_, _ = fmt.Sscanf(longhornInput, "%d", longhornSize)
 		} else {
 			*longhornSize = 1024 // Default
 		}
@@ -1512,7 +1512,7 @@ func listVMs(provider string) error {
 	if err := client.Connect(host, username, password, true); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	vms, err := client.ListVMs()
 	if err != nil {
@@ -2539,12 +2539,12 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			Network:              network,
 			ISO:                  isoPath,
 			MacAddress:           vmMacAddress,
-			PowerOn:              false, // Don't power on by default
-			EnableIOMMU:          true,  // Enable IOMMU for Talos VMs
-			ExposeCounters:       true,  // Expose CPU performance counters
-			ThinProvisioned:      true,  // Use thin provisioned disks
-			EnablePrecisionClock: true,  // Add precision clock device
-			EnableWatchdog:       true,  // Add watchdog timer device
+			PowerOn:              true, // Power on with auto unregister/re-register on failure
+			EnableIOMMU:          true, // Enable IOMMU for Talos VMs
+			ExposeCounters:       true, // Expose CPU performance counters
+			ThinProvisioned:      true, // Use thin provisioned disks (matches manual VM)
+			EnablePrecisionClock: true, // Add precision clock device
+			EnableWatchdog:       true, // Add watchdog timer device
 		}
 		configs = append(configs, config)
 	} else {
@@ -2573,12 +2573,12 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 				Network:              network,
 				ISO:                  isoPath,
 				MacAddress:           vmMacAddress,
-				PowerOn:              false, // Don't power on by default
-				EnableIOMMU:          true,  // Enable IOMMU for Talos VMs
-				ExposeCounters:       true,  // Expose CPU performance counters
-				ThinProvisioned:      true,  // Use thin provisioned disks
-				EnablePrecisionClock: true,  // Add precision clock device
-				EnableWatchdog:       true,  // Add watchdog timer device
+				PowerOn:              true, // Power on with auto unregister/re-register on failure
+				EnableIOMMU:          true, // Enable IOMMU for Talos VMs
+				ExposeCounters:       true, // Expose CPU performance counters
+				ThinProvisioned:      true, // Use thin provisioned disks (matches manual VM)
+				EnablePrecisionClock: true, // Add precision clock device
+				EnableWatchdog:       true, // Add watchdog timer device
 			}
 			configs = append(configs, config)
 		}
@@ -2607,15 +2607,9 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		logger.Info("  UEFI Secure Boot: disabled")
 		logger.Info("  NVME Controllers: 2 (separate for each disk)")
 
-		vm, err := client.CreateVM(configs[0])
+		_, err := client.CreateVM(configs[0])
 		if err != nil {
 			return fmt.Errorf("failed to create VM: %w", err)
-		}
-
-		if configs[0].PowerOn {
-			if err := client.PowerOnVM(vm); err != nil {
-				return fmt.Errorf("failed to power on VM: %w", err)
-			}
 		}
 
 		logger.Success("VM %s deployed successfully with enhanced configuration!", configs[0].Name)

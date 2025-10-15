@@ -64,12 +64,12 @@ func GetDefaultVMConfig(name string) VMConfig {
 		LonghornSize:         1000,          // 1TB Longhorn
 		Datastore:            "truenas-nfs", // Match the actual datastore name
 		Network:              "vl999",
-		PowerOn:              false, // Don't power on by default
-		EnableIOMMU:          true,  // Enable IOMMU/VT-d by default for Talos VMs
-		ExposeCounters:       true,  // Expose CPU performance counters
-		ThinProvisioned:      true,  // Use thin provisioned disks by default
-		EnablePrecisionClock: true,  // Add precision clock device
-		EnableWatchdog:       true,  // Add watchdog timer device
+		PowerOn:              true, // Power on by default with auto unregister/re-register on failure
+		EnableIOMMU:          true, // Enable IOMMU/VT-d by default for Talos VMs
+		ExposeCounters:       true, // Expose CPU performance counters
+		ThinProvisioned:      true, // Use thin provisioned disks (matches manual VM)
+		EnablePrecisionClock: true, // Add precision clock device
+		EnableWatchdog:       true, // Add watchdog timer device
 	}
 }
 

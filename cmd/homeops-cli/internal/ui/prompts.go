@@ -328,13 +328,13 @@ done
 		// Fallback if we can't create temp file
 		return fn()
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.WriteString(tmpScript); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		return fn()
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
 		return fn()
@@ -349,7 +349,7 @@ done
 		spinCmd.Stdin = tty // Prevent terminal queries from going to stdout
 		spinCmd.Stdout = tty
 		spinCmd.Stderr = tty
-		defer tty.Close()
+		defer func() { _ = tty.Close() }()
 	}
 
 	if err := spinCmd.Start(); err != nil {

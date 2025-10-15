@@ -386,7 +386,9 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 		}
 
 		// Normalize phase to title case (e.g., "succeeded" -> "Succeeded")
-		phase = strings.Title(strings.ToLower(phase))
+		if len(phase) > 0 {
+			phase = strings.ToUpper(phase[:1]) + strings.ToLower(phase[1:])
+		}
 
 		// Map user-friendly "Completed" to Kubernetes phase "Succeeded"
 		actualPhase := phase
@@ -1030,9 +1032,7 @@ func renderKustomization(ksPath, outputFile string) error {
 	gitRoot := strings.TrimSpace(string(gitRootOutput))
 
 	// If path starts with ./, remove it and make it relative to git root
-	if strings.HasPrefix(path, "./") {
-		path = strings.TrimPrefix(path, "./")
-	}
+	path = strings.TrimPrefix(path, "./")
 
 	// Construct full path relative to git root
 	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
@@ -1168,9 +1168,7 @@ func applyKustomization(ksPath string, dryRun bool) error {
 	gitRoot := strings.TrimSpace(string(gitRootOutput))
 
 	// If path starts with ./, remove it and make it relative to git root
-	if strings.HasPrefix(path, "./") {
-		path = strings.TrimPrefix(path, "./")
-	}
+	path = strings.TrimPrefix(path, "./")
 
 	// Construct full path relative to git root
 	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
@@ -1365,9 +1363,7 @@ func deleteKustomization(ksPath string) error {
 	gitRoot := strings.TrimSpace(string(gitRootOutput))
 
 	// If path starts with ./, remove it and make it relative to git root
-	if strings.HasPrefix(path, "./") {
-		path = strings.TrimPrefix(path, "./")
-	}
+	path = strings.TrimPrefix(path, "./")
 
 	// Construct full path relative to git root
 	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
