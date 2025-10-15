@@ -27,7 +27,7 @@ releases:
         args:
           - -c
           - |
-            REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "${PWD}")"
+            REPO_ROOT="${ROOT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || echo "${PWD}")}"
             kubectl apply --namespace=kube-system --server-side --field-manager=kustomize-controller --filename="${REPO_ROOT}/kubernetes/apps/kube-system/cilium/app/networking.yaml"
         events:
           - postsync
