@@ -4,7 +4,6 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: it-tools
-  namespace: default
 spec:
   interval: 1h
   path: ./kubernetes/apps/default/it-tools/app
@@ -13,4 +12,5 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
+  targetNamespace: default
   wait: false
