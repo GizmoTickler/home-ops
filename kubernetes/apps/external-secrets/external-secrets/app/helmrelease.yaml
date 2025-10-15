@@ -17,10 +17,16 @@ spec:
       enabled: true
       annotations:
         grafana_folder: external-secrets
-    certController:
-      serviceMonitor:
-        enabled: true
+    image:
+      repository: ghcr.io/external-secrets/external-secrets
     webhook:
       replicaCount: 2
+      image:
+        repository: ghcr.io/external-secrets/external-secrets
+      serviceMonitor:
+        enabled: true
+    certController:
+      image:
+        repository: ghcr.io/external-secrets/external-secrets
       serviceMonitor:
         enabled: true
