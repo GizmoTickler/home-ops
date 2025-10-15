@@ -183,7 +183,7 @@ func resetTerminal() {
 		// Also send ANSI reset codes
 		_, _ = tty.WriteString("\033[0m\033[?25h\r")
 		_ = tty.Sync()
-		tty.Close()
+		_ = tty.Close()
 	}
 
 	// Small delay to let terminal settle
@@ -329,7 +329,7 @@ func runBootstrap(config *BootstrapConfig) error {
 		// \033[?25h - Show cursor
 		// \r\n - Clear line and move to next
 		_, _ = tty.WriteString("\033[0m\033[?25h\r\n")
-		tty.Close()
+		_ = tty.Close()
 	} else {
 		// Fallback if we can't open TTY
 		fmt.Println()
@@ -1823,78 +1823,68 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		return nil
 	}
 
-	// Create temporary directory for helmfile execution
-	tempDir, err := os.MkdirTemp("", "homeops-bootstrap-*")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer func() {
-		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
-			logger.Warn("Warning: failed to remove temp directory: %v", removeErr)
+	// Retry helmfile sync with exponential backoff
+	maxAttempts := 3
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if attempt > 1 {
+			logger.Info("Helm sync attempt %d/%d", attempt, maxAttempts)
 		}
-	}()
 
-	// Create templates subdirectory to match the new helmfile path references
-	templatesDir := filepath.Join(tempDir, "templates")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
-		return fmt.Errorf("failed to create templates directory: %w", err)
+		err := executeHelmfileSync(config, logger)
+		if err == nil {
+			logger.Info("Helm releases synced successfully")
+
+			// Check if external-secrets was installed by Helmfile before waiting for it
+			logger.Info("Checking if external-secrets is ready...")
+			if isExternalSecretsInstalled(config, logger) {
+				logger.Info("External-secrets found, waiting for webhook to be ready...")
+				if err := waitForExternalSecretsWebhook(config, logger); err != nil {
+					logger.Warn("External-secrets webhook not ready after waiting: %v", err)
+					logger.Info("ClusterSecretStore will be applied by Flux when external-secrets becomes ready")
+				} else {
+					// Apply cluster secret store only if webhook is ready
+					if err := applyClusterSecretStore(config, logger); err != nil {
+						logger.Warn("Failed to apply ClusterSecretStore: %v", err)
+						logger.Info("ClusterSecretStore will be retried by Flux")
+					} else {
+						logger.Success("ClusterSecretStore applied successfully")
+					}
+				}
+			} else {
+				logger.Info("External-secrets not installed in bootstrap phase - will be installed by Flux")
+				logger.Info("ClusterSecretStore will be applied by Flux after external-secrets is ready")
+			}
+
+			return nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if !isRetryableHelmError(err) {
+			logger.Error("Non-retryable Helm error encountered")
+			return fmt.Errorf("helmfile sync failed: %w", err)
+		}
+
+		logger.Warn("Helm sync attempt %d/%d failed with retryable error: %v", attempt, maxAttempts, err)
+
+		if attempt < maxAttempts {
+			waitTime := time.Duration(attempt*30) * time.Second // 30s, 60s
+			logger.Info("Waiting %v before retry...", waitTime)
+			time.Sleep(waitTime)
+
+			// Re-verify API server health before retry
+			logger.Info("Re-checking API server connectivity before retry...")
+			if err := testAPIServerConnectivity(config, logger); err != nil {
+				logger.Warn("API server connectivity check failed: %v", err)
+				logger.Info("Continuing with retry anyway...")
+			}
+		}
 	}
 
-	// Create values.yaml.gotmpl in templates subdirectory
-	valuesTemplate, err := templates.GetBootstrapTemplate("values.yaml.gotmpl")
-	if err != nil {
-		return fmt.Errorf("failed to get values template: %w", err)
-	}
-
-	valuesPath := filepath.Join(templatesDir, "values.yaml.gotmpl")
-	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0644); err != nil {
-		return fmt.Errorf("failed to write values template: %w", err)
-	}
-
-	// Get embedded apps helmfile content
-	appsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/01-apps.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to get embedded apps helmfile: %w", err)
-	}
-
-	// The apps helmfile doesn't need templating, write it directly
-	helmfilePath := filepath.Join(tempDir, "01-apps.yaml")
-	if err := os.WriteFile(helmfilePath, []byte(appsHelmfileTemplate), 0644); err != nil {
-		return fmt.Errorf("failed to write apps helmfile: %w", err)
-	}
-
-	logger.Info("Created dynamic helmfile with Go template support")
-	logger.Info("Setting working directory to: %s", config.RootDir)
-
-	cmd := exec.Command("helmfile", "--file", helmfilePath, "sync", "--hide-notes")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = tempDir // Set working directory to temp directory with templates
-
-	// Set additional environment variables for helmfile
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir),
-		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
-	)
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to sync Helm releases: %w", err)
-	}
-
-	logger.Info("Helm releases synced successfully")
-
-	// Wait for external-secrets webhook to be ready before applying ClusterSecretStore
-	logger.Info("Waiting for external-secrets webhook to be ready...")
-	if err := waitForExternalSecretsWebhook(config, logger); err != nil {
-		return fmt.Errorf("external-secrets webhook failed to become ready: %w", err)
-	}
-
-	// Apply cluster secret store after external-secrets is deployed and ready
-	if err := applyClusterSecretStore(config, logger); err != nil {
-		return fmt.Errorf("failed to apply cluster secret store: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("helmfile sync failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // separateCRDsFromManifests separates CRD manifests from other manifests
@@ -1978,9 +1968,133 @@ func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger)
 	return fmt.Errorf("CRDs did not become established after %d attempts", maxAttempts)
 }
 
+// executeHelmfileSync executes the helmfile sync operation
+func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) error {
+	// Create temporary directory for helmfile execution
+	tempDir, err := os.MkdirTemp("", "homeops-bootstrap-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(tempDir); removeErr != nil {
+			logger.Warn("Warning: failed to remove temp directory: %v", removeErr)
+		}
+	}()
+
+	// Create templates subdirectory to match the new helmfile path references
+	templatesDir := filepath.Join(tempDir, "templates")
+	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create templates directory: %w", err)
+	}
+
+	// Create values.yaml.gotmpl in templates subdirectory
+	valuesTemplate, err := templates.GetBootstrapTemplate("values.yaml.gotmpl")
+	if err != nil {
+		return fmt.Errorf("failed to get values template: %w", err)
+	}
+
+	valuesPath := filepath.Join(templatesDir, "values.yaml.gotmpl")
+	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0644); err != nil {
+		return fmt.Errorf("failed to write values template: %w", err)
+	}
+
+	// Get embedded apps helmfile content
+	appsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/01-apps.yaml")
+	if err != nil {
+		return fmt.Errorf("failed to get embedded apps helmfile: %w", err)
+	}
+
+	// The apps helmfile doesn't need templating, write it directly
+	helmfilePath := filepath.Join(tempDir, "01-apps.yaml")
+	if err := os.WriteFile(helmfilePath, []byte(appsHelmfileTemplate), 0644); err != nil {
+		return fmt.Errorf("failed to write apps helmfile: %w", err)
+	}
+
+	logger.Debug("Created dynamic helmfile with Go template support")
+	logger.Debug("Setting working directory to: %s", config.RootDir)
+
+	cmd := exec.Command("helmfile", "--file", helmfilePath, "sync", "--hide-notes")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Dir = tempDir // Set working directory to temp directory with templates
+
+	// Set additional environment variables for helmfile
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir),
+		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
+	)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("helmfile sync failed: %w", err)
+	}
+
+	return nil
+}
+
+// isRetryableHelmError checks if a Helm error is retryable
+func isRetryableHelmError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+	retryablePatterns := []string{
+		"connection lost",
+		"connection refused",
+		"timeout",
+		"tls handshake timeout",
+		"i/o timeout",
+		"context deadline exceeded",
+		"temporary failure",
+		"server is currently unable",
+		"http2: client connection lost",
+		"client connection lost",
+		"dial tcp",
+		"connection reset by peer",
+	}
+
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// testAPIServerConnectivity is a simpler version for retry checks
+func testAPIServerConnectivity(config *BootstrapConfig, logger *common.ColorLogger) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--kubeconfig", config.KubeConfig)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logger.Debug("API server connectivity check output: %s", string(output))
+		return fmt.Errorf("cluster-info failed: %w", err)
+	}
+	return nil
+}
+
+// isExternalSecretsInstalled checks if external-secrets is installed in the cluster
+func isExternalSecretsInstalled(config *BootstrapConfig, logger *common.ColorLogger) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "kubectl", "get", "deployment", "external-secrets-webhook",
+		"-n", "external-secrets", "--kubeconfig", config.KubeConfig)
+	err := cmd.Run()
+
+	if err != nil {
+		logger.Debug("External-secrets not found: %v", err)
+		return false
+	}
+	return true
+}
+
 // waitForExternalSecretsWebhook waits for the external-secrets webhook to be ready
 func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.ColorLogger) error {
-	maxAttempts := 60 // 5 minutes with 5-second intervals
+	maxAttempts := 30 // Reduced from 60 to 30 (2.5 minutes instead of 5)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Check if the webhook deployment is ready
 		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook",
@@ -1991,8 +2105,18 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 		output, err := cmd.Output()
 		if err != nil {
 			logger.Debug("Attempt %d/%d: Failed to check webhook deployment status", attempt, maxAttempts)
+
+			// Add diagnostic info on failure
+			if attempt%6 == 0 {
+				logger.Info("Still waiting for external-secrets webhook (attempt %d/%d)", attempt, maxAttempts)
+				if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", "external-secrets",
+					"--kubeconfig", config.KubeConfig).Output(); podErr == nil {
+					logger.Debug("External-secrets pods:\n%s", string(podOutput))
+				}
+			}
+
 			if attempt == maxAttempts {
-				return fmt.Errorf("failed to check webhook deployment status after %d attempts: %w", maxAttempts, err)
+				return fmt.Errorf("webhook deployment not found after %d attempts (2.5 minutes): %w", maxAttempts, err)
 			}
 			time.Sleep(5 * time.Second)
 			continue
@@ -2010,7 +2134,7 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 			if endpointsErr == nil {
 				endpoints := strings.TrimSpace(string(endpointsOutput))
 				if endpoints != "" {
-					logger.Success("External-secrets webhook is ready with %s ready replicas and endpoints available", readyReplicas)
+					logger.Success("External-secrets webhook is ready with %s ready replicas", readyReplicas)
 					return nil
 				}
 			}
@@ -2021,11 +2145,16 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 
 		if attempt%6 == 0 { // Log every 30 seconds
 			logger.Info("Still waiting for external-secrets webhook to be ready (attempt %d/%d)", attempt, maxAttempts)
+			// Show pod status for debugging
+			if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", "external-secrets", "-o", "wide",
+				"--kubeconfig", config.KubeConfig).Output(); podErr == nil {
+				logger.Debug("External-secrets pods:\n%s", string(podOutput))
+			}
 		}
 		time.Sleep(5 * time.Second)
 	}
 
-	return fmt.Errorf("external-secrets webhook did not become ready after %d attempts", maxAttempts)
+	return fmt.Errorf("external-secrets webhook did not become ready after %d attempts (2.5 minutes)", maxAttempts)
 }
 
 // testDynamicValuesTemplate tests the dynamic values template rendering

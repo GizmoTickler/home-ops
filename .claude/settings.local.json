@@ -30,7 +30,10 @@
       "Bash(curl:*)",
       "Read(//private/tmp/**)",
       "Bash(cat:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(/tmp/govc_wrapper.sh vm.info:*)",
+      "Bash(/tmp/govc_wrapper.sh datastore.download:*)",
+      "Read(//tmp/**)"
     ],
     "deny": [],
     "ask": []

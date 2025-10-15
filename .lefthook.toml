@@ -15,7 +15,9 @@ stage_fixed = true
 
 [pre-commit.commands.go-lint]
 run = """
-if command -v golangci-lint >/dev/null 2>&1; then
+if [ -x /opt/homebrew/bin/golangci-lint ]; then
+    /opt/homebrew/bin/golangci-lint run --fix ./...
+elif command -v golangci-lint >/dev/null 2>&1; then
     golangci-lint run --fix ./...
 else
     echo "⚠️  golangci-lint not found, running go vet instead"
