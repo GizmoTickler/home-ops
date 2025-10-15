@@ -18,15 +18,18 @@ releases:
         command: bash
         args:
           - -c
-          - until kubectl get crd ciliumloadbalancerippools.cilium.io ciliuml2announcementpolicies.cilium.io ciliumbgpadvertisements.cilium.io ciliumbgppeerconfigs.cilium.io ciliumbgpclusterconfigs.cilium.io &>/dev/null; do sleep 5; done
+          - until kubectl get crd ciliumloadbalancerippools.cilium.io ciliumbgpadvertisements.cilium.io ciliumbgppeerconfigs.cilium.io ciliumbgpclusterconfigs.cilium.io &>/dev/null; do sleep 5; done
         events:
           - postsync
         showlogs: true
       - # Apply Cilium Resources
-        command: bash
+        command: kubectl
         args:
-          - -c
-          - kubectl apply --namespace=kube-system --server-side --field-manager=kustomize-controller --filename="${ROOT_DIR}/kubernetes/apps/kube-system/cilium/app/networking.yaml"
+          - apply
+          - --namespace=kube-system
+          - --server-side
+          - --field-manager=kustomize-controller
+          - --filename=../../kubernetes/apps/kube-system/cilium/app/networking.yaml
         events:
           - postsync
         showlogs: true
