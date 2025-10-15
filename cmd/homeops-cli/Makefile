@@ -164,10 +164,12 @@ test-clean:
 ## lint: Run golangci-lint
 lint:
 	@echo "$(GREEN)Running linter...$(RESET)"
-	@if command -v golangci-lint >/dev/null 2>&1; then \
+	@if [ -x /opt/homebrew/bin/golangci-lint ]; then \
+		/opt/homebrew/bin/golangci-lint run; \
+	elif command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run; \
 	else \
-		echo "$(YELLOW)⚠️  golangci-lint not found. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest$(RESET)"; \
+		echo "$(YELLOW)⚠️  golangci-lint not found. Install with: brew install golangci-lint$(RESET)"; \
 	fi
 
 ## fmt: Format Go code
