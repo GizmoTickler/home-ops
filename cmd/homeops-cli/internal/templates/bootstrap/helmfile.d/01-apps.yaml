@@ -18,18 +18,17 @@ releases:
         command: bash
         args:
           - -c
-          - until kubectl get crd ciliumloadbalancerippools.cilium.io ciliumbgpadvertisements.cilium.io ciliumbgppeerconfigs.cilium.io ciliumbgpclusterconfigs.cilium.io &>/dev/null; do sleep 5; done
+          - until kubectl get crd ciliumloadbalancerippools.cilium.io ciliuml2announcementpolicies.cilium.io ciliumbgpadvertisements.cilium.io ciliumbgppeerconfigs.cilium.io ciliumbgpclusterconfigs.cilium.io &>/dev/null; do sleep 5; done
         events:
           - postsync
         showlogs: true
       - # Apply Cilium Resources
-        command: kubectl
+        command: bash
         args:
-          - apply
-          - --namespace=kube-system
-          - --server-side
-          - --field-manager=kustomize-controller
-          - --filename=../../kubernetes/apps/kube-system/cilium/app/networking.yaml
+          - -c
+          - |
+            REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "${PWD}")"
+            kubectl apply --namespace=kube-system --server-side --field-manager=kustomize-controller --filename="${REPO_ROOT}/kubernetes/apps/kube-system/cilium/app/networking.yaml"
         events:
           - postsync
         showlogs: true
