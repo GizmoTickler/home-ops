@@ -9,8 +9,6 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync
   dependsOn:
-    - name: keda
-      namespace: observability
     - name: rook-ceph-cluster
       namespace: rook-ceph
   interval: 1h
@@ -18,7 +16,7 @@ spec:
   postBuild:
     substitute:
       APP: autobrr
-      VOLSYNC_CAPACITY: 5Gi
+      VOLSYNC_CAPACITY: 50Gi
   prune: true
   sourceRef:
     kind: GitRepository
