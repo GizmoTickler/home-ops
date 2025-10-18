@@ -26,6 +26,8 @@ spec:
               topologyKey: kubernetes.io/hostname
     nameOverride: fluent-bit-syslog
     fullnameOverride: fluent-bit-syslog
+    service:
+      type: ClusterIP
     resources:
       requests:
         cpu: 100m
@@ -77,11 +79,6 @@ spec:
           add log_source network_device
           add cluster home-ops
           add log_type syslog
-
-        [FILTER]
-          name record_modifier
-          match network.*
-          record timestamp ${TIMESTAMP}
 
         [FILTER]
           name nest
