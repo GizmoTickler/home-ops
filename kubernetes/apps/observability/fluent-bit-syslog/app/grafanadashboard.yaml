@@ -21,56 +21,38 @@ spec:
         "from": "now-1h",
         "to": "now"
       },
+      "templating": {
+        "list": [
+          {
+            "name": "device",
+            "type": "query",
+            "label": "Device",
+            "query": {
+              "query": "stats count() by source_host where log_source:\"network_device\"",
+              "refId": "LokiVariableQueryEditor-VariableQuery"
+            },
+            "datasource": {
+              "type": "loki",
+              "uid": "victoria-logs"
+            },
+            "refresh": 1,
+            "multi": true,
+            "includeAll": true,
+            "allValue": ".*"
+          }
+        ]
+      },
       "panels": [
         {
-          "title": "Log Volume by Device",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-          "targets": [
-            {
-              "expr": "sum by (source_host) (count_over_time({log_source=\"network_device\"}[5m]))",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-logs"
-              }
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "logs/5m"
-            }
-          }
-        },
-        {
-          "title": "Top 10 Devices by Log Count",
-          "type": "bargauge",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
-          "targets": [
-            {
-              "expr": "topk(10, sum by (source_host) (count_over_time({log_source=\"network_device\"}[1h])))",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-logs"
-              }
-            }
-          ],
-          "options": {
-            "orientation": "horizontal",
-            "displayMode": "gradient"
-          }
-        },
-        {
-          "title": "Network Device Logs",
+          "title": "Network Device Logs Stream",
           "type": "logs",
-          "gridPos": {"h": 12, "w": 24, "x": 0, "y": 8},
+          "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "{log_source=\"network_device\"}",
+              "expr": "log_source:\"network_device\"",
               "refId": "A",
               "datasource": {
-                "type": "prometheus",
+                "type": "loki",
                 "uid": "victoria-logs"
               }
             }
@@ -82,21 +64,104 @@ spec:
             "wrapLogMessage": true,
             "prettifyLogMessage": false,
             "enableLogDetails": true,
-            "sortOrder": "Descending"
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
           }
         },
         {
-          "title": "Logs by Severity (Priority)",
-          "type": "piechart",
-          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
+          "title": "Log Volume Over Time",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
           "targets": [
             {
-              "expr": "sum by (pri) (count_over_time({log_source=\"network_device\"} [1h]))",
+              "expr": "sum(count_over_time(log_source:\"network_device\" [$__auto]))",
               "refId": "A",
               "datasource": {
-                "type": "prometheus",
+                "type": "loki",
                 "uid": "victoria-logs"
+              },
+              "legendFormat": "Total Logs"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "fillOpacity": 20
               }
+            }
+          }
+        },
+        {
+          "title": "Logs by Device",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [
+            {
+              "expr": "sum by (source_host) (count_over_time(log_source:\"network_device\" [$__auto]))",
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "victoria-logs"
+              },
+              "legendFormat": "{{source_host}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "fillOpacity": 10,
+                "stacking": {
+                  "mode": "normal"
+                }
+              }
+            }
+          }
+        },
+        {
+          "title": "Top Devices by Log Count",
+          "type": "bargauge",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "targets": [
+            {
+              "expr": "topk(10, sum by (source_host) (count_over_time(log_source:\"network_device\" [1h])))",
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "victoria-logs"
+              },
+              "legendFormat": "{{source_host}}"
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient",
+            "showUnfilled": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            }
+          }
+        },
+        {
+          "title": "Logs by Priority/Severity",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "targets": [
+            {
+              "expr": "sum by (pri) (count_over_time(log_source:\"network_device\" [1h]))",
+              "refId": "A",
+              "datasource": {
+                "type": "loki",
+                "uid": "victoria-logs"
+              },
+              "legendFormat": "Priority {{pri}}"
             }
           ],
           "options": {
@@ -104,84 +169,64 @@ spec:
               "displayMode": "table",
               "placement": "right",
               "values": ["value", "percent"]
+            },
+            "pieType": "pie",
+            "tooltip": {
+              "mode": "single"
             }
           }
         },
         {
-          "title": "Logs by Source Identity",
+          "title": "Logs by Process/Service",
           "type": "table",
-          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
           "targets": [
             {
-              "expr": "sum by (ident, source_host) (count_over_time({log_source=\"network_device\"} [1h]))",
+              "expr": "sum by (ident, source_host) (count_over_time(log_source:\"network_device\" [1h]))",
               "refId": "A",
-              "format": "table",
               "datasource": {
-                "type": "prometheus",
+                "type": "loki",
                 "uid": "victoria-logs"
-              }
+              },
+              "format": "table"
             }
           ],
           "transformations": [
             {
               "id": "organize",
               "options": {
-                "excludeByName": {},
+                "excludeByName": {
+                  "Time": true
+                },
                 "indexByName": {},
                 "renameByName": {
                   "ident": "Process/Service",
                   "source_host": "Device",
-                  "Value": "Count"
+                  "Value": "Log Count"
                 }
               }
-            }
-          ]
-        },
-        {
-          "title": "Log Timeline Heatmap",
-          "type": "heatmap",
-          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
-          "targets": [
+            },
             {
-              "expr": "sum by (source_host) (count_over_time({log_source=\"network_device\"}[1m]))",
-              "refId": "A",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-logs"
+              "id": "sortBy",
+              "options": {
+                "fields": {},
+                "sort": [
+                  {
+                    "field": "Log Count",
+                    "desc": true
+                  }
+                ]
               }
             }
           ],
           "options": {
-            "calculate": true,
-            "calculation": {
-              "yBuckets": {
-                "mode": "auto"
-              }
-            },
-            "color": {
-              "mode": "spectrum",
-              "scheme": "Spectral"
+            "showHeader": true,
+            "footer": {
+              "show": false
             }
           }
         }
       ],
-      "templating": {
-        "list": [
-          {
-            "name": "device",
-            "type": "query",
-            "label": "Device",
-            "query": "label_values({log_source=\"network_device\"}, source_host)",
-            "datasource": {
-              "type": "prometheus",
-              "uid": "victoria-logs"
-            },
-            "refresh": 1,
-            "multi": true,
-            "includeAll": true
-          }
-        ]
-      },
       "annotations": {
         "list": []
       }
