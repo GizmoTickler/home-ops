@@ -88,9 +88,9 @@ spec:
           name parser
           match network.*
           key_name log
-          parser syslog-cef
-          parser syslog-rfc3164
-          parser syslog-rfc5424
+          parser custom-syslog-cef
+          parser custom-syslog-rfc3164
+          parser custom-syslog-rfc5424
           preserve_key on
           reserve_data on
 
@@ -104,7 +104,7 @@ spec:
 
       customParsers: |-
         [PARSER]
-          name syslog-rfc3164
+          name custom-syslog-rfc3164
           format regex
           regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$/
           time_key time
@@ -112,7 +112,7 @@ spec:
           time_keep on
 
         [PARSER]
-          name syslog-rfc5424
+          name custom-syslog-rfc5424
           format regex
           regex /^<(?<pri>[0-9]{1,5})>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[.*?\]|-)) (?<message>.+)$/
           time_key time
@@ -120,7 +120,7 @@ spec:
           time_keep on
 
         [PARSER]
-          name syslog-cef
+          name custom-syslog-cef
           format regex
           regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<message>CEF:.*)$/
           time_key time
@@ -128,7 +128,7 @@ spec:
           time_keep on
 
         [PARSER]
-          name cef
+          name custom-cef
           format regex
           regex /^CEF:(?<cef_version>\d+)\|(?<device_vendor>[^|]*)\|(?<device_product>[^|]*)\|(?<device_version>[^|]*)\|(?<signature_id>[^|]*)\|(?<name>[^|]*)\|(?<severity>[^|]*)\|(?<extension>.*)$/
 
