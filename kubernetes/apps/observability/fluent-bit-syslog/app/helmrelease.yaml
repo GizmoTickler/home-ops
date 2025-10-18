@@ -68,6 +68,8 @@ spec:
           tag network.syslog
           buffer_chunk_size 64k
           buffer_max_size 256k
+          source_address_key source_host
+          raw_message_key log
 
         [INPUT]
           name syslog
@@ -78,6 +80,8 @@ spec:
           tag network.syslog.tcp
           buffer_chunk_size 64k
           buffer_max_size 256k
+          source_address_key source_host
+          raw_message_key log
 
       filters: |-
         [FILTER]
