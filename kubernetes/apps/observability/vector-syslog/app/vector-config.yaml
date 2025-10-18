@@ -73,14 +73,18 @@ data:
                 .timestamp_str = .cisco_parts[3]
 
                 # Extract facility-severity-mnemonic if present
-                if contains(.cisco_parts[4] ?? "", "%") {
+                if contains(to_string!(.cisco_parts[4]), "%") {
                   .facility_msg = .cisco_parts[4]
-                  .cisco_message = .cisco_parts[5] ?? ""
+                  if exists(.cisco_parts[5]) {
+                    .cisco_message = .cisco_parts[5]
+                  } else {
+                    .cisco_message = ""
+                  }
                 } else {
                   # Join remaining parts for the message
-                  .cisco_message = .cisco_parts[4] ?? ""
+                  .cisco_message = .cisco_parts[4]
                   if length(.cisco_parts) >= 6 {
-                    .cisco_message = .cisco_parts[4] + ": " + (.cisco_parts[5] ?? "")
+                    .cisco_message = to_string!(.cisco_parts[4]) + ": " + to_string!(.cisco_parts[5])
                   }
                 }
               }
@@ -177,7 +181,11 @@ data:
               }
             }
 
-            ._msg = .parsed_message ?? .raw_message
+            if exists(.parsed_message) {
+              ._msg = .parsed_message
+            } else {
+              ._msg = .raw_message
+            }
             .device_name = "unifi-controller"
 
           } else if starts_with(.raw_message, "<") {
