@@ -252,7 +252,7 @@ data:
         method: post
         compression: gzip
         encoding:
-          codec: json
+          codec: ndjson
           only_fields:
             - _msg
             - _stream
