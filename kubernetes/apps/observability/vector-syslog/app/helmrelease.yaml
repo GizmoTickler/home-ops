@@ -1,0 +1,155 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vector-syslog
+  namespace: observability
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: vector
+      version: 0.36.1
+      sourceRef:
+        kind: HelmRepository
+        name: vector
+        namespace: flux-system
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    cleanupOnFail: true
+    remediation:
+      strategy: rollback
+      retries: 3
+  values:
+    role: Stateless-Aggregator
+
+    # Resource configuration
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+
+    # Service configuration for LoadBalancer
+    service:
+      enabled: true
+      type: LoadBalancer
+      annotations:
+        lbipam.cilium.io/ips: "192.168.120.102"
+      ports:
+        - name: cisco-udp
+          port: 514
+          protocol: UDP
+          targetPort: 514
+        - name: cisco-tcp
+          port: 514
+          protocol: TCP
+          targetPort: 1514
+        - name: unifi-udp
+          port: 5514
+          protocol: UDP
+          targetPort: 5514
+        - name: unifi-tcp
+          port: 5514
+          protocol: TCP
+          targetPort: 6514
+
+    # Pod annotations
+    podAnnotations:
+      reloader.stakater.com/auto: "true"
+
+    # Custom config from ConfigMap
+    customConfig:
+      data_dir: /vector-data-dir
+
+      # API for health checks and metrics
+      api:
+        enabled: true
+        address: "0.0.0.0:8686"
+
+      # Sources for syslog collection
+      sources:
+        cisco_syslog_udp:
+          type: syslog
+          address: "0.0.0.0:514"
+          mode: udp
+          max_length: 65536
+
+        cisco_syslog_tcp:
+          type: syslog
+          address: "0.0.0.0:1514"
+          mode: tcp
+          max_length: 65536
+
+        unifi_syslog_udp:
+          type: syslog
+          address: "0.0.0.0:5514"
+          mode: udp
+          max_length: 65536
+
+        unifi_syslog_tcp:
+          type: syslog
+          address: "0.0.0.0:6514"
+          mode: tcp
+          max_length: 65536
+
+      # Transforms to add metadata
+      transforms:
+        add_cisco_metadata:
+          type: remap
+          inputs:
+            - cisco_syslog_udp
+            - cisco_syslog_tcp
+          source: |
+            .device_type = "cisco"
+            .log_source = "network"
+            .environment = "production"
+
+        add_unifi_metadata:
+          type: remap
+          inputs:
+            - unifi_syslog_udp
+            - unifi_syslog_tcp
+          source: |
+            .device_type = "unifi"
+            .log_source = "network"
+            .environment = "production"
+
+      # Sinks for output
+      sinks:
+        victoria_logs:
+          type: http
+          inputs:
+            - add_cisco_metadata
+            - add_unifi_metadata
+          uri: "http://victoria-logs.observability.svc.cluster.local:9428/insert/jsonline"
+          method: post
+          compression: gzip
+          encoding:
+            codec: json
+          batch:
+            max_bytes: 1048576
+            max_events: 1000
+            timeout_secs: 5
+          buffer:
+            type: memory
+            max_events: 10000
+          request:
+            headers:
+              Content-Type: "application/x-ndjson"
+          healthcheck:
+            enabled: true
+
+        # Debug console output
+        debug_console:
+          type: console
+          inputs:
+            - add_cisco_metadata
+            - add_unifi_metadata
+          encoding:
+            codec: json
+          target: stdout

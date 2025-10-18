@@ -68,46 +68,35 @@ spec:
 
       inputs: |-
         [INPUT]
-          name udp
+          name syslog
+          mode udp
           listen 0.0.0.0
           port 514
-          tag network.cisco
-          format none
-          chunk_size 32k
-          buffer_size 64k
+          tag cisco
+          parser catch_all
+          buffer_chunk_size 32k
+          buffer_max_size 64k
 
         [INPUT]
-          name udp
+          name syslog
+          mode udp
           listen 0.0.0.0
           port 5514
-          tag network.unifi
-          format none
-          chunk_size 32k
-          buffer_size 64k
-
-        [INPUT]
-          name tcp
-          listen 0.0.0.0
-          port 514
-          tag network.cisco.tcp
-          format none
-          chunk_size 32k
-          buffer_size 64k
-
-        [INPUT]
-          name tcp
-          listen 0.0.0.0
-          port 5514
-          tag network.unifi.tcp
-          format none
-          chunk_size 32k
-          buffer_size 64k
+          tag unifi
+          parser catch_all
+          buffer_chunk_size 32k
+          buffer_max_size 64k
 
       filters: |-
 
       customParsers: |-
 
       outputs: |-
+        [OUTPUT]
+          name stdout
+          match network.*
+          format json_lines
+
         [OUTPUT]
           name http
           match network.*
