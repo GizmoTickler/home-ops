@@ -60,73 +60,60 @@ spec:
 
       inputs: |-
         [INPUT]
-          name syslog
+          name udp
           alias syslog-udp
           listen 0.0.0.0
           port 514
-          mode udp
           tag network.syslog
+          format none
           buffer_chunk_size 64k
-          buffer_max_size 256k
-          source_address_key source_host
-          raw_message_key log
 
         [INPUT]
-          name syslog
+          name tcp
           alias syslog-tcp
           listen 0.0.0.0
           port 5140
-          mode tcp
           tag network.syslog.tcp
+          format none
           buffer_chunk_size 64k
-          buffer_max_size 256k
-          source_address_key source_host
-          raw_message_key log
 
       filters: |-
         [FILTER]
           name parser
           match network.*
           key_name log
-          parser custom-syslog-rfc5424
-          parser custom-syslog-rfc3164
-          parser custom-syslog-cef
+          parser syslog-rfc3164
+          parser syslog-rfc5424
           preserve_key on
           reserve_data on
 
         [FILTER]
-          name modify
+          name parser
           match network.*
-          add log_source network_device
-          add cluster home-ops
-          add log_type syslog
-          rename log message
-          rename time date
+          key_name message
+          parser custom-unifi-message
+          parser custom-cisco-message
+          parser custom-cef
+          preserve_key on
+          reserve_data on
+
+        [FILTER]
+          name record_modifier
+          match network.*
+          record log_source network_device
+          record cluster home-ops
+          record log_type syslog
 
       customParsers: |-
         [PARSER]
-          name custom-syslog-rfc3164
+          name custom-unifi-message
           format regex
-          regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$/
-          time_key time
-          time_format %b %d %H:%M:%S
-          time_keep on
+          regex /^(?<process>[a-zA-Z0-9_\-]+)(?:\[(?<pid>[0-9]+)\])?: *(?<log_message>.*)$/
 
         [PARSER]
-          name custom-syslog-rfc5424
+          name custom-cisco-message
           format regex
-          regex /^<(?<pri>[0-9]{1,5})>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[.*?\]|-)) (?<message>.+)$/
-          time_key time
-          time_format %Y-%m-%dT%H:%M:%S.%L%z
-          time_keep on
-
-        [PARSER]
-          name custom-syslog-cef
-          format regex
-          regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<message>CEF:.*)$/
-          time_key time
-          time_format %b %d %H:%M:%S
-          time_keep on
+          regex /^%(?<facility>[A-Z0-9_]+)-(?<severity>[0-7])-(?<mnemonic>[A-Z0-9_]+): *(?<log_message>.*)$/
 
         [PARSER]
           name custom-cef
@@ -139,7 +126,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_host,ident,host,log_source&_msg_field=message&_time_field=date
+          uri /insert/jsonline?_stream_fields=source_host,ident,host,log_source,process,facility&_msg_field=message&_time_field=time
           format json_lines
           json_date_format iso8601
           compress gzip
