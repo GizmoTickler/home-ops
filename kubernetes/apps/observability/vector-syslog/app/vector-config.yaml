@@ -251,8 +251,10 @@ data:
         uri: "http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline"
         method: post
         compression: gzip
+        framing:
+          method: newline_delimited
         encoding:
-          codec: ndjson
+          codec: json
           only_fields:
             - _msg
             - _stream
