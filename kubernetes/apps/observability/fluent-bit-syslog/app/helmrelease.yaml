@@ -66,7 +66,7 @@ spec:
           listen 0.0.0.0
           port 514
           tag network.syslog
-          parser syslog-rfc3164
+          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
@@ -77,21 +77,11 @@ spec:
           listen 0.0.0.0
           port 5140
           tag network.syslog.tcp
-          parser syslog-rfc3164
+          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
       filters: |-
-        [FILTER]
-          name parser
-          match network.*
-          key_name message
-          parser custom-cisco-message
-          parser custom-unifi-message
-          parser custom-cef
-          preserve_key on
-          reserve_data on
-
         [FILTER]
           name record_modifier
           match network.*
@@ -121,7 +111,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=host,ident,log_source,process,facility&_msg_field=message
+          uri /insert/jsonline?_stream_fields=log_source,log_type,cluster&_msg_field=raw_log
           format json_lines
           json_date_format iso8601
           compress gzip
