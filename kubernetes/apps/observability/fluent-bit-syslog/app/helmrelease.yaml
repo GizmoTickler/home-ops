@@ -30,24 +30,15 @@ spec:
       type: LoadBalancer
       annotations:
         lbipam.cilium.io/ips: "192.168.120.101"
-      ports:
-        - name: syslog-udp
-          port: 514
-          targetPort: 514
-          protocol: UDP
-        - name: syslog-tcp
-          port: 514
-          targetPort: 5140
-          protocol: TCP
-    hostNetwork: false
-    dnsPolicy: ClusterFirst
     extraPorts:
-      - name: syslog-udp
+      - port: 514
         containerPort: 514
         protocol: UDP
-      - name: syslog-tcp
+        name: syslog-udp
+      - port: 514
         containerPort: 5140
         protocol: TCP
+        name: syslog-tcp
     resources:
       requests:
         cpu: 100m
