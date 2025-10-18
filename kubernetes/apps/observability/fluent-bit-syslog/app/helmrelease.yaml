@@ -87,7 +87,6 @@ spec:
           listen 0.0.0.0
           port 5514
           tag network.unifi
-          parser syslog-rfc3164
           source_address_key source_ip
           raw_message_key raw_log
           buffer_chunk_size 32k
@@ -113,7 +112,6 @@ spec:
           listen 0.0.0.0
           port 5514
           tag network.unifi.tcp
-          parser syslog-rfc3164
           source_address_key source_ip
           raw_message_key raw_log
           buffer_chunk_size 32k
@@ -163,7 +161,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_ip,device_type,log_source,log_type,cluster,host,ident&_msg_field=message
+          uri /insert/jsonline?_stream_fields=source_ip,device_type,log_source,log_type,cluster,host,ident&_msg_field=raw_log
           format json_lines
           json_date_format iso8601
           compress gzip
