@@ -56,10 +56,10 @@ data:
             # Extract priority
             .parts = split(.raw_message, ">", limit: 2)
             if length(.parts) >= 2 {
-              .priority_str = replace(.parts[0], "<", "")
-              .priority = to_int(.priority_str) ?? 0
-              .facility = to_int(.priority / 8) ?? 0
-              .severity = mod(.priority, 8) ?? 0
+              .priority_str = replace!(.parts[0], "<", "")
+              .priority = to_int!(.priority_str) ?? 0
+              .facility = to_int!(.priority / 8) ?? 0
+              .severity = mod!(.priority, 8) ?? 0
 
               # Parse the rest of the message
               .remainder = .parts[1]
@@ -88,10 +88,18 @@ data:
           }
 
           # Set final fields for Victoria Logs
-          ._msg = .cisco_message ?? .raw_message
+          if exists(.cisco_message) {
+            ._msg = .cisco_message
+          } else {
+            ._msg = .raw_message
+          }
           ._stream = "network.cisco." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
           .device_type = "cisco"
-          .device_hostname = .hostname ?? "unknown"
+          if exists(.hostname) {
+            .device_hostname = .hostname
+          } else {
+            .device_hostname = "unknown"
+          }
           .log_source = "network"
           .environment = "production"
 
@@ -139,7 +147,7 @@ data:
                 .month = .header_parts[0]
                 .day = .header_parts[1]
                 .time = .header_parts[2]
-                .cef_hostname = .header_parts[3] ?? ""
+                .cef_hostname = .header_parts[3]
               }
 
               # Parse CEF fields
@@ -175,10 +183,10 @@ data:
             # Extract priority
             .parts = split(.raw_message, ">", limit: 2)
             if length(.parts) >= 2 {
-              .priority_str = replace(.parts[0], "<", "")
-              .priority = to_int(.priority_str) ?? 0
-              .facility = to_int(.priority / 8) ?? 0
-              .severity = mod(.priority, 8) ?? 0
+              .priority_str = replace!(.parts[0], "<", "")
+              .priority = to_int!(.priority_str) ?? 0
+              .facility = to_int!(.priority / 8) ?? 0
+              .severity = mod!(.priority, 8) ?? 0
 
               # Parse the message
               .msg_content = .parts[1]
