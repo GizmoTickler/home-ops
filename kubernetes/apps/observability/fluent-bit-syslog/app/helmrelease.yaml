@@ -70,6 +70,8 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key log
+          parser syslog-rfc3164
+          parser syslog-cef
 
         [INPUT]
           name syslog
@@ -82,6 +84,7 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key log
+          parser syslog-rfc5424
 
       filters: |-
         [FILTER]
@@ -116,6 +119,14 @@ spec:
           regex /^<(?<pri>[0-9]{1,5})>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[.*?\]|-)) (?<message>.+)$/
           time_key time
           time_format %Y-%m-%dT%H:%M:%S.%L%z
+          time_keep on
+
+        [PARSER]
+          name syslog-cef
+          format regex
+          regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<message>CEF:.*)$/
+          time_key time
+          time_format %b %d %H:%M:%S
           time_keep on
 
         [PARSER]
