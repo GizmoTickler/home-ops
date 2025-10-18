@@ -45,137 +45,15 @@ spec:
           port: 514
           protocol: UDP
           targetPort: 514
-        - name: cisco-tcp
-          port: 514
-          protocol: TCP
-          targetPort: 1514
         - name: unifi-udp
           port: 5514
           protocol: UDP
           targetPort: 5514
-        - name: unifi-tcp
-          port: 5514
-          protocol: TCP
-          targetPort: 6514
 
     # Pod annotations
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
-    # Custom config from ConfigMap
-    customConfig:
-      data_dir: /vector-data-dir
-
-      # API for health checks and metrics
-      api:
-        enabled: true
-        address: "0.0.0.0:8686"
-
-      # Sources for raw syslog collection using socket
-      sources:
-        cisco_syslog_udp:
-          type: socket
-          address: "0.0.0.0:514"
-          mode: udp
-          max_length: 65536
-          decoding:
-            codec: bytes
-          host_key: source_ip
-
-        cisco_syslog_tcp:
-          type: socket
-          address: "0.0.0.0:1514"
-          mode: tcp
-          max_length: 65536
-          decoding:
-            codec: bytes
-
-        unifi_syslog_udp:
-          type: socket
-          address: "0.0.0.0:5514"
-          mode: udp
-          max_length: 65536
-          decoding:
-            codec: bytes
-          host_key: source_ip
-
-        unifi_syslog_tcp:
-          type: socket
-          address: "0.0.0.0:6514"
-          mode: tcp
-          max_length: 65536
-          decoding:
-            codec: bytes
-
-      # Transforms to add metadata
-      transforms:
-        add_cisco_metadata:
-          type: remap
-          inputs:
-            - cisco_syslog_udp
-            - cisco_syslog_tcp
-          source: |
-            # Message is already a string from socket source
-            ._msg = .message
-            ._stream = "network.cisco"
-            .device_type = "cisco"
-            .log_source = "network"
-            .environment = "production"
-            if exists(.source_ip) { .host = .source_ip }
-            # Remove timestamp fields that might conflict
-            del(.timestamp)
-            del(.source_type)
-            del(.port)
-
-        add_unifi_metadata:
-          type: remap
-          inputs:
-            - unifi_syslog_udp
-            - unifi_syslog_tcp
-          source: |
-            # Message is already a string from socket source
-            ._msg = .message
-            ._stream = "network.unifi"
-            .device_type = "unifi"
-            .log_source = "network"
-            .environment = "production"
-            if exists(.source_ip) { .host = .source_ip }
-            # Remove timestamp fields that might conflict
-            del(.timestamp)
-            del(.source_type)
-            del(.port)
-
-      # Sinks for output
-      sinks:
-        victoria_logs:
-          type: http
-          inputs:
-            - add_cisco_metadata
-            - add_unifi_metadata
-          uri: "http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline"
-          method: post
-          compression: gzip
-          encoding:
-            codec: json
-          batch:
-            max_bytes: 1048576
-            max_events: 1000
-            timeout_secs: 5
-          buffer:
-            type: memory
-            max_events: 10000
-          request:
-            headers:
-              Content-Type: "application/x-ndjson"
-          healthcheck:
-            enabled: true
-
-        # Debug console output
-        debug_console:
-          type: console
-          inputs:
-            - add_cisco_metadata
-            - add_unifi_metadata
-          encoding:
-            codec: json
-          target: stdout
+    # Use external ConfigMap for configuration
+    existingConfigMaps:
+      - vector-syslog-config

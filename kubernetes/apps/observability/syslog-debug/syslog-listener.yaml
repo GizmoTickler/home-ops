@@ -1,0 +1,184 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: syslog-listener-script
+  namespace: observability
+data:
+  listen.py: |
+    #!/usr/bin/env python3
+    import socket
+    import sys
+    import threading
+    from datetime import datetime
+
+    # Force unbuffered output
+    sys.stdout = sys.stderr
+
+    def listen_udp(port, device_type):
+        print(f"[{device_type}] Starting UDP listener on port {port}...", flush=True)
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('0.0.0.0', port))
+            print(f"[{device_type}] Successfully bound to port {port}", flush=True)
+        except Exception as e:
+            print(f"[{device_type}] Failed to bind to port {port}: {e}", flush=True)
+            return
+
+        print(f"[{device_type}] Waiting for messages on port {port}...", flush=True)
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(65536)
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                # Try to decode the message
+                try:
+                    message = data.decode('utf-8').strip()
+                except:
+                    try:
+                        message = data.decode('latin-1').strip()
+                    except:
+                        message = f"[Binary data, {len(data)} bytes]"
+
+                print(f"\n{'='*80}", flush=True)
+                print(f"[{timestamp}] {device_type} message from {addr[0]}:{addr[1]}", flush=True)
+                print(f"Length: {len(data)} bytes", flush=True)
+
+                # Show the message
+                if len(message) > 500:
+                    print(f"Message (truncated): {message[:500]}...", flush=True)
+                else:
+                    print(f"Message: {message}", flush=True)
+
+                # Show hex for first 100 bytes
+                hex_preview = data[:100].hex()
+                print(f"Hex preview: {hex_preview}", flush=True)
+
+                # Try to detect syslog format
+                if message.startswith('<') and '>' in message[:10]:
+                    try:
+                        pri_end = message.index('>')
+                        priority = message[1:pri_end]
+                        facility = int(priority) // 8
+                        severity = int(priority) % 8
+                        print(f"Syslog PRI: {priority} (Facility: {facility}, Severity: {severity})", flush=True)
+                    except:
+                        pass
+
+                print(f"{'='*80}", flush=True)
+
+                # Save to file
+                with open(f'/tmp/{device_type.lower()}_messages.txt', 'a') as f:
+                    f.write(f"\n[{timestamp}] From {addr[0]}:{addr[1]}\n")
+                    f.write(f"{message}\n")
+                    f.write(f"Hex: {data.hex()}\n")
+                    f.write("-" * 40 + "\n")
+
+            except Exception as e:
+                print(f"[{device_type}] Error processing message: {e}", flush=True)
+
+    def main():
+        print("=" * 80, flush=True)
+        print("SYSLOG LISTENER STARTING", flush=True)
+        print("=" * 80, flush=True)
+
+        # Create threads for each listener
+        threads = []
+
+        # UniFi listener on port 5514
+        t1 = threading.Thread(target=listen_udp, args=(5514, "UniFi"), daemon=True)
+        t1.start()
+        threads.append(t1)
+
+        # Cisco listener on port 514
+        t2 = threading.Thread(target=listen_udp, args=(514, "Cisco"), daemon=True)
+        t2.start()
+        threads.append(t2)
+
+        print("All listeners started. Waiting for messages...", flush=True)
+        print("=" * 80, flush=True)
+
+        # Keep the main thread alive
+        try:
+            for t in threads:
+                t.join()
+        except KeyboardInterrupt:
+            print("\nShutting down...", flush=True)
+
+    if __name__ == "__main__":
+        main()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syslog-listener
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: syslog-listener
+  template:
+    metadata:
+      labels:
+        app: syslog-listener
+    spec:
+      containers:
+        - name: listener
+          image: python:3.11-slim
+          command:
+            - "python3"
+            - "-u"
+            - "/scripts/listen.py"
+          env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          ports:
+            - containerPort: 5514
+              protocol: UDP
+              name: unifi-udp
+            - containerPort: 514
+              protocol: UDP
+              name: cisco-udp
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: capture
+              mountPath: /tmp
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      volumes:
+        - name: scripts
+          configMap:
+            name: syslog-listener-script
+            defaultMode: 0755
+        - name: capture
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: syslog-listener
+  namespace: observability
+  annotations:
+    lbipam.cilium.io/ips: "192.168.120.101"
+spec:
+  type: LoadBalancer
+  selector:
+    app: syslog-listener
+  ports:
+    - name: unifi-udp
+      port: 5514
+      protocol: UDP
+      targetPort: 5514
+    - name: cisco-udp
+      port: 514
+      protocol: UDP
+      targetPort: 514
