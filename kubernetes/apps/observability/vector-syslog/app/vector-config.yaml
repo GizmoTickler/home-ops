@@ -77,7 +77,11 @@ data:
                   .facility_msg = .cisco_parts[4]
                   .cisco_message = .cisco_parts[5] ?? ""
                 } else {
-                  .cisco_message = join!(.cisco_parts[4:], ": ")
+                  # Join remaining parts for the message
+                  .cisco_message = .cisco_parts[4] ?? ""
+                  if length(.cisco_parts) >= 6 {
+                    .cisco_message = .cisco_parts[4] + ": " + (.cisco_parts[5] ?? "")
+                  }
                 }
               }
             }
@@ -85,7 +89,7 @@ data:
 
           # Set final fields for Victoria Logs
           ._msg = .cisco_message ?? .raw_message
-          ._stream = "network.cisco." + replace(replace(.device_ip, ".", "_"), ":", "_")
+          ._stream = "network.cisco." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
           .device_type = "cisco"
           .device_hostname = .hostname ?? "unknown"
           .log_source = "network"
@@ -97,7 +101,7 @@ data:
           } else if .device_ip == "192.168.120.5" {
             .device_name = "cisco-wlc"
           } else {
-            .device_name = "cisco-" + .device_ip
+            .device_name = "cisco-" + to_string!(.device_ip)
           }
 
           # Clean up intermediate fields
@@ -130,7 +134,7 @@ data:
             # Format: timestamp hostname CEF:Version|Vendor|Product|Version|EventID|Name|Severity|Extensions
             .cef_parts = split(.raw_message, " CEF:", limit: 2)
             if length(.cef_parts) >= 2 {
-              .header_parts = split(.cef_parts[0], " ")
+              .header_parts = split!(.cef_parts[0], " ")
               if length(.header_parts) >= 4 {
                 .month = .header_parts[0]
                 .day = .header_parts[1]
@@ -197,7 +201,7 @@ data:
           }
 
           # Set final fields for Victoria Logs
-          ._stream = "network.unifi." + replace(replace(.device_ip, ".", "_"), ":", "_")
+          ._stream = "network.unifi." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
           .device_type = "unifi"
           .log_source = "network"
           .environment = "production"
