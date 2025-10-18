@@ -204,7 +204,7 @@ data:
               .msg_content = .parts[1]
 
               # Check if it's a firewall log
-              if contains(.msg_content, "DESCR=") {
+              if contains(to_string!(.msg_content), "DESCR=") {
                 .message_type = "firewall"
                 ._msg = .msg_content
                 .device_name = "unifi-uxg-firewall"
