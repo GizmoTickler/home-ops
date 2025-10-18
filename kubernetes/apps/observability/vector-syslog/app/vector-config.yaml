@@ -4,7 +4,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: vector-syslog-config
+  name: vector-syslog
   namespace: observability
 data:
   vector.yaml: |-

@@ -53,7 +53,3 @@ spec:
     # Pod annotations
     podAnnotations:
       reloader.stakater.com/auto: "true"
-
-    # Use external ConfigMap for configuration
-    existingConfigMaps:
-      - vector-syslog-config
