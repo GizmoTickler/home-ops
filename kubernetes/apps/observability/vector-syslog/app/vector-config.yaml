@@ -57,9 +57,9 @@ data:
             .parts = split(.raw_message, ">", limit: 2)
             if length(.parts) >= 2 {
               .priority_str = replace!(.parts[0], "<", "")
-              .priority = to_int!(.priority_str) ?? 0
-              .facility = to_int!(.priority / 8) ?? 0
-              .severity = mod!(.priority, 8) ?? 0
+              .priority = to_int!(.priority_str)
+              .facility = to_int!(.priority / 8)
+              .severity = mod!(.priority, 8)
 
               # Parse the rest of the message
               .remainder = .parts[1]
@@ -151,7 +151,7 @@ data:
               }
 
               # Parse CEF fields
-              .cef_data = "CEF:" + .cef_parts[1]
+              .cef_data = "CEF:" + to_string!(.cef_parts[1])
               .cef_fields = split(.cef_data, "|")
               if length(.cef_fields) >= 7 {
                 .vendor = .cef_fields[1] ?? ""
@@ -184,9 +184,9 @@ data:
             .parts = split(.raw_message, ">", limit: 2)
             if length(.parts) >= 2 {
               .priority_str = replace!(.parts[0], "<", "")
-              .priority = to_int!(.priority_str) ?? 0
-              .facility = to_int!(.priority / 8) ?? 0
-              .severity = mod!(.priority, 8) ?? 0
+              .priority = to_int!(.priority_str)
+              .facility = to_int!(.priority / 8)
+              .severity = mod!(.priority, 8)
 
               # Parse the message
               .msg_content = .parts[1]
