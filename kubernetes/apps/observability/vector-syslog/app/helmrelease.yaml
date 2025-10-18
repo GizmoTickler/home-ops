@@ -117,12 +117,15 @@ spec:
           source: |
             # Message is already a string from socket source
             ._msg = .message
-            ._time = now()
             ._stream = "network.cisco"
             .device_type = "cisco"
             .log_source = "network"
             .environment = "production"
             if exists(.source_ip) { .host = .source_ip }
+            # Remove timestamp fields that might conflict
+            del(.timestamp)
+            del(.source_type)
+            del(.port)
 
         add_unifi_metadata:
           type: remap
@@ -132,12 +135,15 @@ spec:
           source: |
             # Message is already a string from socket source
             ._msg = .message
-            ._time = now()
             ._stream = "network.unifi"
             .device_type = "unifi"
             .log_source = "network"
             .environment = "production"
             if exists(.source_ip) { .host = .source_ip }
+            # Remove timestamp fields that might conflict
+            del(.timestamp)
+            del(.source_type)
+            del(.port)
 
       # Sinks for output
       sinks:
