@@ -88,9 +88,9 @@ spec:
           name parser
           match network.*
           key_name log
-          parser custom-syslog-cef
-          parser custom-syslog-rfc3164
           parser custom-syslog-rfc5424
+          parser custom-syslog-rfc3164
+          parser custom-syslog-cef
           preserve_key on
           reserve_data on
 
@@ -101,6 +101,7 @@ spec:
           add cluster home-ops
           add log_type syslog
           rename log message
+          rename time date
 
       customParsers: |-
         [PARSER]
