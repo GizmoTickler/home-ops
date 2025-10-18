@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/v1/service.json
+apiVersion: v1
+kind: Service
+metadata:
+  name: fluent-bit-syslog
+  annotations:
+    lbipam.cilium.io/ips: 192.168.120.101
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: fluent-bit-syslog
+    app.kubernetes.io/instance: fluent-bit-syslog
+  ports:
+    - name: syslog-udp
+      protocol: UDP
+      port: 514
+      targetPort: 514
+    - name: syslog-tcp
+      protocol: TCP
+      port: 514
+      targetPort: 5140
+    - name: metrics
+      protocol: TCP
+      port: 2020
+      targetPort: 2020

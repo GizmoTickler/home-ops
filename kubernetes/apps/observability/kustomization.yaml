@@ -18,4 +18,5 @@ resources:
   - ./victoria-logs/ks.yaml
   - ./silence-operator/ks.yaml
   - ./fluent-bit/ks.yaml
+  - ./fluent-bit-syslog/ks.yaml
   - ./unpoller/ks.yaml
