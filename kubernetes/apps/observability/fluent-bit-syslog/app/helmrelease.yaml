@@ -74,9 +74,7 @@ spec:
           listen 0.0.0.0
           port 514
           tag network.cisco
-          parser syslog-rfc3164
           source_address_key source_ip
-          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
@@ -88,7 +86,6 @@ spec:
           port 5514
           tag network.unifi
           source_address_key source_ip
-          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
@@ -99,9 +96,7 @@ spec:
           listen 0.0.0.0
           port 514
           tag network.cisco.tcp
-          parser syslog-rfc3164
           source_address_key source_ip
-          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
@@ -113,47 +108,12 @@ spec:
           port 5514
           tag network.unifi.tcp
           source_address_key source_ip
-          raw_message_key raw_log
           buffer_chunk_size 32k
           buffer_max_size 64k
 
       filters: |-
-        [FILTER]
-          name modify
-          match network.*
-          copy raw_log original_message
-
-        [FILTER]
-          name record_modifier
-          match network.cisco*
-          record device_type cisco
-          record log_source network_device
-          record cluster home-ops
-          record log_type syslog
-
-        [FILTER]
-          name record_modifier
-          match network.unifi*
-          record device_type unifi
-          record log_source network_device
-          record cluster home-ops
-          record log_type syslog
 
       customParsers: |-
-        [PARSER]
-          name custom-unifi-message
-          format regex
-          regex /^(?<process>[a-zA-Z0-9_\-]+)(?:\[(?<pid>[0-9]+)\])?: *(?<log_message>.*)$/
-
-        [PARSER]
-          name custom-cisco-message
-          format regex
-          regex /^%(?<facility>[A-Z0-9_]+)-(?<severity>[0-7])-(?<mnemonic>[A-Z0-9_]+): *(?<log_message>.*)$/
-
-        [PARSER]
-          name custom-cef
-          format regex
-          regex /^CEF:(?<cef_version>\d+)\|(?<device_vendor>[^|]*)\|(?<device_product>[^|]*)\|(?<device_version>[^|]*)\|(?<signature_id>[^|]*)\|(?<name>[^|]*)\|(?<severity>[^|]*)\|(?<extension>.*)$/
 
       outputs: |-
         [OUTPUT]
@@ -161,7 +121,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_ip,device_type,log_source,log_type,cluster,host,ident&_msg_field=raw_log
+          uri /insert/jsonline?_stream_fields=source_ip&_msg_field=message
           format json_lines
           json_date_format iso8601
           compress gzip
