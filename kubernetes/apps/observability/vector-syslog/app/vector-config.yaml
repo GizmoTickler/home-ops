@@ -65,7 +65,7 @@ data:
               .remainder = .parts[1]
 
               # Extract Cisco-specific fields
-              .cisco_parts = split(.remainder, ": ", limit: 6)
+              .cisco_parts = split!(.remainder, ": ", limit: 6)
               if length(.cisco_parts) >= 5 {
                 .sequence = .cisco_parts[0]
                 .hostname = .cisco_parts[1]
@@ -154,19 +154,23 @@ data:
               .cef_data = "CEF:" + to_string!(.cef_parts[1])
               .cef_fields = split(.cef_data, "|")
               if length(.cef_fields) >= 7 {
-                .vendor = .cef_fields[1] ?? ""
-                .product = .cef_fields[2] ?? ""
-                .version = .cef_fields[3] ?? ""
-                .event_id = .cef_fields[4] ?? ""
-                .event_name = .cef_fields[5] ?? ""
-                .cef_severity = .cef_fields[6] ?? ""
+                .vendor = .cef_fields[1]
+                .product = .cef_fields[2]
+                .version = .cef_fields[3]
+                .event_id = .cef_fields[4]
+                .event_name = .cef_fields[5]
+                .cef_severity = .cef_fields[6]
 
                 # Parse extensions if present
                 if length(.cef_fields) >= 8 {
-                  .extensions_str = .cef_fields[7] ?? ""
+                  .extensions_str = .cef_fields[7]
                   # Extract msg field from extensions
                   .msg_match = parse_regex(.extensions_str, r'msg=([^=]+(?:\s+[^=]+)*?)(?:\s+\w+=|$)') ?? {}
-                  .parsed_message = .msg_match."1" ?? .event_name
+                  if exists(.msg_match."1") {
+                    .parsed_message = .msg_match."1"
+                  } else {
+                    .parsed_message = .event_name
+                  }
                 } else {
                   .parsed_message = .event_name
                 }
