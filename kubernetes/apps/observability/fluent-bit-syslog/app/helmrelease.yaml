@@ -68,48 +68,36 @@ spec:
 
       inputs: |-
         [INPUT]
-          name syslog
-          alias cisco-syslog-udp
-          mode udp
+          name udp
           listen 0.0.0.0
           port 514
           tag network.cisco
+          format none
           source_address_key source_ip
-          buffer_chunk_size 32k
-          buffer_max_size 64k
 
         [INPUT]
-          name syslog
-          alias unifi-syslog-udp
-          mode udp
+          name udp
           listen 0.0.0.0
           port 5514
           tag network.unifi
+          format none
           source_address_key source_ip
-          buffer_chunk_size 32k
-          buffer_max_size 64k
 
         [INPUT]
-          name syslog
-          alias cisco-syslog-tcp
-          mode tcp
+          name tcp
           listen 0.0.0.0
           port 514
           tag network.cisco.tcp
+          format none
           source_address_key source_ip
-          buffer_chunk_size 32k
-          buffer_max_size 64k
 
         [INPUT]
-          name syslog
-          alias unifi-syslog-tcp
-          mode tcp
+          name tcp
           listen 0.0.0.0
           port 5514
           tag network.unifi.tcp
+          format none
           source_address_key source_ip
-          buffer_chunk_size 32k
-          buffer_max_size 64k
 
       filters: |-
 
@@ -121,7 +109,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_ip&_msg_field=message
+          uri /insert/jsonline?_stream_fields=source_ip&_msg_field=log
           format json_lines
           json_date_format iso8601
           compress gzip
