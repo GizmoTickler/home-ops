@@ -1,0 +1,11 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/source.toolkit.fluxcd.io/ocirepository_v1beta2.json
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: fluent-bit-syslog
+spec:
+  interval: 1h
+  url: oci://ghcr.io/home-operations/charts-mirror/fluent-bit
+  ref:
+    semver: 0.54.x
