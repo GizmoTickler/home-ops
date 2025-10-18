@@ -42,11 +42,9 @@ spec:
     matchLabels:
       grafana.internal/instance: grafana
   datasource:
-    type: prometheus
+    type: loki
     name: Victoria Logs
     access: proxy
     url: http://victoria-logs-server.observability.svc.cluster.local:9428/select/logsql
     jsonData:
-      httpMethod: POST
-      prometheusType: Prometheus
-      timeInterval: 30s
+      maxLines: 1000
