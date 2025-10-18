@@ -71,31 +71,41 @@ spec:
         enabled: true
         address: "0.0.0.0:8686"
 
-      # Sources for syslog collection
+      # Sources for raw syslog collection using socket
       sources:
         cisco_syslog_udp:
-          type: syslog
+          type: socket
           address: "0.0.0.0:514"
           mode: udp
           max_length: 65536
+          decoding:
+            codec: bytes
+          host_key: source_ip
 
         cisco_syslog_tcp:
-          type: syslog
+          type: socket
           address: "0.0.0.0:1514"
           mode: tcp
           max_length: 65536
+          decoding:
+            codec: bytes
 
         unifi_syslog_udp:
-          type: syslog
+          type: socket
           address: "0.0.0.0:5514"
           mode: udp
           max_length: 65536
+          decoding:
+            codec: bytes
+          host_key: source_ip
 
         unifi_syslog_tcp:
-          type: syslog
+          type: socket
           address: "0.0.0.0:6514"
           mode: tcp
           max_length: 65536
+          decoding:
+            codec: bytes
 
       # Transforms to add metadata
       transforms:
@@ -105,13 +115,15 @@ spec:
             - cisco_syslog_udp
             - cisco_syslog_tcp
           source: |
+            # Convert bytes to string
+            .message = decode_base64!(.message)
             ._msg = .message
-            ._time = .timestamp
+            ._time = now()
             ._stream = "network.cisco"
             .device_type = "cisco"
             .log_source = "network"
             .environment = "production"
-            .source_ip = .host
+            if exists(.source_ip) { .host = .source_ip }
 
         add_unifi_metadata:
           type: remap
@@ -119,13 +131,15 @@ spec:
             - unifi_syslog_udp
             - unifi_syslog_tcp
           source: |
+            # Convert bytes to string
+            .message = decode_base64!(.message)
             ._msg = .message
-            ._time = .timestamp
+            ._time = now()
             ._stream = "network.unifi"
             .device_type = "unifi"
             .log_source = "network"
             .environment = "production"
-            .source_ip = .host
+            if exists(.source_ip) { .host = .source_ip }
 
       # Sinks for output
       sinks:
