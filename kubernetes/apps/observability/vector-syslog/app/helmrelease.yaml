@@ -53,3 +53,10 @@ spec:
     # Pod annotations
     podAnnotations:
       reloader.stakater.com/auto: "true"
+
+    # Disable creation of ConfigMap by Helm since we provide our own
+    config:
+      enabled: false
+
+    # Tell Vector to use existing ConfigMap named 'vector-syslog'
+    existingConfigMap: vector-syslog
