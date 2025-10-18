@@ -42,8 +42,8 @@ spec:
     matchLabels:
       grafana.internal/instance: grafana
   datasource:
-    type: loki
-    name: Victoria Logs
+    type: victoriametrics-logs-datasource
+    name: VictoriaLogs
     access: proxy
     url: http://victoria-logs-server.observability.svc.cluster.local:9428/select/logsql
     jsonData:
