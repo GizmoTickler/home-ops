@@ -34,19 +34,19 @@ spec:
       - port: 514
         containerPort: 514
         protocol: UDP
-        name: cisco-syslog-udp
+        name: cisco-udp
       - port: 514
         containerPort: 5140
         protocol: TCP
-        name: cisco-syslog-tcp
+        name: cisco-tcp
       - port: 5514
         containerPort: 5514
         protocol: UDP
-        name: unifi-syslog-udp
+        name: unifi-udp
       - port: 5514
         containerPort: 5514
         protocol: TCP
-        name: unifi-syslog-tcp
+        name: unifi-tcp
     resources:
       requests:
         cpu: 100m
