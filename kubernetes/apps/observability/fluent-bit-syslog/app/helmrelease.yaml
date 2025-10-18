@@ -61,15 +61,15 @@ spec:
       inputs: |-
         [INPUT]
           name syslog
-          alias syslog-rfc3164-udp
+          alias syslog-udp-raw
           listen 0.0.0.0
           port 514
           mode udp
-          parser syslog-rfc3164
-          tag network.syslog.rfc3164
+          tag network.syslog.raw
           buffer_chunk_size 64k
           buffer_max_size 256k
           source_address_key source_host
+          raw_message_key message
 
         [INPUT]
           name syslog
@@ -77,11 +77,11 @@ spec:
           listen 0.0.0.0
           port 5140
           mode tcp
-          parser syslog-rfc5424
           tag network.syslog.rfc5424
           buffer_chunk_size 64k
           buffer_max_size 256k
           source_address_key source_host
+          raw_message_key message
 
       filters: |-
         [FILTER]
