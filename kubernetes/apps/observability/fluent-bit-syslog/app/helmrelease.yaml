@@ -34,11 +34,19 @@ spec:
       - port: 514
         containerPort: 514
         protocol: UDP
-        name: syslog-udp
+        name: cisco-syslog-udp
       - port: 514
         containerPort: 5140
         protocol: TCP
-        name: syslog-tcp
+        name: cisco-syslog-tcp
+      - port: 5514
+        containerPort: 5514
+        protocol: UDP
+        name: unifi-syslog-udp
+      - port: 5514
+        containerPort: 5514
+        protocol: TCP
+        name: unifi-syslog-tcp
     resources:
       requests:
         cpu: 100m
@@ -61,11 +69,11 @@ spec:
       inputs: |-
         [INPUT]
           name syslog
-          alias syslog-udp
+          alias cisco-syslog-udp
           mode udp
           listen 0.0.0.0
           port 514
-          tag network.syslog
+          tag network.cisco
           parser syslog-rfc3164
           source_address_key source_ip
           raw_message_key raw_log
@@ -74,11 +82,37 @@ spec:
 
         [INPUT]
           name syslog
-          alias syslog-tcp
+          alias unifi-syslog-udp
+          mode udp
+          listen 0.0.0.0
+          port 5514
+          tag network.unifi
+          parser syslog-rfc3164
+          source_address_key source_ip
+          raw_message_key raw_log
+          buffer_chunk_size 32k
+          buffer_max_size 64k
+
+        [INPUT]
+          name syslog
+          alias cisco-syslog-tcp
           mode tcp
           listen 0.0.0.0
-          port 5140
-          tag network.syslog.tcp
+          port 514
+          tag network.cisco.tcp
+          parser syslog-rfc3164
+          source_address_key source_ip
+          raw_message_key raw_log
+          buffer_chunk_size 32k
+          buffer_max_size 64k
+
+        [INPUT]
+          name syslog
+          alias unifi-syslog-tcp
+          mode tcp
+          listen 0.0.0.0
+          port 5514
+          tag network.unifi.tcp
           parser syslog-rfc3164
           source_address_key source_ip
           raw_message_key raw_log
@@ -93,7 +127,16 @@ spec:
 
         [FILTER]
           name record_modifier
-          match network.*
+          match network.cisco*
+          record device_type cisco
+          record log_source network_device
+          record cluster home-ops
+          record log_type syslog
+
+        [FILTER]
+          name record_modifier
+          match network.unifi*
+          record device_type unifi
           record log_source network_device
           record cluster home-ops
           record log_type syslog
@@ -120,7 +163,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_ip,log_source,log_type,cluster,host,ident&_msg_field=message
+          uri /insert/jsonline?_stream_fields=source_ip,device_type,log_source,log_type,cluster,host,ident&_msg_field=message
           format json_lines
           json_date_format iso8601
           compress gzip
