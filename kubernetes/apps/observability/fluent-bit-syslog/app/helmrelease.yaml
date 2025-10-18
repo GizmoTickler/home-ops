@@ -50,7 +50,7 @@ spec:
         [SERVICE]
           daemon off
           flush 5
-          log_level info
+          log_level debug
           parsers_file /fluent-bit/etc/parsers.conf
           parsers_file /fluent-bit/etc/conf/custom_parsers.conf
           http_server on
