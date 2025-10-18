@@ -70,6 +70,7 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key message
+          parser syslog-rfc3164
 
         [INPUT]
           name syslog
@@ -82,6 +83,7 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key message
+          parser syslog-rfc5424
 
       filters: |-
         [FILTER]
