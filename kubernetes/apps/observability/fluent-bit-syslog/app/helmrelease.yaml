@@ -36,7 +36,7 @@ spec:
         protocol: UDP
         name: cisco-udp
       - port: 514
-        containerPort: 5140
+        containerPort: 514
         protocol: TCP
         name: cisco-tcp
       - port: 5514
