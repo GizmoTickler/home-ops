@@ -73,7 +73,8 @@ spec:
           port 514
           tag network.cisco
           format none
-          source_address_key source_ip
+          chunk_size 32k
+          buffer_size 64k
 
         [INPUT]
           name udp
@@ -81,7 +82,8 @@ spec:
           port 5514
           tag network.unifi
           format none
-          source_address_key source_ip
+          chunk_size 32k
+          buffer_size 64k
 
         [INPUT]
           name tcp
@@ -89,7 +91,8 @@ spec:
           port 514
           tag network.cisco.tcp
           format none
-          source_address_key source_ip
+          chunk_size 32k
+          buffer_size 64k
 
         [INPUT]
           name tcp
@@ -97,7 +100,8 @@ spec:
           port 5514
           tag network.unifi.tcp
           format none
-          source_address_key source_ip
+          chunk_size 32k
+          buffer_size 64k
 
       filters: |-
 
@@ -109,7 +113,7 @@ spec:
           match network.*
           host victoria-logs-server.observability.svc.cluster.local
           port 9428
-          uri /insert/jsonline?_stream_fields=source_ip&_msg_field=log
+          uri /insert/jsonline?_msg_field=log
           format json_lines
           json_date_format iso8601
           compress gzip
