@@ -70,8 +70,6 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key log
-          parser syslog-rfc3164
-          parser syslog-cef
 
         [INPUT]
           name syslog
@@ -84,13 +82,13 @@ spec:
           buffer_max_size 256k
           source_address_key source_host
           raw_message_key log
-          parser syslog-rfc5424
 
       filters: |-
         [FILTER]
           name parser
           match network.*
           key_name log
+          parser syslog-cef
           parser syslog-rfc3164
           parser syslog-rfc5424
           preserve_key on
