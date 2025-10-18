@@ -1,0 +1,134 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: fluent-bit-syslog
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: fluent-bit-syslog
+  interval: 1h
+  values:
+    kind: Deployment
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - fluent-bit-syslog
+              topologyKey: kubernetes.io/hostname
+    nameOverride: fluent-bit-syslog
+    fullnameOverride: fluent-bit-syslog
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    config:
+      service: |-
+        [SERVICE]
+          daemon off
+          flush 5
+          log_level info
+          parsers_file /fluent-bit/etc/parsers.conf
+          parsers_file /fluent-bit/etc/conf/custom_parsers.conf
+          http_server on
+          http_listen 0.0.0.0
+          http_port 2020
+          health_check on
+
+      inputs: |-
+        [INPUT]
+          name syslog
+          alias syslog-rfc3164-udp
+          listen 0.0.0.0
+          port 514
+          mode udp
+          parser syslog-rfc3164
+          tag network.syslog.rfc3164
+          buffer_chunk_size 64k
+          buffer_max_size 256k
+          source_address_key source_host
+
+        [INPUT]
+          name syslog
+          alias syslog-rfc5424-tcp
+          listen 0.0.0.0
+          port 5140
+          mode tcp
+          parser syslog-rfc5424
+          tag network.syslog.rfc5424
+          buffer_chunk_size 64k
+          buffer_max_size 256k
+          source_address_key source_host
+
+      filters: |-
+        [FILTER]
+          name modify
+          match network.*
+          add log_source network_device
+          add cluster home-ops
+          add log_type syslog
+
+        [FILTER]
+          name record_modifier
+          match network.*
+          record timestamp ${TIMESTAMP}
+
+        [FILTER]
+          name nest
+          match network.*
+          operation lift
+          nested_under extradata
+          add_prefix sd_
+
+      customParsers: |-
+        [PARSER]
+          name syslog-rfc3164
+          format regex
+          regex /^<(?<pri>[0-9]+)>(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$/
+          time_key time
+          time_format %b %d %H:%M:%S
+          time_keep on
+
+        [PARSER]
+          name syslog-rfc5424
+          format regex
+          regex /^<(?<pri>[0-9]{1,5})>1 (?<time>[^ ]+) (?<host>[^ ]+) (?<ident>[^ ]+) (?<pid>[-0-9]+) (?<msgid>[^ ]+) (?<extradata>(\[.*?\]|-)) (?<message>.+)$/
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%L%z
+          time_keep on
+
+        [PARSER]
+          name cef
+          format regex
+          regex /^CEF:(?<cef_version>\d+)\|(?<device_vendor>[^|]*)\|(?<device_product>[^|]*)\|(?<device_version>[^|]*)\|(?<signature_id>[^|]*)\|(?<name>[^|]*)\|(?<severity>[^|]*)\|(?<extension>.*)$/
+
+      outputs: |-
+        [OUTPUT]
+          name http
+          match network.*
+          host victoria-logs-server.observability.svc.cluster.local
+          port 9428
+          uri /insert/jsonline?_stream_fields=source_host,ident,host,log_source&_msg_field=message&_time_field=time
+          format json_lines
+          json_date_format iso8601
+          compress gzip
+          retry_limit 3
+
+    dashboards:
+      enabled: true
+      annotations:
+        grafana_folder: observability
+
+    serviceMonitor:
+      enabled: true
+      interval: 30s

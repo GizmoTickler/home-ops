@@ -1,0 +1,188 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: network-device-logs
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.internal/instance: grafana
+  folder: observability
+  json: |-
+    {
+      "title": "Network Device Logs",
+      "uid": "network-device-logs",
+      "timezone": "browser",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "30s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "panels": [
+        {
+          "title": "Log Volume by Device",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [
+            {
+              "expr": "sum by (source_host) (count_over_time({log_source=\"network_device\"}[5m]))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "logs/5m"
+            }
+          }
+        },
+        {
+          "title": "Top 10 Devices by Log Count",
+          "type": "bargauge",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [
+            {
+              "expr": "topk(10, sum by (source_host) (count_over_time({log_source=\"network_device\"}[1h])))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "options": {
+            "orientation": "horizontal",
+            "displayMode": "gradient"
+          }
+        },
+        {
+          "title": "Network Device Logs",
+          "type": "logs",
+          "gridPos": {"h": 12, "w": 24, "x": 0, "y": 8},
+          "targets": [
+            {
+              "expr": "{log_source=\"network_device\"}",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": true,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": false,
+            "enableLogDetails": true,
+            "sortOrder": "Descending"
+          }
+        },
+        {
+          "title": "Logs by Severity (Priority)",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 20},
+          "targets": [
+            {
+              "expr": "sum by (pri) (count_over_time({log_source=\"network_device\"} [1h]))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "values": ["value", "percent"]
+            }
+          }
+        },
+        {
+          "title": "Logs by Source Identity",
+          "type": "table",
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 20},
+          "targets": [
+            {
+              "expr": "sum by (ident, source_host) (count_over_time({log_source=\"network_device\"} [1h]))",
+              "refId": "A",
+              "format": "table",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {},
+                "indexByName": {},
+                "renameByName": {
+                  "ident": "Process/Service",
+                  "source_host": "Device",
+                  "Value": "Count"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "title": "Log Timeline Heatmap",
+          "type": "heatmap",
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 20},
+          "targets": [
+            {
+              "expr": "sum by (source_host) (count_over_time({log_source=\"network_device\"}[1m]))",
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-logs"
+              }
+            }
+          ],
+          "options": {
+            "calculate": true,
+            "calculation": {
+              "yBuckets": {
+                "mode": "auto"
+              }
+            },
+            "color": {
+              "mode": "spectrum",
+              "scheme": "Spectral"
+            }
+          }
+        }
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "device",
+            "type": "query",
+            "label": "Device",
+            "query": "label_values({log_source=\"network_device\"}, source_host)",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "victoria-logs"
+            },
+            "refresh": 1,
+            "multi": true,
+            "includeAll": true
+          }
+        ]
+      },
+      "annotations": {
+        "list": []
+      }
+    }
