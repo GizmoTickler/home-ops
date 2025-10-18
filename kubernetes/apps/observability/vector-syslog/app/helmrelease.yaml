@@ -115,8 +115,7 @@ spec:
             - cisco_syslog_udp
             - cisco_syslog_tcp
           source: |
-            # Convert bytes to string
-            .message = decode_base64!(.message)
+            # Message is already a string from socket source
             ._msg = .message
             ._time = now()
             ._stream = "network.cisco"
@@ -131,8 +130,7 @@ spec:
             - unifi_syslog_udp
             - unifi_syslog_tcp
           source: |
-            # Convert bytes to string
-            .message = decode_base64!(.message)
+            # Message is already a string from socket source
             ._msg = .message
             ._time = now()
             ._stream = "network.unifi"
@@ -148,7 +146,7 @@ spec:
           inputs:
             - add_cisco_metadata
             - add_unifi_metadata
-          uri: "http://victoria-logs.observability.svc.cluster.local:9428/insert/jsonline"
+          uri: "http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline"
           method: post
           compression: gzip
           encoding:
