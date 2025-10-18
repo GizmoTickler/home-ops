@@ -1,0 +1,278 @@
+---
+# Vector configuration for syslog collection from network devices
+# Handles multiple syslog formats from Cisco and UniFi devices
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-syslog-config
+  namespace: observability
+data:
+  vector.yaml: |-
+    # Data directory
+    data_dir: /vector-data-dir
+
+    # API for health checks and metrics
+    api:
+      enabled: true
+      address: "0.0.0.0:8686"
+
+    # Sources - Raw UDP socket listeners
+    sources:
+      cisco_syslog:
+        type: socket
+        address: "0.0.0.0:514"
+        mode: udp
+        max_length: 65536
+        decoding:
+          codec: bytes
+        host_key: source_ip
+
+      unifi_syslog:
+        type: socket
+        address: "0.0.0.0:5514"
+        mode: udp
+        max_length: 65536
+        decoding:
+          codec: bytes
+        host_key: source_ip
+
+    # Transforms - Parse and enrich messages
+    transforms:
+      # Parse Cisco messages
+      parse_cisco:
+        type: remap
+        inputs:
+          - cisco_syslog
+        source: |
+          # Convert bytes to string
+          .raw_message = to_string!(.message)
+
+          # Extract source device IP
+          .device_ip = .source_ip
+
+          # Parse Cisco syslog format
+          # Format: <pri>seq: hostname: msgid: timestamp: %facility-severity-mnemonic: message
+          if starts_with(.raw_message, "<") {
+            # Extract priority
+            .parts = split(.raw_message, ">", limit: 2)
+            if length(.parts) >= 2 {
+              .priority_str = replace(.parts[0], "<", "")
+              .priority = to_int(.priority_str) ?? 0
+              .facility = to_int(.priority / 8) ?? 0
+              .severity = mod(.priority, 8) ?? 0
+
+              # Parse the rest of the message
+              .remainder = .parts[1]
+
+              # Extract Cisco-specific fields
+              .cisco_parts = split(.remainder, ": ", limit: 6)
+              if length(.cisco_parts) >= 5 {
+                .sequence = .cisco_parts[0]
+                .hostname = .cisco_parts[1]
+                .msg_id = .cisco_parts[2]
+                .timestamp_str = .cisco_parts[3]
+
+                # Extract facility-severity-mnemonic if present
+                if contains(.cisco_parts[4] ?? "", "%") {
+                  .facility_msg = .cisco_parts[4]
+                  .cisco_message = .cisco_parts[5] ?? ""
+                } else {
+                  .cisco_message = join!(.cisco_parts[4:], ": ")
+                }
+              }
+            }
+          }
+
+          # Set final fields for Victoria Logs
+          ._msg = .cisco_message ?? .raw_message
+          ._stream = "network.cisco." + replace(replace(.device_ip, ".", "_"), ":", "_")
+          .device_type = "cisco"
+          .device_hostname = .hostname ?? "unknown"
+          .log_source = "network"
+          .environment = "production"
+
+          # Determine device name from IP
+          if .device_ip == "192.168.120.1" {
+            .device_name = "cisco-switch-1"
+          } else if .device_ip == "192.168.120.5" {
+            .device_name = "cisco-wlc"
+          } else {
+            .device_name = "cisco-" + .device_ip
+          }
+
+          # Clean up intermediate fields
+          del(.message)
+          del(.parts)
+          del(.cisco_parts)
+          del(.remainder)
+          del(.priority_str)
+          del(.source_type)
+          del(.port)
+
+      # Parse UniFi messages
+      parse_unifi:
+        type: remap
+        inputs:
+          - unifi_syslog
+        source: |
+          # Convert bytes to string
+          .raw_message = to_string!(.message)
+
+          # Extract source device IP
+          .device_ip = .source_ip
+
+          # Check message format
+          if contains(.raw_message, "CEF:") {
+            # CEF format from UniFi Controller
+            .message_type = "cef"
+
+            # Parse CEF header
+            # Format: timestamp hostname CEF:Version|Vendor|Product|Version|EventID|Name|Severity|Extensions
+            .cef_parts = split(.raw_message, " CEF:", limit: 2)
+            if length(.cef_parts) >= 2 {
+              .header_parts = split(.cef_parts[0], " ")
+              if length(.header_parts) >= 4 {
+                .month = .header_parts[0]
+                .day = .header_parts[1]
+                .time = .header_parts[2]
+                .cef_hostname = .header_parts[3] ?? ""
+              }
+
+              # Parse CEF fields
+              .cef_data = "CEF:" + .cef_parts[1]
+              .cef_fields = split(.cef_data, "|")
+              if length(.cef_fields) >= 7 {
+                .vendor = .cef_fields[1] ?? ""
+                .product = .cef_fields[2] ?? ""
+                .version = .cef_fields[3] ?? ""
+                .event_id = .cef_fields[4] ?? ""
+                .event_name = .cef_fields[5] ?? ""
+                .cef_severity = .cef_fields[6] ?? ""
+
+                # Parse extensions if present
+                if length(.cef_fields) >= 8 {
+                  .extensions_str = .cef_fields[7] ?? ""
+                  # Extract msg field from extensions
+                  .msg_match = parse_regex(.extensions_str, r'msg=([^=]+(?:\s+[^=]+)*?)(?:\s+\w+=|$)') ?? {}
+                  .parsed_message = .msg_match."1" ?? .event_name
+                } else {
+                  .parsed_message = .event_name
+                }
+              }
+            }
+
+            ._msg = .parsed_message ?? .raw_message
+            .device_name = "unifi-controller"
+
+          } else if starts_with(.raw_message, "<") {
+            # Standard syslog format from UXG
+            .message_type = "syslog"
+
+            # Extract priority
+            .parts = split(.raw_message, ">", limit: 2)
+            if length(.parts) >= 2 {
+              .priority_str = replace(.parts[0], "<", "")
+              .priority = to_int(.priority_str) ?? 0
+              .facility = to_int(.priority / 8) ?? 0
+              .severity = mod(.priority, 8) ?? 0
+
+              # Parse the message
+              .msg_content = .parts[1]
+
+              # Check if it's a firewall log
+              if contains(.msg_content, "DESCR=") {
+                .message_type = "firewall"
+                ._msg = .msg_content
+                .device_name = "unifi-uxg-firewall"
+              } else {
+                # System log
+                ._msg = .msg_content
+                .device_name = "unifi-uxg-system"
+              }
+            }
+          } else {
+            # Unknown format
+            ._msg = .raw_message
+            .device_name = "unifi-unknown"
+          }
+
+          # Set final fields for Victoria Logs
+          ._stream = "network.unifi." + replace(replace(.device_ip, ".", "_"), ":", "_")
+          .device_type = "unifi"
+          .log_source = "network"
+          .environment = "production"
+
+          # Clean up intermediate fields
+          del(.message)
+          del(.parts)
+          del(.cef_parts)
+          del(.cef_fields)
+          del(.header_parts)
+          del(.extensions_str)
+          del(.msg_match)
+          del(.priority_str)
+          del(.source_type)
+          del(.port)
+          del(.cef_data)
+
+    # Sinks - Send to Victoria Logs
+    sinks:
+      victoria_logs:
+        type: http
+        inputs:
+          - parse_cisco
+          - parse_unifi
+        uri: "http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline"
+        method: post
+        compression: gzip
+        encoding:
+          codec: json
+          only_fields:
+            - _msg
+            - _stream
+            - device_type
+            - device_name
+            - device_ip
+            - device_hostname
+            - log_source
+            - environment
+            - facility
+            - severity
+            - sequence
+            - msg_id
+            - event_id
+            - event_name
+            - vendor
+            - product
+            - version
+            - message_type
+            - raw_message
+        batch:
+          max_bytes: 1048576
+          max_events: 1000
+          timeout_secs: 5
+        buffer:
+          type: memory
+          max_events: 10000
+        request:
+          headers:
+            Content-Type: "application/x-ndjson"
+        healthcheck:
+          enabled: true
+
+      # Debug output to console
+      debug_console:
+        type: console
+        inputs:
+          - parse_cisco
+          - parse_unifi
+        encoding:
+          codec: json
+          only_fields:
+            - _msg
+            - _stream
+            - device_type
+            - device_name
+            - device_ip
+            - message_type
+        target: stdout
