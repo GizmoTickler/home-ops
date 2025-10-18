@@ -98,6 +98,7 @@ data:
             ._msg = .raw_message
           }
           ._stream = "network.cisco." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
+          ._time = to_string(now())
           .device_type = "cisco"
           if exists(.hostname) {
             .device_hostname = .hostname
@@ -222,6 +223,7 @@ data:
 
           # Set final fields for Victoria Logs
           ._stream = "network.unifi." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
+          ._time = to_string(now())
           .device_type = "unifi"
           .log_source = "network"
           .environment = "production"
@@ -254,6 +256,7 @@ data:
           only_fields:
             - _msg
             - _stream
+            - _time
             - device_type
             - device_name
             - device_ip
@@ -295,6 +298,7 @@ data:
           only_fields:
             - _msg
             - _stream
+            - _time
             - device_type
             - device_name
             - device_ip
