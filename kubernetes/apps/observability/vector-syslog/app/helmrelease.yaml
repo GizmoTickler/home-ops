@@ -105,9 +105,13 @@ spec:
             - cisco_syslog_udp
             - cisco_syslog_tcp
           source: |
+            ._msg = .message
+            ._time = .timestamp
+            ._stream = "network.cisco"
             .device_type = "cisco"
             .log_source = "network"
             .environment = "production"
+            .source_ip = .host
 
         add_unifi_metadata:
           type: remap
@@ -115,9 +119,13 @@ spec:
             - unifi_syslog_udp
             - unifi_syslog_tcp
           source: |
+            ._msg = .message
+            ._time = .timestamp
+            ._stream = "network.unifi"
             .device_type = "unifi"
             .log_source = "network"
             .environment = "production"
+            .source_ip = .host
 
       # Sinks for output
       sinks:
