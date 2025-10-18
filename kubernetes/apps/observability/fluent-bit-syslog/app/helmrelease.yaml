@@ -60,45 +60,40 @@ spec:
 
       inputs: |-
         [INPUT]
-          name syslog
-          alias syslog-udp-raw
+          name udp
+          alias syslog-udp
           listen 0.0.0.0
           port 514
-          mode udp
-          tag network.syslog.raw
-          buffer_chunk_size 64k
-          buffer_max_size 256k
-          source_address_key source_host
-          raw_message_key message
-          parser syslog-rfc3164
+          tag network.syslog
+          format none
+          buffer_size 64k
 
         [INPUT]
-          name syslog
-          alias syslog-rfc5424-tcp
+          name tcp
+          alias syslog-tcp
           listen 0.0.0.0
           port 5140
-          mode tcp
-          tag network.syslog.rfc5424
-          buffer_chunk_size 64k
-          buffer_max_size 256k
-          source_address_key source_host
-          raw_message_key message
-          parser syslog-rfc5424
+          tag network.syslog.tcp
+          format none
+          buffer_size 64k
 
       filters: |-
+        [FILTER]
+          name parser
+          match network.*
+          key_name log
+          parser syslog-rfc3164
+          parser syslog-rfc5424
+          preserve_key on
+          reserve_data on
+
         [FILTER]
           name modify
           match network.*
           add log_source network_device
           add cluster home-ops
           add log_type syslog
-
-        [FILTER]
-          name nest
-          match network.*
-          operation lift
-          nested_under extradata
-          add_prefix sd_
+          rename log message
 
       customParsers: |-
         [PARSER]
