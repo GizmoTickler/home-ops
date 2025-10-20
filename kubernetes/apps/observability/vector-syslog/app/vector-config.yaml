@@ -291,30 +291,32 @@ data:
                 }
 
                 # Extract TCP flags
-                if contains(.msg_content, " SYN ") {
+                .msg_str = to_string!(.msg_content)
+                if contains(.msg_str, " SYN ") {
                   .tcp_flags = "SYN"
                 }
-                if contains(.msg_content, " ACK ") {
+                if contains(.msg_str, " ACK ") {
                   if exists(.tcp_flags) {
                     .tcp_flags = .tcp_flags + ",ACK"
                   } else {
                     .tcp_flags = "ACK"
                   }
                 }
-                if contains(.msg_content, " FIN ") {
+                if contains(.msg_str, " FIN ") {
                   if exists(.tcp_flags) {
                     .tcp_flags = .tcp_flags + ",FIN"
                   } else {
                     .tcp_flags = "FIN"
                   }
                 }
-                if contains(.msg_content, " RST ") {
+                if contains(.msg_str, " RST ") {
                   if exists(.tcp_flags) {
                     .tcp_flags = .tcp_flags + ",RST"
                   } else {
                     .tcp_flags = "RST"
                   }
                 }
+                del(.msg_str)
 
                 # Determine traffic direction
                 if exists(.src_ip) && exists(.dst_ip) {
