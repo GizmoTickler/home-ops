@@ -320,8 +320,10 @@ data:
 
                 # Determine traffic direction
                 if exists(.src_ip) && exists(.dst_ip) {
-                  if starts_with(.src_ip, "192.168.") || starts_with(.src_ip, "10.") || starts_with(.src_ip, "172.") {
-                    if starts_with(.dst_ip, "192.168.") || starts_with(.dst_ip, "10.") || starts_with(.dst_ip, "172.") {
+                  .src_ip_str = string!(.src_ip)
+                  .dst_ip_str = string!(.dst_ip)
+                  if starts_with(.src_ip_str, "192.168.") || starts_with(.src_ip_str, "10.") || starts_with(.src_ip_str, "172.") {
+                    if starts_with(.dst_ip_str, "192.168.") || starts_with(.dst_ip_str, "10.") || starts_with(.dst_ip_str, "172.") {
                       .traffic_direction = "internal"
                     } else {
                       .traffic_direction = "outbound"
@@ -329,6 +331,8 @@ data:
                   } else {
                     .traffic_direction = "inbound"
                   }
+                  del(.src_ip_str)
+                  del(.dst_ip_str)
                 }
 
                 # Clean up temporary match fields
