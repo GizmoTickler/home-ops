@@ -227,7 +227,7 @@ data:
                 if exists(.mac_match."1") {
                   .mac_address = .mac_match."1"
                   # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
-                  if length(.mac_address ?? "") >= 35 {
+                  if length(.mac_address) >= 35 {
                     .dst_mac = slice!(.mac_address, 0, 17)
                     .src_mac = slice!(.mac_address, 18, 35)
                   }
