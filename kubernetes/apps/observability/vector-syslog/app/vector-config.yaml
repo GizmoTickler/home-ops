@@ -214,18 +214,18 @@ data:
                 # Extract interfaces
                 .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
                 if exists(.in_match."1") {
-                  .in_interface = .in_match."1"
+                  .in_interface = string!(.in_match."1")
                 }
 
                 .out_match = parse_regex(.msg_content, r'OUT=([^\s]+)') ?? {}
                 if exists(.out_match."1") {
-                  .out_interface = .out_match."1"
+                  .out_interface = string!(.out_match."1")
                 }
 
                 # Extract MAC addresses
                 .mac_match = parse_regex(.msg_content, r'MAC=([^\s]+)') ?? {}
                 if exists(.mac_match."1") {
-                  .mac_address = .mac_match."1"
+                  .mac_address = string!(.mac_match."1")
                   # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
                   if length(.mac_address) >= 35 {
                     .dst_mac = slice!(.mac_address, 0, 17)
@@ -236,7 +236,7 @@ data:
                 # Extract IP addresses
                 .src_ip_match = parse_regex(.msg_content, r'SRC=([^\s]+)') ?? {}
                 if exists(.src_ip_match."1") {
-                  .src_ip = .src_ip_match."1"
+                  .src_ip = string!(.src_ip_match."1")
                   # Determine IP type
                   if contains(.src_ip, ":") {
                     .src_ip_type = "ipv6"
@@ -247,7 +247,7 @@ data:
 
                 .dst_ip_match = parse_regex(.msg_content, r'DST=([^\s]+)') ?? {}
                 if exists(.dst_ip_match."1") {
-                  .dst_ip = .dst_ip_match."1"
+                  .dst_ip = string!(.dst_ip_match."1")
                   # Determine IP type
                   if contains(.dst_ip, ":") {
                     .dst_ip_type = "ipv6"
@@ -270,7 +270,7 @@ data:
                 # Extract protocol
                 .proto_match = parse_regex(.msg_content, r'PROTO=([^\s]+)') ?? {}
                 if exists(.proto_match."1") {
-                  .protocol = .proto_match."1"
+                  .protocol = string!(.proto_match."1")
                 }
 
                 # Extract packet length
