@@ -209,6 +209,138 @@ data:
                 .message_type = "firewall"
                 ._msg = .msg_content
                 .device_name = "unifi-uxg-firewall"
+
+                # Extract network fields from firewall log
+                # Extract interfaces
+                .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
+                if exists(.in_match."1") {
+                  .in_interface = .in_match."1"
+                }
+
+                .out_match = parse_regex(.msg_content, r'OUT=([^\s]+)') ?? {}
+                if exists(.out_match."1") {
+                  .out_interface = .out_match."1"
+                }
+
+                # Extract MAC addresses
+                .mac_match = parse_regex(.msg_content, r'MAC=([^\s]+)') ?? {}
+                if exists(.mac_match."1") {
+                  .mac_address = .mac_match."1"
+                  # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
+                  if length(.mac_address) >= 35 {
+                    .dst_mac = slice!(.mac_address, 0, 17)
+                    .src_mac = slice!(.mac_address, 18, 35)
+                  }
+                }
+
+                # Extract IP addresses
+                .src_ip_match = parse_regex(.msg_content, r'SRC=([^\s]+)') ?? {}
+                if exists(.src_ip_match."1") {
+                  .src_ip = .src_ip_match."1"
+                  # Determine IP type
+                  if contains(.src_ip, ":") {
+                    .src_ip_type = "ipv6"
+                  } else {
+                    .src_ip_type = "ipv4"
+                  }
+                }
+
+                .dst_ip_match = parse_regex(.msg_content, r'DST=([^\s]+)') ?? {}
+                if exists(.dst_ip_match."1") {
+                  .dst_ip = .dst_ip_match."1"
+                  # Determine IP type
+                  if contains(.dst_ip, ":") {
+                    .dst_ip_type = "ipv6"
+                  } else {
+                    .dst_ip_type = "ipv4"
+                  }
+                }
+
+                # Extract ports
+                .src_port_match = parse_regex(.msg_content, r'SPT=(\d+)') ?? {}
+                if exists(.src_port_match."1") {
+                  .src_port = to_int!(.src_port_match."1")
+                }
+
+                .dst_port_match = parse_regex(.msg_content, r'DPT=(\d+)') ?? {}
+                if exists(.dst_port_match."1") {
+                  .dst_port = to_int!(.dst_port_match."1")
+                }
+
+                # Extract protocol
+                .proto_match = parse_regex(.msg_content, r'PROTO=([^\s]+)') ?? {}
+                if exists(.proto_match."1") {
+                  .protocol = .proto_match."1"
+                }
+
+                # Extract packet length
+                .len_match = parse_regex(.msg_content, r'LEN=(\d+)') ?? {}
+                if exists(.len_match."1") {
+                  .packet_length = to_int!(.len_match."1")
+                }
+
+                # Extract TTL/HOPLIMIT
+                .ttl_match = parse_regex(.msg_content, r'TTL=(\d+)') ?? {}
+                if exists(.ttl_match."1") {
+                  .ttl = to_int!(.ttl_match."1")
+                }
+
+                .hoplimit_match = parse_regex(.msg_content, r'HOPLIMIT=(\d+)') ?? {}
+                if exists(.hoplimit_match."1") {
+                  .hop_limit = to_int!(.hoplimit_match."1")
+                }
+
+                # Extract TCP flags
+                if contains(.msg_content, " SYN ") {
+                  .tcp_flags = "SYN"
+                }
+                if contains(.msg_content, " ACK ") {
+                  if exists(.tcp_flags) {
+                    .tcp_flags = .tcp_flags + ",ACK"
+                  } else {
+                    .tcp_flags = "ACK"
+                  }
+                }
+                if contains(.msg_content, " FIN ") {
+                  if exists(.tcp_flags) {
+                    .tcp_flags = .tcp_flags + ",FIN"
+                  } else {
+                    .tcp_flags = "FIN"
+                  }
+                }
+                if contains(.msg_content, " RST ") {
+                  if exists(.tcp_flags) {
+                    .tcp_flags = .tcp_flags + ",RST"
+                  } else {
+                    .tcp_flags = "RST"
+                  }
+                }
+
+                # Determine traffic direction
+                if exists(.src_ip) && exists(.dst_ip) {
+                  if starts_with(.src_ip, "192.168.") || starts_with(.src_ip, "10.") || starts_with(.src_ip, "172.") {
+                    if starts_with(.dst_ip, "192.168.") || starts_with(.dst_ip, "10.") || starts_with(.dst_ip, "172.") {
+                      .traffic_direction = "internal"
+                    } else {
+                      .traffic_direction = "outbound"
+                    }
+                  } else {
+                    .traffic_direction = "inbound"
+                  }
+                }
+
+                # Clean up temporary match fields
+                del(.in_match)
+                del(.out_match)
+                del(.mac_match)
+                del(.src_ip_match)
+                del(.dst_ip_match)
+                del(.src_port_match)
+                del(.dst_port_match)
+                del(.proto_match)
+                del(.len_match)
+                del(.ttl_match)
+                del(.hoplimit_match)
               } else {
                 # System log
                 ._msg = .msg_content
@@ -276,6 +408,24 @@ data:
             - version
             - message_type
             - raw_message
+            # Network fields
+            - src_ip
+            - dst_ip
+            - src_port
+            - dst_port
+            - protocol
+            - src_ip_type
+            - dst_ip_type
+            - traffic_direction
+            - mac_address
+            - src_mac
+            - dst_mac
+            - in_interface
+            - out_interface
+            - packet_length
+            - ttl
+            - hop_limit
+            - tcp_flags
         batch:
           max_bytes: 1048576
           max_events: 1000
@@ -305,4 +455,9 @@ data:
             - device_name
             - device_ip
             - message_type
+            - src_ip
+            - dst_ip
+            - src_port
+            - dst_port
+            - protocol
         target: stdout
