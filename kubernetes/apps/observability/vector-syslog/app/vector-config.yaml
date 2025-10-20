@@ -211,95 +211,189 @@ data:
                 .device_name = "unifi-uxg-firewall"
 
                 # Extract network fields from firewall log
-                # Debug: Mark that we're in the extraction block
-                .extraction_attempted = true
-
-                # Extract interfaces
-                # Test if msg_content contains IN=
+                # Extract interfaces using proper VRL syntax
                 .msg_str = string!(.msg_content)
+
+                # Extract IN interface
                 if contains(.msg_str, "IN=") {
-                  .found_in = true
-                  .in_match = parse_regex(.msg_str, r'IN=(\S+)') ?? {}
-                  if exists(.in_match."1") {
-                    .in_interface = string!(.in_match."1")
-                  } else {
-                    .in_interface = "regex_failed"
+                  .in_parts = split(.msg_str, "IN=")
+                  if length(.in_parts) >= 2 {
+                    .after_in = .in_parts[1]
+                    .in_value_parts = split(.after_in, " ")
+                    if length(.in_value_parts) >= 1 {
+                      .in_interface = .in_value_parts[0]
+                    }
                   }
-                } else {
-                  .in_interface = "no_IN_found"
+                  del(.in_parts)
+                  del(.after_in)
+                  del(.in_value_parts)
                 }
 
-                .out_match = parse_regex(.msg_content, r'OUT=([^\s]+)') ?? {}
-                if exists(.out_match."1") {
-                  .out_interface = string!(.out_match."1")
+                # Extract OUT interface
+                if contains(.msg_str, "OUT=") {
+                  .out_parts = split(.msg_str, "OUT=")
+                  if length(.out_parts) >= 2 {
+                    .after_out = .out_parts[1]
+                    .out_value_parts = split(.after_out, " ")
+                    if length(.out_value_parts) >= 1 {
+                      .out_interface = .out_value_parts[0]
+                    }
+                  }
+                  del(.out_parts)
+                  del(.after_out)
+                  del(.out_value_parts)
                 }
 
                 # Extract MAC addresses
-                .mac_match = parse_regex(.msg_content, r'MAC=([^\s]+)') ?? {}
-                if exists(.mac_match."1") {
-                  .mac_address = string!(.mac_match."1")
-                  # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
-                  if length(.mac_address) >= 35 {
-                    .dst_mac = slice!(.mac_address, 0, 17)
-                    .src_mac = slice!(.mac_address, 18, 35)
+                if contains(.msg_str, "MAC=") {
+                  .mac_parts = split(.msg_str, "MAC=")
+                  if length(.mac_parts) >= 2 {
+                    .after_mac = .mac_parts[1]
+                    .mac_value_parts = split(.after_mac, " ")
+                    if length(.mac_value_parts) >= 1 {
+                      .mac_address = .mac_value_parts[0]
+                      # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
+                      if length(.mac_address) >= 35 {
+                        .dst_mac = slice!(.mac_address, 0, 17)
+                        .src_mac = slice!(.mac_address, 18, 35)
+                      }
+                    }
                   }
+                  del(.mac_parts)
+                  del(.after_mac)
+                  del(.mac_value_parts)
                 }
 
-                # Extract IP addresses
-                .src_ip_match = parse_regex(.msg_content, r'SRC=([^\s]+)') ?? {}
-                if exists(.src_ip_match."1") {
-                  .src_ip = string!(.src_ip_match."1")
-                  # Determine IP type
-                  if contains(.src_ip, ":") {
-                    .src_ip_type = "ipv6"
-                  } else {
-                    .src_ip_type = "ipv4"
+                # Extract source IP
+                if contains(.msg_str, "SRC=") {
+                  .src_parts = split(.msg_str, "SRC=")
+                  if length(.src_parts) >= 2 {
+                    .after_src = .src_parts[1]
+                    .src_value_parts = split(.after_src, " ")
+                    if length(.src_value_parts) >= 1 {
+                      .src_ip = .src_value_parts[0]
+                      # Determine IP type
+                      if contains(.src_ip, ":") {
+                        .src_ip_type = "ipv6"
+                      } else {
+                        .src_ip_type = "ipv4"
+                      }
+                    }
                   }
+                  del(.src_parts)
+                  del(.after_src)
+                  del(.src_value_parts)
                 }
 
-                .dst_ip_match = parse_regex(.msg_content, r'DST=([^\s]+)') ?? {}
-                if exists(.dst_ip_match."1") {
-                  .dst_ip = string!(.dst_ip_match."1")
-                  # Determine IP type
-                  if contains(.dst_ip, ":") {
-                    .dst_ip_type = "ipv6"
-                  } else {
-                    .dst_ip_type = "ipv4"
+                # Extract destination IP
+                if contains(.msg_str, "DST=") {
+                  .dst_parts = split(.msg_str, "DST=")
+                  if length(.dst_parts) >= 2 {
+                    .after_dst = .dst_parts[1]
+                    .dst_value_parts = split(.after_dst, " ")
+                    if length(.dst_value_parts) >= 1 {
+                      .dst_ip = .dst_value_parts[0]
+                      # Determine IP type
+                      if contains(.dst_ip, ":") {
+                        .dst_ip_type = "ipv6"
+                      } else {
+                        .dst_ip_type = "ipv4"
+                      }
+                    }
                   }
+                  del(.dst_parts)
+                  del(.after_dst)
+                  del(.dst_value_parts)
                 }
 
-                # Extract ports
-                .src_port_match = parse_regex(.msg_content, r'SPT=(\d+)') ?? {}
-                if exists(.src_port_match."1") {
-                  .src_port = to_int!(.src_port_match."1")
+                # Extract source port
+                if contains(.msg_str, "SPT=") {
+                  .spt_parts = split(.msg_str, "SPT=")
+                  if length(.spt_parts) >= 2 {
+                    .after_spt = .spt_parts[1]
+                    .spt_value_parts = split(.after_spt, " ")
+                    if length(.spt_value_parts) >= 1 {
+                      .src_port = to_int!(.spt_value_parts[0])
+                    }
+                  }
+                  del(.spt_parts)
+                  del(.after_spt)
+                  del(.spt_value_parts)
                 }
 
-                .dst_port_match = parse_regex(.msg_content, r'DPT=(\d+)') ?? {}
-                if exists(.dst_port_match."1") {
-                  .dst_port = to_int!(.dst_port_match."1")
+                # Extract destination port
+                if contains(.msg_str, "DPT=") {
+                  .dpt_parts = split(.msg_str, "DPT=")
+                  if length(.dpt_parts) >= 2 {
+                    .after_dpt = .dpt_parts[1]
+                    .dpt_value_parts = split(.after_dpt, " ")
+                    if length(.dpt_value_parts) >= 1 {
+                      .dst_port = to_int!(.dpt_value_parts[0])
+                    }
+                  }
+                  del(.dpt_parts)
+                  del(.after_dpt)
+                  del(.dpt_value_parts)
                 }
 
                 # Extract protocol
-                .proto_match = parse_regex(.msg_content, r'PROTO=([^\s]+)') ?? {}
-                if exists(.proto_match."1") {
-                  .protocol = string!(.proto_match."1")
+                if contains(.msg_str, "PROTO=") {
+                  .proto_parts = split(.msg_str, "PROTO=")
+                  if length(.proto_parts) >= 2 {
+                    .after_proto = .proto_parts[1]
+                    .proto_value_parts = split(.after_proto, " ")
+                    if length(.proto_value_parts) >= 1 {
+                      .protocol = .proto_value_parts[0]
+                    }
+                  }
+                  del(.proto_parts)
+                  del(.after_proto)
+                  del(.proto_value_parts)
                 }
 
                 # Extract packet length
-                .len_match = parse_regex(.msg_content, r'LEN=(\d+)') ?? {}
-                if exists(.len_match."1") {
-                  .packet_length = to_int!(.len_match."1")
+                if contains(.msg_str, "LEN=") {
+                  .len_parts = split(.msg_str, "LEN=")
+                  if length(.len_parts) >= 2 {
+                    .after_len = .len_parts[1]
+                    .len_value_parts = split(.after_len, " ")
+                    if length(.len_value_parts) >= 1 {
+                      .packet_length = to_int!(.len_value_parts[0])
+                    }
+                  }
+                  del(.len_parts)
+                  del(.after_len)
+                  del(.len_value_parts)
                 }
 
-                # Extract TTL/HOPLIMIT
-                .ttl_match = parse_regex(.msg_content, r'TTL=(\d+)') ?? {}
-                if exists(.ttl_match."1") {
-                  .ttl = to_int!(.ttl_match."1")
+                # Extract TTL
+                if contains(.msg_str, "TTL=") {
+                  .ttl_parts = split(.msg_str, "TTL=")
+                  if length(.ttl_parts) >= 2 {
+                    .after_ttl = .ttl_parts[1]
+                    .ttl_value_parts = split(.after_ttl, " ")
+                    if length(.ttl_value_parts) >= 1 {
+                      .ttl = to_int!(.ttl_value_parts[0])
+                    }
+                  }
+                  del(.ttl_parts)
+                  del(.after_ttl)
+                  del(.ttl_value_parts)
                 }
 
-                .hoplimit_match = parse_regex(.msg_content, r'HOPLIMIT=(\d+)') ?? {}
-                if exists(.hoplimit_match."1") {
-                  .hop_limit = to_int!(.hoplimit_match."1")
+                # Extract HOPLIMIT (for IPv6)
+                if contains(.msg_str, "HOPLIMIT=") {
+                  .hop_parts = split(.msg_str, "HOPLIMIT=")
+                  if length(.hop_parts) >= 2 {
+                    .after_hop = .hop_parts[1]
+                    .hop_value_parts = split(.after_hop, " ")
+                    if length(.hop_value_parts) >= 1 {
+                      .hop_limit = to_int!(.hop_value_parts[0])
+                    }
+                  }
+                  del(.hop_parts)
+                  del(.after_hop)
+                  del(.hop_value_parts)
                 }
 
                 # Extract TCP flags
@@ -373,19 +467,6 @@ data:
                   del(.src_is_private)
                   del(.dst_is_private)
                 }
-
-                # Clean up temporary match fields
-                del(.in_match)
-                del(.out_match)
-                del(.mac_match)
-                del(.src_ip_match)
-                del(.dst_ip_match)
-                del(.src_port_match)
-                del(.dst_port_match)
-                del(.proto_match)
-                del(.len_match)
-                del(.ttl_match)
-                del(.hoplimit_match)
               } else {
                 # System log
                 ._msg = .msg_content
