@@ -215,9 +215,17 @@ data:
                 .extraction_attempted = true
 
                 # Extract interfaces
-                .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
-                if exists(.in_match."1") {
-                  .in_interface = string!(.in_match."1")
+                # Test if msg_content contains IN=
+                if contains(string!(.msg_content), "IN=") {
+                  .found_in = true
+                  .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
+                  if exists(.in_match."1") {
+                    .in_interface = string!(.in_match."1")
+                  } else {
+                    .in_interface = "regex_failed"
+                  }
+                } else {
+                  .in_interface = "no_IN_found"
                 }
 
                 .out_match = parse_regex(.msg_content, r'OUT=([^\s]+)') ?? {}
