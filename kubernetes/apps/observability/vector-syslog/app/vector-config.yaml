@@ -297,21 +297,21 @@ data:
                 }
                 if contains(.msg_str, " ACK ") {
                   if exists(.tcp_flags) {
-                    .tcp_flags = .tcp_flags + ",ACK"
+                    .tcp_flags = string!(.tcp_flags) + ",ACK"
                   } else {
                     .tcp_flags = "ACK"
                   }
                 }
                 if contains(.msg_str, " FIN ") {
                   if exists(.tcp_flags) {
-                    .tcp_flags = .tcp_flags + ",FIN"
+                    .tcp_flags = string!(.tcp_flags) + ",FIN"
                   } else {
                     .tcp_flags = "FIN"
                   }
                 }
                 if contains(.msg_str, " RST ") {
                   if exists(.tcp_flags) {
-                    .tcp_flags = .tcp_flags + ",RST"
+                    .tcp_flags = string!(.tcp_flags) + ",RST"
                   } else {
                     .tcp_flags = "RST"
                   }
