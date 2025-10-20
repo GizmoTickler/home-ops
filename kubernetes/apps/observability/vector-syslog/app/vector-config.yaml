@@ -216,9 +216,10 @@ data:
 
                 # Extract interfaces
                 # Test if msg_content contains IN=
-                if contains(string!(.msg_content), "IN=") {
+                .msg_str = string!(.msg_content)
+                if contains(.msg_str, "IN=") {
                   .found_in = true
-                  .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
+                  .in_match = parse_regex(.msg_str, r'IN=(\S+)') ?? {}
                   if exists(.in_match."1") {
                     .in_interface = string!(.in_match."1")
                   } else {
