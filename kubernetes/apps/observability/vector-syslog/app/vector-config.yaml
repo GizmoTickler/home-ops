@@ -318,12 +318,37 @@ data:
                 }
                 del(.msg_str)
 
-                # Determine traffic direction
+                # Determine traffic direction based on RFC1918 private IP ranges
                 if exists(.src_ip) && exists(.dst_ip) {
                   .src_ip_str = string!(.src_ip)
                   .dst_ip_str = string!(.dst_ip)
-                  if starts_with(.src_ip_str, "192.168.") || starts_with(.src_ip_str, "10.") || starts_with(.src_ip_str, "172.") {
-                    if starts_with(.dst_ip_str, "192.168.") || starts_with(.dst_ip_str, "10.") || starts_with(.dst_ip_str, "172.") {
+
+                  # Check if source IP is private (RFC1918)
+                  .src_is_private = starts_with(.src_ip_str, "192.168.") || starts_with(.src_ip_str, "10.") ||
+                                   (starts_with(.src_ip_str, "172.") &&
+                                    (starts_with(.src_ip_str, "172.16.") || starts_with(.src_ip_str, "172.17.") ||
+                                     starts_with(.src_ip_str, "172.18.") || starts_with(.src_ip_str, "172.19.") ||
+                                     starts_with(.src_ip_str, "172.20.") || starts_with(.src_ip_str, "172.21.") ||
+                                     starts_with(.src_ip_str, "172.22.") || starts_with(.src_ip_str, "172.23.") ||
+                                     starts_with(.src_ip_str, "172.24.") || starts_with(.src_ip_str, "172.25.") ||
+                                     starts_with(.src_ip_str, "172.26.") || starts_with(.src_ip_str, "172.27.") ||
+                                     starts_with(.src_ip_str, "172.28.") || starts_with(.src_ip_str, "172.29.") ||
+                                     starts_with(.src_ip_str, "172.30.") || starts_with(.src_ip_str, "172.31.")))
+
+                  # Check if destination IP is private (RFC1918)
+                  .dst_is_private = starts_with(.dst_ip_str, "192.168.") || starts_with(.dst_ip_str, "10.") ||
+                                   (starts_with(.dst_ip_str, "172.") &&
+                                    (starts_with(.dst_ip_str, "172.16.") || starts_with(.dst_ip_str, "172.17.") ||
+                                     starts_with(.dst_ip_str, "172.18.") || starts_with(.dst_ip_str, "172.19.") ||
+                                     starts_with(.dst_ip_str, "172.20.") || starts_with(.dst_ip_str, "172.21.") ||
+                                     starts_with(.dst_ip_str, "172.22.") || starts_with(.dst_ip_str, "172.23.") ||
+                                     starts_with(.dst_ip_str, "172.24.") || starts_with(.dst_ip_str, "172.25.") ||
+                                     starts_with(.dst_ip_str, "172.26.") || starts_with(.dst_ip_str, "172.27.") ||
+                                     starts_with(.dst_ip_str, "172.28.") || starts_with(.dst_ip_str, "172.29.") ||
+                                     starts_with(.dst_ip_str, "172.30.") || starts_with(.dst_ip_str, "172.31.")))
+
+                  if .src_is_private {
+                    if .dst_is_private {
                       .traffic_direction = "internal"
                     } else {
                       .traffic_direction = "outbound"
@@ -333,6 +358,8 @@ data:
                   }
                   del(.src_ip_str)
                   del(.dst_ip_str)
+                  del(.src_is_private)
+                  del(.dst_is_private)
                 }
 
                 # Clean up temporary match fields
