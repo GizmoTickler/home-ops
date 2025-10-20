@@ -211,6 +211,9 @@ data:
                 .device_name = "unifi-uxg-firewall"
 
                 # Extract network fields from firewall log
+                # Debug: Mark that we're in the extraction block
+                .extraction_attempted = true
+
                 # Extract interfaces
                 .in_match = parse_regex(.msg_content, r'IN=([^\s]+)') ?? {}
                 if exists(.in_match."1") {
