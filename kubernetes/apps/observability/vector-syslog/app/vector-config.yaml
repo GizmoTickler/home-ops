@@ -219,7 +219,7 @@ data:
                   .in_parts = split(.msg_str, "IN=")
                   if length(.in_parts) >= 2 {
                     .after_in = .in_parts[1]
-                    .in_value_parts = split(.after_in, " ")
+                    .in_value_parts = split!(.after_in, " ")
                     if length(.in_value_parts) >= 1 {
                       .in_interface = .in_value_parts[0]
                     }
@@ -234,7 +234,7 @@ data:
                   .out_parts = split(.msg_str, "OUT=")
                   if length(.out_parts) >= 2 {
                     .after_out = .out_parts[1]
-                    .out_value_parts = split(.after_out, " ")
+                    .out_value_parts = split!(.after_out, " ")
                     if length(.out_value_parts) >= 1 {
                       .out_interface = .out_value_parts[0]
                     }
@@ -249,7 +249,7 @@ data:
                   .mac_parts = split(.msg_str, "MAC=")
                   if length(.mac_parts) >= 2 {
                     .after_mac = .mac_parts[1]
-                    .mac_value_parts = split(.after_mac, " ")
+                    .mac_value_parts = split!(.after_mac, " ")
                     if length(.mac_value_parts) >= 1 {
                       .mac_address = .mac_value_parts[0]
                       # Split MAC into src and dst (first 17 chars is dst, next 17 is src)
@@ -269,7 +269,7 @@ data:
                   .src_parts = split(.msg_str, "SRC=")
                   if length(.src_parts) >= 2 {
                     .after_src = .src_parts[1]
-                    .src_value_parts = split(.after_src, " ")
+                    .src_value_parts = split!(.after_src, " ")
                     if length(.src_value_parts) >= 1 {
                       .src_ip = .src_value_parts[0]
                       # Determine IP type
@@ -290,7 +290,7 @@ data:
                   .dst_parts = split(.msg_str, "DST=")
                   if length(.dst_parts) >= 2 {
                     .after_dst = .dst_parts[1]
-                    .dst_value_parts = split(.after_dst, " ")
+                    .dst_value_parts = split!(.after_dst, " ")
                     if length(.dst_value_parts) >= 1 {
                       .dst_ip = .dst_value_parts[0]
                       # Determine IP type
@@ -311,7 +311,7 @@ data:
                   .spt_parts = split(.msg_str, "SPT=")
                   if length(.spt_parts) >= 2 {
                     .after_spt = .spt_parts[1]
-                    .spt_value_parts = split(.after_spt, " ")
+                    .spt_value_parts = split!(.after_spt, " ")
                     if length(.spt_value_parts) >= 1 {
                       .src_port = to_int!(.spt_value_parts[0])
                     }
@@ -326,7 +326,7 @@ data:
                   .dpt_parts = split(.msg_str, "DPT=")
                   if length(.dpt_parts) >= 2 {
                     .after_dpt = .dpt_parts[1]
-                    .dpt_value_parts = split(.after_dpt, " ")
+                    .dpt_value_parts = split!(.after_dpt, " ")
                     if length(.dpt_value_parts) >= 1 {
                       .dst_port = to_int!(.dpt_value_parts[0])
                     }
@@ -341,7 +341,7 @@ data:
                   .proto_parts = split(.msg_str, "PROTO=")
                   if length(.proto_parts) >= 2 {
                     .after_proto = .proto_parts[1]
-                    .proto_value_parts = split(.after_proto, " ")
+                    .proto_value_parts = split!(.after_proto, " ")
                     if length(.proto_value_parts) >= 1 {
                       .protocol = .proto_value_parts[0]
                     }
@@ -356,7 +356,7 @@ data:
                   .len_parts = split(.msg_str, "LEN=")
                   if length(.len_parts) >= 2 {
                     .after_len = .len_parts[1]
-                    .len_value_parts = split(.after_len, " ")
+                    .len_value_parts = split!(.after_len, " ")
                     if length(.len_value_parts) >= 1 {
                       .packet_length = to_int!(.len_value_parts[0])
                     }
@@ -371,7 +371,7 @@ data:
                   .ttl_parts = split(.msg_str, "TTL=")
                   if length(.ttl_parts) >= 2 {
                     .after_ttl = .ttl_parts[1]
-                    .ttl_value_parts = split(.after_ttl, " ")
+                    .ttl_value_parts = split!(.after_ttl, " ")
                     if length(.ttl_value_parts) >= 1 {
                       .ttl = to_int!(.ttl_value_parts[0])
                     }
@@ -386,7 +386,7 @@ data:
                   .hop_parts = split(.msg_str, "HOPLIMIT=")
                   if length(.hop_parts) >= 2 {
                     .after_hop = .hop_parts[1]
-                    .hop_value_parts = split(.after_hop, " ")
+                    .hop_value_parts = split!(.after_hop, " ")
                     if length(.hop_value_parts) >= 1 {
                       .hop_limit = to_int!(.hop_value_parts[0])
                     }
