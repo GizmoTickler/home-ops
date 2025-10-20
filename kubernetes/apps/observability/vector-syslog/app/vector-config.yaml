@@ -480,17 +480,4 @@ data:
           - parse_unifi
         encoding:
           codec: json
-          only_fields:
-            - _msg
-            - _stream
-            - _time
-            - device_type
-            - device_name
-            - device_ip
-            - message_type
-            - src_ip
-            - dst_ip
-            - src_port
-            - dst_port
-            - protocol
         target: stdout
