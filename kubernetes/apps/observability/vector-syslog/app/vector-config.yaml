@@ -273,7 +273,7 @@ data:
                     if length(.src_value_parts) >= 1 {
                       .src_ip = .src_value_parts[0]
                       # Determine IP type
-                      if contains(.src_ip, ":") {
+                      if contains(string!(.src_ip), ":") {
                         .src_ip_type = "ipv6"
                       } else {
                         .src_ip_type = "ipv4"
@@ -294,7 +294,7 @@ data:
                     if length(.dst_value_parts) >= 1 {
                       .dst_ip = .dst_value_parts[0]
                       # Determine IP type
-                      if contains(.dst_ip, ":") {
+                      if contains(string!(.dst_ip), ":") {
                         .dst_ip_type = "ipv6"
                       } else {
                         .dst_ip_type = "ipv4"
