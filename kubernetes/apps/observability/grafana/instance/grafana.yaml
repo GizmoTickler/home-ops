@@ -83,6 +83,8 @@ spec:
                     secretKeyRef:
                       name: grafana-admin-password-secret
                       key: GF_SECURITY_ADMIN_PASSWORD
+                - name: GF_INSTALL_PLUGINS
+                  value: "https://github.com/VictoriaMetrics/victorialogs-datasource/releases/download/v0.21.1/victorialogs-datasource-v0.21.1.zip;victorialogs-datasource"
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
