@@ -19,19 +19,3 @@ spec:
     remediation:
       retries: 3
       strategy: rollback
-  values:
-    # Disable everything except CRDs
-    crds:
-      enabled: true
-    prometheus:
-      enabled: false
-    alertmanager:
-      enabled: false
-    grafana:
-      enabled: false
-    kubeStateMetrics:
-      enabled: false
-    nodeExporter:
-      enabled: false
-    prometheusOperator:
-      enabled: false
