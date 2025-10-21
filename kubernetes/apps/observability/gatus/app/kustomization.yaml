@@ -7,4 +7,3 @@ resources:
   - ./ocirepository.yaml
   - ./vmrule.yaml
   - ./configmap.yaml
-  - ./grafanadashboard.yaml
