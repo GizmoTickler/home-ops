@@ -7,4 +7,4 @@ resources:
   - ./helmrelease.yaml
   - ./ocirepository.yaml
   - ./mutatingadmissionpolicy.yaml
-  - ./vmrule.yaml
+  # - ./vmrule.yaml  # Temporarily disabled until VictoriaMetrics CRDs are installed

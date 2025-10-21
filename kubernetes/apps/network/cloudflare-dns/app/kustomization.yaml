@@ -7,4 +7,4 @@ resources:
   - ./externalsecret.yaml
   - ./grafanadashboard.yaml
   - ./helmrelease.yaml
-  - ./vmrule.yaml
+  # - ./vmrule.yaml  # Temporarily disabled until VictoriaMetrics CRDs are installed
