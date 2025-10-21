@@ -7,3 +7,4 @@ resources:
   - ./helmrelease.yaml
   - ./vector-config.yaml
   - ./grafanadashboard.yaml
+  - ./vmservicescrape.yaml
