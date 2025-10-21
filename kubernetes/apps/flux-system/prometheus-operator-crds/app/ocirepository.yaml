@@ -1,0 +1,11 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/source.toolkit.fluxcd.io/ocirepository_v1beta2.json
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: prometheus-operator-crds
+spec:
+  interval: 12h
+  url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+  ref:
+    semver: ">=78.0.0"
