@@ -18,7 +18,7 @@ spec:
       "uid": "network-device-logs",
       "timezone": "browser",
       "schemaVersion": 38,
-      "version": 4,
+      "version": 5,
       "refresh": "30s",
       "time": {
         "from": "now-1h",
@@ -31,9 +31,9 @@ spec:
           "gridPos": {"h": 24, "w": 24, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "log_source:network_device | limit 500",
+              "expr": "log_source:network | limit 1000",
               "refId": "A",
-              "queryType": "instant",
+              "queryType": "range",
               "editorMode": "code",
               "datasource": {
                 "type": "victoriametrics-logs-datasource",
