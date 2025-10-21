@@ -49,10 +49,6 @@ spec:
           port: 5514
           protocol: UDP
           targetPort: 5514
-        - name: prom-exporter
-          port: 9090
-          protocol: TCP
-          targetPort: 9090
 
     # Pod annotations
     podAnnotations:
