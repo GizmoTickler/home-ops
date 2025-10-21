@@ -18,41 +18,20 @@ spec:
       "uid": "network-device-logs",
       "timezone": "browser",
       "schemaVersion": 38,
-      "version": 2,
+      "version": 3,
       "refresh": "30s",
       "time": {
         "from": "now-1h",
         "to": "now"
       },
-      "templating": {
-        "list": [
-          {
-            "name": "device",
-            "type": "query",
-            "label": "Device",
-            "query": {
-              "query": "stats count() by source_host where log_source:\"network_device\"",
-              "refId": "LokiVariableQueryEditor-VariableQuery"
-            },
-            "datasource": {
-              "type": "victoriametrics-logs-datasource",
-              "uid": "${DS_LOKI}"
-            },
-            "refresh": 1,
-            "multi": true,
-            "includeAll": true,
-            "allValue": ".*"
-          }
-        ]
-      },
       "panels": [
         {
           "title": "Network Device Logs Stream",
           "type": "logs",
-          "gridPos": {"h": 12, "w": 24, "x": 0, "y": 0},
+          "gridPos": {"h": 24, "w": 24, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "log_source:\"network_device\"",
+              "expr": "log_source:network_device",
               "refId": "A",
               "datasource": {
                 "type": "victoriametrics-logs-datasource",
@@ -69,164 +48,6 @@ spec:
             "enableLogDetails": true,
             "sortOrder": "Descending",
             "dedupStrategy": "none"
-          }
-        },
-        {
-          "title": "Log Volume Over Time",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-          "targets": [
-            {
-              "expr": "sum(count_over_time(log_source:\"network_device\" | __range_step__))",
-              "refId": "A",
-              "datasource": {
-                "type": "victoriametrics-logs-datasource",
-                "uid": "${DS_LOKI}"
-              },
-              "legendFormat": "Total Logs"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "smooth",
-                "fillOpacity": 20
-              }
-            }
-          }
-        },
-        {
-          "title": "Logs by Device",
-          "type": "timeseries",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
-          "targets": [
-            {
-              "expr": "sum by (source_host) (count_over_time(log_source:\"network_device\" | __range_step__))",
-              "refId": "A",
-              "datasource": {
-                "type": "victoriametrics-logs-datasource",
-                "uid": "${DS_LOKI}"
-              },
-              "legendFormat": "{{source_host}}"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "smooth",
-                "fillOpacity": 10,
-                "stacking": {
-                  "mode": "normal"
-                }
-              }
-            }
-          }
-        },
-        {
-          "title": "Top Devices by Log Count",
-          "type": "bargauge",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
-          "targets": [
-            {
-              "expr": "topk(10, sum by (source_host) (count_over_time(log_source:\"network_device\" [1h])))",
-              "refId": "A",
-              "datasource": {
-                "type": "victoriametrics-logs-datasource",
-                "uid": "${DS_LOKI}"
-              },
-              "legendFormat": "{{source_host}}"
-            }
-          ],
-          "options": {
-            "orientation": "horizontal",
-            "displayMode": "gradient",
-            "showUnfilled": true
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short"
-            }
-          }
-        },
-        {
-          "title": "Logs by Priority/Severity",
-          "type": "piechart",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
-          "targets": [
-            {
-              "expr": "sum by (pri) (count_over_time(log_source:\"network_device\" [1h]))",
-              "refId": "A",
-              "datasource": {
-                "type": "victoriametrics-logs-datasource",
-                "uid": "${DS_LOKI}"
-              },
-              "legendFormat": "Priority {{pri}}"
-            }
-          ],
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "right",
-              "values": ["value", "percent"]
-            },
-            "pieType": "pie",
-            "tooltip": {
-              "mode": "single"
-            }
-          }
-        },
-        {
-          "title": "Logs by Process/Service",
-          "type": "table",
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
-          "targets": [
-            {
-              "expr": "sum by (ident, source_host) (count_over_time(log_source:\"network_device\" [1h]))",
-              "refId": "A",
-              "datasource": {
-                "type": "victoriametrics-logs-datasource",
-                "uid": "${DS_LOKI}"
-              },
-              "format": "table"
-            }
-          ],
-          "transformations": [
-            {
-              "id": "organize",
-              "options": {
-                "excludeByName": {
-                  "Time": true
-                },
-                "indexByName": {},
-                "renameByName": {
-                  "ident": "Process/Service",
-                  "source_host": "Device",
-                  "Value": "Log Count"
-                }
-              }
-            },
-            {
-              "id": "sortBy",
-              "options": {
-                "fields": {},
-                "sort": [
-                  {
-                    "field": "Log Count",
-                    "desc": true
-                  }
-                ]
-              }
-            }
-          ],
-          "options": {
-            "showHeader": true,
-            "footer": {
-              "show": false
-            }
           }
         }
       ],
