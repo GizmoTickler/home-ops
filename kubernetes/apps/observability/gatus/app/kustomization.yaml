@@ -5,5 +5,5 @@ kind: Kustomization
 resources:
   - ./helmrelease.yaml
   - ./ocirepository.yaml
-  - ./vmrule.yaml
+  # - ./vmrule.yaml  # Temporarily disabled until VictoriaMetrics CRDs are installed
   - ./configmap.yaml
