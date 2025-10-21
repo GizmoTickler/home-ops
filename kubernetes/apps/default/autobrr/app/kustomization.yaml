@@ -6,7 +6,7 @@ resources:
   - ./ocirepository.yaml
   - ./externalsecret.yaml
   - ./helmrelease.yaml
-  - ./vmrule.yaml
+  # - ./vmrule.yaml  # Temporarily disabled until VictoriaMetrics CRDs are installed
 configMapGenerator:
   - name: autobrr-loki-rules
     files:
