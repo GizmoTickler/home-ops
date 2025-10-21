@@ -9,6 +9,7 @@ components:
 
 resources:
   - ./namespace.yaml
+  - ./prometheus-operator-crds/ks.yaml
   - ./blackbox-exporter/ks.yaml
   - ./gatus/ks.yaml
   - ./grafana/ks.yaml

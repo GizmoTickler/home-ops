@@ -8,4 +8,4 @@ spec:
   interval: 12h
   url: oci://ghcr.io/prometheus-community/charts/prometheus-operator-crds
   ref:
-    semver: ">=24.0.0"
+    tag: 24.0.1
