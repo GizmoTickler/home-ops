@@ -12,4 +12,3 @@ resources:
   - ./namespace.yaml
   - ./flux-instance/ks.yaml
   - ./flux-operator/ks.yaml
-  - ./prometheus-operator-crds/ks.yaml
