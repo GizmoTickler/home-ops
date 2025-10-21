@@ -6,4 +6,3 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease.yaml
   - ./networking.yaml
-  - ./vmservicescrape.yaml

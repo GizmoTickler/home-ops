@@ -28,8 +28,8 @@ spec:
         - name: VM_VMALERTMANAGER_CONFIGRELOADERCPU
           value: "0"
       operator:
-        # CRITICAL: Disable Prometheus CRD conversion for clean architecture
-        disable_prometheus_converter: true
+        # Enable Prometheus CRD conversion for compatibility with ServiceMonitor/PrometheusRule
+        disable_prometheus_converter: false
         # Use custom config reloader for predictable sync times
         useCustomConfigReloader: true
       serviceMonitor:
