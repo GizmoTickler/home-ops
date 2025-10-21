@@ -39,10 +39,10 @@ releases:
     chart: oci://ghcr.io/home-operations/charts-mirror/keda
     version: 2.18.0
 
-  - name: kube-prometheus-stack
+  - name: prometheus-operator-crds
     namespace: observability
-    chart: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
-    version: 78.3.2
+    chart: oci://ghcr.io/prometheus-community/charts/prometheus-operator-crds
+    version: 24.0.1
 
   - name: victoria-metrics-k8s-stack
     namespace: observability
