@@ -53,6 +53,6 @@ spec:
     service:
       enabled: true
     serviceMonitor:
-      enabled: true
+      enabled: false
     leaderElection:
       enabled: true

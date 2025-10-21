@@ -14,7 +14,7 @@ resources:
   - ./grafana/ks.yaml
   - ./keda/ks.yaml
   - ./kromgo/ks.yaml
-  - ./kube-prometheus-stack/ks.yaml
+  - ./victoria-metrics/ks.yaml
   - ./vector-syslog/ks.yaml
   - ./victoria-logs/ks.yaml
   - ./silence-operator/ks.yaml

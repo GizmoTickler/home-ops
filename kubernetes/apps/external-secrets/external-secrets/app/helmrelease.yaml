@@ -12,7 +12,7 @@ spec:
   values:
     leaderElect: true
     serviceMonitor:
-      enabled: true
+      enabled: false
     grafanaDashboard:
       enabled: true
       annotations:
@@ -24,9 +24,9 @@ spec:
       image:
         repository: ghcr.io/external-secrets/external-secrets
       serviceMonitor:
-        enabled: true
+        enabled: false
     certController:
       image:
         repository: ghcr.io/external-secrets/external-secrets
       serviceMonitor:
-        enabled: true
+        enabled: false
