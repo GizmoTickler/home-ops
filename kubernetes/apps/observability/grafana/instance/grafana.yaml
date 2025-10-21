@@ -35,6 +35,29 @@ spec:
       template:
         spec:
           initContainers:
+            - name: install-plugins
+              image: curlimages/curl:8.11.1
+              command:
+                - sh
+                - -c
+                - |
+                  set -ex
+                  mkdir -p /var/lib/grafana/plugins
+                  cd /var/lib/grafana/plugins
+                  curl -fsSL -o victoriametrics-datasource.zip https://github.com/VictoriaMetrics/victoriametrics-datasource/releases/download/v0.19.5/victoriametrics-datasource-v0.19.5.zip
+                  unzip -q victoriametrics-datasource.zip
+                  rm victoriametrics-datasource.zip
+                  curl -fsSL -o victorialogs-datasource.zip https://github.com/VictoriaMetrics/victorialogs-datasource/releases/download/v0.21.1/victorialogs-datasource-v0.21.1.zip
+                  unzip -q victorialogs-datasource.zip
+                  rm victorialogs-datasource.zip
+              securityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+              volumeMounts:
+                - name: grafana-data
+                  mountPath: /var/lib/grafana
             - name: k8s-sidecar
               image: ghcr.io/kiwigrid/k8s-sidecar:1.30.9
               env:
@@ -83,8 +106,6 @@ spec:
                     secretKeyRef:
                       name: grafana-admin-password-secret
                       key: GF_SECURITY_ADMIN_PASSWORD
-                - name: GF_INSTALL_PLUGINS
-                  value: "https://github.com/VictoriaMetrics/victoriametrics-datasource/releases/download/v0.19.5/victoriametrics-datasource-v0.19.5.zip;victoriametrics-datasource,https://github.com/VictoriaMetrics/victorialogs-datasource/releases/download/v0.21.1/victorialogs-datasource-v0.21.1.zip;victorialogs-datasource"
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
