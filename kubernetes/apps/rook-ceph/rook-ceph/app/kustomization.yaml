@@ -7,3 +7,4 @@ resources:
   - ./grafanadashboards.yaml
   - ./helmrelease.yaml
   - ./ocirepository.yaml
+  - ./vmservicescrape.yaml
