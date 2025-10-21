@@ -47,7 +47,6 @@ spec:
         [FILTER]
           name nest
           match kubernetes.*
-          wildcard pod_name
           operation lift
           nested_under kubernetes
           add_prefix k_
