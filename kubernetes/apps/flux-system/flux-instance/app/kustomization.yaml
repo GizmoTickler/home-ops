@@ -7,5 +7,5 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease.yaml
   - ./httproute.yaml
-  - ./prometheusrule.yaml
+  - ./vmrule.yaml
   - ./receiver.yaml

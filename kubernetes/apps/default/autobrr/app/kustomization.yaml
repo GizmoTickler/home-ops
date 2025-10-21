@@ -6,7 +6,7 @@ resources:
   - ./ocirepository.yaml
   - ./externalsecret.yaml
   - ./helmrelease.yaml
-  - ./prometheusrule.yaml
+  - ./vmrule.yaml
 configMapGenerator:
   - name: autobrr-loki-rules
     files:

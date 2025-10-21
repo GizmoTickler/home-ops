@@ -8,3 +8,4 @@ resources:
   - ./envoy.yaml
   - ./grafanadashboard.yaml
   - ./observability.yaml
+  - ./vmobservability.yaml

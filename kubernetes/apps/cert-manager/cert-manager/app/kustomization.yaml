@@ -8,4 +8,4 @@ resources:
   - ./clusterissuer.yaml
   - ./grafanadashboard.yaml
   - ./helmrelease.yaml
-  - ./prometheusrule.yaml
+  - ./vmrule.yaml

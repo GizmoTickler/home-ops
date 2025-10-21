@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: nas-node-exporter
+spec:
+  jobName: node-exporter
+  targetEndpoints:
+    - targets:
+        - nas01.${SECRET_DOMAIN}:9100
+      labels:
+        job: node-exporter
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: nas-smartctl-exporter
+spec:
+  jobName: smartctl-exporter
+  targetEndpoints:
+    - targets:
+        - nas01.${SECRET_DOMAIN}:9633
+      labels:
+        job: smartctl-exporter
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: onepassword-connect
+spec:
+  jobName: onepassword-connect
+  targetEndpoints:
+    - targets:
+        - passwords.${SECRET_DOMAIN}
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      labels:
+        job: onepassword-connect

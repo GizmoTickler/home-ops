@@ -1,0 +1,386 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-metrics
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: victoria-metrics-k8s-stack
+  interval: 1h
+  values:
+    fullnameOverride: stack
+
+    # VictoriaMetrics Operator - DISABLE Prometheus CRD converter
+    victoria-metrics-operator:
+      enabled: true
+      crds:
+        plain: true
+        cleanup:
+          enabled: true
+      env:
+        # Disable CPU limits for config reloaders
+        - name: VM_VMALERTDEFAULT_CONFIGRELOADERCPU
+          value: "0"
+        - name: VM_VMAGENTDEFAULT_CONFIGRELOADERCPU
+          value: "0"
+        - name: VM_VMALERTMANAGER_CONFIGRELOADERCPU
+          value: "0"
+      operator:
+        # CRITICAL: Disable Prometheus CRD conversion for clean architecture
+        disable_prometheus_converter: true
+        # Use custom config reloader for predictable sync times
+        useCustomConfigReloader: true
+      serviceMonitor:
+        enabled: false # We'll create VMServiceScrape instead
+
+    # Disable default dashboards (we use grafana-operator)
+    defaultDashboards:
+      enabled: false
+
+    # Enable default rules for monitoring
+    defaultRules:
+      create: true
+      groups:
+        # Disable rules for components we don't use
+        etcd:
+          create: false
+        kubernetesSystemControllerManager:
+          create: false
+        kubernetesSystemScheduler:
+          create: false
+
+    # VMSingle configuration - 100Gi storage, 14d retention
+    vmsingle:
+      enabled: true
+      labels: {}
+      annotations: {}
+      spec:
+        port: "8429"
+        retentionPeriod: "14d"
+        replicaCount: 1
+        extraArgs:
+          maxLabelsPerTimeseries: "50"
+        storage:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: ceph-block
+          resources:
+            requests:
+              storage: 100Gi
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            memory: 6Gi
+      ingress:
+        enabled: false
+      route:
+        enabled: false
+
+    # VMCluster - disabled (using VMSingle)
+    vmcluster:
+      enabled: false
+
+    # AlertManager configuration
+    alertmanager:
+      enabled: true
+      labels: {}
+      annotations: {}
+      spec:
+        replicaCount: 1
+        port: "9093"
+        selectAllByDefault: true
+        externalURL: ""
+        routePrefix: /
+      useManagedConfig: true
+      config:
+        route:
+          group_by:
+            - "alertname"
+            - "job"
+          group_interval: 5m
+          group_wait: 1m
+          receiver: pushover
+          repeat_interval: 12h
+          routes:
+            - receiver: "null"
+              matchers:
+                - alertname=InfoInhibitor
+            - receiver: heartbeat
+              group_interval: 5m
+              group_wait: 0s
+              repeat_interval: 5m
+              matchers:
+                - alertname=Watchdog
+            - receiver: pushover
+              matchers:
+                - severity=critical
+        inhibit_rules:
+          - source_matchers:
+              - severity = "critical"
+            target_matchers:
+              - severity = "warning"
+            equal:
+              - "alertname"
+              - "namespace"
+        receivers:
+          - name: "null"
+          - name: heartbeat
+            webhook_configs:
+              - url_secret:
+                  name: &secret alertmanager-secret
+                  key: ALERTMANAGER_HEARTBEAT_URL
+          - name: pushover
+            pushover_configs:
+              - html: true
+                message: |-
+                  {{- range .Alerts }}
+                    {{- if ne .Annotations.description "" }}
+                      {{ .Annotations.description }}
+                    {{- else if ne .Annotations.summary "" }}
+                      {{ .Annotations.summary }}
+                    {{- else if ne .Annotations.message "" }}
+                      {{ .Annotations.message }}
+                    {{- else }}
+                      Alert description not available
+                    {{- end }}
+                    {{- if gt (len .Labels.SortedPairs) 0 }}
+                      <small>
+                        {{- range .Labels.SortedPairs }}
+                          <b>{{ .Name }}:</b> {{ .Value }}
+                        {{- end }}
+                      </small>
+                    {{- end }}
+                  {{- end }}
+                priority: |-
+                  {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
+                send_resolved: true
+                sound: gamelan
+                title: >-
+                  [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+                  {{ .CommonLabels.alertname }}
+                ttl: 86400s
+                token:
+                  name: *secret
+                  key: ALERTMANAGER_PUSHOVER_TOKEN
+                user_key:
+                  name: *secret
+                  key: PUSHOVER_USER_KEY
+                url_title: View in Alertmanager
+
+    # VMAlert configuration
+    vmalert:
+      enabled: true
+      annotations: {}
+      labels: {}
+      spec:
+        port: "8080"
+        selectAllByDefault: true
+        evaluationInterval: 20s
+        extraArgs:
+          http.pathPrefix: "/"
+        externalLabels: {}
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+
+    # VMAgent configuration
+    vmagent:
+      enabled: true
+      spec:
+        extraArgs:
+          promscrape.maxScrapeSize: 50MiB
+          promscrape.streamParse: "true"
+          promscrape.dropOriginalLabels: "true"
+        resources:
+          requests:
+            cpu: 500m
+            memory: 500Mi
+          limits:
+            memory: 1Gi
+
+    # Disable Grafana (we use grafana-operator)
+    grafana:
+      enabled: false
+
+    # External Grafana configuration
+    external:
+      grafana:
+        host: ""
+        datasource: Prometheus
+
+    # kube-state-metrics configuration with VMServiceScrape
+    kube-state-metrics:
+      enabled: true
+      fullnameOverride: kube-state-metrics
+      metricLabelsAllowlist:
+        - pods=[*]
+        - deployments=[*]
+        - persistentvolumeclaims=[*]
+      vmScrape:
+        enabled: true
+        spec:
+          jobLabel: app.kubernetes.io/name
+          selector:
+            matchLabels:
+              app.kubernetes.io/instance: '{{ include "vm.release" . }}'
+              app.kubernetes.io/name: '{{ include "kube-state-metrics.name" (index .Subcharts "kube-state-metrics") }}'
+          endpoints:
+            - port: http
+              honorLabels: true
+              relabelConfigs:
+                - action: replace
+                  regex: (.*)
+                  replacement: $1
+                  sourceLabels:
+                    - __meta_kubernetes_pod_node_name
+                  targetLabel: kubernetes_node
+
+    # prometheus-node-exporter configuration with VMServiceScrape
+    prometheus-node-exporter:
+      enabled: true
+      fullnameOverride: node-exporter
+      vmScrape:
+        enabled: true
+        spec:
+          jobLabel: jobLabel
+          selector:
+            matchLabels:
+              app.kubernetes.io/instance: '{{ include "vm.release" . }}'
+              app.kubernetes.io/name: '{{ include "prometheus-node-exporter.name" (index .Subcharts "prometheus-node-exporter") }}'
+          endpoints:
+            - port: metrics
+              relabelConfigs:
+                - action: replace
+                  regex: (.*)
+                  replacement: $1
+                  sourceLabels:
+                    - __meta_kubernetes_pod_node_name
+                  targetLabel: kubernetes_node
+
+    # Kubelet scraping configuration
+    kubelet:
+      enabled: true
+      vmScrapes:
+        cadvisor:
+          enabled: true
+          spec:
+            path: /metrics/cadvisor
+            interval: 10s
+            metricRelabelConfigs:
+              # Drop less useful container CPU metrics
+              - action: drop
+                regex: container_cpu_(cfs_throttled_seconds_total|load_average_10s|system_seconds_total|user_seconds_total)
+                sourceLabels:
+                  - __name__
+              # Drop less useful / always zero container memory metrics
+              - action: drop
+                regex: container_memory_(mapped_file|swap)
+                sourceLabels:
+                  - __name__
+              # Drop less useful container process metrics
+              - action: drop
+                regex: container_(tasks_state|threads_max)
+                sourceLabels:
+                  - __name__
+              # Drop less useful container filesystem metrics
+              - action: drop
+                regex: container_fs_(io_current|io_time_seconds_total|io_time_weighted_seconds_total|reads_merged_total|sector_reads_total|sector_writes_total|writes_merged_total)
+                sourceLabels:
+                  - __name__
+              # Drop less useful container blkio metrics
+              - action: drop
+                regex: container_blkio_device_usage_total
+                sourceLabels:
+                  - __name__
+              # Drop container spec metrics that overlap with kube-state-metrics
+              - action: drop
+                regex: container_spec.*
+                sourceLabels:
+                  - __name__
+              # Drop cgroup metrics with no pod
+              - action: drop
+                regex: ".+;"
+                sourceLabels:
+                  - id
+                  - pod
+              # Drop high-cardinality labels
+              - action: labeldrop
+                regex: (uid|id|pod_uid|interface)
+              # Drop rest_client metrics
+              - action: drop
+                regex: (rest_client_request_duration_seconds_bucket|rest_client_request_duration_seconds_sum|rest_client_request_duration_seconds_count)
+                sourceLabels:
+                  - __name__
+              # Drop CSI and storage operation metrics with high cardinality buckets
+              - action: drop
+                regex: (csi_operations|storage_operation_duration)_seconds_bucket;(0.25|2.5|15|25|120|600)(\.0)?
+                sourceLabels:
+                  - __name__
+                  - le
+              # Drop container network metrics for CNI interfaces
+              - action: drop
+                regex: container_network_.*;(cali|cilium|cni|lxc|nodelocaldns|tunl).*
+                sourceLabels:
+                  - __name__
+                  - interface
+        probes:
+          enabled: true
+          spec:
+            path: /metrics/probes
+        resource:
+          enabled: true
+          spec:
+            path: /metrics/resource
+
+    # Disable scraping for components we don't have
+    kubeControllerManager:
+      enabled: false
+    kubeEtcd:
+      enabled: false
+    kubeScheduler:
+      enabled: false
+    kubeProxy:
+      enabled: false
+
+    # Additional VictoriaMetrics rules
+    additionalVictoriaMetricsMap:
+      dockerhub-rules:
+        create: true
+        groups:
+          - name: dockerhub
+            rules:
+              - alert: DockerhubRateLimitRisk
+                annotations:
+                  summary: Kubernetes cluster Dockerhub rate limit risk
+                expr: count(time() - container_last_seen{image=~"(docker.io).*",container!=""} < 30) > 100
+                labels:
+                  severity: critical
+      oom-rules:
+        create: true
+        groups:
+          - name: oom
+            rules:
+              - alert: OomKilled
+                annotations:
+                  summary: Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has been OOMKilled {{ $value }} times in the last 10 minutes.
+                expr: (kube_pod_container_status_restarts_total - kube_pod_container_status_restarts_total offset 10m >= 1) and ignoring (reason) min_over_time(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[10m]) == 1
+                labels:
+                  severity: critical
+      zfs-rules:
+        create: true
+        groups:
+          - name: zfs
+            rules:
+              - alert: ZfsUnexpectedPoolState
+                annotations:
+                  summary: ZFS pool {{$labels.zpool}} on {{$labels.instance}} is in a unexpected state {{$labels.state}}
+                expr: node_zfs_zpool_state{state!="online"} > 0
+                labels:
+                  severity: critical

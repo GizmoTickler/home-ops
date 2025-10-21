@@ -70,6 +70,7 @@ spec:
             port: *port
     serviceMonitor:
       app:
+        enabled: false
         endpoints:
           - port: http
     route:
