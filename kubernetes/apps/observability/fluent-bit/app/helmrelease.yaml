@@ -89,3 +89,4 @@ spec:
         grafana_folder: observability
     serviceMonitor:
       enabled: true
+    logLevel: warn
