@@ -6,4 +6,4 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease.yaml
   - ./externalsecret.yaml
-  # - ./vmstaticscrape.yaml  # Temporarily disabled until VictoriaMetrics CRDs are installed
+  - ./vmstaticscrape.yaml
