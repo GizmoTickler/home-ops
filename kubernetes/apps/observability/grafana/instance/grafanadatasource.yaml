@@ -10,7 +10,7 @@ spec:
       grafana.internal/instance: grafana
   datasource:
     type: prometheus
-    name: Prometheus
+    name: prometheus
     access: proxy
     isDefault: true
     url: http://stack-vmsingle.observability.svc.cluster.local:8429
