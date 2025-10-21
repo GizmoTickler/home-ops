@@ -20,4 +20,8 @@ spec:
       serviceMonitor:
         enabled: true
     dashboards:
-      enabled: false
+      enabled: true
+      annotations:
+        grafana_folder: observability
+      labels:
+        grafana_dashboard: "1"
