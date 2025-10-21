@@ -10,6 +10,6 @@ spec:
       app.kubernetes.io/name: vector
       app.kubernetes.io/instance: vector-syslog
   endpoints:
-    - port: prom-exporter
+    - port: 9090
       path: /metrics
       interval: 30s
