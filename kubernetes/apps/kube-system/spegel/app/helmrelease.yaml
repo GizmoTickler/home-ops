@@ -17,7 +17,7 @@ spec:
       registry:
         hostPort: 29999
     serviceMonitor:
-      enabled: false
+      enabled: true
     grafanaDashboard:
       enabled: true
       annotations:

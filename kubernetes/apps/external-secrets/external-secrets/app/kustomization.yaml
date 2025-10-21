@@ -7,4 +7,3 @@ resources:
   - ./clustersecretstore.yaml
   - ./helmrelease.yaml
   - ./pdb.yaml
-  - ./vmservicescrape.yaml
