@@ -11,3 +11,7 @@ spec:
   interval: 1h
   values:
     enableServiceLinks: false
+    prometheus:
+      operator:
+        enabled: true
+        port: 9666
