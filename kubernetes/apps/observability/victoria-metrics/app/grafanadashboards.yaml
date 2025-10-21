@@ -6,7 +6,7 @@ metadata:
   name: kubernetes-api-server
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -22,7 +22,7 @@ metadata:
   name: kubernetes-coredns
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -38,7 +38,7 @@ metadata:
   name: kubernetes-global
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -54,7 +54,7 @@ metadata:
   name: kubernetes-namespaces
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -70,7 +70,7 @@ metadata:
   name: kubernetes-nodes
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -86,7 +86,7 @@ metadata:
   name: kubernetes-pods
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -102,7 +102,7 @@ metadata:
   name: kubernetes-volumes
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: kube-system
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -118,7 +118,7 @@ metadata:
   name: node-exporter-full
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: observability
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -134,7 +134,7 @@ metadata:
   name: victoriametrics-vmsingle
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: observability
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -150,7 +150,7 @@ metadata:
   name: victoriametrics-vmagent
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: observability
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -166,7 +166,7 @@ metadata:
   name: victoriametrics-vmalert
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: observability
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -182,7 +182,7 @@ metadata:
   name: zfs
 spec:
   allowCrossNamespaceImport: true
-  folderTitle: observability
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
