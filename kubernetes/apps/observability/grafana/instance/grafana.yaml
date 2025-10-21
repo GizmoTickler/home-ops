@@ -45,10 +45,10 @@ spec:
                   mkdir -p /var/lib/grafana/plugins
                   cd /var/lib/grafana/plugins
                   curl -fsSL -o victoriametrics-metrics-datasource.zip https://github.com/VictoriaMetrics/victoriametrics-datasource/releases/download/v0.19.5/victoriametrics-metrics-datasource-v0.19.5.zip
-                  unzip -q victoriametrics-metrics-datasource.zip
+                  unzip -qo victoriametrics-metrics-datasource.zip
                   rm victoriametrics-metrics-datasource.zip
                   curl -fsSL -o victoriametrics-logs-datasource.zip https://github.com/VictoriaMetrics/victorialogs-datasource/releases/download/v0.21.1/victoriametrics-logs-datasource-v0.21.1.zip
-                  unzip -q victoriametrics-logs-datasource.zip
+                  unzip -qo victoriametrics-logs-datasource.zip
                   rm victoriametrics-logs-datasource.zip
               securityContext:
                 runAsUser: 1000
