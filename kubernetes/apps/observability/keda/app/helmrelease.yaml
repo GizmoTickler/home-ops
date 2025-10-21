@@ -14,4 +14,3 @@ spec:
     prometheus:
       operator:
         enabled: true
-        port: 9666
