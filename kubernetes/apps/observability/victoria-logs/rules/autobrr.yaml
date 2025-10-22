@@ -6,7 +6,7 @@ groups:
     rules:
       - alert: AutobrrDatabaseIsLocked
         expr: |
-          {app="autobrr"} | regexp "(?i)database is locked" | stats count() errors
+          {app="autobrr"} | regexp "(?i)database is locked" | stats count() errors | filter errors:>0
         for: 5m
         annotations:
           summary: Autobrr is experiencing database lock issues
@@ -17,7 +17,7 @@ groups:
 
       - alert: AutobrrDatabaseIsMalformed
         expr: |
-          {app="autobrr"} | regexp "(?i)database image malformed" | stats count() errors
+          {app="autobrr"} | regexp "(?i)database image malformed" | stats count() errors | filter errors:>0
         for: 5m
         annotations:
           summary: Autobrr is experiencing database issues
