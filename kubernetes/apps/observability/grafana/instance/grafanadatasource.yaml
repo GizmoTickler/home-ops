@@ -47,6 +47,7 @@ spec:
     type: victoriametrics-logs-datasource
     name: VictoriaLogs
     access: proxy
-    url: http://victoria-logs-server.observability.svc.cluster.local:9428
+    # URL should include /select/logsql prefix to prevent plugin from doubling it
+    url: http://victoria-logs-server.observability.svc.cluster.local:9428/select/logsql
     jsonData:
       maxLines: 1000
