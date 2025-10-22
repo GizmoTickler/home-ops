@@ -1,0 +1,26 @@
+---
+groups:
+  - name: radarr-logs
+    interval: 1m
+    rules:
+      - alert: RadarrDatabaseIsLocked
+        expr: |
+          count_over_time({app="radarr"} | regexp "(?i)database is locked" [5m]) > 0
+        for: 5m
+        annotations:
+          summary: Radarr is experiencing database lock issues
+          description: "Radarr has encountered database lock errors in the last 5 minutes"
+        labels:
+          severity: critical
+          app: radarr
+
+      - alert: RadarrDatabaseIsMalformed
+        expr: |
+          count_over_time({app="radarr"} | regexp "(?i)database disk image is malformed" [5m]) > 0
+        for: 5m
+        annotations:
+          summary: Radarr database is corrupted
+          description: "Radarr has encountered database corruption errors in the last 5 minutes"
+        labels:
+          severity: critical
+          app: radarr
