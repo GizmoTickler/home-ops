@@ -6,7 +6,7 @@ groups:
     rules:
       - alert: AutobrrDatabaseIsMalformed
         expr: |
-          {app="autobrr"} | regexp "(?i)database image malformed" | stats by (_time:5m) count() errors
+          {app="autobrr"} | regexp "(?i)database image malformed" | stats count() errors
         for: 5m
         annotations:
           summary: Autobrr is experiencing database issues
