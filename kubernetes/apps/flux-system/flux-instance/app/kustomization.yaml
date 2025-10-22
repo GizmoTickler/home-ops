@@ -8,5 +8,6 @@ resources:
   - ./helmrelease.yaml
   - ./httproute.yaml
   - ./vmrule.yaml
+  - ./vmservicescrape.yaml
   - ./receiver.yaml
   - ./grafanadashboard.yaml
