@@ -9,6 +9,6 @@ resources:
   - ./httproute.yaml
   - ./vmrule.yaml
   - ./vmservicescrape.yaml
-  - ./vmservicescrape-controllers.yaml
+  - ./podmonitor.yaml
   - ./receiver.yaml
   - ./grafanadashboard.yaml
