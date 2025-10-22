@@ -203,6 +203,8 @@ spec:
         selectAllByDefault: true
         podScrapeNamespaceSelector: {}
         podScrapeSelector: {}
+        serviceScrapeNamespaceSelector: {}
+        serviceScrapeSelector: {}
         extraArgs:
           promscrape.maxScrapeSize: 50MiB
           promscrape.streamParse: "true"
