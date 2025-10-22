@@ -6,6 +6,9 @@ metadata:
   name: flux-controllers
   namespace: flux-system
 spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
   selector:
     matchExpressions:
       - key: app
