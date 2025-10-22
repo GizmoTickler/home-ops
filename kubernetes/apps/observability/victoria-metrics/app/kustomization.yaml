@@ -8,5 +8,7 @@ resources:
   - ./helmrelease.yaml
   - ./externalsecret.yaml
   - ./vmstaticscrape.yaml
+  - ./vmservicescrape-stack.yaml
+  - ./vmrule-stack.yaml
   - ./httproute.yaml
   - ./grafanadashboards.yaml

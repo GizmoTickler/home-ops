@@ -8,3 +8,5 @@ resources:
   - ./ocirepository.yaml
   - ./grafanadashboard.yaml
   - ./vmalert.yaml
+  - ./vmservicescrape.yaml
+  - ./vmrule-health.yaml
