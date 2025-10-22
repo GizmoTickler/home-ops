@@ -1,6 +1,7 @@
 ---
 groups:
   - name: radarr-logs
+    type: vlogs
     interval: 1m
     rules:
       - alert: RadarrDatabaseIsLocked

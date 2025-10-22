@@ -1,6 +1,7 @@
 ---
 groups:
   - name: autobrr-logs
+    type: vlogs
     interval: 1m
     rules:
       - alert: AutobrrDatabaseIsMalformed
