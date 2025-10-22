@@ -10,6 +10,7 @@ spec:
   ruleSelector:
     matchLabels:
       rule-type: vlogs
+  ruleNamespaceSelector: {}
   datasource:
     url: http://victoria-logs-server.observability.svc.cluster.local:9428
   notifiers:
