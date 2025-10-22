@@ -4,6 +4,17 @@ groups:
     type: vlogs
     interval: 1m
     rules:
+      - alert: AutobrrDatabaseIsLocked
+        expr: |
+          {app="autobrr"} | regexp "(?i)database is locked" | stats count() errors
+        for: 5m
+        annotations:
+          summary: Autobrr is experiencing database lock issues
+          description: "Autobrr has encountered {{ $value }} database lock errors in the last 5 minutes"
+        labels:
+          severity: critical
+          app: autobrr
+
       - alert: AutobrrDatabaseIsMalformed
         expr: |
           {app="autobrr"} | regexp "(?i)database image malformed" | stats count() errors
