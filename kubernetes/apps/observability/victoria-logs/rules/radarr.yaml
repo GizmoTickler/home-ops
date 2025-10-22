@@ -6,7 +6,7 @@ groups:
     rules:
       - alert: RadarrDatabaseIsLocked
         expr: |
-          count_over_time({app="radarr"} | regexp "(?i)database is locked" [5m]) > 0
+          {app="radarr"} | regexp "(?i)database is locked" | stats by (_time:5m) count() errors
         for: 5m
         annotations:
           summary: Radarr is experiencing database lock issues
@@ -17,7 +17,7 @@ groups:
 
       - alert: RadarrDatabaseIsMalformed
         expr: |
-          count_over_time({app="radarr"} | regexp "(?i)database disk image is malformed" [5m]) > 0
+          {app="radarr"} | regexp "(?i)database disk image is malformed" | stats by (_time:5m) count() errors
         for: 5m
         annotations:
           summary: Radarr database is corrupted
