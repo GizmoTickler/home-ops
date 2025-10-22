@@ -1,0 +1,145 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: victoria-logs-health
+spec:
+  groups:
+    # VictoriaLogs Server Health Rules
+    - name: victorialogs.rules
+      rules:
+        - alert: VictoriaLogsDown
+          expr: |-
+            absent(up{job="victoria-logs-server"}) or up{job="victoria-logs-server"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VictoriaLogs server is down
+            description: >-
+              VictoriaLogs has been unavailable for more than 5 minutes. Log ingestion and queries are failing.
+          labels:
+            severity: critical
+
+        - alert: VictoriaLogsStorageNearlyFull
+          expr: |-
+            (vl_free_disk_space_bytes{job="victoria-logs-server"} / vl_disk_space_limit_bytes{job="victoria-logs-server"}) < 0.2
+          for: 15m
+          annotations:
+            summary: >-
+              VictoriaLogs storage is nearly full
+            description: >-
+              VictoriaLogs has less than 20% free disk space remaining ({{ $value | humanizePercentage }} free). Consider increasing retention or storage size.
+          labels:
+            severity: critical
+
+        - alert: VictoriaLogsIngestionStalled
+          expr: |-
+            rate(vl_rows_ingested_total{job="victoria-logs-server"}[10m]) == 0
+          for: 15m
+          annotations:
+            summary: >-
+              VictoriaLogs log ingestion has stalled
+            description: >-
+              VictoriaLogs has not ingested any logs in the last 15 minutes. Check log shippers (Vector, Promtail, etc).
+          labels:
+            severity: warning
+
+        - alert: VictoriaLogsHighIngestionRate
+          expr: |-
+            rate(vl_rows_ingested_total{job="victoria-logs-server"}[5m]) > 100000
+          for: 15m
+          annotations:
+            summary: >-
+              VictoriaLogs ingestion rate is unusually high
+            description: >-
+              VictoriaLogs is ingesting {{ $value | humanize }} logs/sec, which may indicate a log explosion or misconfigured shipper.
+          labels:
+            severity: warning
+
+        - alert: VictoriaLogsHighErrorRate
+          expr: |-
+            rate(vl_http_request_errors_total{job="victoria-logs-server"}[5m]) > 10
+          for: 10m
+          annotations:
+            summary: >-
+              VictoriaLogs is experiencing high error rate
+            description: >-
+              VictoriaLogs has {{ $value }} HTTP errors per second. Check server logs for details.
+          labels:
+            severity: warning
+
+        - alert: VictoriaLogsSlowQueries
+          expr: |-
+            histogram_quantile(0.99, sum(rate(vl_http_request_duration_seconds_bucket{job="victoria-logs-server",path=~"/select.*"}[5m])) by (le)) > 10
+          for: 10m
+          annotations:
+            summary: >-
+              VictoriaLogs query latency is high
+            description: >-
+              VictoriaLogs p99 query latency is {{ $value | humanizeDuration }}, which may affect log search performance.
+          labels:
+            severity: warning
+
+    # VMAlert (Logs) Health Rules
+    - name: vmalert-logs.rules
+      rules:
+        - alert: VMAlertLogsDown
+          expr: |-
+            absent(up{job="vmalert-logs"}) or up{job="vmalert-logs"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlert (logs) is down
+            description: >-
+              VMAlert for VictoriaLogs has been unavailable for more than 5 minutes. Log-based alert evaluation has stopped.
+          labels:
+            severity: critical
+
+        - alert: VMAlertLogsEvaluationFailures
+          expr: |-
+            rate(vmalert_iteration_total{job="vmalert-logs",result="error"}[5m]) > 0
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlert (logs) is experiencing rule evaluation failures
+            description: >-
+              VMAlert (logs) has {{ $value }} evaluation failures per second. Check LogsQL syntax and VictoriaLogs connectivity.
+          labels:
+            severity: warning
+
+        - alert: VMAlertLogsHighEvaluationLatency
+          expr: |-
+            histogram_quantile(0.99, sum(rate(vmalert_iteration_duration_seconds_bucket{job="vmalert-logs"}[5m])) by (le)) > 60
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlert (logs) rule evaluation is slow
+            description: >-
+              VMAlert (logs) p99 evaluation latency is {{ $value | humanizeDuration }}. This may delay log-based alert notifications.
+          labels:
+            severity: warning
+
+        - alert: VMAlertLogsNotificationFailures
+          expr: |-
+            rate(vmalert_alerts_send_errors_total{job="vmalert-logs"}[5m]) > 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlert (logs) cannot send notifications
+            description: >-
+              VMAlert (logs) has {{ $value }} notification failures per second. Check Alertmanager connectivity.
+          labels:
+            severity: critical
+
+        - alert: VMAlertLogsNoRulesLoaded
+          expr: |-
+            vmalert_alerting_rules_loaded{job="vmalert-logs"} == 0
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlert (logs) has no rules loaded
+            description: >-
+              VMAlert (logs) has no alerting rules loaded. Check VMRule resources with label 'rule-type: vlogs'.
+          labels:
+            severity: warning

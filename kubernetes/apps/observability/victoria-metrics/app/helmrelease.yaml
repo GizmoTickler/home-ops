@@ -33,7 +33,7 @@ spec:
         # Use custom config reloader for predictable sync times
         useCustomConfigReloader: true
       serviceMonitor:
-        enabled: false # We'll create VMServiceScrape instead
+        enabled: true # Enable operator self-monitoring
 
     # Disable default dashboards (we use grafana-operator)
     defaultDashboards:
@@ -208,6 +208,8 @@ spec:
         podScrapeSelector: {}
         serviceScrapeNamespaceSelector: {}
         serviceScrapeSelector: {}
+        staticScrapeNamespaceSelector: {}
+        staticScrapeSelector: {}
         extraArgs:
           promscrape.maxScrapeSize: 50MiB
           promscrape.streamParse: "true"
