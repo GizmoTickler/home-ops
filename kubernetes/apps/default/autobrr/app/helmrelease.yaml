@@ -71,6 +71,7 @@ spec:
       app:
         endpoints:
           - port: metrics
+            scrapeTimeout: 30s
     route:
       app:
         hostnames:
