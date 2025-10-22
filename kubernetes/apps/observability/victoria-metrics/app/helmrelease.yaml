@@ -181,7 +181,13 @@ spec:
       labels: {}
       spec:
         port: "8080"
-        selectAllByDefault: true
+        selectAllByDefault: false
+        ruleSelector:
+          matchExpressions:
+            - key: rule-type
+              operator: NotIn
+              values:
+                - vlogs
         evaluationInterval: 20s
         extraArgs:
           http.pathPrefix: "/"
