@@ -13,7 +13,7 @@ spec:
       rules:
         - alert: AutobrrDatabaseIsMalformed
           expr: |-
-            {app="autobrr"} | regexp "(?i)database image malformed" | stats count() as errors by (_time:5m) > 0
+            {app="autobrr"} | regexp "(?i)database image malformed" | stats count() as errors
           for: 5m
           annotations:
             summary: >-
