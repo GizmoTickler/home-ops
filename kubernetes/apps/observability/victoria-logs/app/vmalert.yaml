@@ -1,0 +1,21 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmalert_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAlert
+metadata:
+  name: vmalert-logs
+spec:
+  evaluationInterval: 30s
+  selectAllByDefault: true
+  datasource:
+    url: http://victoria-logs-server.observability.svc.cluster.local:9428
+  notifiers:
+    - url: http://vmalertmanager-stack-0.vmalertmanager-stack.observability.svc.cluster.local:9093
+  remoteWrite:
+    url: http://vmsingle-stack.observability.svc.cluster.local:8429/api/v1/write
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi

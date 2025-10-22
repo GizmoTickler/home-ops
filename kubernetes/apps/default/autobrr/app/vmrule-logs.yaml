@@ -1,0 +1,21 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: autobrr-logs
+spec:
+  groups:
+    - name: autobrr.logs.rules
+      type: vlogs
+      rules:
+        - alert: AutobrrDatabaseIsMalformed
+          expr: |-
+            sum(count_over_time({app="autobrr"} | regexp "(?i)database image malformed"[5m])) > 0
+          for: 5m
+          annotations:
+            summary: >-
+              Autobrr is experiencing database issues
+          labels:
+            severity: critical
+            app: autobrr
