@@ -31,7 +31,7 @@ spec:
           "gridPos": {"h": 24, "w": 24, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "log_source:network | limit 1000",
+              "expr": "log_source:network",
               "refId": "A",
               "queryType": "range",
               "editorMode": "code",
