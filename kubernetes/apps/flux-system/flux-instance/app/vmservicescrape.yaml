@@ -13,9 +13,9 @@ spec:
     - port: http
       path: /metrics
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmservicescrape_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmpodscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMServiceScrape
+kind: VMPodScrape
 metadata:
   name: flux-controllers
   namespace: flux-system
@@ -31,6 +31,6 @@ spec:
           - notification-controller
           - image-reflector-controller
           - image-automation-controller
-  endpoints:
+  podMetricsEndpoints:
     - port: http-prom
       path: /metrics
