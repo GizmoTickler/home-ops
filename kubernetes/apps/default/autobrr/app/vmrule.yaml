@@ -8,12 +8,15 @@ spec:
   groups:
     - name: autobrr.rules
       rules:
-        - alert: AutobrrNetworkUnmonitored
-          expr: |-
-            autobrr_irc_channel_enabled_total != autobrr_irc_channel_monitored_total
-          for: 1h
-          annotations:
-            summary: >-
-              {{ $labels.network }} is not being monitored by Autobrr
-          labels:
-            severity: critical
+# Disabled due to autobrr bug with duplicate metric labels for P2P-Network channels
+# https://github.com/autobrr/autobrr/issues - metrics endpoint returns 500 error
+# Re-enable when autobrr fixes duplicate label issue for IRC channels on same network
+# - alert: AutobrrNetworkUnmonitored
+#   expr: |-
+#     autobrr_irc_channel_enabled_total != autobrr_irc_channel_monitored_total
+#   for: 1h
+#   annotations:
+#     summary: >-
+#       {{ $labels.network }} is not being monitored by Autobrr
+#   labels:
+#     severity: critical
