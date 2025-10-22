@@ -50,6 +50,9 @@ spec:
           create: false
         kubernetesSystemScheduler:
           create: false
+        # Disable Alertmanager cluster rules (we run single replica)
+        alertmanager:
+          create: false
 
     # VMSingle configuration - 100Gi storage, 14d retention
     vmsingle:
