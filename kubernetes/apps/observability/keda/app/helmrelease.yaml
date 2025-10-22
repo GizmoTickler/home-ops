@@ -14,3 +14,10 @@ spec:
     prometheus:
       operator:
         enabled: true
+    operator:
+      service:
+        ports:
+          metrics:
+            port: 8080
+          grpc:
+            port: 9666
