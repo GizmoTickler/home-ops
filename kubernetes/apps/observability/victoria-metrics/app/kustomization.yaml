@@ -10,3 +10,4 @@ resources:
   - ./vmstaticscrape.yaml
   - ./httproute.yaml
   - ./grafanadashboards.yaml
+  - ./vmrule.yaml
