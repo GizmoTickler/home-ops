@@ -6,6 +6,5 @@ resources:
   - ./helmrepository.yaml
   - ./helmrelease.yaml
   - ./vector-config.yaml
-  - ./grafanadashboard.yaml
   - ./service-metrics.yaml
   - ./vmservicescrape.yaml
