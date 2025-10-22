@@ -13,6 +13,8 @@ spec:
   ruleNamespaceSelector: {}
   configMaps:
     - vlogs-rules
+  rulePath:
+    - /etc/vm/configs/vlogs-rules/*.yaml
   extraArgs:
     remoteWrite.disablePathAppend: "true"
   datasource:
