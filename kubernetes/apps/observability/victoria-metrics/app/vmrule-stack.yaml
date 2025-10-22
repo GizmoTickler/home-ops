@@ -47,13 +47,13 @@ spec:
 
         - alert: VMSingleSlowInserts
           expr: |-
-            rate(vm_slow_row_inserts_total{job="vmsingle-stack"}[5m]) > 0
+            rate(vm_slow_row_inserts_total{job="vmsingle-stack"}[5m]) > 200
           for: 15m
           annotations:
             summary: >-
               VMSingle is experiencing slow metric inserts
             description: >-
-              VMSingle has {{ $value }} slow inserts per second. This may indicate storage performance issues.
+              VMSingle has {{ $value | humanize }} slow inserts per second (>1% of normal rate). This may indicate storage performance issues.
           labels:
             severity: warning
 
