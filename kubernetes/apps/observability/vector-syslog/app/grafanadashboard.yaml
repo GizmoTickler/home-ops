@@ -31,7 +31,7 @@ spec:
           "gridPos": {"h": 24, "w": 24, "x": 0, "y": 0},
           "targets": [
             {
-              "expr": "log_source:network",
+              "expr": "log_source:network | sort by (_time) desc",
               "refId": "A",
               "queryType": "range",
               "editorMode": "code",
