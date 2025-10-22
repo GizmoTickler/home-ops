@@ -1,0 +1,262 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: victoria-metrics-stack
+spec:
+  groups:
+    # VMSingle Health Rules
+    - name: vmsingle.rules
+      rules:
+        - alert: VMSingleDown
+          expr: |-
+            absent(up{job="vmsingle-stack"}) or up{job="vmsingle-stack"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMSingle instance is down
+            description: >-
+              VMSingle has been unavailable for more than 5 minutes. All metric ingestion and queries are failing.
+          labels:
+            severity: critical
+
+        - alert: VMSingleStorageNearlyFull
+          expr: |-
+            (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_disk_space_limit_bytes{job="vmsingle-stack"}) < 0.2
+          for: 15m
+          annotations:
+            summary: >-
+              VMSingle storage is nearly full
+            description: >-
+              VMSingle has less than 20% free disk space remaining ({{ $value | humanizePercentage }} free). Consider increasing retention or storage size.
+          labels:
+            severity: critical
+
+        - alert: VMSingleHighIngestionRate
+          expr: |-
+            rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m]) > 500000
+          for: 15m
+          annotations:
+            summary: >-
+              VMSingle ingestion rate is unusually high
+            description: >-
+              VMSingle is ingesting {{ $value | humanize }} rows/sec, which may indicate a metrics explosion or misconfigured scraper.
+          labels:
+            severity: warning
+
+        - alert: VMSingleSlowInserts
+          expr: |-
+            rate(vm_slow_row_inserts_total{job="vmsingle-stack"}[5m]) > 0
+          for: 15m
+          annotations:
+            summary: >-
+              VMSingle is experiencing slow metric inserts
+            description: >-
+              VMSingle has {{ $value }} slow inserts per second. This may indicate storage performance issues.
+          labels:
+            severity: warning
+
+        - alert: VMSingleHighQueryLatency
+          expr: |-
+            histogram_quantile(0.99, sum(rate(vm_request_duration_seconds_bucket{job="vmsingle-stack",path=~"/api/v1/(query|query_range)"}[5m])) by (le)) > 5
+          for: 10m
+          annotations:
+            summary: >-
+              VMSingle query latency is high
+            description: >-
+              VMSingle p99 query latency is {{ $value | humanizeDuration }}, which may affect dashboard performance.
+          labels:
+            severity: warning
+
+    # VMAgent Health Rules
+    - name: vmagent.rules
+      rules:
+        - alert: VMAgentDown
+          expr: |-
+            absent(up{job="vmagent-stack"}) or up{job="vmagent-stack"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAgent is down
+            description: >-
+              VMAgent has been unavailable for more than 5 minutes. Metrics scraping has stopped.
+          labels:
+            severity: critical
+
+        - alert: VMAgentScrapeErrors
+          expr: |-
+            (sum(rate(vm_promscrape_scrapes_failed_total{job="vmagent-stack"}[5m])) / sum(rate(vm_promscrape_scrapes_total{job="vmagent-stack"}[5m]))) > 0.05
+          for: 10m
+          annotations:
+            summary: >-
+              VMAgent has high scrape error rate
+            description: >-
+              VMAgent scrape error rate is {{ $value | humanizePercentage }}. Check target availability and scrape configurations.
+          labels:
+            severity: warning
+
+        - alert: VMAgentHighDroppedMetrics
+          expr: |-
+            rate(vmagent_remotewrite_dropped_rows_total{job="vmagent-stack"}[5m]) > 100
+          for: 10m
+          annotations:
+            summary: >-
+              VMAgent is dropping metrics
+            description: >-
+              VMAgent is dropping {{ $value | humanize }} metrics/sec. This indicates remote write issues or buffer overflow.
+          labels:
+            severity: critical
+
+        - alert: VMAgentRemoteWriteQueueGrowing
+          expr: |-
+            vmagent_remotewrite_pending_data_bytes{job="vmagent-stack"} > 100000000
+          for: 15m
+          annotations:
+            summary: >-
+              VMAgent remote write queue is growing
+            description: >-
+              VMAgent has {{ $value | humanize1024 }} of pending data in the remote write queue. This may indicate network or storage issues.
+          labels:
+            severity: warning
+
+        - alert: VMAgentTooManyTargets
+          expr: |-
+            sum(up{job="vmagent-stack"}) by (job) > 1000
+          for: 15m
+          annotations:
+            summary: >-
+              VMAgent is managing too many targets
+            description: >-
+              VMAgent is scraping {{ $value }} targets. Consider sharding VMAgent for better performance.
+          labels:
+            severity: warning
+
+    # VMAlert Health Rules
+    - name: vmalert.rules
+      rules:
+        - alert: VMAlertDown
+          expr: |-
+            absent(up{job="vmalert-stack"}) or up{job="vmalert-stack"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlert is down
+            description: >-
+              VMAlert has been unavailable for more than 5 minutes. Alert evaluation has stopped.
+          labels:
+            severity: critical
+
+        - alert: VMAlertEvaluationFailures
+          expr: |-
+            rate(vmalert_iteration_total{job="vmalert-stack",result="error"}[5m]) > 0
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlert is experiencing rule evaluation failures
+            description: >-
+              VMAlert has {{ $value }} evaluation failures per second. Check rule syntax and datasource connectivity.
+          labels:
+            severity: warning
+
+        - alert: VMAlertHighEvaluationLatency
+          expr: |-
+            histogram_quantile(0.99, sum(rate(vmalert_iteration_duration_seconds_bucket{job="vmalert-stack"}[5m])) by (le)) > 30
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlert rule evaluation is slow
+            description: >-
+              VMAlert p99 evaluation latency is {{ $value | humanizeDuration }}. This may delay alert notifications.
+          labels:
+            severity: warning
+
+        - alert: VMAlertNotificationFailures
+          expr: |-
+            rate(vmalert_alerts_send_errors_total{job="vmalert-stack"}[5m]) > 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlert cannot send notifications
+            description: >-
+              VMAlert has {{ $value }} notification failures per second. Check Alertmanager connectivity.
+          labels:
+            severity: critical
+
+    # VMAlertmanager Health Rules
+    - name: vmalertmanager.rules
+      rules:
+        - alert: VMAlertmanagerDown
+          expr: |-
+            absent(up{job="vmalertmanager-stack"}) or up{job="vmalertmanager-stack"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlertmanager is down
+            description: >-
+              VMAlertmanager has been unavailable for more than 5 minutes. Alert notifications will not be delivered.
+          labels:
+            severity: critical
+
+        - alert: VMAlertmanagerNotificationQueueGrowing
+          expr: |-
+            rate(alertmanager_notification_queue_length{job="vmalertmanager-stack"}[15m]) > 0
+          for: 15m
+          annotations:
+            summary: >-
+              VMAlertmanager notification queue is growing
+            description: >-
+              VMAlertmanager notification queue has {{ $value }} pending notifications. Check integration endpoints.
+          labels:
+            severity: warning
+
+        - alert: VMAlertmanagerNotificationFailures
+          expr: |-
+            rate(alertmanager_notifications_failed_total{job="vmalertmanager-stack"}[5m]) > 0
+          for: 10m
+          annotations:
+            summary: >-
+              VMAlertmanager notification failures
+            description: >-
+              VMAlertmanager has {{ $value }} notification failures per second for integration {{ $labels.integration }}.
+          labels:
+            severity: warning
+
+        - alert: VMAlertmanagerConfigReloadFailure
+          expr: |-
+            alertmanager_config_last_reload_successful{job="vmalertmanager-stack"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              VMAlertmanager configuration reload failed
+            description: >-
+              VMAlertmanager failed to reload its configuration. Check config syntax.
+          labels:
+            severity: critical
+
+    # Victoria Metrics Operator Health Rules
+    - name: victoria-metrics-operator.rules
+      rules:
+        - alert: VictoriaMetricsOperatorDown
+          expr: |-
+            absent(up{job="victoria-metrics-operator"}) or up{job="victoria-metrics-operator"} == 0
+          for: 5m
+          annotations:
+            summary: >-
+              Victoria Metrics Operator is down
+            description: >-
+              Victoria Metrics Operator has been unavailable for more than 5 minutes. CRD reconciliation has stopped.
+          labels:
+            severity: critical
+
+        - alert: VictoriaMetricsOperatorReconcileErrors
+          expr: |-
+            rate(operator_controller_runtime_reconcile_errors_total[5m]) > 0
+          for: 10m
+          annotations:
+            summary: >-
+              Victoria Metrics Operator is experiencing reconcile errors
+            description: >-
+              Victoria Metrics Operator has {{ $value }} reconcile errors per second for controller {{ $labels.controller }}.
+          labels:
+            severity: warning
