@@ -1,0 +1,15 @@
+---
+groups:
+  - name: autobrr-logs
+    interval: 1m
+    rules:
+      - alert: AutobrrDatabaseIsMalformed
+        expr: |
+          count_over_time({app="autobrr"} | regexp "(?i)database image malformed" [5m]) > 0
+        for: 5m
+        annotations:
+          summary: Autobrr is experiencing database issues
+          description: "Autobrr has encountered {{ $value }} database corruption errors in the last 5 minutes"
+        labels:
+          severity: critical
+          app: autobrr

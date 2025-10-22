@@ -3,11 +3,28 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
+  name: victoria-logs-rules
+spec:
+  interval: 1h
+  path: ./kubernetes/apps/observability/victoria-logs/rules
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: observability
+  wait: false
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
   name: victoria-logs
 spec:
   dependsOn:
     - name: rook-ceph-cluster
       namespace: rook-ceph
+    - name: victoria-logs-rules
   interval: 1h
   path: ./kubernetes/apps/observability/victoria-logs/app
   prune: true
