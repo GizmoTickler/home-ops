@@ -6,7 +6,10 @@ metadata:
   name: vmalert-logs
 spec:
   evaluationInterval: 30s
-  selectAllByDefault: true
+  selectAllByDefault: false
+  ruleSelector:
+    matchLabels:
+      rule-type: vlogs
   datasource:
     url: http://victoria-logs-server.observability.svc.cluster.local:9428
   notifiers:
