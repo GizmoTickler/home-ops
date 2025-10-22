@@ -11,6 +11,8 @@ spec:
     matchLabels:
       rule-type: vlogs
   ruleNamespaceSelector: {}
+  extraArgs:
+    remoteWrite.disablePathAppend: "true"
   datasource:
     url: http://victoria-logs-server.observability.svc.cluster.local:9428
   notifiers:
