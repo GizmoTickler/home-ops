@@ -20,5 +20,4 @@ resources:
   - ./victoria-logs/ks.yaml
   - ./silence-operator/ks.yaml
   - ./fluent-bit/ks.yaml
-  - ./unpoller/ks.yaml
   - ./smartctl-exporter/ks.yaml
