@@ -53,6 +53,9 @@ spec:
         # Disable Alertmanager cluster rules (we run single replica)
         alertmanager:
           create: false
+        # Disable container_memory_swap rule (swap is disabled on all nodes)
+        kubernetesRulesContainerMemorySwap:
+          create: false
 
     # VMSingle configuration - 100Gi storage, 14d retention
     vmsingle:
