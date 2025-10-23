@@ -132,7 +132,7 @@ spec:
                 cpu: 100m
                 memory: 2Gi
               limits:
-                cpu: 500m
+                cpu: 1000m
                 memory: 10Gi
           vuetorrent:
             dependsOn: app
@@ -147,7 +147,9 @@ spec:
             resources:
               requests:
                 cpu: 10m
+                memory: 16Mi
               limits:
+                cpu: 50m
                 memory: 32Mi
     defaultPodOptions:
       securityContext:
