@@ -38,7 +38,7 @@ spec:
                   httpGet:
                     path: /api/healthz/liveness
                     port: *port
-                  initialDelaySeconds: 360
+                  initialDelaySeconds: 30
                   periodSeconds: 10
                   timeoutSeconds: 5
                   failureThreshold: 5
