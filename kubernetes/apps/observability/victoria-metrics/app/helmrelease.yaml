@@ -32,6 +32,13 @@ spec:
         disable_prometheus_converter: false
         # Use custom config reloader for predictable sync times
         useCustomConfigReloader: true
+        resources:
+          requests:
+            cpu: 20m
+            memory: 128Mi
+          limits:
+            cpu: 100m
+            memory: 256Mi
       serviceMonitor:
         enabled: true # Enable operator self-monitoring
 
@@ -83,6 +90,7 @@ spec:
             cpu: 500m
             memory: 2Gi
           limits:
+            cpu: 2000m
             memory: 6Gi
       ingress:
         enabled: false
@@ -210,6 +218,7 @@ spec:
             cpu: 100m
             memory: 128Mi
           limits:
+            cpu: 500m
             memory: 256Mi
 
     # VMAgent configuration
@@ -232,6 +241,7 @@ spec:
             cpu: 500m
             memory: 500Mi
           limits:
+            cpu: 2000m
             memory: 1Gi
 
     # Disable Grafana (we use grafana-operator)
@@ -252,6 +262,13 @@ spec:
         - pods=[*]
         - deployments=[*]
         - persistentvolumeclaims=[*]
+      resources:
+        requests:
+          cpu: 15m
+          memory: 48Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
       vmScrape:
         enabled: true
         spec:
@@ -275,6 +292,13 @@ spec:
     prometheus-node-exporter:
       enabled: true
       fullnameOverride: node-exporter
+      resources:
+        requests:
+          cpu: 20m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 96Mi
       vmScrape:
         enabled: true
         spec:
