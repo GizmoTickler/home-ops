@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
@@ -25,6 +23,9 @@ import (
 	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vsphere"
 	localyaml "homeops-cli/internal/yaml"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 func NewCommand() *cobra.Command {
@@ -811,7 +812,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 
 	// Step 1: Select deployment pattern
 	patternOptions := []string{
-		"Default - 3-node k8s cluster (8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each)",
+		"Default - 3-node k8s cluster (16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each)",
 		"Custom - Choose your own configuration",
 	}
 
@@ -882,14 +883,14 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 		}
 
 		// vCPUs
-		vcpuInput, err := ui.Input("Enter number of vCPUs:", "8")
+		vcpuInput, err := ui.Input("Enter number of vCPUs:", "16")
 		if err != nil {
 			return err
 		}
 		if vcpuInput != "" {
 			_, _ = fmt.Sscanf(vcpuInput, "%d", vcpus)
 		} else {
-			*vcpus = 8 // Default
+			*vcpus = 16 // Default
 		}
 
 		// Memory
@@ -936,7 +937,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 		}
 	} else {
 		// Default pattern - 3-node k8s cluster
-		*vcpus = 8
+		*vcpus = 16
 		*memory = 49152      // 48GB in MB
 		*diskSize = 500      // 500GB
 		*longhornSize = 1024 // 1TB
@@ -944,9 +945,9 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 		if *provider == "vsphere" {
 			*nodeCount = 3
 			*concurrent = 3
-			logger.Info("Default resources: 3 VMs with 8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each")
+			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each")
 		} else {
-			logger.Info("Default resources: 8 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn")
+			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn")
 		}
 	}
 
@@ -1031,7 +1032,7 @@ func newDeployVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Talos VM on TrueNAS or vSphere/ESXi",
-		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi. 
+		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi.
 
 Defaults to vSphere/ESXi deployment. Use --provider truenas for TrueNAS deployment.
 
@@ -1078,7 +1079,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
-	cmd.Flags().IntVar(&vcpus, "vcpus", 8, "Number of vCPUs (default: 8)")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 500, "Boot/OpenEBS disk size in GB (default: 500GB)")
 	cmd.Flags().IntVar(&longhornSize, "longhorn-size", 1000, "Longhorn disk size in GB (default: 1TB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")

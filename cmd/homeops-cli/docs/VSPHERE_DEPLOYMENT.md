@@ -36,7 +36,7 @@ Deploy a single Talos VM with default specifications:
   --provider vsphere \
   --name k8s-01 \
   --memory 49152 \
-  --vcpus 8 \
+  --vcpus 16 \
   --disk-size 500 \
   --rook-size 1024
 ```
@@ -52,7 +52,7 @@ Deploy 3 VMs concurrently with automatic numbering:
   --node-count 3 \
   --concurrent 3 \
   --memory 49152 \
-  --vcpus 8 \
+  --vcpus 16 \
   --disk-size 500 \
   --rook-size 1024
 ```
@@ -73,7 +73,7 @@ Deploy the 3 k8s cluster nodes with their predefined MAC addresses:
   --node-count 3 \
   --concurrent 3 \
   --memory 49152 \
-  --vcpus 8 \
+  --vcpus 16 \
   --disk-size 500 \
   --rook-size 1024
 ```
@@ -116,7 +116,7 @@ Deploy with a specific MAC address:
 
 The default VM specifications match your requirements:
 - **Memory**: 48GB (49152 MB)
-- **vCPUs**: 8
+- **vCPUs**: 16
 - **Boot Disk**: 500GB (thin provisioned)
 - **Rook Disk**: 1024GB / 1TB (thin provisioned)
 - **Datastore**: truenas-nfs

@@ -59,7 +59,7 @@ func GetDefaultVMConfig(name string) VMConfig {
 	return VMConfig{
 		Name:                 name,
 		Memory:               48 * 1024, // 48GB
-		VCPUs:                8,
+		VCPUs:                16,
 		DiskSize:             500,           // 500GB boot/OpenEBS
 		LonghornSize:         1000,          // 1TB Longhorn
 		Datastore:            "truenas-nfs", // Match the actual datastore name
