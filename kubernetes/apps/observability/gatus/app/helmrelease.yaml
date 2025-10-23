@@ -62,7 +62,7 @@ spec:
                 memory: 256Mi
               limits:
                 cpu: 500m
-                memory: 256Mi
+                memory: 512Mi
     defaultPodOptions:
       hostUsers: false
     service:

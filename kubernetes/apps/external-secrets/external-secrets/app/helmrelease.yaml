@@ -21,11 +21,11 @@ spec:
       repository: ghcr.io/external-secrets/external-secrets
     resources:
       requests:
-        cpu: 15m
-        memory: 192Mi
+        cpu: 150m
+        memory: 256Mi
       limits:
-        cpu: 100m
-        memory: 384Mi
+        cpu: 500m
+        memory: 512Mi
     webhook:
       replicaCount: 2
       image:
@@ -34,11 +34,11 @@ spec:
         enabled: true
       resources:
         requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
           cpu: 50m
           memory: 128Mi
+        limits:
+          cpu: 100m
+          memory: 512Mi
     certController:
       image:
         repository: ghcr.io/external-secrets/external-secrets
@@ -46,8 +46,8 @@ spec:
         enabled: true
       resources:
         requests:
-          cpu: 10m
-          memory: 96Mi
-        limits:
           cpu: 50m
-          memory: 192Mi
+          memory: 128Mi
+        limits:
+          cpu: 100m
+          memory: 256Mi

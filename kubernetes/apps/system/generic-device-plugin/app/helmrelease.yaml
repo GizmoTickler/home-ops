@@ -30,9 +30,11 @@ spec:
               - --config=/config/config.yaml
             resources:
               requests:
-                cpu: 10m
+                cpu: 50m
+                memory: 128Mi
               limits:
-                memory: 64Mi
+                cpu: 100m
+                memory: 256Mi
             securityContext:
               # privileged: true
               allowPrivilegeEscalation: false
