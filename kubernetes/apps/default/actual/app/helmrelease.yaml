@@ -47,11 +47,11 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 12m
-                memory: 128Mi
+                cpu: 120m
+                memory: 256Mi
               limits:
-                cpu: 100m
-                memory: 512Mi
+                cpu: 500m
+                memory: 1Gi
     service:
       app:
         ports:

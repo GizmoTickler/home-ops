@@ -48,10 +48,10 @@ spec:
                 enabled: true
             resources:
               requests:
-                cpu: 10m
+                cpu: 100m
                 memory: 128Mi
               limits:
-                cpu: 200m
+                cpu: 500m
                 memory: 1Gi
       chrome:
         annotations:
@@ -77,10 +77,10 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 10m
+                cpu: 100m
                 memory: 128Mi
               limits:
-                cpu: 200m
+                cpu: 500m
                 memory: 1Gi
       meilisearch:
         annotations:
@@ -117,10 +117,10 @@ spec:
                     key: meilisearch_master_key
             resources:
               requests:
-                cpu: 10m
+                cpu: 100m
                 memory: 128Mi
               limits:
-                cpu: 200m
+                cpu: 500m
                 memory: 4Gi
     defaultPodOptions:
       securityContext:

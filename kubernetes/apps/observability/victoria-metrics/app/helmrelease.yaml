@@ -34,11 +34,11 @@ spec:
         useCustomConfigReloader: true
         resources:
           requests:
-            cpu: 20m
-            memory: 128Mi
-          limits:
             cpu: 100m
             memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
       serviceMonitor:
         enabled: true # Enable operator self-monitoring
 
@@ -219,7 +219,7 @@ spec:
             memory: 128Mi
           limits:
             cpu: 500m
-            memory: 256Mi
+            memory: 512Mi
 
     # VMAgent configuration
     vmagent:
@@ -264,11 +264,11 @@ spec:
         - persistentvolumeclaims=[*]
       resources:
         requests:
-          cpu: 15m
-          memory: 128Mi
+          cpu: 50m
+          memory: 256Mi
         limits:
-          cpu: 200m
-          memory: 512Mi
+          cpu: 500m
+          memory: 1Gi
       vmScrape:
         enabled: true
         spec:
@@ -294,11 +294,11 @@ spec:
       fullnameOverride: node-exporter
       resources:
         requests:
-          cpu: 20m
-          memory: 32Mi
+          cpu: 100m
+          memory: 128Mi
         limits:
-          cpu: 250m
-          memory: 96Mi
+          cpu: 500m
+          memory: 512Mi
       vmScrape:
         enabled: true
         spec:

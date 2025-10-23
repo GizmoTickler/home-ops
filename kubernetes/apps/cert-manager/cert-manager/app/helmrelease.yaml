@@ -20,27 +20,27 @@ spec:
         enabled: true
     resources:
       requests:
-        cpu: 10m
-        memory: 64Mi
-      limits:
-        cpu: 100m
+        cpu: 50m
         memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
     cainjector:
       resources:
         requests:
-          cpu: 10m
-          memory: 128Mi
+          cpu: 50m
+          memory: 256Mi
         limits:
           cpu: 100m
-          memory: 256Mi
+          memory: 512Mi
     webhook:
       replicaCount: 2
       podDisruptionBudget:
         enabled: true
       resources:
         requests:
-          cpu: 10m
-          memory: 96Mi
+          cpu: 50m
+          memory: 128Mi
         limits:
           cpu: 100m
-          memory: 192Mi
+          memory: 256Mi
