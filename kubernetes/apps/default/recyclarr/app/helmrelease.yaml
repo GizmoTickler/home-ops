@@ -39,6 +39,7 @@ spec:
                 cpu: 5m
                 memory: 36Mi
               limits:
+                cpu: 50m
                 memory: 128Mi
         pod:
           restartPolicy: Never
