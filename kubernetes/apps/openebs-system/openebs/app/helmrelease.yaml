@@ -21,11 +21,11 @@ spec:
         basePath: &hostPath /var/mnt/local-hostpath
         resources:
           requests:
-            cpu: 10m
-            memory: 32Mi
-          limits:
             cpu: 50m
-            memory: 64Mi
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 512Mi
       hostpathClass:
         enabled: true
         name: openebs-hostpath

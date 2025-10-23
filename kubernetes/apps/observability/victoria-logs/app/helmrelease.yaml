@@ -21,10 +21,10 @@ spec:
         enabled: true
       resources:
         requests:
-          cpu: 50m
+          cpu: 500m
           memory: 512Mi
         limits:
-          cpu: 500m
+          cpu: 1000m
           memory: 1Gi
     dashboards:
       enabled: true

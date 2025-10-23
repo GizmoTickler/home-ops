@@ -19,11 +19,11 @@ spec:
           - "NET_RAW"
     resources:
       requests:
-        cpu: 10m
-        memory: 48Mi
-      limits:
         cpu: 50m
-        memory: 96Mi
+        memory: 128Mi
+      limits:
+        cpu: 100m
+        memory: 256Mi
     config:
       modules:
         http_2xx:
