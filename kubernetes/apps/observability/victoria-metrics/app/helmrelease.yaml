@@ -195,6 +195,13 @@ spec:
         extraArgs:
           http.pathPrefix: "/"
         externalLabels: {}
+        serviceScrapeSpec:
+          endpoints:
+            - port: http
+              path: /metrics
+              relabelConfigs:
+                - targetLabel: job
+                  replacement: vmalert-stack
         resources:
           requests:
             cpu: 100m
