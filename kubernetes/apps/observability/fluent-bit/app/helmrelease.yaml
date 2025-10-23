@@ -90,3 +90,10 @@ spec:
     serviceMonitor:
       enabled: true
     logLevel: warn
+    resources:
+      requests:
+        cpu: 15m
+        memory: 24Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
