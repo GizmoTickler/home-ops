@@ -19,6 +19,13 @@ spec:
     - url: http://vmalertmanager-stack-0.vmalertmanager-stack.observability.svc.cluster.local:9093
   remoteWrite:
     url: http://vmsingle-stack.observability.svc.cluster.local:8429/api/v1/write
+  serviceScrapeSpec:
+    endpoints:
+      - port: http
+        path: /metrics
+        relabelConfigs:
+          - targetLabel: job
+            replacement: vmalert-logs
   resources:
     requests:
       cpu: 50m
