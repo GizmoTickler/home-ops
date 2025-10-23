@@ -27,6 +27,36 @@ spec:
             namespace: network
             sectionName: https
     cephClusterSpec:
+      resources:
+        # Reduce CPU requests to prevent overcommitment
+        mon:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            memory: 2Gi
+        osd:
+          requests:
+            cpu: 500m
+            memory: 4Gi
+          limits:
+            memory: 4Gi
+        mgr:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 1Gi
+        prepareosd:
+          requests:
+            cpu: 250m
+            memory: 50Mi
+        crashcollector:
+          requests:
+            cpu: 50m
+            memory: 60Mi
+          limits:
+            memory: 60Mi
       cephConfig:
         global:
           bdev_enable_discard: "false"
