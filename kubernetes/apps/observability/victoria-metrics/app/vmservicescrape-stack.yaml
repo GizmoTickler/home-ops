@@ -42,6 +42,9 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      relabelConfigs:
+        - targetLabel: job
+          replacement: vmalert-stack
 ---
 # yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmservicescrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -71,3 +74,6 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      relabelConfigs:
+        - targetLabel: job
+          replacement: victoria-metrics-operator

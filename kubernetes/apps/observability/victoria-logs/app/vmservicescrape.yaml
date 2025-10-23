@@ -13,3 +13,6 @@ spec:
     - port: http
       path: /metrics
       interval: 30s
+      relabelConfigs:
+        - targetLabel: job
+          replacement: victoria-logs-server
