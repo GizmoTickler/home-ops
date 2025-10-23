@@ -56,6 +56,9 @@ spec:
         # Disable container_memory_swap rule (swap is disabled on all nodes)
         k8sContainerMemorySwap:
           create: false
+        # Disable default general rules (we override them with corrected versions)
+        kubePrometheusGeneral:
+          create: false
 
     # VMSingle configuration - 100Gi storage, 14d retention
     vmsingle:
