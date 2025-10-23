@@ -9,13 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"homeops-cli/internal/common"
+
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
 	"github.com/vmware/govmomi/vim25/types"
-	"homeops-cli/internal/common"
 )
 
 // Client represents a vSphere/ESXi client
@@ -128,8 +129,8 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	spec := types.VirtualMachineConfigSpec{
 		Name:     config.Name,
 		GuestId:  "other6xLinux64Guest", // Other 6.x or later Linux (64-bit)
-		NumCPUs:  int32(config.VCPUs),   // Set to 8 vCPUs
-		MemoryMB: int64(config.Memory),  // Set to 48GB (49152 MB)
+		NumCPUs:  int32(config.VCPUs),   // Default: 16 vCPUs
+		MemoryMB: int64(config.Memory),  // Default: 48GB (49152 MB)
 		Files: &types.VirtualMachineFileInfo{
 			VmPathName: fmt.Sprintf("[%s] %s", config.Datastore, config.Name),
 		},

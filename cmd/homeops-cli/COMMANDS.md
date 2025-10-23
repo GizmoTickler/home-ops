@@ -88,7 +88,7 @@ homeops-cli talos deploy-vm --provider vsphere --name test-node
 homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --concurrent 3
 
 # Deploy VM with custom specifications
-homeops-cli talos deploy-vm --provider vsphere --name worker --memory 32768 --vcpus 8 --disk-size 500
+homeops-cli talos deploy-vm --provider vsphere --name worker --memory 32768 --vcpus 16 --disk-size 500
 
 # Deploy VM and generate custom ISO
 homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --generate-iso
