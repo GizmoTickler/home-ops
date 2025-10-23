@@ -19,6 +19,13 @@ spec:
         size: 200Gi
       serviceMonitor:
         enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 512Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
     dashboards:
       enabled: true
       annotations:

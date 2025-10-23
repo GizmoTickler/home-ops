@@ -64,6 +64,13 @@ spec:
           enabled: true
       replicas: 2
       rollOutPods: true
+      resources:
+        requests:
+          cpu: 25m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
     pmtuDiscovery:
       enabled: true
     prometheus:
@@ -73,6 +80,13 @@ spec:
         trustCRDsExist: true
     rollOutCiliumPods: true
     routingMode: native
+    resources:
+      requests:
+        cpu: 100m
+        memory: 192Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
     securityContext:
       capabilities:
         ciliumAgent:
