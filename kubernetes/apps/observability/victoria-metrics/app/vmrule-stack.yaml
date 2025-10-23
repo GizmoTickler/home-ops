@@ -6,6 +6,13 @@ metadata:
   name: victoria-metrics-stack
 spec:
   groups:
+    # Override default recording rules to always produce data
+    - name: kube-prometheus-general.rules
+      rules:
+        - record: count:up1
+          expr: count(up == 1) without(instance,pod,node) or vector(0)
+        - record: count:up0
+          expr: count(up == 0) without(instance,pod,node) or vector(0)
     # VMSingle Health Rules
     - name: vmsingle.rules
       rules:
