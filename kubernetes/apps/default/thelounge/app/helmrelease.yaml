@@ -32,10 +32,10 @@ spec:
                 enabled: true
             resources:
               requests:
-                cpu: 10m
+                cpu: 50m
                 memory: 256Mi
               limits:
-                cpu: 200m
+                cpu: 500m
                 memory: 1Gi
     defaultPodOptions:
       securityContext:
