@@ -29,9 +29,7 @@ spec:
     cni:
       exclusive: false
     dashboards:
-      enabled: true
-      annotations:
-        grafana_folder: kube-system
+      enabled: false
     devices: eth0
     enableIPv4BIGTCP: true
     endpointRoutes:
@@ -55,9 +53,7 @@ spec:
     localRedirectPolicy: true
     operator:
       dashboards:
-        enabled: true
-        annotations:
-          grafana_folder: kube-system
+        enabled: false
       prometheus:
         enabled: true
         serviceMonitor:
