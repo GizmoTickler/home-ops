@@ -1,0 +1,35 @@
+---
+# Service for exposing CSI plugin liveness metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: csi-rbdplugin-metrics
+  namespace: rook-ceph
+  labels:
+    app: csi-metrics
+spec:
+  ports:
+    - name: csi-http-metrics
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: csi-rbdplugin
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: csi-cephfsplugin-metrics
+  namespace: rook-ceph
+  labels:
+    app: csi-metrics
+spec:
+  ports:
+    - name: csi-http-metrics
+      port: 9081
+      protocol: TCP
+      targetPort: 9081
+  selector:
+    app: csi-cephfsplugin
+  type: ClusterIP
