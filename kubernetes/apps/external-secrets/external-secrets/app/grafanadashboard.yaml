@@ -6,6 +6,7 @@ metadata:
   name: external-secrets
 spec:
   allowCrossNamespaceImport: true
+  folder: external-secrets
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
