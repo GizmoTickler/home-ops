@@ -6,6 +6,7 @@ metadata:
   name: cilium
 spec:
   allowCrossNamespaceImport: true
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -23,6 +24,7 @@ metadata:
   name: cilium-operator
 spec:
   allowCrossNamespaceImport: true
+  folder: kube-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
