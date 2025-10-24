@@ -6,6 +6,7 @@ metadata:
   name: keda
 spec:
   allowCrossNamespaceImport: true
+  folder: observability
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
