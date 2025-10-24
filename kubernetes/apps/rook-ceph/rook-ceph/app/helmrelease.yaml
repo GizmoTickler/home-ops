@@ -13,13 +13,6 @@ spec:
   values:
     csi:
       cephFSKernelMountOptions: ms_mode=prefer-crc
-      enableLiveness: true
-      rbdLivenessMetricsPort: 8080
-      cephfsLivenessMetricsPort: 9081
-      # ServiceMonitor is created manually via csi-metrics-servicemonitor.yaml
-      # to work with VictoriaMetrics and ensure proper service/endpoint discovery
-      serviceMonitor:
-        enabled: false
     image:
       repository: ghcr.io/rook/ceph
     monitoring:
