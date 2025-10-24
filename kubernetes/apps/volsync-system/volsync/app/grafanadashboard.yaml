@@ -6,6 +6,7 @@ metadata:
   name: volsync
 spec:
   allowCrossNamespaceImport: true
+  folder: volsync-system
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana

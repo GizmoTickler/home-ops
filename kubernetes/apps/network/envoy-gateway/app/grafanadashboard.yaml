@@ -6,6 +6,7 @@ metadata:
   name: envoy-gateway
 spec:
   allowCrossNamespaceImport: true
+  folder: network
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
@@ -21,6 +22,7 @@ metadata:
   name: envoy-proxy
 spec:
   allowCrossNamespaceImport: true
+  folder: network
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
