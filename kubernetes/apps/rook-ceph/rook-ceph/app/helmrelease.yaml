@@ -15,7 +15,7 @@ spec:
       cephFSKernelMountOptions: ms_mode=prefer-crc
       enableLiveness: true
       serviceMonitor:
-        enabled: false # No CSI metrics service exists
+        enabled: true
     image:
       repository: ghcr.io/rook/ceph
     monitoring:
