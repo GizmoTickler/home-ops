@@ -28,7 +28,5 @@ spec:
           memory: 1Gi
     dashboards:
       enabled: true
-      annotations:
-        grafana_folder: observability
       labels:
         grafana_dashboard: "1"
