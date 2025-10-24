@@ -3,7 +3,7 @@
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: cilium
+  name: cilium-metrics
 spec:
   allowCrossNamespaceImport: true
   folder: kube-system
@@ -21,7 +21,7 @@ spec:
 apiVersion: grafana.integreatly.org/v1beta1
 kind: GrafanaDashboard
 metadata:
-  name: cilium-operator
+  name: cilium-operator-metrics
 spec:
   allowCrossNamespaceImport: true
   folder: kube-system
