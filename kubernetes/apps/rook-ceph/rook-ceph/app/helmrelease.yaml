@@ -14,8 +14,10 @@ spec:
     csi:
       cephFSKernelMountOptions: ms_mode=prefer-crc
       enableLiveness: true
+      # ServiceMonitor is created manually via csi-metrics-servicemonitor.yaml
+      # to work with VictoriaMetrics and ensure proper service/endpoint discovery
       serviceMonitor:
-        enabled: true
+        enabled: false
     image:
       repository: ghcr.io/rook/ceph
     monitoring:
