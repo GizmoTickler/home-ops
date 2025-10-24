@@ -5,6 +5,8 @@ kind: Kustomization
 resources:
   - ./csi-metrics-service.yaml
   - ./csi-metrics-servicemonitor.yaml
+  - ./driver-cephfs-liveness-patch.yaml
+  - ./driver-rbd-liveness-patch.yaml
   - ./externalsecret.yaml
   - ./grafanadashboards.yaml
   - ./helmrelease.yaml
