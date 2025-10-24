@@ -14,7 +14,7 @@ spec:
       protocol: TCP
       targetPort: 8080
   selector:
-    app: csi-rbdplugin
+    app: rook-ceph.rbd.csi.ceph.com-nodeplugin
   type: ClusterIP
 ---
 apiVersion: v1
@@ -31,5 +31,5 @@ spec:
       protocol: TCP
       targetPort: 9081
   selector:
-    app: csi-cephfsplugin
+    app: rook-ceph.cephfs.csi.ceph.com-nodeplugin
   type: ClusterIP
