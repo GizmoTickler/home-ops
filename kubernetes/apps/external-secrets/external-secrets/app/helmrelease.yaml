@@ -14,9 +14,7 @@ spec:
     serviceMonitor:
       enabled: true
     grafanaDashboard:
-      enabled: true
-      annotations:
-        grafana_folder: external-secrets
+      enabled: false
     image:
       repository: ghcr.io/external-secrets/external-secrets
     resources:
