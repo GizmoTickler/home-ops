@@ -84,7 +84,7 @@ spec:
           json_date_format iso8601
           compress gzip
     dashboards:
-      enabled: false
+      enabled: true
     serviceMonitor:
       enabled: true
     logLevel: warn
