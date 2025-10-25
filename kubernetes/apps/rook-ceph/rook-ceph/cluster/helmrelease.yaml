@@ -14,6 +14,9 @@ spec:
     monitoring:
       enabled: true
       createPrometheusRules: true
+    csi:
+      monitoring:
+        enabled: false
     toolbox:
       enabled: true
     route:
