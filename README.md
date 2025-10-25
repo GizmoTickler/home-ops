@@ -37,7 +37,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux v1.11.1 (immutable, minimal, secure)
 - **Kubernetes Version**: v1.34.1
-- **VM Configuration**: 3 control plane nodes, each with 8 vCPUs and 48GB RAM
+- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
 - **Storage Strategy**: Dual NVMe controller architecture:
   - **Controller 1**: 500GB vdisk for boot and OpenEBS local-path storage
   - **Controller 2**: 1TB vdisk dedicated for Rook Ceph distributed storage
@@ -216,10 +216,10 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Grafana](https://github.com/grafana/grafana) | Metrics visualization and dashboards | `grafana.${SECRET_DOMAIN}` |
-| [Prometheus](https://github.com/prometheus/prometheus) | Metrics collection and alerting | `prometheus.${SECRET_DOMAIN}` |
-| [Loki](https://github.com/grafana/loki) | Log aggregation and querying | Internal only |
-| [Alloy](https://github.com/grafana/alloy) | Telemetry data collection | Internal only |
-| [Alertmanager](https://github.com/prometheus/alertmanager) | Alert routing and management | Internal only |
+| [Victoria-Metrics](https://github.com/VictoriaMetrics/VictoriaMetrics) | Metrics collection and alerting | `metrics.${SECRET_DOMAIN}` |
+| [Victoria-Metrics-Logs](https://github.com/VictoriaMetrics/VictoriaLogs) | Log aggregation and querying | `logs.${SECRET_DOMAIN}` |
+| [Fluent-Bit](https://github.com/fluent/fluent-bit) | Telemetry data collection | Internal only |
+| [Alertmanager](https://github.com/prometheus/alertmanager) | Alert routing and management | `alertmanager.${SECRET_DOMAIN}` |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | Endpoint monitoring | Internal only |
 | [Node Exporter](https://github.com/prometheus/node_exporter) | System metrics collection | Internal only |
 | [Kube State Metrics](https://github.com/kubernetes/kube-state-metrics) | Kubernetes metrics | Internal only |
@@ -269,14 +269,14 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 8     | 48GB   | 500GB NVMe vdisk (boot/local) + 1TB NVMe vdisk (Rook Ceph) | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 48GB   | 500GB NVMe vdisk (boot/local) + 1TB NVMe vdisk (Rook Ceph) | Talos Linux   |
 
 **Storage Details**:
 - Each VM has two dedicated NVMe controllers for isolation and performance
 - Controller 1: 500GB vdisk for Talos boot and OpenEBS local-path storage
 - Controller 2: 1TB vdisk exclusively for Rook Ceph distributed storage
 
-**Total VM Resources**: 24 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
+**Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
 
 ---
 
