@@ -2315,7 +2315,7 @@ func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLog
 	}
 
 	// Update the existing kubeconfig item by replacing the file attachment
-	cmd := exec.Command("op", "item", "edit", "kubeconfig", "--vault", "Private", fmt.Sprintf("kubeconfig[file]=%s", tmpFile.Name()))
+	cmd := exec.Command("op", "item", "edit", "kubeconfig", "--vault", "Infrastructure", fmt.Sprintf("kubeconfig[file]=%s", tmpFile.Name()))
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
