@@ -47,4 +47,4 @@ releases:
   - name: victoria-metrics-k8s-stack
     namespace: observability
     chart: oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-k8s-stack
-    version: 0.61.13
+    version: 0.62.0
