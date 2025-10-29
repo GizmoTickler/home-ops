@@ -7,6 +7,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
+ github.com/charmbracelet/gum@latest
 	github.com/stretchr/testify v1.11.1
 	github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe
 	github.com/vmware/govmomi v0.52.0
