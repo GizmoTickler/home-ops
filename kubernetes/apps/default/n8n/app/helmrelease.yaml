@@ -23,8 +23,8 @@ spec:
         containers:
           app:
             image:
-              repository: ghcr.io/n8n-io/n8n
-              tag: 1.118.1
+              repository: ghcr.io/gizmotickler/n8n-playwright-debian
+              tag: sha-7300982@sha256:0ff94668e2e2c5e9de70b1c90e316239ac2cfd4f19a98194c42b169ec314484f
             env:
               DB_SQLITE_VACUUM_ON_STARTUP: true
               EXECUTIONS_DATA_PRUNE: true
