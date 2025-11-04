@@ -1,0 +1,24 @@
+{
+  "name": "kromgo-proxy",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker proxy for Kromgo metrics without domain exposure",
+  "main": "src/index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "node test.js"
+  },
+  "keywords": [
+    "cloudflare",
+    "worker",
+    "kromgo",
+    "kubernetes",
+    "metrics",
+    "shields.io"
+  ],
+  "author": "GizmoTickler",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}
