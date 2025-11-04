@@ -1,0 +1,36 @@
+# Cloudflare Worker Configuration for Kromgo Proxy
+#
+# This worker proxies requests to your internal Kromgo instance
+# without exposing your actual domain name.
+#
+# Deployment:
+#   1. Install wrangler: npm install -g wrangler
+#   2. Login: wrangler login
+#   3. Set secret: wrangler secret put SECRET_DOMAIN
+#   4. Deploy: wrangler deploy
+
+name = "kromgo-proxy"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Worker will be available at: https://kromgo-proxy.<your-username>.workers.dev
+# You can also add a custom domain if desired (but defeats the purpose)
+
+# Routes (none - runs on workers.dev subdomain only)
+# routes = []
+
+# Optional: Enable rate limiting with Workers KV (free tier available)
+# Uncomment to enable rate limiting feature
+# [[kv_namespaces]]
+# binding = "KV"
+# id = "your-kv-namespace-id"
+
+# Environment-specific configuration
+[env.production]
+# Secrets are set via: wrangler secret put SECRET_DOMAIN
+# Values are encrypted and never visible in code or logs
+
+# Optional: Configure custom domains (not recommended for this use case)
+# [env.production.routes]
+# pattern = "metrics.example.com/*"
+# zone_name = "example.com"
