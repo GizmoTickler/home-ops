@@ -32,6 +32,20 @@ cd scripts/cloudflare-worker/kromgo-proxy
 
 ### 4. Deploy the Worker
 
+# Your actual domain needs to be configured as a secret (encrypted, never visible):
+
+```bash
+wrangler secret put SECRET_DOMAIN
+```
+# When prompted, enter your domain (e.g., `example.com`)
+```bash
+  wrangler secret put CF_CLIENT_ID
+```
+  # Paste the FULL Client ID with .access
+```bash
+   wrangler secret put CF_CLIENT_SECRET
+```
+  # Paste the FULL Client Secret
 ```bash
 # Deploy to Cloudflare
 wrangler deploy
@@ -49,17 +63,7 @@ You'll see output like:
 
 **SAVE THIS URL!** You'll need it for badges.
 
-### 5. Set Your Secret Domain
-
-Your actual domain needs to be configured as a secret (encrypted, never visible):
-
-```bash
-wrangler secret put SECRET_DOMAIN
-```
-
-When prompted, enter your domain (e.g., `example.com`)
-
-### 6. Test the Deployment
+### 5. Test the Deployment
 
 Test that a metric endpoint works:
 
@@ -79,7 +83,7 @@ Expected response:
 }
 ```
 
-### 7. Run the Security Test
+### 6. Run the Security Test
 
 Verify no domain leakage:
 
@@ -89,7 +93,7 @@ Verify no domain leakage:
 
 Follow the prompts and ensure all tests pass.
 
-### 8. Add Badges to Your README
+### 7. Add Badges to Your README
 
 1. Copy your worker URL: `kromgo-proxy.YOUR-USERNAME.workers.dev`
 2. URL-encode it:
