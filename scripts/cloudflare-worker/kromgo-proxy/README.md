@@ -38,12 +38,18 @@ This will open a browser window to authenticate with Cloudflare.
 From this directory (`scripts/cloudflare-worker/kromgo-proxy`):
 
 ```bash
-# Set your secret domain (the actual domain you want to hide)
 wrangler secret put SECRET_DOMAIN
-
-# When prompted, enter your domain (e.g., example.com)
-# This is stored encrypted and never visible in code
-
+```
+# When prompted, enter your domain (e.g., `example.com`)
+```bash
+  wrangler secret put CF_CLIENT_ID
+```
+  # Paste the FULL Client ID with .access
+```bash
+   wrangler secret put CF_CLIENT_SECRET
+```
+  # Paste the FULL Client Secret
+```bash
 # Deploy to Cloudflare
 wrangler deploy
 ```
