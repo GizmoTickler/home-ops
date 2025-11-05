@@ -38,7 +38,7 @@ spec:
         spec:
           initContainers:
             - name: install-plugins
-              image: curlimages/curl:8.16.0
+              image: curlimages/curl:8.17.0
               command:
                 - sh
                 - -c
