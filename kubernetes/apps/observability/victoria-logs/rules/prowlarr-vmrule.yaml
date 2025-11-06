@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: prowlarr-logs
+  namespace: observability
+  labels:
+    rule-type: vlogs
+spec:
+  groups:
+    - name: prowlarr-logs
+      type: vlogs
+      interval: 1m
+      rules:
+        - alert: ProwlarrDatabaseIsLocked
+          expr: |
+            {app="prowlarr"} | regexp "(?i)database is locked" | stats count() errors | filter errors:>0
+          for: 5m
+          annotations:
+            summary: Prowlarr is experiencing database lock issues
+            description: "Prowlarr has encountered database lock errors in the last 5 minutes"
+          labels:
+            severity: critical
+            app: prowlarr
+
+        - alert: ProwlarrDatabaseIsMalformed
+          expr: |
+            {app="prowlarr"} | regexp "(?i)database disk image is malformed" | stats count() errors | filter errors:>0
+          for: 5m
+          annotations:
+            summary: Prowlarr database is corrupted
+            description: "Prowlarr has encountered database corruption errors in the last 5 minutes"
+          labels:
+            severity: critical
+            app: prowlarr
