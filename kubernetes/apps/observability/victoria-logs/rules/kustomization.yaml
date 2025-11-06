@@ -5,4 +5,8 @@ kind: Kustomization
 namespace: observability
 resources:
   - autobrr-vmrule.yaml
+  - cross-seed-vmrule.yaml
+  - prowlarr-vmrule.yaml
+  - qbittorrent-vmrule.yaml
   - radarr-vmrule.yaml
+  - sonarr-vmrule.yaml

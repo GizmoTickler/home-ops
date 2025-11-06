@@ -1,0 +1,36 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cross-seed-logs
+  namespace: observability
+  labels:
+    rule-type: vlogs
+spec:
+  groups:
+    - name: cross-seed-logs
+      type: vlogs
+      interval: 1m
+      rules:
+        - alert: CrossSeedDatabaseMalformed
+          expr: |
+            {app="cross-seed"} | regexp "(?i)database disk image is malformed" | stats count() errors | filter errors:>0
+          for: 5m
+          annotations:
+            summary: Cross-seed database is corrupted
+            description: "Cross-seed has encountered database corruption errors in the last 5 minutes"
+          labels:
+            severity: critical
+            app: cross-seed
+
+        - alert: CrossSeedFailedToInject
+          expr: |
+            {app="cross-seed"} | regexp "(?i)failed to inject" | stats count() errors | filter errors:>0
+          for: 5m
+          annotations:
+            summary: Cross-seed failed to inject a torrent
+            description: "Cross-seed has failed to inject {{ $value }} torrents in the last 5 minutes"
+          labels:
+            severity: critical
+            app: cross-seed
