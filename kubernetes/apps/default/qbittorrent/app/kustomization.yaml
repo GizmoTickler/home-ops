@@ -7,12 +7,6 @@ resources:
   - ./externalsecret.yaml
   - ./helmrelease.yaml
 configMapGenerator:
-  - name: qbittorrent-loki-rules
-    files:
-      - qbittorrent.yaml=./lokirule.yaml
-    options:
-      labels:
-        loki_rule: "true"
   - name: qbittorrent-coredns
     files:
       - ./config/Corefile

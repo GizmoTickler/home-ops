@@ -1,0 +1,25 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: qbittorrent-logs
+  namespace: observability
+  labels:
+    rule-type: vlogs
+spec:
+  groups:
+    - name: qbittorrent-logs
+      type: vlogs
+      interval: 1m
+      rules:
+        - alert: QbittorrentFastResumeRejected
+          expr: |
+            {app="qbittorrent"} | regexp "(?i)fast resume rejected" | stats count() errors | filter errors:>0
+          for: 5m
+          annotations:
+            summary: Qbittorrent has a torrent with fast resume rejected
+            description: "Qbittorrent has encountered {{ $value }} fast resume rejected errors in the last 5 minutes"
+          labels:
+            severity: critical
+            app: qbittorrent
