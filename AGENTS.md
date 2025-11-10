@@ -4,7 +4,6 @@
 - CLI sources live in `cmd/homeops-cli`; subcommands stay under `cmd/`, shared logic in `internal/`, and docs or fixtures in `docs/` and `testdata/`.
 - Storage tooling sits in `cmd/truenas-deep-explorer` with the same layout.
 - Kubernetes manifests reside in `kubernetes/`: workloads in `apps/<namespace>/<app>`, shared services in `components/`, and Flux sources plus Kustomizations in `flux/`.
-- Specs and proposals are tracked in `openspec/`; run `openspec list` before planning broad changes.
 
 ## Build, Test, and Development Commands
 - `make build` packages a versioned binary for the current module.

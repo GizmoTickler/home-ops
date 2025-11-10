@@ -14,7 +14,6 @@ resources:
   - ./autobrr/ks.yaml
   - ./bazarr/ks.yaml
   - ./cross-seed/ks.yaml
-  - ./fusion/ks.yaml
   - ./it-tools/ks.yaml
   - ./jellyseerr/ks.yaml
   - ./karakeep/ks.yaml

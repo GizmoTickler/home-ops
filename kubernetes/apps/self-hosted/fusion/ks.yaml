@@ -11,7 +11,7 @@ spec:
     - name: rook-ceph-cluster
       namespace: rook-ceph
   interval: 1h
-  path: ./kubernetes/apps/default/fusion/app
+  path: ./kubernetes/apps/self-hosted/fusion/app
   postBuild:
     substitute:
       APP: fusion
@@ -21,5 +21,5 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: default
+  targetNamespace: self-hosted
   wait: false
