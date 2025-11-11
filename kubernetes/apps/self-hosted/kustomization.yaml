@@ -9,4 +9,5 @@ components:
 
 resources:
   - ./namespace.yaml
+  - ./actual/ks.yaml
   - ./fusion/ks.yaml
