@@ -217,7 +217,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
 
 The cluster hosts a variety of self-hosted applications organized by namespace and function:
 
-### Productivity & Tools (default namespace)
+### Productivity & Tools (self-hosted namespace)
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
@@ -229,6 +229,8 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 |-------------|---------|--------|
 | [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
 | [Fusion](https://github.com/0x2E/fusion) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
+
+All user apps in this group now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
 ### Observability Stack (observability namespace)
 
