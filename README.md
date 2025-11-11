@@ -48,8 +48,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Hypervisor**: VMware ESXi with advanced virtualization features
 - **Storage Backend**: TrueNAS providing NFS 4.1 datastores with multipath over 4x10Gbps link aggregation
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
-- **Kubernetes Distribution**: Talos Linux v1.11.1 (immutable, minimal, secure)
-- **Kubernetes Version**: v1.34.1
+- **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
 - **Storage Strategy**: Dual NVMe controller architecture:
   - **Controller 1**: 500GB vdisk for boot and OpenEBS local-path storage
@@ -223,6 +222,7 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 |-------------|---------|--------|
 | [Atuin](https://github.com/atuinsh/atuin) | Shell history sync | `sh.${SECRET_DOMAIN}` |
 | [OCIS](https://github.com/owncloud/ocis) | Personal file sync & sharing | `ocis.${SECRET_DOMAIN}` |
+| [The Lounge](https://github.com/thelounge/thelounge) | Persistent IRC/web chat client | `thelounge.${SECRET_DOMAIN}` |
 
 ### Content & Finance (self-hosted namespace)
 

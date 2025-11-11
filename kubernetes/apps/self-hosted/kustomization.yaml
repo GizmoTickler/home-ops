@@ -14,3 +14,4 @@ resources:
   - ./fusion/ks.yaml
   - ./karakeep/ks.yaml
   - ./ocis/ks.yaml
+  - ./thelounge/ks.yaml

@@ -23,6 +23,5 @@ resources:
   - ./radarr/ks.yaml
   - ./recyclarr/ks.yaml
   - ./sonarr/ks.yaml
-  - ./thelounge/ks.yaml
   - ./tqm/ks.yaml
   - ./webhook/ks.yaml
