@@ -234,6 +234,14 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 
 All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
+### Automation & Workflows (automation namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [n8n](https://github.com/n8n-io/n8n) | Workflow automation & integrations | `n8n.${SECRET_DOMAIN}` |
+
+Automation workloads run in the `automation` namespace so VolSync restores and Kopia ownership continue to match `app@automation:/data`.
+
 ### Observability Stack (observability namespace)
 
 | Application | Purpose | Access |

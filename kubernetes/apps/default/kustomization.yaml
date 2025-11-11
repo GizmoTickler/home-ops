@@ -12,9 +12,7 @@ resources:
   - ./autobrr/ks.yaml
   - ./bazarr/ks.yaml
   - ./cross-seed/ks.yaml
-  - ./it-tools/ks.yaml
   - ./jellyseerr/ks.yaml
-  - ./n8n/ks.yaml
   - ./nzbget/ks.yaml
   - ./pinchflat/ks.yaml
   - ./prowlarr/ks.yaml
@@ -24,4 +22,3 @@ resources:
   - ./recyclarr/ks.yaml
   - ./sonarr/ks.yaml
   - ./tqm/ks.yaml
-  - ./webhook/ks.yaml

@@ -2,18 +2,11 @@
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: self-hosted
+namespace: automation
 components:
   - ../../components/alerts
   - ../../components/cluster-secret
 
 resources:
   - ./namespace.yaml
-  - ./actual/ks.yaml
-  - ./atuin/ks.yaml
-  - ./fusion/ks.yaml
-  - ./it-tools/ks.yaml
-  - ./karakeep/ks.yaml
-  - ./ocis/ks.yaml
-  - ./thelounge/ks.yaml
-  - ./webhook/ks.yaml
+  - ./n8n/ks.yaml
