@@ -6,11 +6,11 @@ metadata:
   name: it-tools
 spec:
   interval: 1h
-  path: ./kubernetes/apps/default/it-tools/app
+  path: ./kubernetes/apps/self-hosted/it-tools/app
   prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: default
+  targetNamespace: self-hosted
   wait: false
