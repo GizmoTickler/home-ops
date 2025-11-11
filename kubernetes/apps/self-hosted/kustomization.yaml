@@ -12,3 +12,5 @@ resources:
   - ./actual/ks.yaml
   - ./atuin/ks.yaml
   - ./fusion/ks.yaml
+  - ./karakeep/ks.yaml
+  - ./ocis/ks.yaml
