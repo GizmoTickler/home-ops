@@ -234,6 +234,14 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 
 All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
+### Media & Requests (media namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Jellyseerr](https://github.com/Fallenbagel/jellyseerr) | Media discovery & request management | `requests.${SECRET_DOMAIN}` |
+
+Media workloads live in the `media` namespace so VolSync and Kopia identities follow `app@media:/data` for consistent restores.
+
 ### Automation & Workflows (automation namespace)
 
 | Application | Purpose | Access |
