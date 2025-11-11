@@ -70,6 +70,7 @@ spec:
             port: *metricsPort
     serviceMonitor:
       app:
+        enabled: false
         endpoints:
           - port: metrics
             scrapeTimeout: 30s
