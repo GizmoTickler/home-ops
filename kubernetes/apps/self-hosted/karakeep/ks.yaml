@@ -3,7 +3,7 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: ocis
+  name: karakeep
 spec:
   components:
     - ../../../../components/volsync
@@ -13,15 +13,15 @@ spec:
     - name: rook-ceph-cluster
       namespace: rook-ceph
   interval: 1h
-  path: ./kubernetes/apps/default/ocis/app
+  path: ./kubernetes/apps/self-hosted/karakeep/app
   postBuild:
     substitute:
-      APP: ocis
-      VOLSYNC_CAPACITY: 50Gi
+      APP: karakeep
+      VOLSYNC_CAPACITY: 5Gi
   prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: default
+  targetNamespace: self-hosted
   wait: false
