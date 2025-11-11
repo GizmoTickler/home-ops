@@ -242,6 +242,25 @@ All self-hosted apps now share the `self-hosted` namespace so VolSync movers and
 
 Media workloads live in the `media` namespace so VolSync and Kopia identities follow `app@media:/data` for consistent restores.
 
+### Downloads & Indexers (downloads namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Autobrr](https://github.com/autobrr/autobrr) | Real-time announce filtering & actions | `autobrr.${SECRET_DOMAIN}` |
+| [Bazarr](https://github.com/morpheus65535/bazarr) | Subtitle management for Radarr/Sonarr libraries | `bazarr.${SECRET_DOMAIN}` |
+| [Cross-Seed](https://github.com/cross-seed/cross-seed) | Torrent cross-seeding suggestions | Internal only |
+| [NZBGet](https://github.com/nzbgetcom/nzbget) | Usenet downloader | `nzbget.${SECRET_DOMAIN}` |
+| [Pinchflat](https://github.com/kieranjeglin/pinchflat) | Long-form video & podcast archiving | `pinchflat.${SECRET_DOMAIN}` |
+| [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Indexer proxy & search aggregator | `prowlarr.${SECRET_DOMAIN}` |
+| [qBittorrent](https://github.com/qbittorrent/qBittorrent) | VPN-protected torrent client with VueTorrent UI | `qbittorrent.${SECRET_DOMAIN}` |
+| [Qui](https://github.com/autobrr/qui) | Autobrr queue monitor & dashboard | `qui.${SECRET_DOMAIN}` |
+| [Radarr](https://github.com/Radarr/Radarr) | Movie library automation | `radarr.${SECRET_DOMAIN}` |
+| [Recyclarr](https://github.com/Recyclarr/Recyclarr) | Radarr/Sonarr config synchronisation | Internal only |
+| [TQM](https://github.com/home-operations/tqm) | Automated qBittorrent retag/cleanup jobs | Internal only |
+| [Sonarr](https://github.com/Sonarr/Sonarr) | TV library automation | `sonarr.${SECRET_DOMAIN}` |
+
+The entire download stack now lives in the `downloads` namespace so VolSync movers and Kopia ownership stay aligned (`app@downloads:/data`) and restores remain consistent.
+
 ### Automation & Workflows (automation namespace)
 
 | Application | Purpose | Access |
