@@ -222,6 +222,7 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Atuin](https://github.com/atuinsh/atuin) | Shell history sync | `sh.${SECRET_DOMAIN}` |
+| [OCIS](https://github.com/owncloud/ocis) | Personal file sync & sharing | `ocis.${SECRET_DOMAIN}` |
 
 ### Content & Finance (self-hosted namespace)
 
@@ -229,8 +230,9 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 |-------------|---------|--------|
 | [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
 | [Fusion](https://github.com/0x2E/fusion) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
+| [Karakeep](https://github.com/karakeep-app/karakeep) | Bookmarking & read-it-later capture | `karakeep.${SECRET_DOMAIN}` |
 
-All user apps in this group now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
+All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
 ### Observability Stack (observability namespace)
 
