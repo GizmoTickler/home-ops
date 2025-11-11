@@ -222,6 +222,12 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Atuin](https://github.com/atuinsh/atuin) | Shell history sync | `sh.${SECRET_DOMAIN}` |
+
+### Content & Finance (self-hosted namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
 | [Fusion](https://github.com/0x2E/fusion) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
 
 ### Observability Stack (observability namespace)
