@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schemas.pages.dev/grafana.integreatly.org/grafana_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafana_v1beta1.json
 apiVersion: grafana.integreatly.org/v1beta1
 kind: Grafana
 metadata:
@@ -56,7 +56,7 @@ spec:
                 runAsUser: 1000
                 runAsGroup: 1000
                 allowPrivilegeEscalation: false
-                capabilities: {drop: ["ALL"]}
+                capabilities: { drop: ["ALL"] }
               volumeMounts:
                 - name: grafana-data
                   mountPath: /var/lib/grafana
@@ -72,7 +72,7 @@ spec:
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
-                capabilities: {drop: ["ALL"]}
+                capabilities: { drop: ["ALL"] }
 
           securityContext:
             runAsNonRoot: true
