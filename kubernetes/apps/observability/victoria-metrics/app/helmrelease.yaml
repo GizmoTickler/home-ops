@@ -82,8 +82,8 @@ spec:
           search.maxConcurrentRequests: "16"
           search.maxQueueDuration: "30s"
           search.maxQueryDuration: "120s"
-          # Memory limits per query to prevent OOM
-          search.maxMemoryPerQuery: "512Mi"
+          # Memory limits per query to prevent OOM (536870912 bytes = 512Mi)
+          search.maxMemoryPerQuery: "536870912"
         storage:
           accessModes:
             - ReadWriteOnce
