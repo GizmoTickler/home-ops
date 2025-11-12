@@ -55,7 +55,7 @@ machine:
       featureGates:
         ImageVolume: true
       serializeImagePulls: false
-    image: ghcr.io/siderolabs/kubelet:v1.34.1
+    image: ghcr.io/siderolabs/kubelet:v1.34.2
     nodeIP:
       validSubnets:
         - 192.168.252.0/22
