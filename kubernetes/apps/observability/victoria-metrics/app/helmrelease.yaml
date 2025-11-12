@@ -238,15 +238,13 @@ spec:
         staticScrapeNamespaceSelector: {}
         staticScrapeSelector: {}
         scrapeInterval: 30s
-        scrapeTimeout: 10s
+        scrapeTimeout: 15s
         extraArgs:
           promscrape.maxScrapeSize: 50MiB
           promscrape.streamParse: "true"
           promscrape.dropOriginalLabels: "true"
           # Reduce Kubernetes API load
           promscrape.kubernetes.apiServerTimeout: 5m
-          # Increase scrape timeout for slow endpoints
-          promscrape.maxScrapeTimeout: 30s
         resources:
           requests:
             cpu: 500m
