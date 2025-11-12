@@ -205,6 +205,11 @@ spec:
         evaluationInterval: 20s
         extraArgs:
           http.pathPrefix: "/"
+          remoteWrite.disablePathAppend: "true"
+        datasource:
+          url: http://vmsingle-stack.observability.svc.cluster.local:8429
+        remoteWrite:
+          url: http://vmsingle-stack.observability.svc.cluster.local:8429/api/v1/write
         externalLabels: {}
         serviceScrapeSpec:
           endpoints:
