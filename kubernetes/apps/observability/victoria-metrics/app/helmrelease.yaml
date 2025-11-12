@@ -78,6 +78,12 @@ spec:
         replicaCount: 1
         extraArgs:
           maxLabelsPerTimeseries: "50"
+          # Query performance tuning - increase concurrency for Grafana dashboards
+          search.maxConcurrentRequests: "16"
+          search.maxQueueDuration: "30s"
+          search.maxQueryDuration: "120s"
+          # Memory limits per query to prevent OOM
+          search.maxMemoryPerQuery: "512Mi"
         storage:
           accessModes:
             - ReadWriteOnce
