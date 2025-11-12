@@ -12,6 +12,7 @@ spec:
   values:
     controllers:
       gatus:
+        type: statefulset
         annotations:
           reloader.stakater.com/auto: "true"
         initContainers:
@@ -26,8 +27,10 @@ spec:
             resources:
               requests:
                 cpu: 10m
+                memory: 128Mi
               limits:
-                memory: 64Mi
+                cpu: 100m
+                memory: 256Mi
             restartPolicy: Always
         containers:
           app:
@@ -55,7 +58,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: {add: ["NET_RAW"], drop: ["ALL"]}
+              capabilities: { add: ["NET_RAW"], drop: ["ALL"] }
             resources:
               requests:
                 cpu: 100m
@@ -63,6 +66,12 @@ spec:
               limits:
                 cpu: 500m
                 memory: 512Mi
+        statefulset:
+          volumeClaimTemplates:
+            - name: config
+              storageClass: ceph-block
+              accessMode: ReadWriteOnce
+              size: 5Gi
     defaultPodOptions:
       securityContext:
         runAsNonRoot: true
@@ -90,7 +99,6 @@ spec:
         parentRefs:
           - name: envoy-external
             namespace: network
-            sectionName: https
     rbac:
       roles:
         gatus:
@@ -123,8 +131,6 @@ spec:
     serviceAccount:
       gatus: {}
     persistence:
-      config:
-        type: emptyDir
       config-file:
         type: configMap
         name: "{{ .Release.Name }}-configmap"
