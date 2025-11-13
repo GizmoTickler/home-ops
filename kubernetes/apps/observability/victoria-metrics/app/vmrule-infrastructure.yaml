@@ -366,15 +366,6 @@ spec:
             severity: critical
             component: kubernetes
 
-        - alert: KubernetesEtcdDown
-          expr: |-
-            absent(up{job="etcd"}) or up{job="etcd"} == 0
-          for: 3m
-          annotations:
-            summary: "Etcd is down"
-            description: |-
-              Etcd has been unavailable for more than 3 minutes.
-              The cluster state store is not functioning.
-          labels:
-            severity: critical
-            component: kubernetes
+        # Note: Talos Linux embeds etcd and doesn't expose metrics by default.
+        # Monitor etcd health indirectly via API server and node status.
+        # If API server is up and nodes are Ready, etcd is functioning.
