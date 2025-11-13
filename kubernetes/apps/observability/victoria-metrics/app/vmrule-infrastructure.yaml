@@ -314,7 +314,7 @@ spec:
       rules:
         - alert: KubernetesAPIServerDown
           expr: |-
-            absent(up{job="kube-apiserver"}) or up{job="kube-apiserver"} == 0
+            absent(up{job="apiserver"}) or up{job="apiserver"} == 0
           for: 5m
           annotations:
             summary: "Kubernetes API server is down"
@@ -325,28 +325,43 @@ spec:
             severity: critical
             component: kubernetes
 
-        - alert: KubernetesControllerManagerDown
+        - alert: KubernetesAPIServerHighLatency
           expr: |-
-            absent(up{job="kube-controller-manager"}) or up{job="kube-controller-manager"} == 0
-          for: 5m
+            histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH"}[5m])) by (le, verb)) > 1
+          for: 10m
           annotations:
-            summary: "Kubernetes controller manager is down"
+            summary: "Kubernetes API server has high request latency"
             description: |-
-              Kubernetes controller manager has been unavailable for more than 5 minutes.
-              Background control loops are not running.
+              API server p99 request latency for {{ $labels.verb }} requests is {{ $value | humanizeDuration }}.
+              This may indicate performance issues or high cluster load.
           labels:
-            severity: critical
+            severity: warning
             component: kubernetes
 
-        - alert: KubernetesSchedulerDown
+        - alert: KubernetesAPIServerErrors
           expr: |-
-            absent(up{job="kube-scheduler"}) or up{job="kube-scheduler"} == 0
+            sum(rate(apiserver_request_total{code=~"5.."}[5m])) by (verb, code) / sum(rate(apiserver_request_total[5m])) by (verb) > 0.05
+          for: 10m
+          annotations:
+            summary: "Kubernetes API server has high error rate"
+            description: |-
+              API server is returning {{ $value | humanizePercentage }} 5xx errors for {{ $labels.verb }} requests.
+              Check API server logs for issues.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        # Note: Talos Linux does not expose controller-manager and scheduler metrics
+        # by default for security reasons. Monitor via pod status instead.
+        - alert: KubernetesControlPlanePodsDown
+          expr: |-
+            kube_pod_status_phase{namespace="kube-system",pod=~"kube-(controller-manager|scheduler).*",phase!="Running"} == 1
           for: 5m
           annotations:
-            summary: "Kubernetes scheduler is down"
+            summary: "Control plane pod {{ $labels.pod }} is not running"
             description: |-
-              Kubernetes scheduler has been unavailable for more than 5 minutes.
-              New pods cannot be scheduled.
+              Control plane pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is in {{ $labels.phase }} phase.
+              This may indicate control plane issues.
           labels:
             severity: critical
             component: kubernetes
