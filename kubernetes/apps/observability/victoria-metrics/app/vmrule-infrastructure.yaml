@@ -1,0 +1,365 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: infrastructure-alerts
+spec:
+  groups:
+    # Ceph Storage Alerts
+    - name: ceph.rules
+      interval: 30s
+      rules:
+        - alert: CephHealthError
+          expr: |-
+            ceph_health_status == 2
+          for: 5m
+          annotations:
+            summary: "Ceph cluster is in ERROR state"
+            description: |-
+              Ceph cluster health is in ERROR state (HEALTH_ERR).
+              Check 'ceph health detail' for specific issues.
+              Cluster: {{ $labels.cluster }}
+          labels:
+            severity: critical
+            component: storage
+
+        - alert: CephHealthWarning
+          expr: |-
+            ceph_health_status == 1
+          for: 15m
+          annotations:
+            summary: "Ceph cluster is in WARNING state"
+            description: |-
+              Ceph cluster health is in WARNING state (HEALTH_WARN) for over 15 minutes.
+              Check 'ceph health detail' for specific issues.
+              Cluster: {{ $labels.cluster }}
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: CephOSDDown
+          expr: |-
+            ceph_osd_up == 0
+          for: 5m
+          annotations:
+            summary: "Ceph OSD {{ $labels.osd }} is down"
+            description: |-
+              Ceph OSD {{ $labels.osd }} has been down for more than 5 minutes.
+              This may impact data availability and cluster performance.
+          labels:
+            severity: critical
+            component: storage
+
+        - alert: CephOSDNearFull
+          expr: |-
+            ceph_osd_utilization > 85
+          for: 15m
+          annotations:
+            summary: "Ceph OSD {{ $labels.osd }} is nearly full"
+            description: |-
+              Ceph OSD {{ $labels.osd }} is {{ $value | humanizePercentage }} full.
+              Consider rebalancing data or adding storage capacity.
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: CephMgrDown
+          expr: |-
+            ceph_mgr_up == 0
+          for: 5m
+          annotations:
+            summary: "Ceph manager is unavailable"
+            description: |-
+              No active Ceph manager detected for more than 5 minutes.
+              Management operations and dashboard will be unavailable.
+          labels:
+            severity: critical
+            component: storage
+
+        - alert: CephMgrFailover
+          expr: |-
+            changes(ceph_mgr_status{status="active"}[10m]) > 0
+          annotations:
+            summary: "Ceph manager failed over"
+            description: |-
+              Ceph manager failed over to {{ $labels.ceph_daemon }}.
+              Previous active manager may have experienced issues.
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: CephMonDown
+          expr: |-
+            ceph_mon_quorum_status == 0
+          for: 5m
+          annotations:
+            summary: "Ceph monitor {{ $labels.ceph_daemon }} is down"
+            description: |-
+              Ceph monitor {{ $labels.ceph_daemon }} has been out of quorum for more than 5 minutes.
+              Monitor availability is critical for cluster operations.
+          labels:
+            severity: critical
+            component: storage
+
+        - alert: CephPoolNearFull
+          expr: |-
+            (ceph_pool_bytes_used / ceph_pool_max_avail) > 0.85
+          for: 15m
+          annotations:
+            summary: "Ceph pool {{ $labels.name }} is nearly full"
+            description: |-
+              Ceph pool {{ $labels.name }} is {{ $value | humanizePercentage }} full.
+              Consider expanding storage or cleaning up old data.
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: CephSlowOperations
+          expr: |-
+            ceph_health_detail{name="SLOW_OPS"} > 0
+          for: 10m
+          annotations:
+            summary: "Ceph is experiencing real-time slow operations"
+            description: |-
+              Ceph has {{ $value }} currently slow operations (not historical warnings).
+              This indicates actual performance issues requiring investigation.
+              Check 'ceph osd perf' and underlying storage performance.
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: CephPGsDegraded
+          expr: |-
+            ceph_pg_degraded > 0
+          for: 10m
+          annotations:
+            summary: "Ceph has degraded placement groups"
+            description: |-
+              Ceph has {{ $value }} degraded PGs for over 10 minutes.
+              Data redundancy may be compromised. Check OSD status and network connectivity.
+          labels:
+            severity: warning
+            component: storage
+
+    # Kubernetes Node Alerts
+    - name: kubernetes-nodes.rules
+      interval: 30s
+      rules:
+        - alert: KubernetesNodeNotReady
+          expr: |-
+            kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 2m
+          annotations:
+            summary: "Kubernetes node {{ $labels.node }} is NotReady"
+            description: |-
+              Node {{ $labels.node }} has been in NotReady state for more than 2 minutes.
+              This will trigger pod evictions and may cause service disruptions.
+              Check kubelet logs and node resources immediately.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: KubernetesNodeMemoryPressure
+          expr: |-
+            kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
+          for: 5m
+          annotations:
+            summary: "Node {{ $labels.node }} is under memory pressure"
+            description: |-
+              Node {{ $labels.node }} is experiencing memory pressure.
+              Pods may be evicted to free up memory.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesNodeDiskPressure
+          expr: |-
+            kube_node_status_condition{condition="DiskPressure",status="true"} == 1
+          for: 5m
+          annotations:
+            summary: "Node {{ $labels.node }} is under disk pressure"
+            description: |-
+              Node {{ $labels.node }} is experiencing disk pressure.
+              Pods may be evicted and new pods cannot be scheduled.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesNodePIDPressure
+          expr: |-
+            kube_node_status_condition{condition="PIDPressure",status="true"} == 1
+          for: 5m
+          annotations:
+            summary: "Node {{ $labels.node }} is under PID pressure"
+            description: |-
+              Node {{ $labels.node }} is running out of PIDs.
+              No new processes can be created.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesNodeNetworkUnavailable
+          expr: |-
+            kube_node_status_condition{condition="NetworkUnavailable",status="true"} == 1
+          for: 2m
+          annotations:
+            summary: "Node {{ $labels.node }} network is unavailable"
+            description: |-
+              Node {{ $labels.node }} network is unavailable.
+              Check CNI (Cilium) configuration and network connectivity.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: KubernetesNodeHighCPU
+          expr: |-
+            (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) * 100 > 90
+          for: 15m
+          annotations:
+            summary: "Node {{ $labels.instance }} CPU usage is high"
+            description: |-
+              Node {{ $labels.instance }} CPU usage is {{ $value | humanize }}% for over 15 minutes.
+              Consider rebalancing workloads or scaling the cluster.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesNodeHighMemory
+          expr: |-
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+          for: 15m
+          annotations:
+            summary: "Node {{ $labels.instance }} memory usage is high"
+            description: |-
+              Node {{ $labels.instance }} memory usage is {{ $value | humanize }}% for over 15 minutes.
+              Risk of OOM kills and pod evictions.
+          labels:
+            severity: warning
+            component: kubernetes
+
+    # Pod Eviction Alerts
+    - name: kubernetes-pod-evictions.rules
+      interval: 30s
+      rules:
+        - alert: KubernetesPodEvictions
+          expr: |-
+            increase(kube_pod_status_reason{reason="Evicted"}[10m]) > 0
+          annotations:
+            summary: "Pods are being evicted in namespace {{ $labels.namespace }}"
+            description: |-
+              {{ $value }} pod(s) have been evicted in namespace {{ $labels.namespace }} in the last 10 minutes.
+              Pod: {{ $labels.pod }}
+              Check node resources and pod resource requests/limits.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesPodOOMKilled
+          expr: |-
+            increase(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[10m]) > 0
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOM killed"
+            description: |-
+              Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} was killed due to out-of-memory.
+              Consider increasing memory limits or investigating memory leaks.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesPodCrashLooping
+          expr: |-
+            rate(kube_pod_container_status_restarts_total[15m]) > 0.1
+          for: 5m
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
+            description: |-
+              Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently ({{ $value | humanize }} restarts/sec).
+              Check pod logs for errors.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesPodNotReady
+          expr: |-
+            kube_pod_status_ready{condition="false"} == 1
+            and
+            kube_pod_status_phase{phase=~"Running"} == 1
+          for: 10m
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+            description: |-
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in Running but Not Ready state for over 10 minutes.
+              Check readiness probe and pod health.
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesPodPending
+          expr: |-
+            kube_pod_status_phase{phase="Pending"} == 1
+          for: 10m
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is stuck in Pending"
+            description: |-
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been pending for over 10 minutes.
+              Check resource availability, node affinity, and PVC binding.
+          labels:
+            severity: warning
+            component: kubernetes
+
+    # Control Plane Alerts
+    - name: kubernetes-control-plane.rules
+      interval: 30s
+      rules:
+        - alert: KubernetesAPIServerDown
+          expr: |-
+            absent(up{job="kube-apiserver"}) or up{job="kube-apiserver"} == 0
+          for: 5m
+          annotations:
+            summary: "Kubernetes API server is down"
+            description: |-
+              Kubernetes API server has been unavailable for more than 5 minutes.
+              The cluster control plane is not functioning.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: KubernetesControllerManagerDown
+          expr: |-
+            absent(up{job="kube-controller-manager"}) or up{job="kube-controller-manager"} == 0
+          for: 5m
+          annotations:
+            summary: "Kubernetes controller manager is down"
+            description: |-
+              Kubernetes controller manager has been unavailable for more than 5 minutes.
+              Background control loops are not running.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: KubernetesSchedulerDown
+          expr: |-
+            absent(up{job="kube-scheduler"}) or up{job="kube-scheduler"} == 0
+          for: 5m
+          annotations:
+            summary: "Kubernetes scheduler is down"
+            description: |-
+              Kubernetes scheduler has been unavailable for more than 5 minutes.
+              New pods cannot be scheduled.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: KubernetesEtcdDown
+          expr: |-
+            absent(up{job="etcd"}) or up{job="etcd"} == 0
+          for: 3m
+          annotations:
+            summary: "Etcd is down"
+            description: |-
+              Etcd has been unavailable for more than 3 minutes.
+              The cluster state store is not functioning.
+          labels:
+            severity: critical
+            component: kubernetes
