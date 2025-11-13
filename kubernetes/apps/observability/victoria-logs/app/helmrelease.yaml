@@ -19,6 +19,9 @@ spec:
         size: 200Gi
       serviceMonitor:
         enabled: true
+      extraArgs:
+        search.maxConcurrentRequests: "8"
+        search.maxQueueDuration: "30s"
       resources:
         requests:
           cpu: 500m
