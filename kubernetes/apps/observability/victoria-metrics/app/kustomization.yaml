@@ -10,5 +10,6 @@ resources:
   - ./vmstaticscrape.yaml
   - ./vmservicescrape-stack.yaml
   - ./vmrule-stack.yaml
+  - ./vmrule-infrastructure.yaml
   - ./httproute.yaml
   - ./grafanadashboards.yaml
