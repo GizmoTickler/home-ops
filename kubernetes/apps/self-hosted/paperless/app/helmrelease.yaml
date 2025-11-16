@@ -85,10 +85,6 @@ spec:
             image:
               repository: ghcr.io/valkey-io/valkey
               tag: 9.0.0
-            securityContext:
-              allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: false
-              capabilities: { drop: ["ALL"] }
             resources:
               requests:
                 cpu: 5m
