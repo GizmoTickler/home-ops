@@ -1,22 +1,3 @@
-<!-- OPENSPEC:START -->
-# OpenSpec Instructions
-
-These instructions are for AI assistants working in this project.
-
-Always open `@/openspec/AGENTS.md` when the request:
-- Mentions planning or proposals (words like proposal, spec, change, plan)
-- Introduces new capabilities, breaking changes, architecture shifts, or big performance/security work
-- Sounds ambiguous and you need the authoritative spec before coding
-
-Use `@/openspec/AGENTS.md` to learn:
-- How to create and apply change proposals
-- Spec format and conventions
-- Project structure and guidelines
-
-Keep this managed block so 'openspec update' can refresh the instructions.
-
-<!-- OPENSPEC:END -->
-
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -117,12 +98,6 @@ flux <command>
 ```
 **Always run format, type-check, and test before completing any task.**
 
-### Memory & Knowledge System
-- **Markdown-based storage** in `.serena/memories/` directories
-- **Project-specific knowledge** persistence across sessions
-- **Contextual retrieval** based on relevance
-- **Onboarding support** for new projects
-
 ## Architecture Overview
 
 ### CLI Architecture (cmd/homeops-cli/)
@@ -180,7 +155,397 @@ kubernetes/apps/<namespace>/<app>/
 - `cert-manager` - Certificate management
 - `external-secrets` - 1Password integration
 - `observability` - Grafana, Prometheus, Loki stack
-- `default` - Media applications and productivity tools
+- `downloads` - Media acquisition apps (Radarr, Sonarr, qBittorrent, etc.)
+- `media` - Media serving apps
+- `self-hosted` - Self-hosted utilities and tools
+- `automation` - Automation tools (n8n)
+- `network` - Networking applications
+- `rook-ceph` - Distributed storage
+- `openebs-system` - Local storage
+- `volsync-system` - Backup orchestration
+
+## Kubernetes Manifest Patterns
+
+### ks.yaml (Flux Kustomization) Pattern
+
+The `ks.yaml` files define Flux Kustomization resources that reconcile applications from git.
+
+**Standard Pattern:**
+```yaml
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: <app-name>
+spec:
+  interval: 1h                    # Reconciliation interval (1h standard, 12h for CRDs)
+  path: ./kubernetes/apps/<namespace>/<app>/app
+  prune: true                     # Delete resources removed from git (false for CRDs)
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  targetNamespace: <namespace>
+  wait: false                     # Wait for resources to be ready (true for infrastructure)
+```
+
+**Component Injection (Storage-aware apps):**
+```yaml
+spec:
+  components:
+    - ../../../../components/nfs-scaler    # KEDA auto-scaling for NFS availability
+    - ../../../../components/volsync       # Backup/restore with Kopia
+```
+
+**Dependencies:**
+```yaml
+spec:
+  dependsOn:
+    - name: keda
+      namespace: observability
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+```
+
+**Variable Substitution:**
+```yaml
+spec:
+  postBuild:
+    substitute:
+      APP: radarr
+      VOLSYNC_CAPACITY: 5Gi
+```
+
+**Health Checks (Critical infrastructure):**
+```yaml
+spec:
+  healthChecks:
+    - apiVersion: ceph.rook.io/v1
+      kind: CephCluster
+      namespace: rook-ceph
+      name: rook-ceph
+  healthCheckExprs:
+    - apiVersion: ceph.rook.io/v1
+      kind: CephCluster
+      failed: status.ceph.health == 'HEALTH_ERR'
+      current: status.ceph.health in ['HEALTH_OK', 'HEALTH_WARN']
+```
+
+**Multi-Part Applications (e.g., Grafana, Rook Ceph):**
+Multiple Kustomization resources in one file with dependencies:
+```yaml
+---
+# Part 1: Deploy operator
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: grafana
+spec:
+  wait: true  # Wait for operator to be ready
+---
+# Part 2: Deploy instance
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: grafana-instance
+spec:
+  dependsOn:
+    - name: grafana
+  wait: false
+```
+
+**Root Flux Kustomization (`flux/cluster/ks.yaml`):**
+Applies patches to all child Kustomizations:
+- SOPS decryption configuration
+- HelmRelease defaults (CRD strategies, retry behavior)
+- cluster-config-secret substitution
+
+### HelmRelease Pattern
+
+**Standard Structure:**
+```yaml
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: <app-name>
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: <app-name>
+  interval: 1h
+  values:
+    # Inline Helm values (no separate values.yaml files)
+```
+
+**Two Chart Types:**
+1. **app-template** (bjw-s-labs v4.4.0): Used for custom apps (Radarr, Sonarr, qBittorrent, etc.)
+2. **Native charts**: Used for infrastructure (Cilium, Grafana, Victoria Metrics, Rook Ceph)
+
+### app-template HelmRelease Pattern
+
+**Core Structure:**
+```yaml
+values:
+  controllers:
+    <controller-name>:
+      annotations:
+        reloader.stakater.com/auto: "true"  # Auto-reload on config changes
+      containers:
+        app:
+          image:
+            repository: ghcr.io/...
+            tag: x.y.z@sha256:...  # Always pinned with SHA256 digest
+          env:
+            PORT: &port 80
+          envFrom:
+            - secretRef:
+                name: <app>-secret
+          probes:
+            liveness: &probes
+              enabled: true
+              custom: true
+              spec:
+                httpGet:
+                  path: /ping
+                  port: *port
+                initialDelaySeconds: 20
+                periodSeconds: 10
+                timeoutSeconds: 1
+                failureThreshold: 3
+            readiness: *probes
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+```
+
+**Security Context (Standard for all apps):**
+```yaml
+defaultPodOptions:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+```
+
+**Service Definition:**
+```yaml
+service:
+  app:
+    ports:
+      http:
+        port: *port
+```
+
+**Gateway API Routes (HTTPRoute):**
+```yaml
+route:
+  app:
+    hostnames:
+      - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+    parentRefs:
+      - name: envoy-internal    # or envoy-external
+        namespace: network
+        sectionName: https
+```
+
+**Persistence Patterns:**
+
+```yaml
+persistence:
+  # Existing PVC
+  config:
+    existingClaim: "{{ .Release.Name }}"
+
+  # NFS Mount
+  media:
+    type: nfs
+    server: nas01.${SECRET_DOMAIN}
+    path: /mnt/flashstor/data
+    globalMounts:
+      - path: /media
+
+  # EmptyDir
+  tmp:
+    type: emptyDir
+
+  # ConfigMap
+  config-file:
+    type: configMap
+    name: <configmap-name>
+    globalMounts:
+      - path: /config/file.conf
+        subPath: file.conf
+
+  # Secret with advanced mounts
+  auth:
+    type: secret
+    name: <secret-name>
+    advancedMounts:
+      <controller-name>:
+        <container-name>:
+          - path: /path/to/file
+            subPath: file
+
+  # Image-based (sidecar pattern)
+  tool:
+    type: image
+    image: ghcr.io/org/tool:tag@sha256:...
+```
+
+**Multi-Container Pattern:**
+```yaml
+controllers:
+  <app>:
+    initContainers:
+      sidecar:
+        image: {...}
+        restartPolicy: Always  # Long-running sidecar
+    containers:
+      app: {...}
+      helper: {...}
+```
+
+### Kustomization Pattern
+
+**Namespace-Level (`kubernetes/apps/<namespace>/kustomization.yaml`):**
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: <namespace>
+components:
+  - ../../components/alerts         # AlertManager + GitHub status
+  - ../../components/cluster-secret # Cluster-config substitution
+resources:
+  - ./namespace.yaml
+  - ./app1/ks.yaml
+  - ./app2/ks.yaml
+```
+
+**App-Level (`kubernetes/apps/<namespace>/<app>/app/kustomization.yaml`):**
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./ocirepository.yaml
+  - ./externalsecret.yaml
+  - ./pvc.yaml
+  - ./helmrelease.yaml
+  - ./grafanadashboard.yaml
+  - ./vmrule.yaml
+  - ./servicemonitor.yaml
+```
+
+### Component Pattern
+
+Components are reusable Kustomize configurations injected into multiple apps.
+
+**Component Structure:**
+```yaml
+apiVersion: kustomize.config.k8s.io/v1alpha1  # Note: v1alpha1, not v1beta1
+kind: Component
+resources:
+  - ./resource1.yaml
+  - ./resource2.yaml
+```
+
+**Available Components:**
+
+1. **volsync** (`components/volsync/`):
+   - PVC with ReplicationDestination dataSource
+   - ReplicationSource with Kopia backend
+   - Variables: `${APP}`, `${VOLSYNC_CAPACITY}`, `${VOLSYNC_STORAGECLASS}`
+
+2. **nfs-scaler** (`components/nfs-scaler/`):
+   - ScaledObject (KEDA) that scales to 0 when NFS unavailable
+   - Prometheus query: `probe_success{instance=~".+:2049"}`
+
+3. **alerts** (`components/alerts/`):
+   - AlertManager configuration
+   - GitHub status notifications
+
+4. **cluster-secret** (`components/cluster-secret/`):
+   - ExternalSecret for cluster-wide configuration
+   - Provides: `${SECRET_DOMAIN}`, etc.
+
+**Usage:**
+```yaml
+# In ks.yaml:
+spec:
+  components:
+    - ../../../../components/volsync
+
+# In namespace kustomization.yaml:
+components:
+  - ../../components/alerts
+```
+
+### OCIRepository Pattern
+
+**Standard Pattern:**
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: <app-name>
+spec:
+  interval: 15m
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+  ref:
+    tag: <version>
+  url: oci://<registry>/<path>
+```
+
+**Common Registries:**
+- `oci://ghcr.io/bjw-s-labs/helm/app-template` - app-template v4.4.0
+- `oci://ghcr.io/home-operations/charts-mirror/cilium` - Mirrored charts
+- `oci://ghcr.io/grafana/helm-charts/grafana-operator` - Official Grafana
+- `oci://ghcr.io/rook/rook-ceph` - Official Rook Ceph
+
+### Variable Substitution Flow
+
+1. **cluster-config-secret** (from 1Password via ExternalSecret)
+2. **Flux root patches** inject into all Kustomizations
+3. **App-level postBuild.substitute** (APP=radarr, VOLSYNC_CAPACITY=5Gi)
+4. **Component templates** use variables (${APP}, ${VOLSYNC_CAPACITY})
+5. **Helm values** use templates ({{ .Release.Name }}, ${SECRET_DOMAIN})
+
+### Observability Pattern
+
+Most applications include:
+```yaml
+# In helmrelease.yaml:
+serviceMonitor:
+  app:
+    endpoints:
+      - port: http
+
+# Additional files in app/:
+- vmrule.yaml           # Victoria Metrics alerting rules
+- servicemonitor.yaml   # Prometheus scraping config
+- grafanadashboard.yaml # Grafana dashboard definitions
+```
+
+### Best Practices
+
+1. **Security**: All apps run non-root with read-only root filesystem
+2. **Images**: Always pin SHA256 digests
+3. **Secrets**: Use External Secrets Operator with 1Password
+4. **Storage**: Ceph for distributed, OpenEBS for local, VolSync for backups
+5. **Networking**: Gateway API (HTTPRoute) instead of Ingress
+6. **GitOps**: All configuration in git, Flux reconciles automatically
+7. **Dependencies**: Explicitly declare with dependsOn
+8. **Schema Validation**: Always include yaml-language-server schema hints
 
 ### Infrastructure Components
 
