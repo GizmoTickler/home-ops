@@ -70,7 +70,7 @@ spec:
                   periodSeconds: 5
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
+              readOnlyRootFilesystem: false
               capabilities: { drop: ["ALL"] }
             resources:
               requests:
@@ -141,15 +141,3 @@ spec:
           paperless:
             app:
               - path: /data/nas
-      run:
-        type: emptyDir
-        advancedMounts:
-          paperless:
-            app:
-              - path: /run
-      tmp:
-        type: emptyDir
-        advancedMounts:
-          paperless:
-            app:
-              - path: /tmp
