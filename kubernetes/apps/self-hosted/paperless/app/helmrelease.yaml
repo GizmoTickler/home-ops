@@ -71,7 +71,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
+              capabilities: { drop: ["ALL"] }
             resources:
               requests:
                 cpu: 25m
@@ -88,7 +88,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: {drop: ["ALL"]}
+              capabilities: { drop: ["ALL"] }
             resources:
               requests:
                 cpu: 5m
@@ -132,7 +132,7 @@ spec:
       nas:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
-        path: /mnt/flashstor/apps/paperless
+        path: /mnt/flashstor/data/paperless
         advancedMounts:
           paperless:
             app:
