@@ -141,3 +141,15 @@ spec:
           paperless:
             app:
               - path: /data/nas
+      run:
+        type: emptyDir
+        advancedMounts:
+          paperless:
+            app:
+              - path: /run
+      tmp:
+        type: emptyDir
+        advancedMounts:
+          paperless:
+            app:
+              - path: /tmp
