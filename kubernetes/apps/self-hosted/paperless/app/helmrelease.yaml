@@ -46,6 +46,7 @@ spec:
               # Configure redis integration
               PAPERLESS_REDIS: "redis://{{ .Release.Name }}-redis.self-hosted.svc.cluster.local:6379"
               # Configure user permissions
+              USERMAP_UID: "1000"
               USERMAP_GID: "1000"
               # Configure admin user
               PAPERLESS_ADMIN_USER:
@@ -69,9 +70,12 @@ spec:
                   failureThreshold: 30
                   periodSeconds: 5
             securityContext:
+              runAsUser: 1000
+              runAsGroup: 1000
+              runAsNonRoot: true
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: false
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 25m
