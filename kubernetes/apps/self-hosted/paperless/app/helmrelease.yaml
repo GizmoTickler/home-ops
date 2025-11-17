@@ -95,8 +95,7 @@ spec:
                 memory: 128Mi
     defaultPodOptions:
       securityContext:
-        fsGroup: 1000
-        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: false
     service:
       app:
         controller: paperless
