@@ -66,10 +66,31 @@ To add a new application, follow these steps:
     kind: Kustomization
     resources:
       - ./helmrelease.yaml
+      - ./ocirepository.yaml
       # - ./secret.yaml
     ```
 
-6.  **Create `app/helmrelease.yaml`**: This defines the Helm chart deployment.
+6.  **Create `app/ocirepository.yaml`**: This defines the source for the Helm chart.
+
+    **Template `app/ocirepository.yaml`**:
+    ```yaml
+    ---
+    # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/source.toolkit.fluxcd.io/ocirepository_v1.json
+    apiVersion: source.toolkit.fluxcd.io/v1
+    kind: OCIRepository
+    metadata:
+      name: my-app
+    spec:
+      interval: 15m
+      layerSelector:
+        mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+        operation: copy
+      ref:
+        tag: 3.2.1 # Chart version
+      url: oci://ghcr.io/bjw-s-labs/helm/app-template
+    ```
+
+7.  **Create `app/helmrelease.yaml`**: This defines the Helm chart deployment.
 
     **Template `app/helmrelease.yaml`**:
     ```yaml
@@ -83,8 +104,8 @@ To add a new application, follow these steps:
       interval: 1h
       chartRef:
         kind: OCIRepository
-        name: app-template # Or specific chart name
-        namespace: flux-system
+        name: my-app # Matches OCIRepository name
+    #    namespace: flux-system # Use this if using a shared OCIRepository
       values:
         controllers:
           my-app:
@@ -95,7 +116,7 @@ To add a new application, follow these steps:
                   tag: latest
     ```
 
-7.  **Register the App**: Add your new app directory to the namespace-level `kustomization.yaml` (`kubernetes/apps/<namespace>/kustomization.yaml`).
+8.  **Register the App**: Add your new app directory to the namespace-level `kustomization.yaml` (`kubernetes/apps/<namespace>/kustomization.yaml`).
 
     ```yaml
     resources:
