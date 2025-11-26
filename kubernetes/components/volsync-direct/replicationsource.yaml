@@ -9,30 +9,22 @@ spec:
   trigger:
     schedule: 0 * * * *
   kopia:
+    accessModes:
+      - ${VOLSYNC_SNAP_ACCESSMODES:=ReadWriteOnce}
     cacheAccessModes:
       - ${VOLSYNC_CACHE_ACCESSMODES:=ReadWriteOnce}
     cacheCapacity: ${VOLSYNC_CAPACITY:=5Gi}
-    cacheStorageClassName: ${VOLSYNC_CACHE_SNAPSHOTCLASS:=openebs-hostpath}
+    cacheStorageClassName: ${VOLSYNC_CACHE_STORAGECLASS:=openebs-hostpath}
     compression: zstd-fastest
-    copyMethod: Direct
+    copyMethod: Snapshot
     moverSecurityContext:
       runAsUser: ${VOLSYNC_PUID:=1000}
       runAsGroup: ${VOLSYNC_PGID:=1000}
       fsGroup: ${VOLSYNC_PGID:=1000}
-    moverAffinity:
-      podAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                  - key: app.kubernetes.io/name
-                    operator: In
-                    values:
-                      - ${APP}
-              topologyKey: kubernetes.io/hostname
     parallelism: 2
     repository: ${APP}-volsync-secret
     retain:
       hourly: 24
       daily: 7
+    storageClassName: ${VOLSYNC_STORAGECLASS:=truenas-iscsi}
+    volumeSnapshotClassName: ${VOLSYNC_SNAPSHOTCLASS:=truenas-snapshot}
