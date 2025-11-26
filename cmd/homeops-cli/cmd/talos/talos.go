@@ -14,6 +14,7 @@ import (
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/ssh"
@@ -63,21 +64,40 @@ func getEnvOrDefault(key, defaultValue string) string {
 
 // getTrueNASCredentials retrieves TrueNAS credentials from 1Password or environment variables
 func getTrueNASCredentials() (host, apiKey string, err error) {
-	// Try 1Password first
-	host = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-	apiKey = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_API")
+	logger := common.NewColorLogger()
+	usedEnvFallback := false
+
+	// Try 1Password first - batch lookup for better performance
+	secrets := common.Get1PasswordSecretsBatch([]string{
+		constants.OpTrueNASHost,
+		constants.OpTrueNASAPI,
+	})
+	host = secrets[constants.OpTrueNASHost]
+	apiKey = secrets[constants.OpTrueNASAPI]
 
 	// Fall back to environment variables if 1Password fails
 	if host == "" {
-		host = os.Getenv("TRUENAS_HOST")
+		host = os.Getenv(constants.EnvTrueNASHost)
+		if host != "" {
+			usedEnvFallback = true
+		}
 	}
 	if apiKey == "" {
-		apiKey = os.Getenv("TRUENAS_API_KEY")
+		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
+		if apiKey != "" {
+			usedEnvFallback = true
+		}
 	}
 
 	// Check if we have both credentials
 	if host == "" || apiKey == "" {
-		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set TRUENAS_HOST and TRUENAS_API_KEY environment variables or configure 1Password with 'op://Infrastructure/talosdeploy/TRUENAS_HOST' and 'op://Infrastructure/talosdeploy/TRUENAS_API'")
+		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set %s and %s environment variables or configure 1Password with '%s' and '%s'",
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+	}
+
+	// Warn if using environment variables (less secure than 1Password)
+	if usedEnvFallback {
+		logger.Warn("Using environment variables for TrueNAS credentials. Consider using 1Password for better security.")
 	}
 
 	return host, apiKey, nil
@@ -91,12 +111,12 @@ func get1PasswordSecret(reference string) string {
 // getSpicePassword retrieves SPICE password from 1Password or environment variables
 func getSpicePassword() string {
 	// Try 1Password first
-	password := get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS")
+	password := get1PasswordSecret(constants.OpTrueNASSPICEPass)
 	if password != "" {
 		return password
 	}
 	// Fall back to environment variable
-	return os.Getenv("SPICE_PASSWORD")
+	return os.Getenv(constants.EnvSPICEPassword)
 }
 
 func newApplyNodeCommand() *cobra.Command {
@@ -259,27 +279,51 @@ func getTalosNodeIPs() ([]string, error) {
 
 // getESXiVMNames retrieves the list of VM names from ESXi/vSphere
 func getESXiVMNames() ([]string, error) {
-	// Get vSphere credentials
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+	logger := common.NewColorLogger()
+	usedEnvFallback := false
+
+	// Get vSphere credentials - batch lookup from 1Password for better performance
+	secrets := common.Get1PasswordSecretsBatch([]string{
+		constants.OpESXiHost,
+		constants.OpESXiUsername,
+		constants.OpESXiPassword,
+	})
+	host := secrets[constants.OpESXiHost]
+	username := secrets[constants.OpESXiUsername]
+	password := secrets[constants.OpESXiPassword]
+
+	// Fall back to environment variables if 1Password fails
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
+		if host != "" {
+			usedEnvFallback = true
+		}
 	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
+		if username != "" {
+			usedEnvFallback = true
+		}
 	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
+		if password != "" {
+			usedEnvFallback = true
+		}
 	}
 
 	if host == "" || username == "" || password == "" {
 		return nil, fmt.Errorf("vSphere credentials not found")
 	}
 
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
+	// Warn if using environment variables (less secure than 1Password)
+	if usedEnvFallback {
+		logger.Warn("Using environment variables for vSphere credentials. Consider using 1Password for better security.")
+	}
+
+	// Create vSphere client and connect
+	client, err := vsphere.NewClientWithConnect(host, username, password, true)
+	if err != nil {
 		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() { _ = client.Close() }()

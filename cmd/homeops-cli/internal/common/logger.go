@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/fatih/color"
@@ -24,7 +25,8 @@ const (
 // ColorLogger provides colored console output
 type ColorLogger struct {
 	Level LogLevel
-	Quiet bool // When true, suppress all output
+	quiet bool       // When true, suppress all output (use SetQuiet/IsQuiet for thread-safe access)
+	mu    sync.Mutex // Protects quiet field
 }
 
 // NewColorLogger creates a new colored logger
@@ -36,9 +38,23 @@ func NewColorLogger() *ColorLogger {
 	return &ColorLogger{Level: level}
 }
 
+// SetQuiet sets the quiet mode in a thread-safe manner
+func (l *ColorLogger) SetQuiet(quiet bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.quiet = quiet
+}
+
+// IsQuiet returns the quiet mode status in a thread-safe manner
+func (l *ColorLogger) IsQuiet() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.quiet
+}
+
 // Debug logs debug messages
 func (l *ColorLogger) Debug(msg string, args ...interface{}) {
-	if l.Quiet {
+	if l.IsQuiet() {
 		return
 	}
 	if l.Level <= DebugLevel {
@@ -49,7 +65,7 @@ func (l *ColorLogger) Debug(msg string, args ...interface{}) {
 
 // Info logs info messages
 func (l *ColorLogger) Info(msg string, args ...interface{}) {
-	if l.Quiet {
+	if l.IsQuiet() {
 		return
 	}
 	if l.Level <= InfoLevel {
@@ -60,7 +76,7 @@ func (l *ColorLogger) Info(msg string, args ...interface{}) {
 
 // Warn logs warning messages
 func (l *ColorLogger) Warn(msg string, args ...interface{}) {
-	if l.Quiet {
+	if l.IsQuiet() {
 		return
 	}
 	if l.Level <= WarnLevel {
@@ -71,7 +87,7 @@ func (l *ColorLogger) Warn(msg string, args ...interface{}) {
 
 // Error logs error messages
 func (l *ColorLogger) Error(msg string, args ...interface{}) {
-	if l.Quiet {
+	if l.IsQuiet() {
 		return
 	}
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
@@ -80,7 +96,7 @@ func (l *ColorLogger) Error(msg string, args ...interface{}) {
 
 // Success logs success messages (always shown)
 func (l *ColorLogger) Success(msg string, args ...interface{}) {
-	if l.Quiet {
+	if l.IsQuiet() {
 		return
 	}
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")

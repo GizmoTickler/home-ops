@@ -132,23 +132,12 @@ func suspendVolsyncResource(namespace, name string, all bool) error {
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		getNamespacesCmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getNamespacesCmd.Output()
-		if err != nil {
-			return fmt.Errorf("failed to get namespaces: %w", err)
-		}
-
-		namespaces := strings.Fields(string(output))
-		if len(namespaces) == 0 {
-			return fmt.Errorf("no namespaces found in cluster")
-		}
-
-		selectedNS, err := ui.Choose("Select namespace:", namespaces)
+		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
 			}
-			return fmt.Errorf("namespace selection failed: %w", err)
+			return err
 		}
 		namespace = selectedNS
 	}
@@ -266,23 +255,12 @@ func resumeVolsyncResource(namespace, name string, all bool) error {
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		getNamespacesCmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getNamespacesCmd.Output()
-		if err != nil {
-			return fmt.Errorf("failed to get namespaces: %w", err)
-		}
-
-		namespaces := strings.Fields(string(output))
-		if len(namespaces) == 0 {
-			return fmt.Errorf("no namespaces found in cluster")
-		}
-
-		selectedNS, err := ui.Choose("Select namespace:", namespaces)
+		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
 			}
-			return fmt.Errorf("namespace selection failed: %w", err)
+			return err
 		}
 		namespace = selectedNS
 	}
@@ -926,13 +904,23 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	jobName := fmt.Sprintf("volsync-dst-%s-manual", app)
 	logger.Info("Waiting for restore job %s to complete...", jobName)
 
-	// Wait for job to appear
-	for i := 0; i < 60; i++ {
+	// Wait for job to appear with timeout (use 1/4 of restoreTimeout or 5 minutes max for job appearance)
+	jobAppearTimeout := restoreTimeout / 4
+	if jobAppearTimeout > 5*time.Minute {
+		jobAppearTimeout = 5 * time.Minute
+	}
+	jobAppearStart := time.Now()
+	jobAppeared := false
+	for time.Since(jobAppearStart) < jobAppearTimeout {
 		checkJob := exec.Command("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName))
 		if err := checkJob.Run(); err == nil {
+			jobAppeared = true
 			break
 		}
 		time.Sleep(5 * time.Second)
+	}
+	if !jobAppeared {
+		return fmt.Errorf("restore job %s did not appear within %v", jobName, jobAppearTimeout)
 	}
 
 	// Wait for completion
@@ -1291,11 +1279,16 @@ func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) 
 
 	// Rows
 	for _, snap := range snapshots {
+		// Safely truncate LatestTime to avoid index out of bounds
+		displayTime := snap.LatestTime
+		if len(displayTime) > 19 {
+			displayTime = displayTime[0:19]
+		}
 		fmt.Printf("%-15s %-12s %-8d %-20s %-10s %s\n",
 			snap.App,
 			snap.Namespace,
 			snap.Count,
-			snap.LatestTime[0:19], // Trim to just date and time
+			displayTime,
 			snap.Size,
 			snap.RetentionTags)
 	}

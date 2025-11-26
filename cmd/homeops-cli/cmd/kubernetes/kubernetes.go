@@ -327,34 +327,14 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		// Get list of namespaces
-		getNamespacesCmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getNamespacesCmd.Output()
-		if err != nil {
-			return fmt.Errorf("failed to get namespaces: %w", err)
-		}
-
-		namespaces := strings.Fields(string(output))
-		if len(namespaces) == 0 {
-			return fmt.Errorf("no namespaces found in cluster")
-		}
-
-		// Add "all namespaces" option
-		namespaces = append([]string{"(all namespaces)"}, namespaces...)
-
-		// Use interactive selector
-		selectedNS, err := ui.Choose("Select namespace:", namespaces)
+		selectedNS, err := ui.SelectNamespace("Select namespace:", true)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
 			}
-			return fmt.Errorf("namespace selection failed: %w", err)
+			return err
 		}
-
-		// If user selected "all namespaces", leave namespace empty
-		if selectedNS != "(all namespaces)" {
-			namespace = selectedNS
-		}
+		namespace = selectedNS // Empty string means "all namespaces"
 	}
 
 	// If phases are not provided, prompt for selection
