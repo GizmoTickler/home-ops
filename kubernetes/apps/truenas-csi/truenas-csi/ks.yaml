@@ -6,7 +6,7 @@ metadata:
   name: truenas-csi
 spec:
   dependsOn:
-    - name: external-secrets-stores
+    - name: external-secrets
       namespace: external-secrets
     - name: snapshot-controller
       namespace: kube-system
