@@ -51,8 +51,8 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
 - **Storage Strategy**: Dual NVMe controller architecture:
-  - **Controller 1**: 500GB vdisk for Talos boot and OpenEBS local-path storage
-  - **Controller 2**: 1TB vdisk for OpenEBS local storage (high-performance workloads)
+  - **Controller 1**: 500GB vdisk for Talos boot
+  - **Controller 2**: 1TB vdisk for OpenEBS local storage
 - **External Storage**: TrueNAS iSCSI CSI driver for persistent volumes with NFS for media
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
@@ -338,8 +338,8 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 **Storage Details**:
 - Each VM has two dedicated NVMe controllers for isolation and performance
-- Controller 1: 500GB vdisk for Talos boot partition
-- Controller 2: 1TB vdisk for OpenEBS local-path storage (high-performance workloads)
+- Controller 1: 500GB vdisk for Talos boot
+- Controller 2: 1TB vdisk for OpenEBS local storage
 - Persistent volumes: TrueNAS iSCSI CSI driver provides external block storage
 
 **Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
