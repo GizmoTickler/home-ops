@@ -8,6 +8,8 @@ provisioner: org.truenas.csi
 reclaimPolicy: Delete
 volumeBindingMode: Immediate
 allowVolumeExpansion: true
+parameters:
+  protocol: nfs
 mountOptions:
   - nfsvers=4
   - noatime
