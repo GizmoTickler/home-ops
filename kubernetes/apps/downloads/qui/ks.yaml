@@ -7,10 +7,10 @@ metadata:
 spec:
   components:
     - ../../../../components/nfs-scaler
-    - ../../../../components/volsync
+    - ../../../../components/volsync-direct
   dependsOn:
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
+    - name: truenas-csi
+      namespace: truenas-csi
     - name: qbittorrent
       namespace: downloads
   interval: 1h
