@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -55,6 +56,34 @@ func Get1PasswordSecretSilent(reference string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// Get1PasswordSecretsBatch retrieves multiple secrets from 1Password in parallel
+// Returns a map of reference -> secret value. Failed lookups are omitted from the map.
+func Get1PasswordSecretsBatch(references []string) map[string]string {
+	if len(references) == 0 {
+		return make(map[string]string)
+	}
+
+	results := make(map[string]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, ref := range references {
+		wg.Add(1)
+		go func(reference string) {
+			defer wg.Done()
+			secret := Get1PasswordSecretSilent(reference)
+			if secret != "" {
+				mu.Lock()
+				results[reference] = secret
+				mu.Unlock()
+			}
+		}(ref)
+	}
+
+	wg.Wait()
+	return results
 }
 
 // InjectSecrets replaces op:// references with actual secrets from 1Password

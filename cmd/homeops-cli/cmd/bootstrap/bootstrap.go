@@ -54,8 +54,8 @@ func runWithSpinner(title string, verbose bool, logger *common.ColorLogger, fn f
 	}
 	// In normal mode, use spinner and suppress logger output
 	return ui.SpinWithFunc(title, func() error {
-		logger.Quiet = true
-		defer func() { logger.Quiet = false }()
+		logger.SetQuiet(true)
+		defer func() { logger.SetQuiet(false) }()
 		return fn()
 	})
 }

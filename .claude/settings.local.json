@@ -37,7 +37,11 @@
       "Bash(for app in actual atuin freshrss karakeep opencloud thelounge)",
       "Bash(do flux reconcile kustomization:*)",
       "Bash(done)",
-      "Bash(talosctl:*)"
+      "Bash(talosctl:*)",
+      "Bash(find:*)",
+      "Bash(tree:*)",
+      "Bash(go build:*)",
+      "Bash(./homeops-cli bootstrap:*)"
     ],
     "deny": [],
     "ask": []
