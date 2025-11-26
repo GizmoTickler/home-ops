@@ -11,7 +11,7 @@ spec:
   interval: 1h
   dependsOn:
     - name: qbittorrent
-      namespace: default
+      namespace: downloads
   values:
     controllers:
       tqm:
