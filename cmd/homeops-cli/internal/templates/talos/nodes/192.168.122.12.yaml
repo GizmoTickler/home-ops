@@ -31,3 +31,11 @@ apiVersion: v1alpha1
 kind: EthernetConfig
 name: eth0
 rings: {rx: 1024, tx: 1024}
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-hostpath
+provisioning:
+  diskSelector:
+    match: "!system_disk"
+  minSize: 1TB
