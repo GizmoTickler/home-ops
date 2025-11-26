@@ -6,18 +6,17 @@ metadata:
   name: n8n
 spec:
   components:
-    - ../../../../components/volsync
+    - ../../../../components/volsync-direct
   dependsOn:
-    - name: keda
-      namespace: observability
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
+    - name: truenas-csi
+      namespace: truenas-csi
   interval: 1h
   path: ./kubernetes/apps/automation/n8n/app
   postBuild:
     substitute:
       APP: n8n
       VOLSYNC_CAPACITY: 10Gi
+      VOLSYNC_STORAGECLASS: truenas-iscsi
   prune: true
   sourceRef:
     kind: GitRepository
