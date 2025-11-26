@@ -11,4 +11,5 @@ reclaimPolicy: Delete
 volumeBindingMode: Immediate
 allowVolumeExpansion: true
 parameters:
+  protocol: iscsi
   fsType: ext4
