@@ -14,6 +14,14 @@ spec:
       freshrss:
         annotations:
           reloader.stakater.com/auto: "true"
+        initContainers:
+          fix-permissions:
+            image:
+              repository: ghcr.io/home-operations/busybox
+              tag: 1.37.0@sha256:026ed7273270ec08f6902b4ae8334c23b473e5394bec3bbbdbfe580c710d50bc
+            command: ["sh", "-c", "chown -R 100:101 /data"]
+            securityContext:
+              runAsUser: 0
         containers:
           app:
             image:
@@ -53,6 +61,8 @@ spec:
         existingClaim: "{{ .Release.Name }}"
         advancedMounts:
           freshrss:
+            fix-permissions:
+              - path: /data
             app:
               - path: /var/www/FreshRSS/data
                 subPath: data
