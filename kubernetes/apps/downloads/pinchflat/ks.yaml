@@ -7,12 +7,12 @@ metadata:
 spec:
   components:
     - ../../../../components/nfs-scaler
-    - ../../../../components/volsync
+    - ../../../../components/volsync-direct
   dependsOn:
+    - name: truenas-csi
+      namespace: truenas-csi
     - name: keda
       namespace: observability
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
   interval: 1h
   path: ./kubernetes/apps/downloads/pinchflat/app
   postBuild:
