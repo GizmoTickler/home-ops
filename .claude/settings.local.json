@@ -33,7 +33,10 @@
       "Bash(git restore:*)",
       "Bash(/tmp/govc_wrapper.sh vm.info:*)",
       "Bash(/tmp/govc_wrapper.sh datastore.download:*)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(for app in actual atuin freshrss karakeep opencloud thelounge)",
+      "Bash(do flux reconcile kustomization:*)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
