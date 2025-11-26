@@ -846,8 +846,10 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	claim := strings.TrimSpace(string(claimOutput))
 
 	// Get other required fields
+	// Note: STORAGE_CLASS_NAME is not needed with Direct copyMethod since the PVC already exists.
+	// If using Snapshot copyMethod (e.g., with Rook Ceph), add this field:
+	// "STORAGE_CLASS_NAME": "{.spec.kopia.storageClassName}",
 	fields := map[string]string{
-		"STORAGE_CLASS_NAME":  "{.spec.kopia.storageClassName}",
 		"CACHE_STORAGE_CLASS": "{.spec.kopia.cacheStorageClassName}",
 		"CACHE_CAPACITY":      "{.spec.kopia.cacheCapacity}",
 		"PUID":                "{.spec.kopia.moverSecurityContext.runAsUser}",

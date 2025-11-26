@@ -807,12 +807,12 @@ func generateKubeconfig() error {
 	return nil
 }
 
-func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, longhornSize *int, generateISO, dryRun *bool, datastore, network *string, nodeCount, concurrent *int) error {
+func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, openebsSize *int, generateISO, dryRun *bool, datastore, network *string, nodeCount, concurrent *int) error {
 	logger := common.NewColorLogger()
 
 	// Step 1: Select deployment pattern
 	patternOptions := []string{
-		"Default - 3-node k8s cluster (16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each)",
+		"Default - 3-node k8s cluster (16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS each)",
 		"Custom - Choose your own configuration",
 	}
 
@@ -917,37 +917,37 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, long
 			*diskSize = 500 // Default
 		}
 
-		// Longhorn disk
-		longhornInput, err := ui.Input("Enter Longhorn disk size in GB:", "1024")
+		// OpenEBS disk
+		openebsInput, err := ui.Input("Enter OpenEBS disk size in GB:", "1024")
 		if err != nil {
 			return err
 		}
-		if longhornInput != "" {
-			_, _ = fmt.Sscanf(longhornInput, "%d", longhornSize)
+		if openebsInput != "" {
+			_, _ = fmt.Sscanf(openebsInput, "%d", openebsSize)
 		} else {
-			*longhornSize = 1024 // Default
+			*openebsSize = 1024 // Default
 		}
 
 		if *provider == "vsphere" {
-			logger.Info("Custom resources: %d VMs with %d vCPUs, %dGB RAM, %dGB boot, %dGB Longhorn each",
-				*nodeCount, *vcpus, *memory/1024, *diskSize, *longhornSize)
+			logger.Info("Custom resources: %d VMs with %d vCPUs, %dGB RAM, %dGB boot, %dGB OpenEBS each",
+				*nodeCount, *vcpus, *memory/1024, *diskSize, *openebsSize)
 		} else {
-			logger.Info("Custom resources: %d vCPUs, %dGB RAM, %dGB boot, %dGB Longhorn",
-				*vcpus, *memory/1024, *diskSize, *longhornSize)
+			logger.Info("Custom resources: %d vCPUs, %dGB RAM, %dGB boot, %dGB OpenEBS",
+				*vcpus, *memory/1024, *diskSize, *openebsSize)
 		}
 	} else {
 		// Default pattern - 3-node k8s cluster
 		*vcpus = 16
-		*memory = 49152      // 48GB in MB
-		*diskSize = 500      // 500GB
-		*longhornSize = 1024 // 1TB
+		*memory = 49152     // 48GB in MB
+		*diskSize = 500     // 500GB
+		*openebsSize = 1024 // 1TB
 
 		if *provider == "vsphere" {
 			*nodeCount = 3
 			*concurrent = 3
-			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn each")
+			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS each")
 		} else {
-			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 500GB boot, 1TB Longhorn")
+			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS")
 		}
 	}
 
@@ -1015,7 +1015,7 @@ func newDeployVMCommand() *cobra.Command {
 		memory         int
 		vcpus          int
 		diskSize       int
-		longhornSize   int
+		openebsSize    int
 		macAddress     string
 		pool           string
 		skipZVolCreate bool
@@ -1048,7 +1048,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 			// Check if running in interactive mode (no flags set)
 			if name == "" && !cmd.Flags().Changed("provider") && !cmd.Flags().Changed("dry-run") {
 				// Show interactive prompts
-				err := promptDeployVMOptions(&name, &provider, &memory, &vcpus, &diskSize, &longhornSize, &generateISO, &dryRun, &datastore, &network, &nodeCount, &concurrent)
+				err := promptDeployVMOptions(&name, &provider, &memory, &vcpus, &diskSize, &openebsSize, &generateISO, &dryRun, &datastore, &network, &nodeCount, &concurrent)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil
@@ -1069,9 +1069,9 @@ If no flags are provided, presents an interactive menu with default and custom p
 
 			// Deploy to vSphere unless explicitly set to truenas
 			if provider == "truenas" {
-				return deployVMWithPatternDryRun(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO, dryRun)
+				return deployVMWithPatternDryRun(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO, dryRun)
 			}
-			return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
+			return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
 		},
 	}
 
@@ -1080,8 +1080,8 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", 500, "Boot/OpenEBS disk size in GB (default: 500GB)")
-	cmd.Flags().IntVar(&longhornSize, "longhorn-size", 1000, "Longhorn disk size in GB (default: 1TB)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 500, "Boot disk size in GB (default: 500GB)")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1000, "OpenEBS disk size in GB (default: 1TB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
@@ -1107,7 +1107,7 @@ func validateVMName(name string) error {
 	return nil
 }
 
-func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO, dryRun bool) error {
+func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate, generateISO, dryRun bool) error {
 	if dryRun {
 		logger := common.NewColorLogger()
 		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
@@ -1117,7 +1117,7 @@ func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, longh
 		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
 		logger.Info("  vCPUs: %d", vcpus)
 		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
+		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
 		if macAddress != "" {
 			logger.Info("  MAC Address: %s", macAddress)
 		}
@@ -1130,10 +1130,10 @@ func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, longh
 		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
 		return nil
 	}
-	return deployVMWithPattern(name, pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
+	return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO)
 }
 
-func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int, dryRun bool) error {
+func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int, dryRun bool) error {
 	if dryRun {
 		logger := common.NewColorLogger()
 		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
@@ -1144,7 +1144,7 @@ func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, longhornS
 		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
 		logger.Info("  vCPUs: %d", vcpus)
 		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  Longhorn Disk: %d GB", longhornSize)
+		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
 		if macAddress != "" {
 			logger.Info("  MAC Address: %s", macAddress)
 		}
@@ -1158,14 +1158,14 @@ func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, longhornS
 		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
 		return nil
 	}
-	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, longhornSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
 }
 
-func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSize int, macAddress string, skipZVolCreate, generateISO bool) error {
+func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate, generateISO bool) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting VM deployment: %s", name)
-	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, longhornSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
-		pool, memory, vcpus, diskSize, longhornSize, macAddress, skipZVolCreate, generateISO)
+	logger.Debug("VM Configuration: pool=%s, memory=%dMB, vcpus=%d, diskSize=%dGB, openebsSize=%dGB, macAddress=%s, skipZVolCreate=%t, generateISO=%t",
+		pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO)
 
 	// Validate input parameters
 	if name == "" {
@@ -1183,8 +1183,8 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 	if diskSize <= 0 {
 		return fmt.Errorf("disk size must be greater than 0, got %d", diskSize)
 	}
-	if longhornSize < 0 {
-		return fmt.Errorf("longhorn size cannot be negative, got %d", longhornSize)
+	if openebsSize < 0 {
+		return fmt.Errorf("openebs size cannot be negative, got %d", openebsSize)
 	}
 
 	// Validate VM name - no dashes allowed
@@ -1365,7 +1365,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		Memory:        memory,
 		VCPUs:         vcpus,
 		DiskSize:      diskSize,
-		LonghornSize:  longhornSize,
+		OpenEBSSize:   openebsSize,
 		TrueNASHost:   host,
 		TrueNASAPIKey: apiKey,
 		TrueNASPort:   443,
@@ -1422,9 +1422,9 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, longhornSiz
 		logger.Info("  Talos Ver:    %s", talosVersion)
 	}
 	logger.Info("ZVol naming pattern:")
-	logger.Info("  Boot/OpenEBS disk: %s/%s-boot (%dGB)", pool, name, diskSize)
-	if longhornSize > 0 {
-		logger.Info("  Longhorn disk:     %s/%s-longhorn (%dGB)", pool, name, longhornSize)
+	logger.Info("  Boot disk:   %s/%s-boot (%dGB)", pool, name, diskSize)
+	if openebsSize > 0 {
+		logger.Info("  OpenEBS disk: %s/%s-openebs (%dGB)", pool, name, openebsSize)
 	}
 
 	logger.Debug("VM deployment function completed successfully")
@@ -2466,7 +2466,7 @@ func getNodeMacAddress(nodeName string) (string, error) {
 	return "", nil // Return empty if MAC not found in config
 }
 
-func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
+func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
 
@@ -2535,7 +2535,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 			Memory:               memory,
 			VCPUs:                vcpus,
 			DiskSize:             diskSize,
-			LonghornSize:         longhornSize,
+			OpenEBSSize:          openebsSize,
 			Datastore:            datastore,
 			Network:              network,
 			ISO:                  isoPath,
@@ -2569,7 +2569,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 				Memory:               memory,
 				VCPUs:                vcpus,
 				DiskSize:             diskSize,
-				LonghornSize:         longhornSize,
+				OpenEBSSize:          openebsSize,
 				Datastore:            datastore,
 				Network:              network,
 				ISO:                  isoPath,
@@ -2592,8 +2592,8 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		logger.Info("Enhanced Configuration:")
 		logger.Info("  Memory: %d MB", configs[0].Memory)
 		logger.Info("  vCPUs: %d", configs[0].VCPUs)
-		logger.Info("  Boot/OpenEBS Disk: %d GB (thin provisioned: %v)", configs[0].DiskSize, configs[0].ThinProvisioned)
-		logger.Info("  Longhorn Disk: %d GB (thin provisioned: %v)", configs[0].LonghornSize, configs[0].ThinProvisioned)
+		logger.Info("  Boot Disk: %d GB (thin provisioned: %v)", configs[0].DiskSize, configs[0].ThinProvisioned)
+		logger.Info("  OpenEBS Disk: %d GB (thin provisioned: %v)", configs[0].OpenEBSSize, configs[0].ThinProvisioned)
 		logger.Info("  Datastore: %s", configs[0].Datastore)
 		logger.Info("  Network: %s (vmxnet3)", configs[0].Network)
 		logger.Info("  ISO: %s", configs[0].ISO)
@@ -2620,8 +2620,8 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, longhornSize in
 		logger.Info("Enhanced VM Configuration (for all VMs):")
 		logger.Info("  Memory: %d MB", memory)
 		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot/OpenEBS Disk: %d GB (thin provisioned)", diskSize)
-		logger.Info("  Longhorn Disk: %d GB (thin provisioned)", longhornSize)
+		logger.Info("  Boot Disk: %d GB (thin provisioned)", diskSize)
+		logger.Info("  OpenEBS Disk: %d GB (thin provisioned)", openebsSize)
 		logger.Info("  Datastore: %s", datastore)
 		logger.Info("  Network: %s (vmxnet3)", network)
 		logger.Info("  ISO: %s", isoPath)

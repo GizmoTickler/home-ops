@@ -387,16 +387,20 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 	// This ensures all namespaces exist before any resources are applied
 	namespaces := []string{
 		"actions-runner-system",
+		"automation",
 		"cert-manager",
+		"downloads",
 		"external-secrets",
 		"flux-system",
 		"kube-system", // Usually exists but we'll ensure it's there
-		"longhorn-system",
+		"media",
 		"network",
 		"observability",
 		"openebs-system",
+		"self-hosted",
 		"system",
 		"system-upgrade",
+		"truenas-csi",
 		"volsync-system",
 	}
 

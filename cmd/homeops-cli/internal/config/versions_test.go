@@ -26,9 +26,9 @@ func TestIsValidVersionFormat(t *testing.T) {
 			want:    true,
 		},
 		{
-			name:    "valid version without patch",
+			name:    "invalid version without patch",
 			version: "v2.0",
-			want:    true,
+			want:    false,
 		},
 		{
 			name:    "invalid version without v prefix",
