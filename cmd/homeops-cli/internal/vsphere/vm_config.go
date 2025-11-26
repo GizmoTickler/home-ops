@@ -8,8 +8,8 @@ type VMConfig struct {
 	Name         string
 	Memory       int // Memory in MB
 	VCPUs        int // Number of vCPUs
-	DiskSize     int // Boot/OpenEBS disk size in GB (default: 500GB)
-	LonghornSize int // Longhorn disk size in GB (default: 1000GB)
+	DiskSize    int // Boot disk size in GB (default: 500GB) - contains TalosOS
+	OpenEBSSize int // OpenEBS disk size in GB (default: 1000GB) - for local storage
 
 	// vSphere specific configuration
 	Datastore  string // Datastore name (e.g., "truenas-nfs")
@@ -42,7 +42,7 @@ type VMDeploymentConfig struct {
 	DefaultMemory       int
 	DefaultVCPUs        int
 	DefaultDiskSize     int
-	DefaultLonghornSize int
+	DefaultOpenEBSSize int
 
 	// vSphere defaults
 	DefaultDatastore string
@@ -60,8 +60,8 @@ func GetDefaultVMConfig(name string) VMConfig {
 		Name:                 name,
 		Memory:               48 * 1024, // 48GB
 		VCPUs:                16,
-		DiskSize:             500,           // 500GB boot/OpenEBS
-		LonghornSize:         1000,          // 1TB Longhorn
+		DiskSize:             500,  // 500GB boot (TalosOS)
+		OpenEBSSize:          1000, // 1TB OpenEBS local storage
 		Datastore:            "truenas-nfs", // Match the actual datastore name
 		Network:              "vl999",
 		PowerOn:              true, // Power on by default with auto unregister/re-register on failure

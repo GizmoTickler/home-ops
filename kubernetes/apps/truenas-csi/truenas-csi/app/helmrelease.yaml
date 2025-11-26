@@ -13,7 +13,8 @@ spec:
     csiDriverName: org.truenas.csi
 
     image:
-      tag: "v2.2.7"
+      repository: ghcr.io/gizmotickler/truenas-scale-csi
+      tag: v2.2.7
       pullPolicy: IfNotPresent
 
     truenas:
