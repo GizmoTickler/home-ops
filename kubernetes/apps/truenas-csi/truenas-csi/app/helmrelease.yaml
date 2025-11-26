@@ -1,0 +1,59 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: truenas-csi
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: truenas-csi
+  interval: 1h
+  values:
+    csiDriverName: org.truenas.csi
+
+    image:
+      tag: "v2.2.7"
+      pullPolicy: IfNotPresent
+
+    truenas:
+      host: nas01.${SECRET_DOMAIN}
+      port: 443
+      secure: true
+      skipTLSVerify: true
+      existingSecret: truenas-csi-secret
+
+    zfs:
+      parentDataset: flashstor/k8s-csi
+
+    nfs:
+      enabled: true
+      server: nas01.${SECRET_DOMAIN}
+
+    iscsi:
+      enabled: true
+      portal: 192.168.120.10
+      portalPort: 3260
+      portalGroupId: 2
+      initiatorGroupId: 1
+
+    storageClass:
+      create: false
+
+    controller:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 512Mi
+
+    node:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 512Mi
