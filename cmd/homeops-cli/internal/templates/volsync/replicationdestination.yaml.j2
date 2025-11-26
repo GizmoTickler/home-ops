@@ -12,29 +12,19 @@ spec:
     cacheAccessModes: {{ ENV.CACHE_ACCESS_MODES }}
     cacheCapacity: {{ ENV.CACHE_CAPACITY }}
     cacheStorageClassName: {{ ENV.CACHE_STORAGE_CLASS }}
+    capacity: {{ ENV.CAPACITY }}
     cleanupCachePVC: true
     cleanupTempPVC: true
-    copyMethod: Direct
+    copyMethod: Snapshot
     destinationPVC: {{ ENV.CLAIM }}
     enableFileDeletion: true
     moverSecurityContext:
       runAsUser: {{ ENV.PUID }}
       runAsGroup: {{ ENV.PGID }}
       fsGroup: {{ ENV.PGID }}
-    moverAffinity:
-      podAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                  - key: app.kubernetes.io/name
-                    operator: In
-                    values:
-                      - {{ ENV.APP }}
-              topologyKey: kubernetes.io/hostname
     previous: {{ ENV.PREVIOUS }}
     repository: {{ ENV.APP }}-volsync-secret
     sourceIdentity:
       sourceName: {{ ENV.APP }}
-
+    storageClassName: {{ ENV.STORAGE_CLASS }}
+    volumeSnapshotClassName: {{ ENV.SNAPSHOT_CLASS }}
