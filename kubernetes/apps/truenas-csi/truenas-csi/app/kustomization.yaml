@@ -8,3 +8,4 @@ resources:
   - ./helmrelease.yaml
   - ./storageclass-iscsi.yaml
   - ./storageclass-nfs.yaml
+  - ./volumesnapshotclass.yaml
