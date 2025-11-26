@@ -6,8 +6,8 @@ metadata:
   name: victoria-metrics
 spec:
   dependsOn:
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
+    - name: truenas-csi
+      namespace: truenas-csi
   interval: 1h
   path: ./kubernetes/apps/observability/victoria-metrics/app
   postBuild:
