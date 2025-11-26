@@ -465,3 +465,57 @@ func CheckGumInstallation() error {
 
 	return nil
 }
+
+// SelectNamespace prompts the user to select a Kubernetes namespace
+// If includeAllOption is true, adds "(all namespaces)" as the first option
+// Returns empty string if "(all namespaces)" is selected
+func SelectNamespace(prompt string, includeAllOption bool) (string, error) {
+	// Get list of namespaces from kubectl
+	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get namespaces: %w", err)
+	}
+
+	namespaces := strings.Fields(string(output))
+	if len(namespaces) == 0 {
+		return "", fmt.Errorf("no namespaces found in cluster")
+	}
+
+	// Add "all namespaces" option if requested
+	if includeAllOption {
+		namespaces = append([]string{"(all namespaces)"}, namespaces...)
+	}
+
+	// Use interactive selector
+	selectedNS, err := Choose(prompt, namespaces)
+	if err != nil {
+		if IsCancellation(err) {
+			return "", err
+		}
+		return "", fmt.Errorf("namespace selection failed: %w", err)
+	}
+
+	// Return empty string for "all namespaces"
+	if selectedNS == "(all namespaces)" {
+		return "", nil
+	}
+
+	return selectedNS, nil
+}
+
+// GetNamespaces returns the list of Kubernetes namespaces
+func GetNamespaces() ([]string, error) {
+	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get namespaces: %w", err)
+	}
+
+	namespaces := strings.Fields(string(output))
+	if len(namespaces) == 0 {
+		return nil, fmt.Errorf("no namespaces found in cluster")
+	}
+
+	return namespaces, nil
+}

@@ -30,11 +30,23 @@ type Client struct {
 	datacenter *object.Datacenter
 }
 
-// NewClient creates a new vSphere client
+// NewClient creates a new vSphere client (deprecated - use NewClientWithConnect instead)
+// Note: The parameters are unused; call Connect() separately to establish connection
 func NewClient(host, username, password string, insecure bool) *Client {
 	return &Client{
 		logger: common.NewColorLogger(),
 	}
+}
+
+// NewClientWithConnect creates a new vSphere client and connects immediately
+func NewClientWithConnect(host, username, password string, insecure bool) (*Client, error) {
+	c := &Client{
+		logger: common.NewColorLogger(),
+	}
+	if err := c.Connect(host, username, password, insecure); err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // Connect establishes connection to vSphere/ESXi

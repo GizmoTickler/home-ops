@@ -320,3 +320,52 @@ func GetType(err error) (ErrorType, bool) {
 	}
 	return "", false
 }
+
+// Wrap wraps a standard error into a HomeOpsError with context.
+// This is a convenience function for gradually migrating from fmt.Errorf.
+func Wrap(err error, errType ErrorType, code, message string) *HomeOpsError {
+	if err == nil {
+		return nil
+	}
+	return &HomeOpsError{
+		Type:    errType,
+		Code:    code,
+		Message: message,
+		Cause:   err,
+	}
+}
+
+// WrapTemplate wraps an error as a template error
+func WrapTemplate(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeTemplate, "TEMPLATE_ERROR", message)
+}
+
+// WrapKubernetes wraps an error as a Kubernetes error
+func WrapKubernetes(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeKubernetes, "K8S_ERROR", message)
+}
+
+// WrapTalos wraps an error as a Talos error
+func WrapTalos(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeTalos, "TALOS_ERROR", message)
+}
+
+// WrapValidation wraps an error as a validation error
+func WrapValidation(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeValidation, "VALIDATION_ERROR", message)
+}
+
+// WrapNetwork wraps an error as a network error
+func WrapNetwork(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeNetwork, "NETWORK_ERROR", message)
+}
+
+// WrapConfig wraps an error as a configuration error
+func WrapConfig(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeConfig, "CONFIG_ERROR", message)
+}
+
+// WrapFileSystem wraps an error as a filesystem error
+func WrapFileSystem(err error, message string) *HomeOpsError {
+	return Wrap(err, ErrTypeFileSystem, "FS_ERROR", message)
+}

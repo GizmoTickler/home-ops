@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"homeops-cli/cmd/bootstrap"
 	"homeops-cli/cmd/completion"
@@ -10,6 +11,8 @@ import (
 	"homeops-cli/cmd/workstation"
 	"homeops-cli/internal/ui"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 )
@@ -21,6 +24,19 @@ var (
 )
 
 func main() {
+	// Set up context with signal handling for graceful cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle interrupt signals (Ctrl+C, SIGTERM)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Fprintln(os.Stderr, "\nReceived interrupt signal, shutting down...")
+		cancel()
+	}()
+
 	rootCmd := &cobra.Command{
 		Use:   "homeops",
 		Short: "HomeOps Infrastructure Management CLI",
@@ -48,6 +64,9 @@ Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 
 	// Enable completion for all commands
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Set context on root command - subcommands can access via cmd.Context()
+	rootCmd.SetContext(ctx)
 
 	// Execute
 	if err := rootCmd.Execute(); err != nil {
