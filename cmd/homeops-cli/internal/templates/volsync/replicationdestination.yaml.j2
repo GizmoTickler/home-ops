@@ -21,9 +21,20 @@ spec:
       runAsUser: {{ ENV.PUID }}
       runAsGroup: {{ ENV.PGID }}
       fsGroup: {{ ENV.PGID }}
+    moverAffinity:
+      podAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - {{ ENV.APP }}
+              topologyKey: kubernetes.io/hostname
     previous: {{ ENV.PREVIOUS }}
     repository: {{ ENV.APP }}-volsync-secret
     sourceIdentity:
       sourceName: {{ ENV.APP }}
-    storageClassName: {{ ENV.STORAGE_CLASS_NAME }}
 

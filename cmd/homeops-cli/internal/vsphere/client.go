@@ -359,9 +359,9 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		Device:        bootDisk,
 	})
 
-	// Create Longhorn disk (1TB) on NVME controller 1
-	if config.LonghornSize > 0 {
-		longhornDisk := &types.VirtualDisk{
+	// Create OpenEBS disk (1TB) on NVME controller 1 - for local storage
+	if config.OpenEBSSize > 0 {
+		openebsDisk := &types.VirtualDisk{
 			VirtualDevice: types.VirtualDevice{
 				Key:           -2,
 				ControllerKey: nvme1Key,
@@ -376,12 +376,12 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 					EagerlyScrub:    types.NewBool(false),
 				},
 			},
-			CapacityInKB: int64(config.LonghornSize) * 1024 * 1024,
+			CapacityInKB: int64(config.OpenEBSSize) * 1024 * 1024,
 		}
 		diskChanges = append(diskChanges, &types.VirtualDeviceConfigSpec{
 			Operation:     types.VirtualDeviceConfigSpecOperationAdd,
 			FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
-			Device:        longhornDisk,
+			Device:        openebsDisk,
 		})
 	}
 

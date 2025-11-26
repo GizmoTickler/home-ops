@@ -36,7 +36,8 @@
       "Read(//tmp/**)",
       "Bash(for app in actual atuin freshrss karakeep opencloud thelounge)",
       "Bash(do flux reconcile kustomization:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(talosctl:*)"
     ],
     "deny": [],
     "ask": []
