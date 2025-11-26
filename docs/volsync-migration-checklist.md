@@ -66,4 +66,24 @@ With Direct copyMethod on iSCSI storage:
 
 ## Prevention
 
-Always delete the ReplicationSource **before** deleting the PVC to ensure no backup pods are left running or scheduled.
+1. Always delete the ReplicationSource **before** deleting the PVC to ensure no backup pods are left running or scheduled.
+
+2. Ensure ReplicationSource has `moverAffinity` with pod affinity to schedule backup pods on the same node as app pods:
+
+```yaml
+spec:
+  kopia:
+    copyMethod: Direct
+    moverAffinity:
+      podAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - ${APP}
+            topologyKey: kubernetes.io/hostname
+```
+
+Note: For CronJobs, backup pods may fail to schedule when no job pod is running. The backup will retry on the next hourly schedule.
