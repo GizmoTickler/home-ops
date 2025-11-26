@@ -51,8 +51,9 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
 - **Storage Strategy**: Dual NVMe controller architecture:
-  - **Controller 1**: 500GB vdisk for boot and OpenEBS local-path storage
-  - **Controller 2**: 1TB vdisk dedicated for Rook Ceph distributed storage
+  - **Controller 1**: 500GB vdisk for Talos boot and OpenEBS local-path storage
+  - **Controller 2**: 1TB vdisk for OpenEBS local storage (high-performance workloads)
+- **External Storage**: TrueNAS iSCSI CSI driver for persistent volumes with NFS for media
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: external-dns for both Cloudflare and Unifi local DNS management
@@ -67,7 +68,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [rook-ceph](https://github.com/rook/rook): Distributed block storage with Ceph for persistent storage and data resilience.
+- [truenas-csi](https://github.com/gizmotickler/truenas-scale-csi): TrueNAS Scale CSI driver for iSCSI and NFS persistent volumes.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
@@ -99,20 +100,26 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 ├── 📁 bootstrap          # Initial cluster bootstrap resources
 ├── 📁 kubernetes
 │   ├── 📁 apps          # Application deployments by namespace
-│   │   ├── 📁 default   # Media stack and productivity apps
+│   │   ├── 📁 actions-runner-system # Self-hosted GitHub runners
+│   │   ├── 📁 automation     # Workflow automation (n8n)
+│   │   ├── 📁 cert-manager   # Certificate management
+│   │   ├── 📁 downloads      # Media acquisition stack
 │   │   ├── 📁 external-secrets # Secret management
-│   │   ├── 📁 flux-system      # Flux controllers
-│   │   ├── 📁 kube-system      # Core Kubernetes components
-│   │   ├── 📁 network          # Networking applications
-│   │   ├── 📁 observability    # Monitoring and logging
-│   │   ├── 📁 openebs-system   # Local storage provisioner
-│   │   ├── 📁 rook-ceph        # Distributed storage
-│   │   └── 📁 system-upgrade   # Automated upgrades
+│   │   ├── 📁 flux-system    # Flux controllers
+│   │   ├── 📁 kube-system    # Core Kubernetes components
+│   │   ├── 📁 media          # Media serving applications
+│   │   ├── 📁 network        # Networking applications
+│   │   ├── 📁 observability  # Monitoring and logging
+│   │   ├── 📁 openebs-system # Local storage provisioner
+│   │   ├── 📁 self-hosted    # Productivity and tools
+│   │   ├── 📁 system-upgrade # Automated upgrades
+│   │   ├── 📁 truenas-csi    # TrueNAS iSCSI/NFS storage
+│   │   └── 📁 volsync-system # Volume backup and recovery
 │   ├── 📁 components    # Reusable Kustomize components
-│   │   ├── 📁 common    # Shared configurations
-│   │   ├── 📁 gateway   # Gateway API templates
-│   │   ├── 📁 keda      # Autoscaling components
-│   │   └── 📁 volsync   # Backup and recovery
+│   │   ├── 📁 alerts         # AlertManager configurations
+│   │   ├── 📁 cluster-secret # Cluster-wide secrets
+│   │   ├── 📁 nfs-scaler     # NFS availability scaling
+│   │   └── 📁 volsync-direct # Direct volume backup/restore
 │   └── 📁 flux          # Flux system configuration
 ├── 📁 cmd               # HomeOps CLI source code
 │   └── 📁 homeops-cli   # Go-based automation tool
@@ -122,15 +129,15 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ### Flux Workflow
 
-This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that `atuin` won't be deployed or upgrade until the `rook-ceph-cluster` Helm release is installed or in a healthy state.
+This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on the TrueNAS CSI driver being installed and healthy.
 
 ```mermaid
 graph TD
-    A>Kustomization: rook-ceph] -->|Creates| B[HelmRelease: rook-ceph]
-    A>Kustomization: rook-ceph] -->|Creates| C[HelmRelease: rook-ceph-cluster]
-    C>HelmRelease: rook-ceph-cluster] -->|Depends on| B>HelmRelease: rook-ceph]
-    D>Kustomization: atuin] -->|Creates| E(HelmRelease: atuin)
-    E>HelmRelease: atuin] -->|Depends on| C>HelmRelease: rook-ceph-cluster]
+    A>Kustomization: truenas-csi] -->|Creates| B[HelmRelease: truenas-csi]
+    C>Kustomization: volsync] -->|Creates| D[HelmRelease: volsync]
+    E>Kustomization: atuin] -->|Creates| F(HelmRelease: atuin)
+    F>HelmRelease: atuin] -->|Depends on| B>HelmRelease: truenas-csi]
+    F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: volsync]
 ```
 
 ### Automation & Tooling
@@ -289,7 +296,7 @@ Automation workloads run in the `automation` namespace so VolSync restores and K
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [Rook Ceph](https://github.com/rook/rook) | Distributed storage cluster | `rook-ceph-cluster.${SECRET_DOMAIN}` |
+| [TrueNAS CSI](https://github.com/gizmotickler/truenas-scale-csi) | iSCSI/NFS persistent volume provisioner | Internal only |
 | [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
 
 All applications use Cilium Gateway API for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
@@ -327,12 +334,13 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 48GB   | 500GB NVMe vdisk (boot/local) + 1TB NVMe vdisk (Rook Ceph) | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 48GB   | 500GB NVMe vdisk (boot) + 1TB NVMe vdisk (OpenEBS local)   | Talos Linux   |
 
 **Storage Details**:
 - Each VM has two dedicated NVMe controllers for isolation and performance
-- Controller 1: 500GB vdisk for Talos boot and OpenEBS local-path storage
-- Controller 2: 1TB vdisk exclusively for Rook Ceph distributed storage
+- Controller 1: 500GB vdisk for Talos boot partition
+- Controller 2: 1TB vdisk for OpenEBS local-path storage (high-performance workloads)
+- Persistent volumes: TrueNAS iSCSI CSI driver provides external block storage
 
 **Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
 
