@@ -14,7 +14,7 @@ spec:
 
     image:
       repository: ghcr.io/gizmotickler/truenas-scale-csi
-      tag: v2.2.20
+      tag: v2.2.21
       pullPolicy: IfNotPresent
 
     truenas:
