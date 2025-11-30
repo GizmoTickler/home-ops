@@ -6,142 +6,6 @@ metadata:
   name: infrastructure-alerts
 spec:
   groups:
-    # Ceph Storage Alerts
-    - name: ceph.rules
-      interval: 30s
-      rules:
-        - alert: CephHealthError
-          expr: |-
-            ceph_health_status == 2
-          for: 5m
-          annotations:
-            summary: "Ceph cluster is in ERROR state"
-            description: |-
-              Ceph cluster health is in ERROR state (HEALTH_ERR).
-              Check 'ceph health detail' for specific issues.
-              Cluster: {{ $labels.cluster }}
-          labels:
-            severity: critical
-            component: storage
-
-        - alert: CephHealthWarning
-          expr: |-
-            ceph_health_status == 1
-          for: 15m
-          annotations:
-            summary: "Ceph cluster is in WARNING state"
-            description: |-
-              Ceph cluster health is in WARNING state (HEALTH_WARN) for over 15 minutes.
-              Check 'ceph health detail' for specific issues.
-              Cluster: {{ $labels.cluster }}
-          labels:
-            severity: warning
-            component: storage
-
-        - alert: CephOSDDown
-          expr: |-
-            ceph_osd_up == 0
-          for: 5m
-          annotations:
-            summary: "Ceph OSD {{ $labels.osd }} is down"
-            description: |-
-              Ceph OSD {{ $labels.osd }} has been down for more than 5 minutes.
-              This may impact data availability and cluster performance.
-          labels:
-            severity: critical
-            component: storage
-
-        - alert: CephOSDNearFull
-          expr: |-
-            ceph_osd_utilization > 85
-          for: 15m
-          annotations:
-            summary: "Ceph OSD {{ $labels.osd }} is nearly full"
-            description: |-
-              Ceph OSD {{ $labels.osd }} is {{ $value | humanizePercentage }} full.
-              Consider rebalancing data or adding storage capacity.
-          labels:
-            severity: warning
-            component: storage
-
-        - alert: CephMgrDown
-          expr: |-
-            ceph_mgr_up == 0
-          for: 5m
-          annotations:
-            summary: "Ceph manager is unavailable"
-            description: |-
-              No active Ceph manager detected for more than 5 minutes.
-              Management operations and dashboard will be unavailable.
-          labels:
-            severity: critical
-            component: storage
-
-        - alert: CephMgrFailover
-          expr: |-
-            changes(ceph_mgr_status{status="active"}[10m]) > 0
-          annotations:
-            summary: "Ceph manager failed over"
-            description: |-
-              Ceph manager failed over to {{ $labels.ceph_daemon }}.
-              Previous active manager may have experienced issues.
-          labels:
-            severity: warning
-            component: storage
-
-        - alert: CephMonDown
-          expr: |-
-            ceph_mon_quorum_status == 0
-          for: 5m
-          annotations:
-            summary: "Ceph monitor {{ $labels.ceph_daemon }} is down"
-            description: |-
-              Ceph monitor {{ $labels.ceph_daemon }} has been out of quorum for more than 5 minutes.
-              Monitor availability is critical for cluster operations.
-          labels:
-            severity: critical
-            component: storage
-
-        - alert: CephPoolNearFull
-          expr: |-
-            (ceph_pool_bytes_used / ceph_pool_max_avail) > 0.85
-          for: 15m
-          annotations:
-            summary: "Ceph pool {{ $labels.name }} is nearly full"
-            description: |-
-              Ceph pool {{ $labels.name }} is {{ $value | humanizePercentage }} full.
-              Consider expanding storage or cleaning up old data.
-          labels:
-            severity: warning
-            component: storage
-
-        - alert: CephSlowOperations
-          expr: |-
-            ceph_health_detail{name="SLOW_OPS"} > 0
-          for: 10m
-          annotations:
-            summary: "Ceph is experiencing real-time slow operations"
-            description: |-
-              Ceph has {{ $value }} currently slow operations (not historical warnings).
-              This indicates actual performance issues requiring investigation.
-              Check 'ceph osd perf' and underlying storage performance.
-          labels:
-            severity: warning
-            component: storage
-
-        - alert: CephPGsDegraded
-          expr: |-
-            ceph_pg_degraded > 0
-          for: 10m
-          annotations:
-            summary: "Ceph has degraded placement groups"
-            description: |-
-              Ceph has {{ $value }} degraded PGs for over 10 minutes.
-              Data redundancy may be compromised. Check OSD status and network connectivity.
-          labels:
-            severity: warning
-            component: storage
-
     # Kubernetes Node Alerts
     - name: kubernetes-nodes.rules
       interval: 30s
@@ -298,11 +162,11 @@ spec:
         - alert: KubernetesPodPending
           expr: |-
             kube_pod_status_phase{phase="Pending"} == 1
-          for: 10m
+          for: 15m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is stuck in Pending"
             description: |-
-              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been pending for over 10 minutes.
+              Pod {{ $labels.namespace }}/{{ $labels.pod }} has been pending for over 15 minutes.
               Check resource availability, node affinity, and PVC binding.
           labels:
             severity: warning
