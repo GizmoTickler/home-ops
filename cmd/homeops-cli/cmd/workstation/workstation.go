@@ -75,10 +75,10 @@ func installBrewPackages() error {
 	}
 	defer func() {
 		if closeErr := tempFile.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close temp file: %v\n", closeErr)
+			logger.Warn("Failed to close temp file: %v", closeErr)
 		}
 		if removeErr := os.Remove(tempFile.Name()); removeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove temp file: %v\n", removeErr)
+			logger.Warn("Failed to remove temp file: %v", removeErr)
 		}
 	}()
 
@@ -170,11 +170,21 @@ func isKrewInstalled() bool {
 	return cmd.Run() == nil
 }
 
-// installKrew installs the Krew plugin manager
+// installKrew installs the Krew plugin manager using the official installation method
 func installKrew() error {
-	// This is a simplified installation - in practice, you might want to
-	// implement the full Krew installation script
-	cmd := exec.Command("kubectl", "krew", "install", "krew")
+	// Use the official krew installation script
+	// See: https://krew.sigs.k8s.io/docs/user-guide/setup/install/
+	installScript := `
+set -e
+cd "$(mktemp -d)"
+OS="$(uname | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')"
+KREW="krew-${OS}_${ARCH}"
+curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/${KREW}.tar.gz"
+tar zxf "${KREW}.tar.gz"
+./"${KREW}" install krew
+`
+	cmd := exec.Command("bash", "-c", installScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

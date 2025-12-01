@@ -29,13 +29,82 @@ type ColorLogger struct {
 	mu    sync.Mutex // Protects quiet field
 }
 
-// NewColorLogger creates a new colored logger
+// Global logger instance and mutex for singleton pattern
+var (
+	globalLogger     *ColorLogger
+	globalLoggerOnce sync.Once
+	globalLogLevel   LogLevel = InfoLevel
+	globalLogMu      sync.RWMutex
+)
+
+// SetGlobalLogLevel sets the global log level for all loggers
+// This should be called early during initialization (e.g., from root command flags)
+func SetGlobalLogLevel(level string) {
+	globalLogMu.Lock()
+	defer globalLogMu.Unlock()
+
+	switch level {
+	case "debug":
+		globalLogLevel = DebugLevel
+	case "info":
+		globalLogLevel = InfoLevel
+	case "warn":
+		globalLogLevel = WarnLevel
+	case "error":
+		globalLogLevel = ErrorLevel
+	default:
+		globalLogLevel = InfoLevel
+	}
+
+	// Update existing global logger if it exists
+	if globalLogger != nil {
+		globalLogger.Level = globalLogLevel
+	}
+}
+
+// GetGlobalLogLevel returns the current global log level as a string
+func GetGlobalLogLevel() string {
+	globalLogMu.RLock()
+	defer globalLogMu.RUnlock()
+
+	switch globalLogLevel {
+	case DebugLevel:
+		return "debug"
+	case WarnLevel:
+		return "warn"
+	case ErrorLevel:
+		return "error"
+	default:
+		return "info"
+	}
+}
+
+// NewColorLogger creates a new colored logger using the global log level
 func NewColorLogger() *ColorLogger {
-	level := InfoLevel
+	globalLogMu.RLock()
+	level := globalLogLevel
+	globalLogMu.RUnlock()
+
+	// Also check environment variables for backwards compatibility
 	if os.Getenv("DEBUG") == "1" || os.Getenv("LOG_LEVEL") == "debug" {
 		level = DebugLevel
 	}
 	return &ColorLogger{Level: level}
+}
+
+// Logger returns the global singleton logger instance
+// This is more efficient than creating new loggers in each function
+func Logger() *ColorLogger {
+	globalLoggerOnce.Do(func() {
+		globalLogger = NewColorLogger()
+	})
+
+	// Update level in case it was changed
+	globalLogMu.RLock()
+	globalLogger.Level = globalLogLevel
+	globalLogMu.RUnlock()
+
+	return globalLogger
 }
 
 // SetQuiet sets the quiet mode in a thread-safe manner

@@ -3,17 +3,17 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: truenas-csi
+  name: scale-csi
 spec:
   chartRef:
     kind: OCIRepository
-    name: truenas-csi
+    name: scale-csi
   interval: 1h
   values:
-    csiDriverName: org.truenas.csi
+    csiDriverName: org.scale.csi
 
     image:
-      repository: ghcr.io/gizmotickler/truenas-scale-csi
+      repository: ghcr.io/gizmotickler/scale-csi
       tag: v2.2.30
       pullPolicy: IfNotPresent
 
@@ -22,7 +22,7 @@ spec:
       port: 443
       secure: true
       skipTLSVerify: true
-      existingSecret: truenas-csi-secret
+      existingSecret: scale-csi-secret
 
     zfs:
       parentDataset: flashstor/k8s-csi

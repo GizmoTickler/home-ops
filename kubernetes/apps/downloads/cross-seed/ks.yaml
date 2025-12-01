@@ -9,8 +9,8 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync-direct
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
     - name: keda
       namespace: observability
     - name: qui
@@ -20,7 +20,7 @@ spec:
   postBuild:
     substitute:
       APP: cross-seed
-      VOLSYNC_CAPACITY: 5Gi
+      VOLSYNC_CAPACITY: 10Gi
   prune: true
   sourceRef:
     kind: GitRepository

@@ -13,6 +13,135 @@ import (
 	"homeops-cli/internal/ui"
 )
 
+// KustomizationInfo contains parsed information from a ks.yaml file
+type KustomizationInfo struct {
+	Name      string
+	Namespace string
+	Path      string
+	FullPath  string
+	KsFile    string
+	GitRoot   string
+}
+
+// parseKustomizationFile parses a ks.yaml file and extracts name, namespace, and path information
+// ksPath can be either a path to a ks.yaml file or a directory containing one
+func parseKustomizationFile(ksPath string) (*KustomizationInfo, error) {
+	// Check if ksPath is a file or directory
+	info, err := os.Stat(ksPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access path %s: %w", ksPath, err)
+	}
+
+	var ksFile string
+	if info.IsDir() {
+		// If directory, look for ks.yaml
+		ksFile = fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
+		if _, err := os.Stat(ksFile); err != nil {
+			return nil, fmt.Errorf("no ks.yaml found in directory %s", ksPath)
+		}
+	} else {
+		// If file, use it directly
+		ksFile = ksPath
+	}
+
+	// Read the file content for parsing
+	content, err := os.ReadFile(ksFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ks.yaml: %w", err)
+	}
+	contentStr := string(content)
+
+	// Extract name (first occurrence in metadata block)
+	var name string
+	lines := strings.Split(contentStr, "\n")
+	inMetadata := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "metadata:" {
+			inMetadata = true
+			continue
+		}
+		if inMetadata && strings.HasPrefix(trimmed, "name:") {
+			name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
+			break
+		}
+		// Exit metadata block if we hit another top-level key
+		if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
+			break
+		}
+	}
+
+	// Extract namespace and path from spec block
+	var namespace, path string
+	inSpec := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "spec:" {
+			inSpec = true
+			continue
+		}
+		if inSpec {
+			if strings.HasPrefix(trimmed, "targetNamespace:") {
+				namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "targetNamespace:"))
+			}
+			if strings.HasPrefix(trimmed, "path:") {
+				path = strings.TrimSpace(strings.TrimPrefix(trimmed, "path:"))
+			}
+		}
+	}
+
+	// Fallback: try metadata namespace if targetNamespace not found
+	if namespace == "" {
+		inMetadata = false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "metadata:" {
+				inMetadata = true
+				continue
+			}
+			if inMetadata && strings.HasPrefix(trimmed, "namespace:") {
+				namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "namespace:"))
+				break
+			}
+			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
+				break
+			}
+		}
+	}
+
+	if name == "" || path == "" || namespace == "" {
+		return nil, fmt.Errorf("failed to extract name, namespace, and path from %s (name=%q, namespace=%q, path=%q)", ksFile, name, namespace, path)
+	}
+
+	// Find git repository root to resolve relative paths
+	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	gitRootOutput, err := gitRootCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
+	}
+	gitRoot := strings.TrimSpace(string(gitRootOutput))
+
+	// If path starts with ./, remove it and make it relative to git root
+	path = strings.TrimPrefix(path, "./")
+
+	// Construct full path relative to git root
+	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
+
+	// Verify the path exists
+	if _, err := os.Stat(fullPath); err != nil {
+		return nil, fmt.Errorf("kustomization path does not exist: %s", fullPath)
+	}
+
+	return &KustomizationInfo{
+		Name:      name,
+		Namespace: namespace,
+		Path:      path,
+		FullPath:  fullPath,
+		KsFile:    ksFile,
+		GitRoot:   gitRoot,
+	}, nil
+}
+
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "k8s",
@@ -537,14 +666,20 @@ func viewSecret(namespace, secretName, format, key string) error {
 			continue
 		}
 
-		// Get the base64 encoded value for this key
-		// Use printf to handle special characters in key names
-		valueCmd := exec.Command("bash", "-c",
-			fmt.Sprintf("kubectl get secret %s -n %s -o go-template='{{index .data \"%s\"}}'", secretName, namespace, k))
+		// Get the base64 encoded value for this key using jsonpath for safe key handling
+		// This avoids shell escaping issues with special characters in key names
+		jsonpathExpr := fmt.Sprintf("{.data.%s}", k)
+		valueCmd := exec.Command("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
 		encodedValue, err := valueCmd.Output()
 		if err != nil {
-			decodedData[k] = "<error reading value>"
-			continue
+			// Try with bracket notation for keys with special characters
+			jsonpathExpr = fmt.Sprintf("{.data['%s']}", strings.ReplaceAll(k, "'", "\\'"))
+			valueCmd = exec.Command("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
+			encodedValue, err = valueCmd.Output()
+			if err != nil {
+				decodedData[k] = "<error reading value>"
+				continue
+			}
 		}
 
 		// Decode the base64 value using base64 command
@@ -952,83 +1087,21 @@ func newRenderKsCommand() *cobra.Command {
 func renderKustomization(ksPath, outputFile string) error {
 	logger := common.NewColorLogger()
 
-	// Check if ksPath is a file or directory
-	info, err := os.Stat(ksPath)
+	// Parse the ks.yaml file using the common helper
+	ksInfo, err := parseKustomizationFile(ksPath)
 	if err != nil {
-		return fmt.Errorf("failed to access path %s: %w", ksPath, err)
+		return err
 	}
 
-	var ksFile string
-	if info.IsDir() {
-		// If directory, look for ks.yaml
-		ksFile = fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
-		if _, err := os.Stat(ksFile); err != nil {
-			return fmt.Errorf("no ks.yaml found in directory %s", ksPath)
-		}
-	} else {
-		// If file, use it directly
-		ksFile = ksPath
-	}
-
-	logger.Info("Rendering Kustomization from %s", ksFile)
-
-	// Extract name from ks.yaml
-	nameCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'name:' %s | head -1 | awk '{print $NF}'", ksFile))
-	nameOutput, err := nameCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract name from ks.yaml: %w", err)
-	}
-	name := strings.TrimSpace(string(nameOutput))
-
-	// Extract namespace from ks.yaml
-	namespaceCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'namespace:' %s | head -1 | awk '{print $NF}'", ksFile))
-	namespaceOutput, err := namespaceCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract namespace from ks.yaml: %w", err)
-	}
-	namespace := strings.TrimSpace(string(namespaceOutput))
-
-	// Extract path from ks.yaml
-	pathCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'path:' %s | awk '{print $2}'", ksFile))
-	pathOutput, err := pathCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract path from ks.yaml: %w", err)
-	}
-	path := strings.TrimSpace(string(pathOutput))
-
-	if name == "" || path == "" || namespace == "" {
-		return fmt.Errorf("failed to extract name, namespace, and path from %s", ksFile)
-	}
-
-	// Find git repository root to resolve relative paths
-	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRootOutput, err := gitRootCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
-	}
-	gitRoot := strings.TrimSpace(string(gitRootOutput))
-
-	// If path starts with ./, remove it and make it relative to git root
-	path = strings.TrimPrefix(path, "./")
-
-	// Construct full path relative to git root
-	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
-
-	// Verify the path exists
-	if _, err := os.Stat(fullPath); err != nil {
-		return fmt.Errorf("kustomization path does not exist: %s", fullPath)
-	}
+	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
 
 	// Build the kustomization using flux build with dry-run (with spinner)
 	outputStr, err := ui.SpinWithOutput(
-		fmt.Sprintf("Rendering Kustomization %s/%s", namespace, name),
-		"flux", "build", "kustomization", name,
-		"--namespace", namespace,
-		"--path", fullPath,
-		"--kustomization-file", ksFile,
+		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
+		"flux", "build", "kustomization", ksInfo.Name,
+		"--namespace", ksInfo.Namespace,
+		"--path", ksInfo.FullPath,
+		"--kustomization-file", ksInfo.KsFile,
 		"--dry-run",
 	)
 	if err != nil {
@@ -1088,85 +1161,23 @@ func newApplyKsCommand() *cobra.Command {
 func applyKustomization(ksPath string, dryRun bool) error {
 	logger := common.NewColorLogger()
 
-	// Check if ksPath is a file or directory
-	info, err := os.Stat(ksPath)
+	// Parse the ks.yaml file using the common helper
+	ksInfo, err := parseKustomizationFile(ksPath)
 	if err != nil {
-		return fmt.Errorf("failed to access path %s: %w", ksPath, err)
+		return err
 	}
 
-	var ksFile string
-	if info.IsDir() {
-		// If directory, look for ks.yaml
-		ksFile = fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
-		if _, err := os.Stat(ksFile); err != nil {
-			return fmt.Errorf("no ks.yaml found in directory %s", ksPath)
-		}
-	} else {
-		// If file, use it directly
-		ksFile = ksPath
-	}
-
-	logger.Info("Rendering Kustomization from %s", ksFile)
-
-	// Extract name from ks.yaml
-	nameCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'name:' %s | head -1 | awk '{print $NF}'", ksFile))
-	nameOutput, err := nameCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract name from ks.yaml: %w", err)
-	}
-	name := strings.TrimSpace(string(nameOutput))
-
-	// Extract namespace from ks.yaml
-	namespaceCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'namespace:' %s | head -1 | awk '{print $NF}'", ksFile))
-	namespaceOutput, err := namespaceCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract namespace from ks.yaml: %w", err)
-	}
-	namespace := strings.TrimSpace(string(namespaceOutput))
-
-	// Extract path from ks.yaml
-	pathCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'path:' %s | awk '{print $2}'", ksFile))
-	pathOutput, err := pathCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract path from ks.yaml: %w", err)
-	}
-	path := strings.TrimSpace(string(pathOutput))
-
-	if name == "" || path == "" || namespace == "" {
-		return fmt.Errorf("failed to extract name, namespace, and path from %s", ksFile)
-	}
-
-	// Find git repository root to resolve relative paths
-	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRootOutput, err := gitRootCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
-	}
-	gitRoot := strings.TrimSpace(string(gitRootOutput))
-
-	// If path starts with ./, remove it and make it relative to git root
-	path = strings.TrimPrefix(path, "./")
-
-	// Construct full path relative to git root
-	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
-
-	// Verify the path exists
-	if _, err := os.Stat(fullPath); err != nil {
-		return fmt.Errorf("kustomization path does not exist: %s", fullPath)
-	}
+	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
 
 	// Build the kustomization using flux build with dry-run (with spinner)
-	logger.Info("Building Kustomization %s", name)
+	logger.Info("Building Kustomization %s", ksInfo.Name)
 
 	outputStr, err := ui.SpinWithOutput(
-		fmt.Sprintf("Rendering Kustomization %s/%s", namespace, name),
-		"flux", "build", "kustomization", name,
-		"--namespace", namespace,
-		"--path", fullPath,
-		"--kustomization-file", ksFile,
+		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
+		"flux", "build", "kustomization", ksInfo.Name,
+		"--namespace", ksInfo.Namespace,
+		"--path", ksInfo.FullPath,
+		"--kustomization-file", ksInfo.KsFile,
 		"--dry-run",
 	)
 	if err != nil {
@@ -1283,81 +1294,19 @@ func newDeleteKsCommand() *cobra.Command {
 func deleteKustomization(ksPath string) error {
 	logger := common.NewColorLogger()
 
-	// Check if ksPath is a file or directory
-	info, err := os.Stat(ksPath)
+	// Parse the ks.yaml file using the common helper
+	ksInfo, err := parseKustomizationFile(ksPath)
 	if err != nil {
-		return fmt.Errorf("failed to access path %s: %w", ksPath, err)
+		return err
 	}
 
-	var ksFile string
-	if info.IsDir() {
-		// If directory, look for ks.yaml
-		ksFile = fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
-		if _, err := os.Stat(ksFile); err != nil {
-			return fmt.Errorf("no ks.yaml found in directory %s", ksPath)
-		}
-	} else {
-		// If file, use it directly
-		ksFile = ksPath
-	}
-
-	logger.Info("Rendering Kustomization from %s", ksFile)
-
-	// Extract name from ks.yaml
-	nameCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'name:' %s | head -1 | awk '{print $NF}'", ksFile))
-	nameOutput, err := nameCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract name from ks.yaml: %w", err)
-	}
-	name := strings.TrimSpace(string(nameOutput))
-
-	// Extract namespace from ks.yaml
-	namespaceCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'namespace:' %s | head -1 | awk '{print $NF}'", ksFile))
-	namespaceOutput, err := namespaceCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract namespace from ks.yaml: %w", err)
-	}
-	namespace := strings.TrimSpace(string(namespaceOutput))
-
-	// Extract path from ks.yaml
-	pathCmd := exec.Command("bash", "-c",
-		fmt.Sprintf("grep 'path:' %s | awk '{print $2}'", ksFile))
-	pathOutput, err := pathCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to extract path from ks.yaml: %w", err)
-	}
-	path := strings.TrimSpace(string(pathOutput))
-
-	if name == "" || path == "" || namespace == "" {
-		return fmt.Errorf("failed to extract name, namespace, and path from %s", ksFile)
-	}
-
-	// Find git repository root to resolve relative paths
-	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRootOutput, err := gitRootCmd.Output()
-	if err != nil {
-		return fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
-	}
-	gitRoot := strings.TrimSpace(string(gitRootOutput))
-
-	// If path starts with ./, remove it and make it relative to git root
-	path = strings.TrimPrefix(path, "./")
-
-	// Construct full path relative to git root
-	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
-
-	// Verify the path exists
-	if _, err := os.Stat(fullPath); err != nil {
-		return fmt.Errorf("kustomization path does not exist: %s", fullPath)
-	}
+	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
 
 	// Build the kustomization using flux build with dry-run
-	buildCmd := exec.Command("flux", "build", "kustomization", name,
-		"--namespace", namespace,
-		"--path", fullPath,
-		"--kustomization-file", ksFile,
+	buildCmd := exec.Command("flux", "build", "kustomization", ksInfo.Name,
+		"--namespace", ksInfo.Namespace,
+		"--path", ksInfo.FullPath,
+		"--kustomization-file", ksInfo.KsFile,
 		"--dry-run")
 
 	output, err := buildCmd.Output()

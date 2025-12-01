@@ -25,15 +25,15 @@ const (
 	EnvVSphereUsername = "VSPHERE_USERNAME"
 	EnvVSpherePassword = "VSPHERE_PASSWORD"
 
-	EnvKubeconfig         = "KUBECONFIG"
-	EnvTalosconfig        = "TALOSCONFIG"
-	EnvKubernetesVersion  = "KUBERNETES_VERSION"
-	EnvTalosVersion       = "TALOS_VERSION"
-	EnvSOPSAgeKeyFile     = "SOPS_AGE_KEY_FILE"
-	EnvMiniJinjaConfig    = "MINIJINJA_CONFIG_FILE"
-	EnvDebug              = "DEBUG"
-	EnvLogLevel           = "LOG_LEVEL"
-	EnvHomeOpsNoInteract  = "HOMEOPS_NO_INTERACTIVE"
+	EnvKubeconfig        = "KUBECONFIG"
+	EnvTalosconfig       = "TALOSCONFIG"
+	EnvKubernetesVersion = "KUBERNETES_VERSION"
+	EnvTalosVersion      = "TALOS_VERSION"
+	EnvSOPSAgeKeyFile    = "SOPS_AGE_KEY_FILE"
+	EnvMiniJinjaConfig   = "MINIJINJA_CONFIG_FILE"
+	EnvDebug             = "DEBUG"
+	EnvLogLevel          = "LOG_LEVEL"
+	EnvHomeOpsNoInteract = "HOMEOPS_NO_INTERACTIVE"
 )
 
 // Kubernetes namespaces commonly used

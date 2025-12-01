@@ -8,14 +8,14 @@ spec:
   components:
     - ../../../../components/volsync-direct
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/automation/n8n/app
   postBuild:
     substitute:
       APP: n8n
-      VOLSYNC_CAPACITY: 10Gi
+      VOLSYNC_CAPACITY: 15Gi
   prune: true
   sourceRef:
     kind: GitRepository

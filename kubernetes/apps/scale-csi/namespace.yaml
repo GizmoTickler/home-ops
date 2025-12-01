@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: truenas-csi
+  name: scale-csi
   labels:
     pod-security.kubernetes.io/enforce: privileged
   annotations:

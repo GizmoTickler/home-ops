@@ -5,9 +5,9 @@ import "fmt"
 // VMConfig represents the configuration for a vSphere VM
 type VMConfig struct {
 	// Basic VM configuration
-	Name         string
-	Memory       int // Memory in MB
-	VCPUs        int // Number of vCPUs
+	Name        string
+	Memory      int // Memory in MB
+	VCPUs       int // Number of vCPUs
 	DiskSize    int // Boot disk size in GB (default: 500GB) - contains TalosOS
 	OpenEBSSize int // OpenEBS disk size in GB (default: 1000GB) - for local storage
 
@@ -39,9 +39,9 @@ type VMDeploymentConfig struct {
 	Insecure bool
 
 	// Default VM specs
-	DefaultMemory       int
-	DefaultVCPUs        int
-	DefaultDiskSize     int
+	DefaultMemory      int
+	DefaultVCPUs       int
+	DefaultDiskSize    int
 	DefaultOpenEBSSize int
 
 	// vSphere defaults
@@ -60,8 +60,8 @@ func GetDefaultVMConfig(name string) VMConfig {
 		Name:                 name,
 		Memory:               48 * 1024, // 48GB
 		VCPUs:                16,
-		DiskSize:             500,  // 500GB boot (TalosOS)
-		OpenEBSSize:          1000, // 1TB OpenEBS local storage
+		DiskSize:             500,           // 500GB boot (TalosOS)
+		OpenEBSSize:          1000,          // 1TB OpenEBS local storage
 		Datastore:            "truenas-nfs", // Match the actual datastore name
 		Network:              "vl999",
 		PowerOn:              true, // Power on by default with auto unregister/re-register on failure

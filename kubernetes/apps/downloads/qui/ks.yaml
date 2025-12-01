@@ -9,8 +9,8 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync-direct
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
     - name: qbittorrent
       namespace: downloads
   interval: 1h
@@ -18,7 +18,7 @@ spec:
   postBuild:
     substitute:
       APP: qui
-      VOLSYNC_CAPACITY: 2Gi
+      VOLSYNC_CAPACITY: 15Gi
   prune: true
   sourceRef:
     kind: GitRepository

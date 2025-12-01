@@ -397,10 +397,11 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		"network",
 		"observability",
 		"openebs-system",
+		"rook-ceph",
+		"scale-csi",
 		"self-hosted",
 		"system",
 		"system-upgrade",
-		"truenas-csi",
 		"volsync-system",
 	}
 

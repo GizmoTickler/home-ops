@@ -69,9 +69,9 @@ spec:
         statefulset:
           volumeClaimTemplates:
             - name: config
-              storageClass: truenas-iscsi
+              storageClass: scale-iscsi
               accessMode: ReadWriteOnce
-              size: 5Gi
+              size: 15Gi
     defaultPodOptions:
       securityContext:
         runAsNonRoot: true

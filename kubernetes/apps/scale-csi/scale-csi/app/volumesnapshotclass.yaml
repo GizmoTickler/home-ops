@@ -3,6 +3,6 @@
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:
-  name: truenas-snapshot
-driver: org.truenas.csi
+  name: scale-snapshot
+driver: org.scale.csi
 deletionPolicy: Delete
