@@ -9,3 +9,5 @@ resources:
   - ./storageclass-iscsi.yaml
   - ./storageclass-nfs.yaml
   - ./volumesnapshotclass.yaml
+  - ./service.yaml
+  - ./vmservicescrape.yaml
