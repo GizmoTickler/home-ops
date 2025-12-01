@@ -11,3 +11,4 @@ resources:
   - ./volumesnapshotclass.yaml
   - ./service.yaml
   - ./vmservicescrape.yaml
+  - ./grafanadashboard.yaml
