@@ -1,0 +1,18 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/v1/service.json
+apiVersion: v1
+kind: Service
+metadata:
+  name: scale-csi-controller-metrics
+  labels:
+    app.kubernetes.io/name: scale-csi
+    app.kubernetes.io/component: controller
+spec:
+  selector:
+    app.kubernetes.io/name: scale-csi
+    app.kubernetes.io/component: controller
+  ports:
+    - name: metrics
+      port: 9809
+      targetPort: 9809
+      protocol: TCP
