@@ -16,3 +16,22 @@ spec:
       port: 9809
       targetPort: 9809
       protocol: TCP
+---
+# Node metrics service (headless for DaemonSet pod scraping)
+apiVersion: v1
+kind: Service
+metadata:
+  name: scale-csi-node-metrics
+  labels:
+    app.kubernetes.io/name: scale-csi
+    app.kubernetes.io/component: node
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: scale-csi
+    app.kubernetes.io/component: node
+  ports:
+    - name: metrics
+      port: 9809
+      targetPort: 9809
+      protocol: TCP

@@ -3,12 +3,27 @@
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
-  name: scale-csi
+  name: scale-csi-controller
 spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: scale-csi
       app.kubernetes.io/component: controller
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+---
+# Node metrics scrape (for iSCSI session counts per node)
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: scale-csi-node
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scale-csi
+      app.kubernetes.io/component: node
   endpoints:
     - port: metrics
       path: /metrics
