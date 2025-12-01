@@ -31,6 +31,7 @@ spec:
               CRON_MIN: "*"
               DOMAIN: "rss.${SECRET_DOMAIN}"
               LISTEN: &port 8080
+              TZ: America/New_York
             probes:
               liveness: &probes
                 enabled: true
