@@ -25,7 +25,7 @@ spec:
       existingSecret: scale-csi-secret
 
     zfs:
-      parentDataset: flashstor/k8s-csi
+      parentDataset: flashstor/scale-csi
 
     nfs:
       enabled: true
