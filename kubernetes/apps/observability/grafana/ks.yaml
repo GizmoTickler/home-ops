@@ -23,8 +23,8 @@ metadata:
 spec:
   dependsOn:
     - name: grafana
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/observability/grafana/instance
   prune: true

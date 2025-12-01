@@ -649,19 +649,12 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 			c.logger.Info("Starting deployment of VM: %s", cfg.Name)
 			startTime := time.Now()
 
-			// Create VM
-			vm, err := c.CreateVM(cfg)
+			// Create VM - note: CreateVM already handles power-on with retry logic
+			// when cfg.PowerOn is true, so we don't need to call PowerOnVM separately
+			_, err := c.CreateVM(cfg)
 			if err != nil {
 				errors <- fmt.Errorf("failed to create VM %s: %w", cfg.Name, err)
 				return
-			}
-
-			// Power on VM if requested
-			if cfg.PowerOn {
-				if err := c.PowerOnVM(vm); err != nil {
-					errors <- fmt.Errorf("failed to power on VM %s: %w", cfg.Name, err)
-					return
-				}
 			}
 
 			c.logger.Success("VM %s deployed in %v", cfg.Name, time.Since(startTime))

@@ -6,8 +6,8 @@ metadata:
   name: victoria-metrics
 spec:
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/observability/victoria-metrics/app
   postBuild:

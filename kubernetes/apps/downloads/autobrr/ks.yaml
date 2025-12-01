@@ -9,8 +9,8 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync-direct
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/downloads/autobrr/app
   postBuild:

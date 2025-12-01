@@ -992,10 +992,15 @@ func newRestoreAllCommand() *cobra.Command {
 		Long:  `Discovers all ReplicationSources in a namespace and restores them from specified snapshots`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force && !dryRun {
-				fmt.Printf("This will restore ALL applications in namespace '%s' from snapshot %s. Data will be overwritten. Continue? (y/N): ", namespace, previous)
-				var response string
-				_, _ = fmt.Scanln(&response)
-				if response != "y" && response != "Y" {
+				message := fmt.Sprintf("This will restore ALL applications in namespace '%s' from snapshot %s. Data will be overwritten. Continue?", namespace, previous)
+				confirmed, err := ui.Confirm(message, false)
+				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
+					return fmt.Errorf("confirmation failed: %w", err)
+				}
+				if !confirmed {
 					return fmt.Errorf("restore cancelled")
 				}
 			}
