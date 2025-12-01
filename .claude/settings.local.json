@@ -41,7 +41,10 @@
       "Bash(find:*)",
       "Bash(tree:*)",
       "Bash(go build:*)",
-      "Bash(./homeops-cli bootstrap:*)"
+      "Bash(./homeops-cli bootstrap:*)",
+      "Bash(helm template:*)",
+      "Bash(yq:*)",
+      "Bash(make build:*)"
     ],
     "deny": [],
     "ask": []
