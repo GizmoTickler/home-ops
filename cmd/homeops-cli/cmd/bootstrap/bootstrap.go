@@ -14,13 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-	yamlv3 "gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/ui"
+
+	"github.com/spf13/cobra"
+	yamlv3 "gopkg.in/yaml.v3"
 )
 
 type BootstrapConfig struct {
@@ -42,22 +44,6 @@ type PreflightResult struct {
 	Status  string
 	Message string
 	Error   error
-}
-
-// runWithSpinner runs a function with a spinner if verbose mode is disabled,
-// otherwise runs it directly with full logger output
-func runWithSpinner(title string, verbose bool, logger *common.ColorLogger, fn func() error) error {
-	if verbose {
-		// In verbose mode, show the title and run without spinner
-		logger.Info("%s", title)
-		return fn()
-	}
-	// In normal mode, use spinner and suppress logger output
-	return ui.SpinWithFunc(title, func() error {
-		logger.SetQuiet(true)
-		defer func() { logger.SetQuiet(false) }()
-		return fn()
-	})
 }
 
 // buildTalosctlCmd builds a talosctl command with optional talosconfig
@@ -168,28 +154,6 @@ func promptBootstrapOptions(config *BootstrapConfig, logger *common.ColorLogger)
 
 	return nil
 }
-
-// resetTerminal resets terminal state to prevent escape code leakage
-func resetTerminal() {
-	// Run stty sane to fully restore terminal
-	resetCmd := exec.Command("stty", "sane")
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err == nil {
-		resetCmd.Stdin = tty
-		resetCmd.Stdout = tty
-		resetCmd.Stderr = tty
-		_ = resetCmd.Run()
-
-		// Also send ANSI reset codes
-		_, _ = tty.WriteString("\033[0m\033[?25h\r")
-		_ = tty.Sync()
-		_ = tty.Close()
-	}
-
-	// Small delay to let terminal settle
-	time.Sleep(50 * time.Millisecond)
-}
-
 func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
@@ -232,7 +196,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Run comprehensive preflight checks
 	if !config.SkipPreflight {
-		if err := runWithSpinner("🔍 Running preflight checks", config.Verbose, logger, func() error {
+		if err := ui.RunWithSpinner("🔍 Running preflight checks", config.Verbose, logger, func() error {
 			return runPreflightChecks(config, logger)
 		}); err != nil {
 			return fmt.Errorf("preflight checks failed: %w", err)
@@ -252,10 +216,10 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 
 	// Reset terminal after Step 1 completes (multiple spinners)
-	resetTerminal()
+	ui.ResetTerminal()
 
 	// Step 2: Bootstrap Talos
-	if err := runWithSpinner("🎯 Step 2: Bootstrapping Talos cluster", config.Verbose, logger, func() error {
+	if err := ui.RunWithSpinner("🎯 Step 2: Bootstrapping Talos cluster", config.Verbose, logger, func() error {
 		// Wait a moment for configurations to be fully processed (following onedr0p's pattern)
 		logger.Debug("Waiting for configurations to be processed...")
 		time.Sleep(5 * time.Second)
@@ -265,7 +229,7 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 
 	// Step 3: Fetch kubeconfig
-	if err := runWithSpinner("🔑 Step 3: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
+	if err := ui.RunWithSpinner("🔑 Step 3: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
 		if err := fetchKubeconfig(config, logger); err != nil {
 			return fmt.Errorf("failed to fetch kubeconfig: %w", err)
 		}
@@ -279,14 +243,14 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 
 	// Step 4: Wait for nodes to be ready
-	if err := runWithSpinner("⏳ Step 4: Waiting for nodes to be ready", config.Verbose, logger, func() error {
+	if err := ui.RunWithSpinner("⏳ Step 4: Waiting for nodes to be ready", config.Verbose, logger, func() error {
 		return waitForNodes(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed waiting for nodes: %w", err)
 	}
 
 	// Step 5: Apply namespaces first (following onedr0p pattern)
-	if err := runWithSpinner("📦 Step 5: Creating initial namespaces", config.Verbose, logger, func() error {
+	if err := ui.RunWithSpinner("📦 Step 5: Creating initial namespaces", config.Verbose, logger, func() error {
 		return applyNamespaces(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed to apply namespaces: %w", err)
@@ -294,7 +258,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Step 6: Apply initial resources
 	if !config.SkipResources {
-		if err := runWithSpinner("🔧 Step 6: Applying initial resources", config.Verbose, logger, func() error {
+		if err := ui.RunWithSpinner("🔧 Step 6: Applying initial resources", config.Verbose, logger, func() error {
 			return applyResources(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply resources: %w", err)
@@ -303,7 +267,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Step 7: Apply CRDs
 	if !config.SkipCRDs {
-		if err := runWithSpinner("📜 Step 7: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
+		if err := ui.RunWithSpinner("📜 Step 7: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
 			return applyCRDs(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply CRDs: %w", err)
@@ -312,7 +276,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Step 8: Sync Helm releases
 	if !config.SkipHelmfile {
-		if err := runWithSpinner("⚙️  Step 8: Syncing Helm releases", config.Verbose, logger, func() error {
+		if err := ui.RunWithSpinner("⚙️  Step 8: Syncing Helm releases", config.Verbose, logger, func() error {
 			return syncHelmReleases(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to sync Helm releases: %w", err)
@@ -387,22 +351,22 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 	// This ensures all namespaces exist before any resources are applied
 	namespaces := []string{
 		"actions-runner-system",
-		"automation",
-		"cert-manager",
-		"downloads",
-		"external-secrets",
-		"flux-system",
-		"kube-system", // Usually exists but we'll ensure it's there
-		"media",
-		"network",
-		"observability",
-		"openebs-system",
+		constants.NSAutomation,
+		constants.NSCertManager,
+		constants.NSDownloads,
+		constants.NSExternalSecret,
+		constants.NSFluxSystem,
+		constants.NSKubeSystem, // Usually exists but we'll ensure it's there
+		constants.NSMedia,
+		constants.NSNetwork,
+		constants.NSObservability,
+		constants.NSOpenEBSSystem,
 		"rook-ceph",
 		"scale-csi",
-		"self-hosted",
-		"system",
+		constants.NSSelfHosted,
+		constants.NSSystem,
 		"system-upgrade",
-		"volsync-system",
+		constants.NSVolsyncSystem,
 	}
 
 	for _, ns := range namespaces {
@@ -878,7 +842,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 
 		// Apply config with spinner showing the node being configured
 		spinnerTitle := fmt.Sprintf("  Applying config to %s (%s)", node, machineType)
-		err = runWithSpinner(spinnerTitle, config.Verbose, logger, func() error {
+		err = ui.RunWithSpinner(spinnerTitle, config.Verbose, logger, func() error {
 			// Render machine config using embedded templates
 			renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate, machineType, logger)
 			if err != nil {

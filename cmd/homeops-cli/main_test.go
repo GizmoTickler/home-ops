@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,8 +108,9 @@ func TestEnvironmentSetup(t *testing.T) {
 	// Call setEnvironment
 	setEnvironment()
 
-	// Check that default was set
-	assert.Equal(t, "./.minijinja.toml", os.Getenv("MINIJINJA_CONFIG_FILE"))
+	// Check that default was set to absolute path
+	expectedPath, _ := filepath.Abs("./.minijinja.toml")
+	assert.Equal(t, expectedPath, os.Getenv("MINIJINJA_CONFIG_FILE"))
 }
 
 func TestEnvironmentSetupDoesNotOverride(t *testing.T) {
