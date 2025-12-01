@@ -26,5 +26,5 @@ spec:
     retain:
       hourly: 24
       daily: 7
-    storageClassName: ${VOLSYNC_STORAGECLASS:=truenas-iscsi}
-    volumeSnapshotClassName: ${VOLSYNC_SNAPSHOTCLASS:=truenas-snapshot}
+    storageClassName: ${VOLSYNC_STORAGECLASS:=scale-iscsi}
+    volumeSnapshotClassName: ${VOLSYNC_SNAPSHOTCLASS:=scale-snapshot}
