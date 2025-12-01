@@ -87,7 +87,7 @@ spec:
         storage:
           accessModes:
             - ReadWriteOnce
-          storageClassName: truenas-iscsi
+          storageClassName: scale-iscsi
           resources:
             requests:
               storage: 300Gi
