@@ -91,5 +91,5 @@ spec:
       resources:
         requests:
           storage: 20Gi
-      storageClassName: truenas-iscsi
+      storageClassName: scale-iscsi
   disableDefaultSecurityContext: All
