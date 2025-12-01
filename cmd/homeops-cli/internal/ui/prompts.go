@@ -519,3 +519,43 @@ func GetNamespaces() ([]string, error) {
 
 	return namespaces, nil
 }
+
+// RunWithSpinner runs a function with a spinner if verbose mode is disabled,
+// otherwise runs it directly with full logger output
+func RunWithSpinner(title string, verbose bool, logger interface {
+	SetQuiet(bool)
+	Info(string, ...interface{})
+}, fn func() error) error {
+	if verbose {
+		// In verbose mode, show the title and run without spinner
+		logger.Info("%s", title)
+		return fn()
+	}
+	// In normal mode, use spinner and suppress logger output
+	return SpinWithFunc(title, func() error {
+		logger.SetQuiet(true)
+		defer func() { logger.SetQuiet(false) }()
+		return fn()
+	})
+}
+
+// ResetTerminal resets terminal state to prevent escape code leakage
+func ResetTerminal() {
+	// Run stty sane to fully restore terminal
+	resetCmd := exec.Command("stty", "sane")
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err == nil {
+		resetCmd.Stdin = tty
+		resetCmd.Stdout = tty
+		resetCmd.Stderr = tty
+		_ = resetCmd.Run()
+
+		// Also send ANSI reset codes
+		_, _ = tty.WriteString("\033[0m\033[?25h\r")
+		_ = tty.Sync()
+		_ = tty.Close()
+	}
+
+	// Small delay to let terminal settle
+	time.Sleep(50 * time.Millisecond)
+}

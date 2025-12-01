@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 
 	"github.com/truenas/api_client_golang/truenas_api"
 )
@@ -452,4 +456,45 @@ func (c *WorkingClient) GetDeviceNICAttachChoices() (interface{}, error) {
 	}
 
 	return choices, nil
+}
+
+// GetCredentials retrieves TrueNAS credentials from 1Password or environment variables
+func GetCredentials() (host, apiKey string, err error) {
+	logger := common.NewColorLogger()
+	usedEnvFallback := false
+
+	// Try 1Password first - batch lookup for better performance
+	secrets := common.Get1PasswordSecretsBatch([]string{
+		constants.OpTrueNASHost,
+		constants.OpTrueNASAPI,
+	})
+	host = secrets[constants.OpTrueNASHost]
+	apiKey = secrets[constants.OpTrueNASAPI]
+
+	// Fall back to environment variables if 1Password fails
+	if host == "" {
+		host = os.Getenv(constants.EnvTrueNASHost)
+		if host != "" {
+			usedEnvFallback = true
+		}
+	}
+	if apiKey == "" {
+		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
+		if apiKey != "" {
+			usedEnvFallback = true
+		}
+	}
+
+	// Check if we have both credentials
+	if host == "" || apiKey == "" {
+		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set %s and %s environment variables or configure 1Password with '%s' and '%s'",
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+	}
+
+	// Warn if using environment variables (less secure than 1Password)
+	if usedEnvFallback {
+		logger.Warn("Using environment variables for TrueNAS credentials. Consider using 1Password for better security.")
+	}
+
+	return host, apiKey, nil
 }

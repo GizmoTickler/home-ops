@@ -9,13 +9,15 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/templates"
+
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -479,4 +481,53 @@ func (fc *FactoryClient) ClearCache() error {
 	}
 	fc.logger.Success("Cache cleared successfully")
 	return nil
+}
+
+// GetNodeIPs retrieves the list of Talos node IPs from the cluster
+func GetNodeIPs() ([]string, error) {
+	// Get list of Talos nodes
+	getNodesCmd := exec.Command("talosctl", "get", "members", "-o", "json")
+	output, err := getNodesCmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Talos nodes: %w", err)
+	}
+
+	// Parse JSON to extract node IPs
+	var result struct {
+		Spec struct {
+			Addresses []string `json:"addresses"`
+		} `json:"spec"`
+	}
+
+	// Try to extract IPs from members list
+	lines := strings.Split(string(output), "\n")
+	nodeIPs := []string{}
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &result); err == nil {
+			nodeIPs = append(nodeIPs, result.Spec.Addresses...)
+		}
+	}
+
+	// Fallback: try to get from talosconfig
+	if len(nodeIPs) == 0 {
+		getEndpointsCmd := exec.Command("talosctl", "config", "info", "-o", "json")
+		endpointsOutput, err := getEndpointsCmd.Output()
+		if err == nil {
+			var configInfo struct {
+				Endpoints []string `json:"endpoints"`
+			}
+			if err := json.Unmarshal(endpointsOutput, &configInfo); err == nil {
+				nodeIPs = configInfo.Endpoints
+			}
+		}
+	}
+
+	if len(nodeIPs) == 0 {
+		return nil, fmt.Errorf("no Talos nodes found in cluster")
+	}
+
+	return nodeIPs, nil
 }
