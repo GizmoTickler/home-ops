@@ -8,14 +8,14 @@ spec:
   components:
     - ../../../../components/volsync-direct
   dependsOn:
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/self-hosted/karakeep/app
   postBuild:
     substitute:
       APP: karakeep
-      VOLSYNC_CAPACITY: 5Gi
+      VOLSYNC_CAPACITY: 15Gi
   prune: true
   sourceRef:
     kind: GitRepository

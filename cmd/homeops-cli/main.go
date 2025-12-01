@@ -3,24 +3,27 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/spf13/cobra"
 	"homeops-cli/cmd/bootstrap"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
+	"homeops-cli/internal/common"
 	"homeops-cli/internal/ui"
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/spf13/cobra"
 )
 
 var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
+	version  = "dev"
+	commit   = "none"
+	date     = "unknown"
+	logLevel string
 )
 
 func main() {
@@ -43,11 +46,20 @@ func main() {
 		Long: `A comprehensive CLI tool for managing home infrastructure including
 Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+			// Set global log level from flag (if provided) before any command runs
+			if logLevel != "" {
+				common.SetGlobalLogLevel(logLevel)
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// If no subcommand provided, show interactive menu
 			return showInteractiveMenu(cmd)
 		},
 	}
+
+	// Add global flags
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "Set log level (debug, info, warn, error)")
 
 	// Set global environment variables
 	setEnvironment()
@@ -91,18 +103,18 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 		return nil
 	}
 
-	// Extract command name from selection
+	// Extract command name from selection using HasPrefix to avoid panic on short strings
 	var cmdName string
 	switch {
-	case selected[:9] == "bootstrap":
+	case strings.HasPrefix(selected, "bootstrap"):
 		cmdName = "bootstrap"
-	case selected[:3] == "k8s":
+	case strings.HasPrefix(selected, "k8s"):
 		cmdName = "k8s"
-	case selected[:5] == "talos":
+	case strings.HasPrefix(selected, "talos"):
 		cmdName = "talos"
-	case selected[:7] == "volsync":
+	case strings.HasPrefix(selected, "volsync"):
 		cmdName = "volsync"
-	case selected[:11] == "workstation":
+	case strings.HasPrefix(selected, "workstation"):
 		cmdName = "workstation"
 	default:
 		return rootCmd.Help()
@@ -200,6 +212,7 @@ func setEnvironment() {
 		if os.Getenv(key) == "" {
 			if err := os.Setenv(key, defaultValue); err != nil {
 				// Log the error but continue execution
+				// Note: We can't use logger here as it may not be initialized yet
 				fmt.Fprintf(os.Stderr, "Warning: failed to set environment variable %s: %v\n", key, err)
 			}
 		}

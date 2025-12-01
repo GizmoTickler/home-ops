@@ -15,7 +15,7 @@ spec:
       persistentVolume:
         enabled: true
         storageClassName: truenas-iscsi
-        size: 200Gi
+        size: 500Gi
       retentionPeriod: 14d
       serviceMonitor:
         enabled: true

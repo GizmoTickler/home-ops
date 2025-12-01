@@ -3,7 +3,7 @@
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
-  name: truenas-csi
+  name: scale-csi
 spec:
   interval: 15m
   layerSelector:
@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: 2.2.30
-  url: oci://ghcr.io/gizmotickler/charts/truenas-csi
+  url: oci://ghcr.io/gizmotickler/charts/scale-csi

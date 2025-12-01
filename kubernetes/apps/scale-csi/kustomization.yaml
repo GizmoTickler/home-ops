@@ -2,11 +2,11 @@
 # yaml-language-server: $schema=https://json.schemastore.org/kustomization
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: truenas-csi
+namespace: scale-csi
 components:
   - ../../components/alerts
   - ../../components/cluster-secret
 
 resources:
   - ./namespace.yaml
-  - ./truenas-csi/ks.yaml
+  - ./scale-csi/ks.yaml

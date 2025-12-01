@@ -647,10 +647,14 @@ func newShutdownClusterCommand() *cobra.Command {
 		Short: "Shutdown Talos across the whole cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Print("Shutdown the Talos cluster ... continue? (y/N): ")
-				var response string
-				_, _ = fmt.Scanln(&response)
-				if response != "y" && response != "Y" {
+				confirmed, err := ui.Confirm("Shutdown the Talos cluster?", false)
+				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
+					return fmt.Errorf("confirmation failed: %w", err)
+				}
+				if !confirmed {
 					return fmt.Errorf("shutdown cancelled")
 				}
 			}
@@ -778,10 +782,14 @@ func newResetClusterCommand() *cobra.Command {
 		Short: "Reset Talos across the whole cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Print("Reset the Talos cluster ... continue? (y/N): ")
-				var response string
-				_, _ = fmt.Scanln(&response)
-				if response != "y" && response != "Y" {
+				confirmed, err := ui.Confirm("Reset the Talos cluster? This is destructive!", false)
+				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
+					return fmt.Errorf("confirmation failed: %w", err)
+				}
+				if !confirmed {
 					return fmt.Errorf("reset cancelled")
 				}
 			}
@@ -1513,6 +1521,8 @@ func newListVMsCommand() *cobra.Command {
 }
 
 func listVMs(provider string) error {
+	logger := common.NewColorLogger()
+
 	if provider == "truenas" {
 		// Get TrueNAS connection details
 		host, apiKey, err := getTrueNASCredentials()
@@ -1527,7 +1537,7 @@ func listVMs(provider string) error {
 		}
 		defer func() {
 			if closeErr := vmManager.Close(); closeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+				logger.Warn("Failed to close VM manager: %v", closeErr)
 			}
 		}()
 
@@ -1768,6 +1778,8 @@ func infoVMOnVSphere(vmName string) error {
 }
 
 func startVM(name string) error {
+	logger := common.NewColorLogger()
+
 	// If VM name is not provided, prompt for selection
 	if name == "" {
 		vmNames, err := getTrueNASVMNames()
@@ -1798,7 +1810,7 @@ func startVM(name string) error {
 	}
 	defer func() {
 		if closeErr := vmManager.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+			logger.Warn("Failed to close VM manager: %v", closeErr)
 		}
 	}()
 
@@ -1830,6 +1842,8 @@ func newStopVMCommand() *cobra.Command {
 }
 
 func stopVM(name string) error {
+	logger := common.NewColorLogger()
+
 	// If VM name is not provided, prompt for selection
 	if name == "" {
 		vmNames, err := getTrueNASVMNames()
@@ -1860,7 +1874,7 @@ func stopVM(name string) error {
 	}
 	defer func() {
 		if closeErr := vmManager.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+			logger.Warn("Failed to close VM manager: %v", closeErr)
 		}
 	}()
 
@@ -1946,6 +1960,8 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 }
 
 func deleteVM(name string) error {
+	logger := common.NewColorLogger()
+
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -1959,7 +1975,7 @@ func deleteVM(name string) error {
 	}
 	defer func() {
 		if closeErr := vmManager.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+			logger.Warn("Failed to close VM manager: %v", closeErr)
 		}
 	}()
 
@@ -1995,6 +2011,8 @@ func newInfoVMCommand() *cobra.Command {
 }
 
 func infoVM(name string) error {
+	logger := common.NewColorLogger()
+
 	// Get TrueNAS connection details
 	host, apiKey, err := getTrueNASCredentials()
 	if err != nil {
@@ -2008,7 +2026,7 @@ func infoVM(name string) error {
 	}
 	defer func() {
 		if closeErr := vmManager.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close VM manager: %v\n", closeErr)
+			logger.Warn("Failed to close VM manager: %v", closeErr)
 		}
 	}()
 

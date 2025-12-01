@@ -11,14 +11,14 @@ spec:
   dependsOn:
     - name: keda
       namespace: observability
-    - name: truenas-csi
-      namespace: truenas-csi
+    - name: scale-csi
+      namespace: scale-csi
   interval: 1h
   path: ./kubernetes/apps/media/jellyseerr/app
   postBuild:
     substitute:
       APP: jellyseerr
-      VOLSYNC_CAPACITY: 5Gi
+      VOLSYNC_CAPACITY: 50Gi
   prune: true
   sourceRef:
     kind: GitRepository

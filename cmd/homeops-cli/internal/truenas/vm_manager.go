@@ -766,8 +766,8 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 	// Standard patterns with the provided pool
 	patterns = append(patterns,
 		fmt.Sprintf("%s/%s-boot", storagePool, vmName),
-		fmt.Sprintf("%s/%s-openebs", storagePool, vmName),   // OpenEBS disk (new)
-		fmt.Sprintf("%s/%s-longhorn", storagePool, vmName),  // Legacy Longhorn disk (for cleanup)
+		fmt.Sprintf("%s/%s-openebs", storagePool, vmName),  // OpenEBS disk (new)
+		fmt.Sprintf("%s/%s-longhorn", storagePool, vmName), // Legacy Longhorn disk (for cleanup)
 	)
 
 	// If the pool doesn't already contain /VM, also check with /VM appended
@@ -775,7 +775,7 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		patterns = append(patterns,
 			fmt.Sprintf("%s/VM/%s-boot", storagePool, vmName),
 			fmt.Sprintf("%s/VM/%s-openebs", storagePool, vmName),
-			fmt.Sprintf("%s/VM/%s-longhorn", storagePool, vmName),  // Legacy
+			fmt.Sprintf("%s/VM/%s-longhorn", storagePool, vmName), // Legacy
 		)
 	}
 
@@ -785,7 +785,7 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		patterns = append(patterns,
 			fmt.Sprintf("%s/%s-boot", basePool, vmName),
 			fmt.Sprintf("%s/%s-openebs", basePool, vmName),
-			fmt.Sprintf("%s/%s-longhorn", basePool, vmName),  // Legacy
+			fmt.Sprintf("%s/%s-longhorn", basePool, vmName), // Legacy
 		)
 	}
 

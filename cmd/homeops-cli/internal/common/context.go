@@ -25,4 +25,3 @@ func RunCommandWithContextOutput(ctx context.Context, name string, args ...strin
 	cmd := CommandWithContext(ctx, name, args...)
 	return cmd.Output()
 }
-
