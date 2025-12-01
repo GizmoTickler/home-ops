@@ -361,7 +361,7 @@ func newSnapshotCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for snapshot to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for snapshot completion")
@@ -375,6 +375,18 @@ func newSnapshotCommand() *cobra.Command {
 
 func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error {
 	logger := common.NewColorLogger()
+
+	// If namespace is not provided, prompt for selection
+	if namespace == "" {
+		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return err
+		}
+		namespace = selectedNS
+	}
 
 	// If app is not provided, prompt for selection
 	if app == "" {
@@ -688,7 +700,7 @@ func newRestoreCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
@@ -703,6 +715,18 @@ func newRestoreCommand() *cobra.Command {
 
 func restoreApp(namespace, app, previous string, force bool, restoreTimeout time.Duration) error {
 	logger := common.NewColorLogger()
+
+	// If namespace is not provided, prompt for selection
+	if namespace == "" {
+		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil // User cancelled - exit cleanly
+			}
+			return err
+		}
+		namespace = selectedNS
+	}
 
 	// If app is not provided, prompt for selection
 	if app == "" {
@@ -731,32 +755,73 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 
 	// If previous snapshot is not provided, list and prompt for selection
 	if previous == "" {
-		// Get list of snapshots for the app
+		// Try to get snapshots via Snapshot CRs first
 		getSnapshotsCmd := exec.Command("kubectl", "get", "snapshots", "-n", namespace,
 			"-l", fmt.Sprintf("app=%s", app),
 			"-o", "jsonpath={.items[*].spec.snapshotNum}")
 		output, err := getSnapshotsCmd.Output()
-		if err != nil {
-			// Try alternative approach - list from ReplicationSource status
-			logger.Warn("Could not list snapshots via Snapshot CRs, checking ReplicationSource status")
-			// For now, require manual input
-			return fmt.Errorf("snapshot number required - use --previous flag")
+
+		var snapshots []string
+		if err == nil {
+			snapshots = strings.Fields(string(output))
 		}
 
-		snapshots := strings.Fields(string(output))
+		// If no snapshots found via CRs, try querying Kopia directly
+		if len(snapshots) == 0 {
+			logger.Info("Listing snapshots from Kopia repository...")
+
+			// Find kopia pod
+			kopiaPod, err := findKopiaPod()
+			if err != nil {
+				return fmt.Errorf("failed to find kopia pod: %w", err)
+			}
+
+			// Get all snapshots from kopia
+			cmd := exec.Command("kubectl", "--namespace", "volsync-system", "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("failed to get snapshots from kopia: %w", err)
+			}
+
+			// Parse snapshots
+			appSnapshots, err := parseKopiaSnapshots(string(output), app)
+			if err != nil {
+				return fmt.Errorf("failed to parse snapshots: %w", err)
+			}
+
+			if len(appSnapshots) > 0 {
+				// Flatten all snapshots for this app
+				for _, snap := range appSnapshots {
+					snapshots = append(snapshots, snap.AllSnapshots...)
+				}
+			}
+		}
+
 		if len(snapshots) == 0 {
 			return fmt.Errorf("no snapshots found for app %s in namespace %s", app, namespace)
 		}
 
 		// Use Filter for better search experience
-		selectedSnapshot, err := ui.Filter("Search for snapshot number:", snapshots)
+		selectedSnapshot, err := ui.Filter("Search for snapshot:", snapshots)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
 			}
 			return fmt.Errorf("snapshot selection failed: %w", err)
 		}
-		previous = selectedSnapshot
+
+		// Extract snapshot ID if it's in "Timestamp (ID)" format
+		if strings.Contains(selectedSnapshot, "(") && strings.HasSuffix(selectedSnapshot, ")") {
+			start := strings.LastIndex(selectedSnapshot, "(")
+			end := strings.LastIndex(selectedSnapshot, ")")
+			if start != -1 && end != -1 && end > start {
+				previous = selectedSnapshot[start+1 : end]
+			} else {
+				previous = selectedSnapshot
+			}
+		} else {
+			previous = selectedSnapshot
+		}
 	}
 
 	// Add confirmation for restore
@@ -775,6 +840,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 
 	// Get controller type by checking what exists
 	controller, err := detectController(namespace, app)
+	controllerFound := err == nil
 	if err != nil {
 		// Log the warning but continue since detectController returns a fallback controller type
 		logger.Warn("Controller detection: %v", err)
@@ -793,21 +859,25 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		logger.Warn("Failed to suspend helmrelease: %v", err)
 	}
 
-	// Step 2: Scale down application
-	logger.Info("Scaling down %s/%s...", controller, app)
+	// Step 2: Scale down application (only if controller found)
+	if controllerFound {
+		logger.Info("Scaling down %s/%s...", controller, app)
 
-	cmd = exec.Command("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to scale down: %w\n%s", err, output)
-	}
+		cmd = exec.Command("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to scale down: %w\n%s", err, output)
+		}
 
-	// Wait for pods to be deleted
-	logger.Info("Waiting for pods to terminate...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
-		"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
-		"--timeout=5m")
-	if err := cmd.Run(); err != nil {
-		logger.Warn("Some pods may still be terminating: %v", err)
+		// Wait for pods to be deleted
+		logger.Info("Waiting for pods to terminate...")
+		cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
+			"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
+			"--timeout=5m")
+		if err := cmd.Run(); err != nil {
+			logger.Warn("Some pods may still be terminating: %v", err)
+		}
+	} else {
+		logger.Info("Skipping scale down as no controller was detected")
 	}
 
 	// Step 3: Get ReplicationSource details
@@ -991,6 +1061,18 @@ func newRestoreAllCommand() *cobra.Command {
 		Short: "Restore all applications from VolSync snapshots in a namespace",
 		Long:  `Discovers all ReplicationSources in a namespace and restores them from specified snapshots`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// If namespace is not provided, prompt for selection
+			if namespace == "" {
+				selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil // User cancelled - exit cleanly
+					}
+					return err
+				}
+				namespace = selectedNS
+			}
+
 			if !force && !dryRun {
 				message := fmt.Sprintf("This will restore ALL applications in namespace '%s' from snapshot %s. Data will be overwritten. Continue?", namespace, previous)
 				confirmed, err := ui.Confirm(message, false)
@@ -1008,7 +1090,7 @@ func newRestoreAllCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace (required)")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be restored without actually triggering restores")
@@ -1254,13 +1336,6 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 					if additionalCount, err := strconv.Atoi(fields[1]); err == nil {
 						currentApp.Count += additionalCount
 					}
-				}
-
-				// Extract the "until" timestamp if present
-				untilIdx := strings.Index(line, "until ")
-				if untilIdx > 0 {
-					untilTime := line[untilIdx+6:]
-					currentApp.AllSnapshots = append(currentApp.AllSnapshots, fmt.Sprintf("+ %d more until %s", currentApp.Count-1, untilTime))
 				}
 			}
 		}

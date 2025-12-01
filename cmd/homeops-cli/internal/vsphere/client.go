@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
@@ -678,4 +679,79 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 	}
 
 	return nil
+}
+
+// GetVMNames retrieves the list of VM names from ESXi/vSphere
+func GetVMNames() ([]string, error) {
+	logger := common.NewColorLogger()
+	usedEnvFallback := false
+
+	// Get vSphere credentials - batch lookup from 1Password for better performance
+	secrets := common.Get1PasswordSecretsBatch([]string{
+		constants.OpESXiHost,
+		constants.OpESXiUsername,
+		constants.OpESXiPassword,
+	})
+	host := secrets[constants.OpESXiHost]
+	username := secrets[constants.OpESXiUsername]
+	password := secrets[constants.OpESXiPassword]
+
+	// Fall back to environment variables if 1Password fails
+	if host == "" {
+		host = os.Getenv(constants.EnvVSphereHost)
+		if host != "" {
+			usedEnvFallback = true
+		}
+	}
+	if username == "" {
+		username = os.Getenv(constants.EnvVSphereUsername)
+		if username != "" {
+			usedEnvFallback = true
+		}
+	}
+	if password == "" {
+		password = os.Getenv(constants.EnvVSpherePassword)
+		if password != "" {
+			usedEnvFallback = true
+		}
+	}
+
+	if host == "" || username == "" || password == "" {
+		return nil, fmt.Errorf("vSphere credentials not found")
+	}
+
+	// Warn if using environment variables (less secure than 1Password)
+	if usedEnvFallback {
+		logger.Warn("Using environment variables for vSphere credentials. Consider using 1Password for better security.")
+	}
+
+	// Create vSphere client and connect
+	client, err := NewClientWithConnect(host, username, password, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	// List VMs
+	vmObjects, err := client.ListVMs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list VMs: %w", err)
+	}
+
+	if len(vmObjects) == 0 {
+		return nil, fmt.Errorf("no VMs found on vSphere/ESXi")
+	}
+
+	// Extract VM names from VM objects
+	vmNames := make([]string, 0, len(vmObjects))
+	for _, vm := range vmObjects {
+		// VM objects have a Name() method that returns the VM name
+		vmNames = append(vmNames, vm.Name())
+	}
+
+	if len(vmNames) == 0 {
+		return nil, fmt.Errorf("failed to extract VM names from vSphere/ESXi")
+	}
+
+	return vmNames, nil
 }

@@ -150,7 +150,7 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := getTalosNodeIPs()
+		nodeIPs, err := talos.GetNodeIPs()
 		if err != nil {
 			return err
 		}
@@ -228,134 +228,15 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 	return nil
 }
 
-// getTalosNodeIPs retrieves the list of Talos node IPs from the cluster
-func getTalosNodeIPs() ([]string, error) {
-	// Get list of Talos nodes
-	getNodesCmd := exec.Command("talosctl", "get", "members", "-o", "json")
-	output, err := getNodesCmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Talos nodes: %w", err)
-	}
-
-	// Parse JSON to extract node IPs
-	var result struct {
-		Spec struct {
-			Addresses []string `json:"addresses"`
-		} `json:"spec"`
-	}
-
-	// Try to extract IPs from members list
-	lines := strings.Split(string(output), "\n")
-	nodeIPs := []string{}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if err := json.Unmarshal([]byte(line), &result); err == nil {
-			nodeIPs = append(nodeIPs, result.Spec.Addresses...)
-		}
-	}
-
-	// Fallback: try to get from talosconfig
-	if len(nodeIPs) == 0 {
-		getEndpointsCmd := exec.Command("talosctl", "config", "info", "-o", "json")
-		endpointsOutput, err := getEndpointsCmd.Output()
-		if err == nil {
-			var configInfo struct {
-				Endpoints []string `json:"endpoints"`
-			}
-			if err := json.Unmarshal(endpointsOutput, &configInfo); err == nil {
-				nodeIPs = configInfo.Endpoints
-			}
-		}
-	}
-
-	if len(nodeIPs) == 0 {
-		return nil, fmt.Errorf("no Talos nodes found in cluster")
-	}
-
-	return nodeIPs, nil
-}
-
 // getESXiVMNames retrieves the list of VM names from ESXi/vSphere
 func getESXiVMNames() ([]string, error) {
-	logger := common.NewColorLogger()
-	usedEnvFallback := false
-
-	// Get vSphere credentials - batch lookup from 1Password for better performance
-	secrets := common.Get1PasswordSecretsBatch([]string{
-		constants.OpESXiHost,
-		constants.OpESXiUsername,
-		constants.OpESXiPassword,
-	})
-	host := secrets[constants.OpESXiHost]
-	username := secrets[constants.OpESXiUsername]
-	password := secrets[constants.OpESXiPassword]
-
-	// Fall back to environment variables if 1Password fails
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
-	}
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-		if username != "" {
-			usedEnvFallback = true
-		}
-	}
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-		if password != "" {
-			usedEnvFallback = true
-		}
-	}
-
-	if host == "" || username == "" || password == "" {
-		return nil, fmt.Errorf("vSphere credentials not found")
-	}
-
-	// Warn if using environment variables (less secure than 1Password)
-	if usedEnvFallback {
-		logger.Warn("Using environment variables for vSphere credentials. Consider using 1Password for better security.")
-	}
-
-	// Create vSphere client and connect
-	client, err := vsphere.NewClientWithConnect(host, username, password, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	// List VMs
-	vmObjects, err := client.ListVMs()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list VMs: %w", err)
-	}
-
-	if len(vmObjects) == 0 {
-		return nil, fmt.Errorf("no VMs found on vSphere/ESXi")
-	}
-
-	// Extract VM names from VM objects
-	vmNames := make([]string, 0, len(vmObjects))
-	for _, vm := range vmObjects {
-		// VM objects have a Name() method that returns the VM name
-		vmNames = append(vmNames, vm.Name())
-	}
-
-	if len(vmNames) == 0 {
-		return nil, fmt.Errorf("failed to extract VM names from vSphere/ESXi")
-	}
-
-	return vmNames, nil
+	return vsphere.GetVMNames()
 }
 
 // getTrueNASVMNames retrieves the list of VM names from TrueNAS
 func getTrueNASVMNames() ([]string, error) {
 	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
+	host, apiKey, err := truenas.GetCredentials()
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +331,7 @@ func upgradeNode(nodeIP, mode string) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := getTalosNodeIPs()
+		nodeIPs, err := talos.GetNodeIPs()
 		if err != nil {
 			return err
 		}
@@ -602,7 +483,7 @@ func rebootNode(nodeIP, mode string) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := getTalosNodeIPs()
+		nodeIPs, err := talos.GetNodeIPs()
 		if err != nil {
 			return err
 		}
@@ -734,7 +615,7 @@ func resetNode(nodeIP string, force bool) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := getTalosNodeIPs()
+		nodeIPs, err := talos.GetNodeIPs()
 		if err != nil {
 			return err
 		}
@@ -2427,10 +2308,11 @@ func newCleanupZVolsCommand() *cobra.Command {
 		Long:  `Clean up orphaned ZVols when a VM was deleted but its ZVols remain. This is useful when VM deletion didn't properly clean up the storage volumes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				fmt.Printf("Delete orphaned ZVols for VM '%s' ... continue? (y/N): ", vmName)
-				var response string
-				_, _ = fmt.Scanln(&response)
-				if response != "y" && response != "Y" {
+				confirmed, err := ui.Confirm(fmt.Sprintf("Delete orphaned ZVols for VM '%s'?", vmName), false)
+				if err != nil {
+					return err
+				}
+				if !confirmed {
 					return fmt.Errorf("cleanup cancelled")
 				}
 			}

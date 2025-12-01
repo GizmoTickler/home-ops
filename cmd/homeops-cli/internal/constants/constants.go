@@ -51,6 +51,12 @@ const (
 	NSAutomation     = "automation"
 	NSTrueNASCSI     = "truenas-csi"
 	NSOpenEBSSystem  = "openebs-system"
+	NSSystem         = "system"
+	NSDatabase       = "database"
+	NSStorage        = "storage"
+	NSMonitoring     = "monitoring"
+	NSLogs           = "logs"
+	NSHome           = "home"
 )
 
 // Timeouts and intervals
