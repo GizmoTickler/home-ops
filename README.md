@@ -311,7 +311,7 @@ The cluster uses a multi-tier storage architecture designed for performance, rel
 
 | Tier | Provider | Protocol | Use Case |
 |------|----------|----------|----------|
-| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI | NVMEoF | NFS | Application persistent volumes (databases, configs) |
+| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI, NVMEoF & NFS | Application persistent volumes (databases, configs) |
 | **Local Storage** | OpenEBS | hostPath | High-performance local workloads |
 | **Shared Storage** | TrueNAS | NFS 4.1 | Media files, shared data across pods |
 | **Backup** | VolSync + Kopia | S3-compatible | Automated PVC backup and restore |
