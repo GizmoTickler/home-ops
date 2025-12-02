@@ -68,7 +68,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [scale-csi](https://github.com/gizmotickler/scale-csi): Custom TrueNAS Scale CSI driver for iSCSI block storage with metrics and Grafana dashboards.
+- [scale-csi](https://github.com/gizmotickler/scale-csi): Custom TrueNAS Scale CSI driver for iSCSI and NVMEoF block storage and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
@@ -311,7 +311,7 @@ The cluster uses a multi-tier storage architecture designed for performance, rel
 
 | Tier | Provider | Protocol | Use Case |
 |------|----------|----------|----------|
-| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI | Application persistent volumes (databases, configs) |
+| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI | NVMEoF | NFS | Application persistent volumes (databases, configs) |
 | **Local Storage** | OpenEBS | hostPath | High-performance local workloads |
 | **Shared Storage** | TrueNAS | NFS 4.1 | Media files, shared data across pods |
 | **Backup** | VolSync + Kopia | S3-compatible | Automated PVC backup and restore |
