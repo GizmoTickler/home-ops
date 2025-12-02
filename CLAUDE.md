@@ -193,7 +193,7 @@ spec:
 spec:
   components:
     - ../../../../components/nfs-scaler    # KEDA auto-scaling for NFS availability
-    - ../../../../components/volsync       # Backup/restore with Kopia
+    - ../../../../components/volsync-direct   # Backup/restore with Kopia
 ```
 
 **Dependencies:**
