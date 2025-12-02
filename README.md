@@ -35,25 +35,25 @@ _Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Talos Linux](https://www.talos.dev/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on VMware ESXi VMs with high-performance TrueNAS storage backing via NFS 4.1 multipath over 4x10Gbps link aggregation, providing production-grade virtualization with dedicated NVMe storage controllers for optimal performance.
+**Architecture**: The cluster runs on VMware ESXi VMs with high-performance TrueNAS storage backing via both iSCSI (for block storage) and NFS 4.1 (for shared media) over 4x10Gbps link aggregation, providing production-grade virtualization with dedicated NVMe storage controllers for optimal performance.
 
 ---
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with high-performance storage provided by TrueNAS over high-speed network connections. This setup provides a production-like Kubernetes environment with dedicated storage controllers for optimal performance. The cluster features a hyper-converged architecture where compute and storage are co-located on the same nodes.
+The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with high-performance storage provided by TrueNAS over high-speed network connections. This setup provides a production-like Kubernetes environment with dedicated storage controllers for optimal performance.
 
 ### Infrastructure Details
 
 - **Hypervisor**: VMware ESXi with advanced virtualization features
-- **Storage Backend**: TrueNAS providing NFS 4.1 datastores with multipath over 4x10Gbps link aggregation
+- **Storage Backend**: TrueNAS Scale providing iSCSI block storage and NFS 4.1 with multipath over 4x10Gbps link aggregation
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
-- **Storage Strategy**: Dual NVMe controller architecture:
+- **Storage Strategy**: Dual NVMe controller architecture per VM:
   - **Controller 1**: 500GB vdisk for Talos boot
   - **Controller 2**: 1TB vdisk for OpenEBS local storage
-- **External Storage**: TrueNAS iSCSI CSI driver for persistent volumes with NFS for media
+- **External Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) for TrueNAS iSCSI persistent volumes with NFS for shared media
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: external-dns for both Cloudflare and Unifi local DNS management
@@ -68,7 +68,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [truenas-csi](https://github.com/gizmotickler/truenas-scale-csi): TrueNAS Scale CSI driver for iSCSI and NFS persistent volumes.
+- [scale-csi](https://github.com/gizmotickler/scale-csi): Custom TrueNAS Scale CSI driver for iSCSI block storage with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
@@ -111,9 +111,9 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 network        # Networking applications
 │   │   ├── 📁 observability  # Monitoring and logging
 │   │   ├── 📁 openebs-system # Local storage provisioner
+│   │   ├── 📁 scale-csi      # TrueNAS Scale iSCSI/NFS storage
 │   │   ├── 📁 self-hosted    # Productivity and tools
 │   │   ├── 📁 system-upgrade # Automated upgrades
-│   │   ├── 📁 truenas-csi    # TrueNAS iSCSI/NFS storage
 │   │   └── 📁 volsync-system # Volume backup and recovery
 │   ├── 📁 components    # Reusable Kustomize components
 │   │   ├── 📁 alerts         # AlertManager configurations
@@ -129,14 +129,14 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ### Flux Workflow
 
-This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on the TrueNAS CSI driver being installed and healthy.
+This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on scale-csi being installed and healthy.
 
 ```mermaid
 graph TD
-    A>Kustomization: truenas-csi] -->|Creates| B[HelmRelease: truenas-csi]
+    A>Kustomization: scale-csi] -->|Creates| B[HelmRelease: scale-csi]
     C>Kustomization: volsync] -->|Creates| D[HelmRelease: volsync]
     E>Kustomization: atuin] -->|Creates| F(HelmRelease: atuin)
-    F>HelmRelease: atuin] -->|Depends on| B>HelmRelease: truenas-csi]
+    F>HelmRelease: atuin] -->|Depends on| B>HelmRelease: scale-csi]
     F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: volsync]
 ```
 
@@ -236,7 +236,7 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
-| [Fusion](https://github.com/0x2E/fusion) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
+| [FreshRSS](https://github.com/FreshRSS/FreshRSS) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
 | [Karakeep](https://github.com/karakeep-app/karakeep) | Bookmarking & read-it-later capture | `karakeep.${SECRET_DOMAIN}` |
 
 All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
@@ -296,10 +296,47 @@ Automation workloads run in the `automation` namespace so VolSync restores and K
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [TrueNAS CSI](https://github.com/gizmotickler/truenas-scale-csi) | iSCSI/NFS persistent volume provisioner | Internal only |
+| [scale-csi](https://github.com/gizmotickler/scale-csi) | TrueNAS Scale iSCSI/NFS block storage | Internal only |
 | [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
 
 All applications use Cilium Gateway API for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
+
+---
+
+## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4be/512.gif" alt="💾" width="20" height="20"> Storage Architecture
+
+The cluster uses a multi-tier storage architecture designed for performance, reliability, and flexibility:
+
+### Storage Tiers
+
+| Tier | Provider | Protocol | Use Case |
+|------|----------|----------|----------|
+| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI | Application persistent volumes (databases, configs) |
+| **Local Storage** | OpenEBS | hostPath | High-performance local workloads |
+| **Shared Storage** | TrueNAS | NFS 4.1 | Media files, shared data across pods |
+| **Backup** | VolSync + Kopia | S3-compatible | Automated PVC backup and restore |
+
+### scale-csi Configuration
+
+The custom [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides native integration with TrueNAS Scale:
+
+- **iSCSI Portal**: Dedicated network path (192.168.120.10:3260)
+- **ZFS Dataset**: `flashstor/scale-csi` for all dynamic volumes
+- **StorageClasses**:
+  - `scale-iscsi` (default): ext4 formatted block volumes
+  - `scale-nfs`: NFSv4 shared volumes with noatime
+- **Features**:
+  - Volume snapshots via CSI snapshot controller
+  - Metrics exporting with Grafana dashboards
+  - Node-level metrics scraping for performance monitoring
+
+### Backup Strategy
+
+[VolSync](https://github.com/backube/volsync) with [Kopia](https://github.com/kopia/kopia) provides automated backup:
+
+- **ReplicationSource**: Scheduled backups of PVCs to S3-compatible storage
+- **ReplicationDestination**: Point-in-time recovery with dataSource references
+- **Identity Alignment**: Namespace-based identity (`app@namespace:/data`) for consistent restores
 
 ---
 
@@ -314,11 +351,11 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 | ├─ **Memory**               | 256GB RAM                                           | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | High-speed VM networking          |
 | └─ **Storage**              | 2x 500GB SATA SSD                                  | Boot and local datastore          |
-| **Storage Server**          | TrueNAS Scale                                       | NFS 4.1 datastore provider        |
+| **Storage Server**          | TrueNAS Scale                                       | iSCSI & NFS storage provider      |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2630 v4 @ 2.20GHz (20 cores)     | Storage processing                |
 | ├─ **Memory**               | 384GB RAM                                           | ARC cache and services            |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | Storage network (40Gbps total)   |
-| └─ **Protocol**             | NFS 4.1 with multipath                             | VM datastore access               |
+| └─ **Protocols**            | iSCSI (block) + NFS 4.1 (file)                     | Kubernetes storage access         |
 | **Network Switch**          | Cisco Switch                                        | Infrastructure interconnect       |
 | └─ **Configuration**        | 4x10Gbps LACP between TrueNAS and ESXi            | High-bandwidth storage path       |
 
@@ -326,7 +363,7 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 | Storage Tier                | Hardware                                            | Purpose                           |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **TrueNAS Primary Pool**    | 3x RAIDZ vdevs (4 disks each, 3.8TB SSDs)         | NFS datastores for VMs            |
+| **TrueNAS Primary Pool**    | 3x RAIDZ vdevs (4 disks each, 3.8TB SSDs)         | iSCSI volumes + NFS exports       |
 | **SLOG (Intent Log)**       | 2x 800GB NVMe (mirrored)                           | Synchronous write acceleration    |
 | **Special Metadata vdev**   | 2x 1.5TB NVMe (mirrored)                           | Metadata & small block storage    |
 
@@ -340,7 +377,7 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 - Each VM has two dedicated NVMe controllers for isolation and performance
 - Controller 1: 500GB vdisk for Talos boot
 - Controller 2: 1TB vdisk for OpenEBS local storage
-- Persistent volumes: TrueNAS iSCSI CSI driver provides external block storage
+- Persistent volumes: scale-csi provides TrueNAS iSCSI block storage for application data
 
 **Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
 
