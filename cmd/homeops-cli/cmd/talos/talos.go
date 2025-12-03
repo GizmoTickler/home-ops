@@ -745,7 +745,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 
 	// Step 1: Select deployment pattern
 	patternOptions := []string{
-		"Default - 3-node k8s cluster (16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS each)",
+		"Default - 3-node k8s cluster (16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS each)",
 		"Custom - Choose your own configuration",
 	}
 
@@ -840,14 +840,14 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 		}
 
 		// Boot disk
-		bootDiskInput, err := ui.Input("Enter boot/OpenEBS disk size in GB:", "500")
+		bootDiskInput, err := ui.Input("Enter boot/OpenEBS disk size in GB:", "250")
 		if err != nil {
 			return err
 		}
 		if bootDiskInput != "" {
 			_, _ = fmt.Sscanf(bootDiskInput, "%d", diskSize)
 		} else {
-			*diskSize = 500 // Default
+			*diskSize = 250 // Default
 		}
 
 		// OpenEBS disk
@@ -872,28 +872,28 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 		// Default pattern - 3-node k8s cluster
 		*vcpus = 16
 		*memory = 49152     // 48GB in MB
-		*diskSize = 500     // 500GB
+		*diskSize = 250     // 250GB
 		*openebsSize = 1024 // 1TB
 
 		if *provider == "vsphere" {
 			*nodeCount = 3
 			*concurrent = 3
-			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS each")
+			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS each")
 		} else {
-			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 500GB boot, 1TB OpenEBS")
+			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS")
 		}
 	}
 
 	// Step 5: vSphere-specific configuration (if applicable)
 	if *provider == "vsphere" {
-		datastoreInput, err := ui.Input("Enter datastore name:", "truenas-nfs")
+		datastoreInput, err := ui.Input("Enter datastore name:", "truenas-iscsi")
 		if err != nil {
 			return err
 		}
 		if datastoreInput != "" {
 			*datastore = datastoreInput
 		} else {
-			*datastore = "truenas-nfs"
+			*datastore = "truenas-iscsi"
 		}
 
 		networkInput, err := ui.Input("Enter network port group:", "vl999")
@@ -1013,7 +1013,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", 500, "Boot disk size in GB (default: 500GB)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB (default: 250GB)")
 	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1000, "OpenEBS disk size in GB (default: 1TB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
@@ -1021,7 +1021,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform a dry run without creating the VM")
 
 	// vSphere specific flags
-	cmd.Flags().StringVar(&datastore, "datastore", "truenas-nfs", "Datastore name (vSphere: truenas-nfs, datastore1, etc.)")
+	cmd.Flags().StringVar(&datastore, "datastore", "truenas-iscsi", "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
 	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")

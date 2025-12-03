@@ -8,13 +8,13 @@ type VMConfig struct {
 	Name        string
 	Memory      int // Memory in MB
 	VCPUs       int // Number of vCPUs
-	DiskSize    int // Boot disk size in GB (default: 500GB) - contains TalosOS
+	DiskSize    int // Boot disk size in GB (default: 250GB) - contains TalosOS
 	OpenEBSSize int // OpenEBS disk size in GB (default: 1000GB) - for local storage
 
 	// vSphere specific configuration
-	Datastore  string // Datastore name (e.g., "truenas-nfs")
+	Datastore  string // Datastore name (e.g., "truenas-iscsi")
 	Network    string // Network name (e.g., "vl999")
-	ISO        string // ISO path on datastore (e.g., "[truenas-nfs] vmware-amd64.iso")
+	ISO        string // ISO path on datastore (e.g., "[truenas-iscsi] vmware-amd64.iso")
 	MacAddress string // Optional MAC address
 
 	// Deployment options
@@ -60,9 +60,9 @@ func GetDefaultVMConfig(name string) VMConfig {
 		Name:                 name,
 		Memory:               48 * 1024, // 48GB
 		VCPUs:                16,
-		DiskSize:             500,           // 500GB boot (TalosOS)
-		OpenEBSSize:          1000,          // 1TB OpenEBS local storage
-		Datastore:            "truenas-nfs", // Match the actual datastore name
+		DiskSize:             250,             // 250GB boot (TalosOS)
+		OpenEBSSize:          1000,            // 1TB OpenEBS local storage
+		Datastore:            "truenas-iscsi", // Match the actual datastore name
 		Network:              "vl999",
 		PowerOn:              true, // Power on by default with auto unregister/re-register on failure
 		EnableIOMMU:          true, // Enable IOMMU/VT-d by default for Talos VMs
