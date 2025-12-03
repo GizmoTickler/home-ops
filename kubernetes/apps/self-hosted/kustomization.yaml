@@ -9,12 +9,12 @@ components:
 
 resources:
   - ./namespace.yaml
-  - ./actual/ks.yaml
-  - ./atuin/ks.yaml
-  - ./freshrss/ks.yaml
+  #  - ./actual/ks.yaml
+  #  - ./atuin/ks.yaml
+  #  - ./freshrss/ks.yaml
   - ./it-tools/ks.yaml
-  - ./karakeep/ks.yaml
-  - ./opencloud/ks.yaml
-  - ./paperless/ks.yaml
-  - ./thelounge/ks.yaml
+  #  - ./karakeep/ks.yaml
+  #  - ./opencloud/ks.yaml
+  #  - ./paperless/ks.yaml
+  #  - ./thelounge/ks.yaml
   - ./webhook/ks.yaml
