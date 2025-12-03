@@ -40,7 +40,7 @@ spec:
 
     nvmeof:
       enabled: true
-      targetAddress: 192.168.120.10
+      address: 192.168.120.10
       transport: tcp
       port: 4420
 
