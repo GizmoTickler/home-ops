@@ -6,7 +6,7 @@ This guide covers deploying Talos VMs on vSphere/ESXi using the homeops-cli tool
 
 1. **ESXi Configuration**:
    - ESXi 8 standalone host configured
-   - NFS datastore `truenas-nfs` with Talos ISO
+   - iSCSI datastore `truenas-iscsi` with Talos ISO
    - Network port group `vl999` configured
 
 2. **Environment Variables or 1Password**:
@@ -37,7 +37,7 @@ Deploy a single Talos VM with default specifications:
   --name k8s-01 \
   --memory 49152 \
   --vcpus 16 \
-  --disk-size 500 \
+  --disk-size 250 \
   --rook-size 1024
 ```
 
@@ -53,7 +53,7 @@ Deploy 3 VMs concurrently with automatic numbering:
   --concurrent 3 \
   --memory 49152 \
   --vcpus 16 \
-  --disk-size 500 \
+  --disk-size 250 \
   --rook-size 1024
 ```
 
@@ -74,7 +74,7 @@ Deploy the 3 k8s cluster nodes with their predefined MAC addresses:
   --concurrent 3 \
   --memory 49152 \
   --vcpus 16 \
-  --disk-size 500 \
+  --disk-size 250 \
   --rook-size 1024
 ```
 
@@ -117,9 +117,9 @@ Deploy with a specific MAC address:
 The default VM specifications match your requirements:
 - **Memory**: 48GB (49152 MB)
 - **vCPUs**: 16
-- **Boot Disk**: 500GB (thin provisioned)
+- **Boot Disk**: 250GB (thin provisioned)
 - **Rook Disk**: 1024GB / 1TB (thin provisioned)
-- **Datastore**: truenas-nfs
+- **Datastore**: truenas-iscsi
 - **Network**: vl999
 - **ISO**: [datastore1] vmware-amd64.iso
 - **Guest OS**: Other 6.x or later Linux (64-bit)
@@ -164,7 +164,7 @@ While the deployment command creates VMs on vSphere, you can manage them using s
 ## Troubleshooting
 
 1. **Connection Failed**: Verify ESXi host is reachable and credentials are correct
-2. **Datastore Not Found**: Ensure `truenas-nfs` NFS datastore is mounted
+2. **Datastore Not Found**: Ensure `truenas-iscsi` iSCSI datastore is mounted
 3. **ISO Not Found**: Check that the ISO exists at `[datastore1] vmware-amd64.iso`
 4. **Network Not Found**: Verify port group `vl999` exists in ESXi networking
 

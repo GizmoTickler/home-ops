@@ -14,7 +14,7 @@ type VMConfig struct {
 	Name           string
 	Memory         int
 	VCPUs          int
-	DiskSize       int // Boot disk size in GB (default: 500GB) - contains TalosOS
+	DiskSize       int // Boot disk size in GB (default: 250GB) - contains TalosOS
 	OpenEBSSize    int // OpenEBS disk size in GB (default: 1000GB) - for local storage
 	TrueNASHost    string
 	TrueNASAPIKey  string
@@ -336,7 +336,7 @@ func (vm *VMManager) createZVols(config VMConfig) error {
 
 	zvolPaths := vm.getZVolPaths(config)
 
-	// Create boot ZVol (500GB) - for TalosOS
+	// Create boot ZVol (250GB) - for TalosOS
 	if err := vm.createSingleZVol(zvolPaths["boot"], config.DiskSize, "boot"); err != nil {
 		return err
 	}
@@ -574,7 +574,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	// Create disk devices with correct order matching working script
 	zvolPaths := vm.getZVolPaths(config)
 
-	// Boot/OpenEBS disk (order 1001) - 500GB combined disk
+	// Boot/OpenEBS disk (order 1001) - 250GB combined disk
 	if bootPath, exists := zvolPaths["boot"]; exists && bootPath != "" {
 		bootDevice := map[string]interface{}{
 			"vm": vmID,
@@ -596,7 +596,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if _, err := vm.client.Call("vm.device.create", []interface{}{bootDevice}, 30); err != nil {
 			return fmt.Errorf("failed to create boot/OpenEBS disk device: %w", err)
 		}
-		vm.logger.Info("Created boot/OpenEBS disk device (500GB): /dev/zvol/%s", bootPath)
+		vm.logger.Info("Created boot/OpenEBS disk device (250GB): /dev/zvol/%s", bootPath)
 	}
 
 	// OpenEBS disk (order 1004) - 1TB disk for local storage

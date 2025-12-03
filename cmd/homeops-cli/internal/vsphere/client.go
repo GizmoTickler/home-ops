@@ -348,7 +348,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	// Build disk device changes
 	var diskChanges []types.BaseVirtualDeviceConfigSpec
 
-	// Create boot disk (500GB) on NVME controller 0
+	// Create boot disk (250GB) on NVME controller 0
 	bootDisk := &types.VirtualDisk{
 		VirtualDevice: types.VirtualDevice{
 			Key:           -1, // Use negative key for automatic assignment

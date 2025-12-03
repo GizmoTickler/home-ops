@@ -1198,6 +1198,8 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	// Bootstrap with retry logic similar to onedr0p's implementation
 	maxAttempts := 10
+	var lastErr error
+	var lastOutput string
 	for attempts := 0; attempts < maxAttempts; attempts++ {
 		logger.Debug("Bootstrap attempt %d/%d on controller %s", attempts+1, maxAttempts, controller)
 
@@ -1230,6 +1232,10 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 			return nil
 		}
 
+		// Preserve last error and output for final error message
+		lastErr = err
+		lastOutput = strings.TrimSpace(outputStr)
+
 		logger.Debug("Bootstrap attempt %d failed: %v", attempts+1, err)
 		logger.Debug("Bootstrap output: %s", outputStr)
 
@@ -1241,7 +1247,11 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	}
 
-	return fmt.Errorf("failed to bootstrap controller after %d attempts", maxAttempts)
+	// Include the last error and output in the final error message for better diagnostics
+	if lastOutput != "" {
+		return fmt.Errorf("failed to bootstrap controller %s after %d attempts: %w (output: %s)", controller, maxAttempts, lastErr, lastOutput)
+	}
+	return fmt.Errorf("failed to bootstrap controller %s after %d attempts: %w", controller, maxAttempts, lastErr)
 }
 
 func getRandomController(talosConfig string) (string, error) {
