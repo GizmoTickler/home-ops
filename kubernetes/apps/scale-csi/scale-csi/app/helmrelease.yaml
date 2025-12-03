@@ -14,7 +14,7 @@ spec:
 
     image:
       repository: ghcr.io/gizmotickler/scale-csi
-      tag: v1.0.23
+      tag: v1.0.24
       pullPolicy: IfNotPresent
 
     truenas:
@@ -39,6 +39,7 @@ spec:
       initiatorGroupId: 1
 
     nvmeof:
+      enabled: true
       targetAddress: 192.168.120.10
       transport: tcp
       port: 4420
