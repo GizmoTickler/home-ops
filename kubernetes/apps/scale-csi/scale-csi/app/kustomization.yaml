@@ -8,6 +8,7 @@ resources:
   - ./helmrelease.yaml
   - ./storageclass-iscsi.yaml
   - ./storageclass-nfs.yaml
+  - ./storageclass-nvmeof.yaml
   - ./volumesnapshotclass.yaml
   - ./service.yaml
   - ./vmservicescrape.yaml
