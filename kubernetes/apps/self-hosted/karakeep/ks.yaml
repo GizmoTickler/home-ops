@@ -6,7 +6,7 @@ metadata:
   name: karakeep
 spec:
   components:
-    - ../../../../components/volsync-direct
+    - ../../../../components/volsync
   dependsOn:
     - name: scale-csi
       namespace: scale-csi
