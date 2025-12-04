@@ -14,7 +14,7 @@ spec:
 
     image:
       repository: ghcr.io/gizmotickler/scale-csi
-      tag: v1.0.29
+      tag: v1.0.30
       pullPolicy: IfNotPresent
 
     truenas:
