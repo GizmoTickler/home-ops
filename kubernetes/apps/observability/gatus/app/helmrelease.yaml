@@ -69,7 +69,7 @@ spec:
         statefulset:
           volumeClaimTemplates:
             - name: config
-              storageClass: scale-iscsi
+              storageClass: scale-nvmeof
               accessMode: ReadWriteOnce
               size: 15Gi
     defaultPodOptions:
