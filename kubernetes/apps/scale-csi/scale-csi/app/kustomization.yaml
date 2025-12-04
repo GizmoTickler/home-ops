@@ -6,7 +6,7 @@ resources:
   - ./ocirepository.yaml
   - ./externalsecret.yaml
   - ./helmrelease.yaml
-  - ./storageclass-iscsi.yaml
+  #  - ./storageclass-iscsi.yaml
   - ./storageclass-nfs.yaml
   - ./storageclass-nvmeof.yaml
   - ./volumesnapshotclass.yaml
