@@ -87,7 +87,7 @@ spec:
         storage:
           accessModes:
             - ReadWriteOnce
-          storageClassName: scale-iscsi
+          storageClassName: scale-nvmeof
           resources:
             requests:
               storage: 300Gi
