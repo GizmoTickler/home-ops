@@ -44,7 +44,9 @@
       "Bash(./homeops-cli bootstrap:*)",
       "Bash(helm template:*)",
       "Bash(yq:*)",
-      "Bash(make build:*)"
+      "Bash(make build:*)",
+      "WebSearch",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []
