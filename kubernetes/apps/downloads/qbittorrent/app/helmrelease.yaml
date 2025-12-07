@@ -126,14 +126,13 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: {drop: [ALL]}
+              capabilities: { drop: [ALL] }
             resources:
               requests:
-                cpu: 100m
-                memory: 2Gi
+                cpu: 500m
+                memory: 4Gi
               limits:
-                cpu: 1000m
-                memory: 10Gi
+                memory: 12Gi
           vuetorrent:
             dependsOn: app
             image:
