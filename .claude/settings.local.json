@@ -46,7 +46,8 @@
       "Bash(yq:*)",
       "Bash(make build:*)",
       "WebSearch",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(helm list:*)"
     ],
     "deny": [],
     "ask": []
