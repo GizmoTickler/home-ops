@@ -50,7 +50,8 @@
       "Bash(helm list:*)",
       "Bash(ssh:*)",
       "Bash(for rs in bazarr qbittorrent radarr sonarr)",
-      "Bash(for rs in atuin karakeep paperless)"
+      "Bash(for rs in atuin karakeep paperless)",
+      "Bash(sort:*)"
     ],
     "deny": [],
     "ask": []
