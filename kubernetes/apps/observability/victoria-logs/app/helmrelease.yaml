@@ -14,7 +14,7 @@ spec:
     server:
       persistentVolume:
         enabled: true
-        storageClassName: scale-nvmeof
+        storageClassName: ceph-block
         size: 500Gi
       retentionPeriod: 14d
       serviceMonitor:
