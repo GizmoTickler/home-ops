@@ -6,8 +6,8 @@ metadata:
   name: victoria-metrics
 spec:
   dependsOn:
-    - name: scale-csi
-      namespace: scale-csi
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
   interval: 1h
   path: ./kubernetes/apps/observability/victoria-metrics/app
   postBuild:

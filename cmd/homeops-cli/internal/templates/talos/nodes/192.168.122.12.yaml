@@ -30,12 +30,14 @@ timeout: 5m
 apiVersion: v1alpha1
 kind: EthernetConfig
 name: eth0
-rings: {rx: 1024, tx: 1024}
+rings: { rx: 1024, tx: 1024 }
 ---
 apiVersion: v1alpha1
 kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    match: "!system_disk"
-  minSize: 1TB
+    # Select nvme1n1 (859GB) for local-hostpath storage
+    match: disk.transport == "nvme" && !system_disk
+  maxSize: 900GB
+  minSize: 800GB
