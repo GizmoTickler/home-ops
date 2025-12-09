@@ -23,8 +23,8 @@ metadata:
 spec:
   dependsOn:
     - name: grafana
-    - name: scale-csi
-      namespace: scale-csi
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
   interval: 1h
   path: ./kubernetes/apps/observability/grafana/instance
   prune: true

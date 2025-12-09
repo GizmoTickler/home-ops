@@ -9,8 +9,8 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync
   dependsOn:
-    - name: scale-csi
-      namespace: scale-csi
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
     - name: qbittorrent
       namespace: downloads
   interval: 1h

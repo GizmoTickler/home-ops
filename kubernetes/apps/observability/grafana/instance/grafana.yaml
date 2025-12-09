@@ -91,5 +91,5 @@ spec:
       resources:
         requests:
           storage: 20Gi
-      storageClassName: scale-nvmeof
+      storageClassName: ceph-block
   disableDefaultSecurityContext: All

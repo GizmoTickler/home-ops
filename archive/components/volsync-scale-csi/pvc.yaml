@@ -3,6 +3,8 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: ${APP}
+  labels:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
 spec:
   accessModes:
     - ${VOLSYNC_ACCESSMODES:=ReadWriteOnce}
@@ -13,4 +15,4 @@ spec:
   resources:
     requests:
       storage: ${VOLSYNC_CAPACITY:=5Gi}
-  storageClassName: ${VOLSYNC_STORAGECLASS:=ceph-block}
+  storageClassName: ${VOLSYNC_STORAGECLASS:=scale-nvmeof}

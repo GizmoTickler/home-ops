@@ -6,8 +6,8 @@ metadata:
   name: gatus
 spec:
   dependsOn:
-    - name: scale-csi
-      namespace: scale-csi
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
   interval: 1h
   path: ./kubernetes/apps/observability/gatus/app
   prune: true
