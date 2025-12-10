@@ -50,17 +50,15 @@ spec:
     controller:
       resources:
         requests:
-          cpu: 500m
+          cpu: 200m
           memory: 512Mi
         limits:
-          cpu: 2000m
           memory: 2048Mi
 
     node:
       resources:
         requests:
-          cpu: 500m
+          cpu: 200m
           memory: 512Mi
         limits:
-          cpu: 4000m
           memory: 2048Mi
