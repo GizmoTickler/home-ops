@@ -20,7 +20,7 @@ spec:
         - airconsole.${SECRET_DOMAIN}
         - s3.${SECRET_DOMAIN}
         - mgateway1.${SECRET_DOMAIN}
-        - mgateway2.${SECRET_DOMAIN}
+#        - mgateway2.${SECRET_DOMAIN}
 
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/probe_v1.json
