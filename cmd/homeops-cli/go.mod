@@ -4,18 +4,18 @@ go 1.25.1
 
 require (
 	dario.cat/mergo v1.0.2
+	github.com/charmbracelet/gum v0.17.0
 	github.com/fatih/color v1.18.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-    github.com/charmbracelet/gum v0.17.0
 	github.com/stretchr/testify v1.11.1
 	github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe
 	github.com/vmware/govmomi v0.52.0
 	go.uber.org/zap v1.27.1
 	gopkg.in/yaml.v3 v3.0.1
-	k8s.io/api v0.34.2
-	k8s.io/apimachinery v0.34.2
-	k8s.io/client-go v0.34.2
+	k8s.io/api v0.34.3
+	k8s.io/apimachinery v0.34.3
+	k8s.io/client-go v0.34.3
 )
 
 require (
