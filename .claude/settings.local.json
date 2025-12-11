@@ -52,7 +52,8 @@
       "Bash(for rs in bazarr qbittorrent radarr sonarr)",
       "Bash(for rs in atuin karakeep paperless)",
       "Bash(sort:*)",
-      "Bash(xargs:*)"
+      "Bash(xargs:*)",
+      "Bash(flux get kustomization:*)"
     ],
     "deny": [],
     "ask": []
