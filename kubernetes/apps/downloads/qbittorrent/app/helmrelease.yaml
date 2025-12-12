@@ -41,6 +41,7 @@ spec:
               HEALTH_SUCCESS_WAIT_DURATION: 60s
               VPN_TYPE: wireguard
               VPN_INTERFACE: tun0
+              WIREGUARD_IMPLEMENTATION: kernelspace
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
