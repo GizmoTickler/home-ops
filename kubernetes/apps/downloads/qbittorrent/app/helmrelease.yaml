@@ -55,7 +55,7 @@ spec:
                       - -c
                       # yamllint disable-line rule:line-length
                       - |
-                        url="http://localhost:8000/v1/openvpn/status"
+                        url="http://localhost:8000/v1/vpn/status"
                         status=$(wget -qO- --timeout=5 \
                           --header="X-API-KEY:$GLUETUN_CONTROL_SERVER_API_KEY" \
                           $url 2>/dev/null | grep -o '"status":"[^"]*"' | \
@@ -63,7 +63,7 @@ spec:
                         if [ "$status" = "running" ]; then
                           exit 0
                         else
-                          echo "OpenVPN status: $status"
+                          echo "VPN status: $status"
                           exit 1
                         fi
                   initialDelaySeconds: 10
@@ -192,14 +192,6 @@ spec:
             gluetun:
               - path: *gluetunAuthPath
                 subPath: auth.toml
-      gluetun-openvpn:
-        type: secret
-        name: qbittorrent-secret
-        advancedMounts:
-          qbittorrent:
-            gluetun:
-              - path: *gluetunOpenvpnPath
-                subPath: openvpn_config
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
