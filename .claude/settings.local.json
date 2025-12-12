@@ -53,7 +53,14 @@
       "Bash(for rs in atuin karakeep paperless)",
       "Bash(sort:*)",
       "Bash(xargs:*)",
-      "Bash(flux get kustomization:*)"
+      "Bash(flux get kustomization:*)",
+      "Bash(sudo apt-get install:*)",
+      "Bash(windscribe-cli:*)",
+      "Bash(sudo systemctl status:*)",
+      "Bash(/opt/windscribe/windscribectrld:*)",
+      "Bash(/opt/windscribe/Windscribe:*)",
+      "Bash(lsmod:*)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []
