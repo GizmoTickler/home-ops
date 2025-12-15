@@ -54,6 +54,7 @@ spec:
                     name: karakeep-secret
                     key: oauth_client_secret
               DISABLE_PASSWORD_AUTH: "true"
+              OAUTH_ALLOW_DANGEROUS_EMAIL_ACCOUNT_LINKING: "true"
             probes:
               liveness:
                 enabled: true
