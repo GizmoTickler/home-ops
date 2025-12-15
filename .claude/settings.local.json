@@ -60,7 +60,8 @@
       "Bash(/opt/windscribe/windscribectrld:*)",
       "Bash(/opt/windscribe/Windscribe:*)",
       "Bash(lsmod:*)",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(flux reconcile source git:*)"
     ],
     "deny": [],
     "ask": []
