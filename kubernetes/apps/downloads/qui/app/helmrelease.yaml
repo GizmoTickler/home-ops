@@ -23,6 +23,10 @@ spec:
               QUI__HOST: 0.0.0.0
               QUI__PORT: &port 80
               QUI__LOG_LEVEL: INFO
+              QUI__OIDC_ENABLED: "true"
+              QUI__OIDC_ISSUER: https://id.${SECRET_DOMAIN}
+              QUI__OIDC_REDIRECT_URL: https://qui.${SECRET_DOMAIN}/api/auth/oidc/callback
+              QUI__OIDC_DISABLE_BUILT_IN_LOGIN: "true"
               TZ: America/New_York
             envFrom:
               - secretRef:
