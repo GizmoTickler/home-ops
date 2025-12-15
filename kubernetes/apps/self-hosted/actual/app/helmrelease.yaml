@@ -27,6 +27,11 @@ spec:
               tag: 25.12.0
             env:
               ACTUAL_PORT: &httpPort 5006
+              ACTUAL_OPENID_DISCOVERY_URL: https://id.${SECRET_DOMAIN}/.well-known/openid-configuration
+              ACTUAL_OPENID_SERVER_HOSTNAME: https://actual.${SECRET_DOMAIN}
+            envFrom:
+              - secretRef:
+                  name: actual-secret
             probes:
               liveness:
                 enabled: true
