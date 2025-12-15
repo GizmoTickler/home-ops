@@ -5,7 +5,6 @@ kind: Kustomization
 resources:
   - ./ocirepository.yaml
   - ./externalsecret.yaml
-  - ./securitypolicy.yaml
   - ./helmrelease.yaml
   - ./vmservicescrape.yaml
   - ./vmrule.yaml
