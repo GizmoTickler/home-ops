@@ -7,6 +7,8 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease.yaml
   - ./externalsecret.yaml
+  - ./externalsecret-oidc.yaml
+  - ./securitypolicy.yaml
   - ./vmstaticscrape.yaml
   - ./vmservicescrape-stack.yaml
   - ./vmrule-stack.yaml
