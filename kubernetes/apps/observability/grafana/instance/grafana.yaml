@@ -29,7 +29,8 @@ spec:
       api_url: https://id.${SECRET_DOMAIN}/api/oidc/userinfo
       use_pkce: "true"
       allow_assign_grafana_admin: "true"
-      role_attribute_path: "'GrafanaAdmin'"
+      skip_org_role_sync: "false"
+      role_attribute_path: "email && 'GrafanaAdmin' || 'GrafanaAdmin'"
       role_attribute_strict: "false"
     log:
       mode: console
