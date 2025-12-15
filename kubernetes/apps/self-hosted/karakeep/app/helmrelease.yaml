@@ -41,6 +41,19 @@ spec:
               NEXTAUTH_URL: https://{{ .Release.Name }}.${SECRET_DOMAIN}
               DISABLE_NEW_RELEASE_CHECK: true
               COREPACK_INTEGRITY_KEYS: 0
+              OAUTH_WELLKNOWN_URL: https://id.${SECRET_DOMAIN}/.well-known/openid-configuration
+              OAUTH_PROVIDER_NAME: PocketID
+              OAUTH_CLIENT_ID:
+                valueFrom:
+                  secretKeyRef:
+                    name: karakeep-secret
+                    key: oauth_client_id
+              OAUTH_CLIENT_SECRET:
+                valueFrom:
+                  secretKeyRef:
+                    name: karakeep-secret
+                    key: oauth_client_secret
+              DISABLE_PASSWORD_AUTH: "true"
             probes:
               liveness:
                 enabled: true
