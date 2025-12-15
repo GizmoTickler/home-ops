@@ -15,5 +15,4 @@ resources:
   - ./it-tools/ks.yaml
   - ./karakeep/ks.yaml
   - ./paperless/ks.yaml
-  - ./thelounge/ks.yaml
   - ./webhook/ks.yaml
