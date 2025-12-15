@@ -26,7 +26,7 @@ spec:
               AUTOBRR__METRICS_HOST: 0.0.0.0
               AUTOBRR__METRICS_PORT: &metricsPort 9094
               AUTOBRR__CHECK_FOR_UPDATES: false
-              AUTOBRR__LOG_LEVEL: INFO
+              AUTOBRR__LOG_LEVEL: DEBUG
               AUTOBRR__OIDC_ENABLED: "true"
               AUTOBRR__OIDC_ISSUER: https://id.${SECRET_DOMAIN}
               AUTOBRR__OIDC_REDIRECT_URL: https://autobrr.${SECRET_DOMAIN}/api/auth/oidc/callback
