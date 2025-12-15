@@ -17,8 +17,8 @@ spec:
       name: sonarr-oidc-secret
     redirectURL: https://sonarr.${SECRET_DOMAIN}/oauth2/callback
     logoutPath: /oauth2/logout
-    defaultTokenTTL: 168h
-    defaultRefreshTokenTTL: 720h
+    defaultTokenTTL: 1h
+    defaultRefreshTokenTTL: 1h
     scopes:
       - openid
       - email
