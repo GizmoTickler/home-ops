@@ -16,7 +16,7 @@ data:
     security:
       oidc:
         issuer-url: https://id.${SECRET_DOMAIN}
-        redirect-url: https://gatus.${SECRET_DOMAIN}/authorization-code/callback
+        redirect-url: https://status.${SECRET_DOMAIN}/authorization-code/callback
         client-id: $${OIDC_CLIENT_ID}
         client-secret: $${OIDC_CLIENT_SECRET}
         scopes:
