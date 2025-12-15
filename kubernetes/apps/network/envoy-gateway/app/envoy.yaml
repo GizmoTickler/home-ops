@@ -209,10 +209,14 @@ spec:
     enableEnvoyHeaders: true
     earlyRequestHeaders:
       set:
+        - name: X-Forwarded-For
+          value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+        - name: X-Forwarded-Host
+          value: "%REQ(Host)%"
+        - name: X-Forwarded-Port
+          value: "%DOWNSTREAM_LOCAL_PORT%"
         - name: X-Forwarded-Proto
           value: https
-        - name: X-Forwarded-Port
-          value: "443"
   http2:
     initialStreamWindowSize: 2Mi
     initialConnectionWindowSize: 32Mi
