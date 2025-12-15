@@ -86,6 +86,18 @@ spec:
           - name: envoy-internal
             namespace: network
             sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+                port: *port
+            filters:
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  set:
+                    - name: X-Forwarded-Proto
+                      value: https
+                    - name: X-Forwarded-Host
+                      value: "{{ .Release.Name }}.${SECRET_DOMAIN}"
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
