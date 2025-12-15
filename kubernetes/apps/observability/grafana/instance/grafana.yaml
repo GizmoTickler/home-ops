@@ -17,18 +17,20 @@ spec:
       disable_login_form: "false"
       oauth_auto_login: "false"
     auth.anonymous:
-      enabled: "true"
+      enabled: "false"
     auth.generic_oauth:
       enabled: "true"
       name: PocketID
       allow_sign_up: "true"
       auto_login: "false"
-      scopes: openid email profile
+      scopes: openid email profile groups
       auth_url: https://id.${SECRET_DOMAIN}/authorize
       token_url: https://id.${SECRET_DOMAIN}/api/oidc/token
       api_url: https://id.${SECRET_DOMAIN}/api/oidc/userinfo
       use_pkce: "true"
-      role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || 'Viewer'"
+      allow_assign_grafana_admin: "true"
+      role_attribute_path: "'GrafanaAdmin'"
+      role_attribute_strict: "false"
     log:
       mode: console
     metrics:
