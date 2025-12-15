@@ -61,7 +61,9 @@
       "Bash(/opt/windscribe/Windscribe:*)",
       "Bash(lsmod:*)",
       "Bash(pkill:*)",
-      "Bash(flux reconcile source git:*)"
+      "Bash(flux reconcile source git:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
