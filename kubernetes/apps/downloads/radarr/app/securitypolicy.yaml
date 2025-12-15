@@ -17,7 +17,7 @@ spec:
       name: radarr-oidc-secret
     redirectURL: https://radarr.${SECRET_DOMAIN}/oauth2/callback
     logoutPath: /oauth2/logout
-    defaultTokenTTL: 1h
+    defaultTokenTTL: 15m
     defaultRefreshTokenTTL: 1h
     scopes:
       - openid
