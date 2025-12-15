@@ -36,7 +36,7 @@ spec:
               OIDC_PROVIDER_METADATA_URL: https://id.${SECRET_DOMAIN}/.well-known/openid-configuration
               OIDC_REMOTE_USER_CLAIM: preferred_username
               OIDC_SCOPES: openid email profile
-              OIDC_X_FORWARDED_HEADERS: Forwarded
+              OIDC_X_FORWARDED_HEADERS: X-Forwarded-Host X-Forwarded-Port X-Forwarded-Proto
             envFrom:
               - secretRef:
                   name: freshrss-secret
@@ -85,3 +85,16 @@ spec:
           - name: envoy-internal
             namespace: network
             sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+            filters:
+              - type: RequestHeaderModifier
+                requestHeaderModifier:
+                  set:
+                    - name: X-Forwarded-Proto
+                      value: https
+                    - name: X-Forwarded-Host
+                      value: "rss.${SECRET_DOMAIN}"
+                    - name: X-Forwarded-Port
+                      value: "443"
