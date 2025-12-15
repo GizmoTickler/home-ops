@@ -26,12 +26,20 @@ spec:
           app:
             image:
               repository: freshrss/freshrss
-              tag: 1.27.1-alpine
+              tag: 1.27.1
             env:
               CRON_MIN: "*"
               DOMAIN: "rss.${SECRET_DOMAIN}"
               LISTEN: &port 8080
               TZ: America/New_York
+              OIDC_ENABLED: "1"
+              OIDC_PROVIDER_METADATA_URL: https://id.${SECRET_DOMAIN}/.well-known/openid-configuration
+              OIDC_REMOTE_USER_CLAIM: preferred_username
+              OIDC_SCOPES: openid email profile
+              OIDC_X_FORWARDED_HEADERS: X-Forwarded-Host X-Forwarded-Port X-Forwarded-Proto
+            envFrom:
+              - secretRef:
+                  name: freshrss-secret
             probes:
               liveness: &probes
                 enabled: true
