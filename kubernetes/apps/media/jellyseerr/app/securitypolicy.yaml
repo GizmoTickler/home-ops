@@ -15,7 +15,7 @@ spec:
     clientID: jellyseerr
     clientSecret:
       name: jellyseerr-oidc-secret
-    redirectURL: https://jellyseerr.${SECRET_DOMAIN}/oauth2/callback
+    redirectURL: https://requests.${SECRET_DOMAIN}/oauth2/callback
     logoutPath: /oauth2/logout
     defaultTokenTTL: 15m
     defaultRefreshTokenTTL: 1h
