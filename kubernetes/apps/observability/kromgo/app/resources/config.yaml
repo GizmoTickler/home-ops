@@ -85,7 +85,11 @@ metrics:
     title: Storage
 
   - name: ceph_health
-    query: ceph_health_status
+    query: |
+      (label_replace(vector(0), "health", "OK", "", "") and on() (ceph_health_status == 0))
+      or (label_replace(vector(0), "health", "WARN", "", "") and on() (ceph_health_status == 1))
+      or (label_replace(vector(0), "health", "ERR", "", "") and on() (ceph_health_status == 2))
+    label: health
     colors:
       - { color: "green", min: 0, max: 0 }
       - { color: "orange", min: 1, max: 1 }
