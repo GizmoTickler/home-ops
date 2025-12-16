@@ -43,7 +43,14 @@ var index_default = {
       "cluster_memory_usage",
       "cluster_age_days",
       "cluster_uptime_days",
-      "cluster_alert_count"
+      "cluster_alert_count",
+      "ceph_storage_used",
+      "ceph_health",
+      "cert_expiry_days",
+      "flux_failing_count",
+      "helmrelease_count",
+      "pvc_count",
+      "container_count"
     ];
 
     const metricName = url.pathname.substring(1);
@@ -112,7 +119,7 @@ var index_default = {
         headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=300",
+          "Cache-Control": "public, max-age=60",
           "X-Robots-Tag": "noindex",
           "Referrer-Policy": "no-referrer",
           "X-Content-Type-Options": "nosniff"

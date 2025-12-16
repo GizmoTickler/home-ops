@@ -74,3 +74,54 @@ metrics:
       - { color: "green", min: 0, max: 0 }
       - { color: "red", min: 1, max: 9999 }
     title: Alerts
+
+  - name: ceph_storage_used
+    query: round(ceph_cluster_total_used_bytes / ceph_cluster_total_bytes * 100, 0.1)
+    suffix: "%"
+    colors:
+      - { color: "green", min: 0, max: 50 }
+      - { color: "orange", min: 51, max: 80 }
+      - { color: "red", min: 81, max: 100 }
+    title: Storage
+
+  - name: ceph_health
+    query: ceph_health_status
+    colors:
+      - { color: "green", min: 0, max: 0 }
+      - { color: "orange", min: 1, max: 1 }
+      - { color: "red", min: 2, max: 2 }
+    title: Ceph
+
+  - name: cert_expiry_days
+    query: round(min(certmanager_certificate_expiration_timestamp_seconds - time()) / 86400)
+    suffix: "d"
+    colors:
+      - { color: "red", min: 0, max: 7 }
+      - { color: "orange", min: 8, max: 30 }
+      - { color: "green", min: 31, max: 9999 }
+    title: Cert Expiry
+
+  - name: flux_failing_count
+    query: count(gotk_reconcile_condition{status="False",type="Ready"}) or vector(0)
+    colors:
+      - { color: "green", min: 0, max: 0 }
+      - { color: "red", min: 1, max: 9999 }
+    title: Flux Errors
+
+  - name: helmrelease_count
+    query: count(gotk_reconcile_condition{kind="HelmRelease",type="Ready",status="True"})
+    colors:
+      - { color: "green", min: 0, max: 9999 }
+    title: HelmReleases
+
+  - name: pvc_count
+    query: count(kube_persistentvolumeclaim_status_phase{phase="Bound"})
+    colors:
+      - { color: "green", min: 0, max: 9999 }
+    title: PVCs
+
+  - name: container_count
+    query: count(kube_pod_container_status_running{container!=""})
+    colors:
+      - { color: "green", min: 0, max: 9999 }
+    title: Containers
