@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"homeops-cli/internal/constants"
+
 	"github.com/fatih/color"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -86,7 +88,7 @@ func NewColorLogger() *ColorLogger {
 	globalLogMu.RUnlock()
 
 	// Also check environment variables for backwards compatibility
-	if os.Getenv("DEBUG") == "1" || os.Getenv("LOG_LEVEL") == "debug" {
+	if os.Getenv(constants.EnvDebug) == "1" || os.Getenv(constants.EnvLogLevel) == "debug" {
 		level = DebugLevel
 	}
 	return &ColorLogger{Level: level}

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"homeops-cli/internal/constants"
 )
 
 // isGumAvailable checks if the gum binary is installed and available in PATH
@@ -16,7 +18,7 @@ func isGumAvailable() bool {
 
 // isInteractiveDisabled checks if interactive mode is explicitly disabled via environment variable
 func isInteractiveDisabled() bool {
-	return os.Getenv("HOMEOPS_NO_INTERACTIVE") == "1"
+	return os.Getenv(constants.EnvHomeOpsNoInteract) == "1"
 }
 
 // IsCancellation checks if an error is from user cancellation (Ctrl+C)

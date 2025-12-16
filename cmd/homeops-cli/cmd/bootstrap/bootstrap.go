@@ -74,10 +74,10 @@ func NewCommand() *cobra.Command {
 	// Add flags - default root-dir to git repository root
 	defaultRootDir := common.GetWorkingDirectory()
 	cmd.Flags().StringVar(&config.RootDir, "root-dir", defaultRootDir, "Root directory of the project")
-	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", os.Getenv("KUBECONFIG"), "Path to kubeconfig file")
-	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", os.Getenv("TALOSCONFIG"), "Path to talosconfig file")
-	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv("KUBERNETES_VERSION"), "Kubernetes version")
-	cmd.Flags().StringVar(&config.TalosVersion, "talos-version", os.Getenv("TALOS_VERSION"), "Talos version")
+	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", os.Getenv(constants.EnvKubeconfig), "Path to kubeconfig file")
+	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", os.Getenv(constants.EnvTalosconfig), "Path to talosconfig file")
+	cmd.Flags().StringVar(&config.K8sVersion, "k8s-version", os.Getenv(constants.EnvKubernetesVersion), "Kubernetes version")
+	cmd.Flags().StringVar(&config.TalosVersion, "talos-version", os.Getenv(constants.EnvTalosVersion), "Talos version")
 	cmd.Flags().BoolVar(&config.DryRun, "dry-run", false, "Perform a dry run without making changes")
 	cmd.Flags().BoolVar(&config.SkipCRDs, "skip-crds", false, "Skip CRD installation")
 	cmd.Flags().BoolVar(&config.SkipResources, "skip-resources", false, "Skip resource creation")
@@ -283,7 +283,19 @@ func runBootstrap(config *BootstrapConfig) error {
 		}
 	}
 
-	logger.Success("🎉 Congrats! The cluster is bootstrapped and Flux is syncing the Git repository")
+	// Step 9: Wait for Flux initial reconciliation
+	// This is critical - without it, bootstrap declares success before Flux has actually reconciled
+	if !config.SkipHelmfile {
+		if err := ui.RunWithSpinner("🔄 Step 9: Waiting for Flux initial reconciliation", config.Verbose, logger, func() error {
+			return waitForFluxReconciliation(config, logger)
+		}); err != nil {
+			// Not fatal - cluster is functional, just not fully reconciled yet
+			logger.Warn("Flux reconciliation wait completed with warnings: %v", err)
+			logger.Info("Cluster is functional but Flux may still be reconciling in the background")
+		}
+	}
+
+	logger.Success("🎉 Congrats! The cluster is bootstrapped and Flux has completed initial reconciliation")
 
 	// Explicitly reset terminal state to prevent escape code leakage
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
@@ -311,33 +323,54 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 
 	logger.Info("Waiting for cluster API server to be ready...")
 
-	maxAttempts := 12 // 2 minutes total with exponential backoff
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		logger.Debug("Kubeconfig validation attempt %d/%d", attempt, maxAttempts)
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("cluster did not become ready after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
 
 		// Test cluster connectivity with timeout
+		currentState := "no-connection"
 		cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
 		if err := cmd.Run(); err == nil {
+			currentState = "api-reachable"
 			// If cluster-info succeeds, test node accessibility
 			cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
 			if err := cmd.Run(); err == nil {
-				logger.Debug("Kubeconfig validation passed - cluster is accessible")
+				logger.Debug("Kubeconfig validation passed - cluster is accessible (took %v)", elapsed.Round(time.Second))
 				return nil
 			}
-			logger.Debug("Cluster connectivity OK, but nodes not ready yet")
-		} else {
-			logger.Debug("Cluster connectivity not ready yet")
+			currentState = "api-reachable-no-nodes"
 		}
 
-		// Don't wait after the last attempt
-		if attempt < maxAttempts {
-			waitTime := time.Duration(attempt*5) * time.Second // 5s, 10s, 15s, etc.
-			logger.Debug("Waiting %v before next attempt...", waitTime)
-			time.Sleep(waitTime)
+		// Check for progress
+		if currentState != lastState {
+			logger.Debug("Cluster state: %s", currentState)
+			lastProgressTime = time.Now()
+			lastState = currentState
 		}
+
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			return fmt.Errorf("cluster connectivity stalled: no progress for %v (state: %s)", stallDuration.Round(time.Second), currentState)
+		}
+
+		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for API server: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
+		}
+
+		time.Sleep(checkInterval)
 	}
-
-	return fmt.Errorf("cluster did not become ready after %d attempts over 2+ minutes", maxAttempts)
 }
 
 // applyNamespaces creates the initial namespaces required for bootstrap
@@ -1137,16 +1170,32 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 }
 
 // validateEtcdRunning validates that etcd is actually running after bootstrap
+// Uses progress-based detection: continues as long as progress is being made
 func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLogger) error {
-	maxAttempts := 6 // 1 minute total with 10s intervals
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		logger.Debug("Etcd validation attempt %d/%d", attempt, maxAttempts)
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapExtSecMaxWait) * time.Second // 5 minutes max for etcd
+
+	for {
+		elapsed := time.Since(startTime)
+
+		// Check if we've exceeded maximum wait time (safety net)
+		if elapsed > maxWait {
+			return fmt.Errorf("etcd failed to start after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
+		// Check for stall - no progress for stall timeout period
+		if time.Since(lastProgressTime) > stallTimeout {
+			return fmt.Errorf("etcd startup stalled - no progress for %v (last state: %s)", stallTimeout, lastState)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
 		cmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", talosConfig, "--nodes", controller, "etcd", "status")
 		_, err := cmd.CombinedOutput()
+		cancel()
 
 		if err == nil {
 			logger.Debug("Etcd is running and responding")
@@ -1161,13 +1210,30 @@ func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLog
 			return nil
 		}
 
-		logger.Debug("Etcd validation attempt %d failed: %v", attempt, err)
-		if attempt < maxAttempts {
-			time.Sleep(10 * time.Second)
+		// Track state changes for progress detection
+		currentState := "waiting"
+		if serviceErr == nil {
+			// Extract service state from output for progress tracking
+			outputStr := string(serviceOutput)
+			if strings.Contains(outputStr, "Starting") {
+				currentState = "starting"
+			} else if strings.Contains(outputStr, "Preparing") {
+				currentState = "preparing"
+			} else if strings.Contains(outputStr, "Waiting") {
+				currentState = "waiting"
+			}
 		}
-	}
 
-	return fmt.Errorf("etcd failed to start after bootstrap")
+		// Update progress if state changed
+		if currentState != lastState {
+			logger.Debug("Etcd state: %s -> %s (elapsed: %v)", lastState, currentState, elapsed.Round(time.Second))
+			lastProgressTime = time.Now()
+			lastState = currentState
+		}
+
+		logger.Debug("Waiting for etcd to start (state: %s, elapsed: %v)", currentState, elapsed.Round(time.Second))
+		time.Sleep(checkInterval)
+	}
 }
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1276,6 +1342,8 @@ func getRandomController(talosConfig string) (string, error) {
 	return configInfo.Endpoints[0], nil
 }
 
+// fetchKubeconfig fetches the kubeconfig from the cluster
+// Uses progress-based detection: continues as long as progress is being made
 func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error {
 	controller, err := getRandomController(config.TalosConfig)
 	if err != nil {
@@ -1295,10 +1363,28 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		return fmt.Errorf("failed to create kubeconfig directory %s: %w", kubeconfigDir, err)
 	}
 
-	// Try to fetch kubeconfig with retry logic
-	maxAttempts := 10
-	for attempts := 0; attempts < maxAttempts; attempts++ {
-		logger.Debug("Kubeconfig fetch attempt %d/%d", attempts+1, maxAttempts)
+	// Progress-based waiting
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastErrorType := ""
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+
+	for {
+		elapsed := time.Since(startTime)
+
+		// Check if we've exceeded maximum wait time (safety net)
+		if elapsed > maxWait {
+			return fmt.Errorf("failed to fetch kubeconfig after %v (max wait exceeded, last error: %s)", elapsed.Round(time.Second), lastErrorType)
+		}
+
+		// Check for stall - no progress for stall timeout period
+		if time.Since(lastProgressTime) > stallTimeout {
+			return fmt.Errorf("kubeconfig fetch stalled - no progress for %v (last error: %s)", stallTimeout, lastErrorType)
+		}
+
+		logger.Debug("Kubeconfig fetch attempt (elapsed: %v)", elapsed.Round(time.Second))
 
 		cmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "kubeconfig", "--nodes", controller,
 			"--force", "--force-context-name", "home-ops-cluster", config.KubeConfig)
@@ -1335,26 +1421,31 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 			return nil
 		}
 
+		// Categorize error type for progress tracking
 		outputStr := string(output)
+		currentErrorType := "unknown"
 		if strings.Contains(outputStr, "connection refused") {
-			logger.Warn("Kubeconfig fetch attempt %d/%d: Controller not ready", attempts+1, maxAttempts)
+			currentErrorType = "connection_refused"
+			logger.Debug("Kubeconfig fetch: Controller not ready yet (elapsed: %v)", elapsed.Round(time.Second))
 		} else if strings.Contains(outputStr, "timeout") {
-			logger.Warn("Kubeconfig fetch attempt %d/%d: Timeout", attempts+1, maxAttempts)
+			currentErrorType = "timeout"
+			logger.Debug("Kubeconfig fetch: Timeout (elapsed: %v)", elapsed.Round(time.Second))
+		} else if strings.Contains(outputStr, "certificate") {
+			currentErrorType = "certificate"
+			logger.Debug("Kubeconfig fetch: Certificate issue (elapsed: %v)", elapsed.Round(time.Second))
 		} else {
-			logger.Warn("Kubeconfig fetch attempt %d/%d failed: %s", attempts+1, maxAttempts, strings.TrimSpace(outputStr))
+			logger.Debug("Kubeconfig fetch failed: %s (elapsed: %v)", strings.TrimSpace(outputStr), elapsed.Round(time.Second))
 		}
 
-		if attempts == maxAttempts-1 {
-			return fmt.Errorf("failed to fetch kubeconfig after %d attempts. Last error: %s", maxAttempts, outputStr)
+		// Update progress if error type changed (indicates different stage)
+		if currentErrorType != lastErrorType {
+			logger.Debug("Kubeconfig fetch error type changed: %s -> %s", lastErrorType, currentErrorType)
+			lastProgressTime = time.Now()
+			lastErrorType = currentErrorType
 		}
 
-		// Wait before retry
-		waitTime := time.Duration(attempts+1) * 5 * time.Second
-		logger.Debug("Waiting %v before next kubeconfig fetch attempt...", waitTime)
-		time.Sleep(waitTime)
+		time.Sleep(checkInterval)
 	}
-
-	return fmt.Errorf("unexpected error in kubeconfig fetch loop")
 }
 
 func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1430,53 +1521,81 @@ func checkIfNodesReady(config *BootstrapConfig, logger *common.ColorLogger) (boo
 }
 
 func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) error {
-	maxAttempts := 30 // 10 minutes
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastNodeCount := 0
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("nodes not available after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
 		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
 			"--output=jsonpath={.items[*].metadata.name}", "--no-headers")
 
 		output, err := cmd.Output()
 		if err != nil {
-			if attempt%3 == 0 { // Log every minute
-				logger.Debug("Attempt %d/%d: Nodes not yet available", attempt, maxAttempts)
-			}
-			if attempt == maxAttempts {
-				return fmt.Errorf("nodes not available after %d attempts: %w", maxAttempts, err)
-			}
-			time.Sleep(20 * time.Second)
+			// API not ready yet, keep waiting
+			time.Sleep(checkInterval)
 			continue
 		}
 
 		nodeNames := strings.Fields(strings.TrimSpace(string(output)))
-		if len(nodeNames) > 0 {
-			logger.Success("Found %d nodes: %v", len(nodeNames), nodeNames)
+		nodeCount := len(nodeNames)
+
+		if nodeCount > 0 {
+			logger.Success("Found %d nodes: %v (took %v)", nodeCount, nodeNames, elapsed.Round(time.Second))
 			return nil
 		}
 
-		if attempt%3 == 0 { // Log every minute
-			logger.Debug("Attempt %d/%d: No nodes found yet", attempt, maxAttempts)
+		// Check for progress (node count change)
+		if nodeCount != lastNodeCount {
+			lastProgressTime = time.Now()
+			lastNodeCount = nodeCount
 		}
-		time.Sleep(20 * time.Second)
-	}
 
-	return fmt.Errorf("no nodes found after %d attempts", maxAttempts)
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			return fmt.Errorf("node discovery stalled: no progress for %v", stallDuration.Round(time.Second))
+		}
+
+		if int(elapsed.Seconds())%60 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for nodes to appear: %v elapsed", elapsed.Round(time.Second))
+		}
+
+		time.Sleep(checkInterval)
+	}
 }
 
 func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger) error {
-	maxAttempts := 60 // 20 minutes
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastReadyFalseCount := 0
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("nodes did not reach Ready=False state after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
 		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
 			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}")
 
 		output, err := cmd.Output()
 		if err != nil {
-			if attempt%3 == 0 { // Log every minute
-				logger.Debug("Attempt %d/%d: Failed to check node ready status", attempt, maxAttempts)
-			}
-			if attempt == maxAttempts {
-				return fmt.Errorf("failed to check node ready status after %d attempts: %w", maxAttempts, err)
-			}
-			time.Sleep(20 * time.Second)
+			time.Sleep(checkInterval)
 			continue
 		}
 
@@ -1492,31 +1611,41 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 			parts := strings.Split(line, ":")
 			if len(parts) == 2 {
 				totalNodes++
-				nodeName := parts[0]
 				readyStatus := parts[1]
 				if readyStatus == "False" {
 					readyFalseCount++
-					logger.Debug("Node %s is Ready=False", nodeName)
 				} else {
-					logger.Debug("Node %s is Ready=%s", nodeName, readyStatus)
 					allReadyFalse = false
 				}
 			}
 		}
 
+		// Success: all nodes Ready=False
 		if allReadyFalse && readyFalseCount > 0 {
-			logger.Success("All %d nodes are in Ready=False state", readyFalseCount)
+			logger.Success("All %d nodes are in Ready=False state (took %v)", readyFalseCount, elapsed.Round(time.Second))
 			return nil
 		}
 
-		if attempt%3 == 0 { // Log every minute
-			logger.Info("Attempt %d/%d: %d/%d nodes Ready=False, waiting for all nodes...",
-				attempt, maxAttempts, readyFalseCount, totalNodes)
+		// Check for progress
+		if readyFalseCount > lastReadyFalseCount {
+			logger.Debug("Progress: %d/%d nodes Ready=False (+%d)", readyFalseCount, totalNodes, readyFalseCount-lastReadyFalseCount)
+			lastProgressTime = time.Now()
+			lastReadyFalseCount = readyFalseCount
 		}
-		time.Sleep(20 * time.Second)
-	}
 
-	return fmt.Errorf("nodes did not reach Ready=False state after %d attempts", maxAttempts)
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			return fmt.Errorf("node readiness stalled: no progress for %v (stuck at %d/%d Ready=False)",
+				stallDuration.Round(time.Second), readyFalseCount, totalNodes)
+		}
+
+		if int(elapsed.Seconds())%60 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for nodes: %d/%d Ready=False, %v elapsed", readyFalseCount, totalNodes, elapsed.Round(time.Second))
+		}
+
+		time.Sleep(checkInterval)
+	}
 }
 
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -1718,7 +1847,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	}
 
 	// Save rendered configuration for validation if debug is enabled
-	if os.Getenv("DEBUG") == "1" || os.Getenv("SAVE_RENDERED_CONFIG") == "1" {
+	if os.Getenv(constants.EnvDebug) == "1" || os.Getenv("SAVE_RENDERED_CONFIG") == "1" {
 		hash := fmt.Sprintf("%x", md5.Sum([]byte(resolved)))
 		filename := fmt.Sprintf("rendered-config-%s.yaml", hash[:8])
 		if err := saveRenderedConfig(resolved, filename, logger); err != nil {
@@ -1897,21 +2026,33 @@ func separateCRDsFromManifests(manifestsYaml string) ([]string, []string, error)
 	return crdManifests, otherManifests, nil
 }
 
-// waitForCRDsEstablished waits for all CRDs to be established
+// waitForCRDsEstablished waits for all CRDs to be established using progress-based detection
+// It keeps waiting as long as progress is being made, only failing if stuck for too long
 func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger) error {
-	maxAttempts := 30 // 2 minutes with 4-second intervals
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalFast) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapCRDMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastEstablishedCount := 0
+
+	for {
+		elapsed := time.Since(startTime)
+
+		// Safety net: fail if we've been waiting too long overall
+		if elapsed > maxWait {
+			return fmt.Errorf("CRDs did not become established after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
 		cmd := exec.Command("kubectl", "get", "crd",
 			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Established')].status}{\"\\n\"}{end}",
 			"--kubeconfig", config.KubeConfig)
 
 		output, err := cmd.Output()
 		if err != nil {
-			logger.Debug("Attempt %d/%d: Failed to check CRD status", attempt, maxAttempts)
-			if attempt == maxAttempts {
-				return fmt.Errorf("failed to check CRD status after %d attempts: %w", maxAttempts, err)
-			}
-			time.Sleep(4 * time.Second)
+			logger.Debug("Failed to check CRD status: %v", err)
+			time.Sleep(checkInterval)
 			continue
 		}
 
@@ -1919,6 +2060,7 @@ func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger)
 		allEstablished := true
 		establishedCount := 0
 		totalCRDs := 0
+		var pendingCRDs []string
 
 		for _, line := range lines {
 			if line == "" {
@@ -1931,26 +2073,43 @@ func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger)
 				status := parts[1]
 				if status == "True" {
 					establishedCount++
-					logger.Debug("CRD %s is established", crdName)
 				} else {
-					logger.Debug("CRD %s is not established (status: %s)", crdName, status)
 					allEstablished = false
+					pendingCRDs = append(pendingCRDs, crdName)
 				}
 			}
 		}
 
+		// Success: all CRDs established
 		if allEstablished && establishedCount > 0 {
-			logger.Success("All %d CRDs are established", establishedCount)
+			logger.Success("All %d CRDs are established (took %v)", establishedCount, elapsed.Round(time.Second))
 			return nil
 		}
 
-		if attempt%5 == 0 { // Log every 20 seconds
-			logger.Info("Waiting for CRDs to be established: %d/%d ready", establishedCount, totalCRDs)
+		// Check for progress
+		if establishedCount > lastEstablishedCount {
+			logger.Debug("Progress: %d/%d CRDs established (+%d)", establishedCount, totalCRDs, establishedCount-lastEstablishedCount)
+			lastProgressTime = time.Now()
+			lastEstablishedCount = establishedCount
 		}
-		time.Sleep(4 * time.Second)
-	}
 
-	return fmt.Errorf("CRDs did not become established after %d attempts", maxAttempts)
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			return fmt.Errorf("CRD establishment stalled: no progress for %v (stuck at %d/%d). Pending: %v",
+				stallDuration.Round(time.Second), establishedCount, totalCRDs, pendingCRDs)
+		}
+
+		// Periodic status update
+		if int(elapsed.Seconds())%20 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for CRDs: %d/%d established, %v elapsed", establishedCount, totalCRDs, elapsed.Round(time.Second))
+			if len(pendingCRDs) > 0 && len(pendingCRDs) <= 5 {
+				logger.Debug("Pending CRDs: %v", pendingCRDs)
+			}
+		}
+
+		time.Sleep(checkInterval)
+	}
 }
 
 // executeHelmfileSync executes the helmfile sync operation
@@ -2164,84 +2323,120 @@ func testAPIServerConnectivity(config *BootstrapConfig, logger *common.ColorLogg
 }
 
 // isExternalSecretsInstalled checks if external-secrets is installed in the cluster
+// Uses retry logic since the deployment may still be creating after helmfile sync
 func isExternalSecretsInstalled(config *BootstrapConfig, logger *common.ColorLogger) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	maxAttempts := constants.BootstrapExtSecInstallAttempts // 1 minute total with 5-second intervals
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
 
-	cmd := exec.CommandContext(ctx, "kubectl", "get", "deployment", "external-secrets-webhook",
-		"-n", "external-secrets", "--kubeconfig", config.KubeConfig)
-	err := cmd.Run()
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		cmd := exec.CommandContext(ctx, "kubectl", "get", "deployment", "external-secrets-webhook",
+			"-n", constants.NSExternalSecret, "--kubeconfig", config.KubeConfig)
+		err := cmd.Run()
+		cancel()
 
-	if err != nil {
-		logger.Debug("External-secrets not found: %v", err)
-		return false
+		if err == nil {
+			logger.Debug("External-secrets deployment found on attempt %d", attempt)
+			return true
+		}
+
+		if attempt < maxAttempts {
+			logger.Debug("External-secrets check attempt %d/%d: not found yet, retrying...", attempt, maxAttempts)
+			time.Sleep(checkInterval)
+		}
 	}
-	return true
+
+	logger.Debug("External-secrets not found after %d attempts", maxAttempts)
+	return false
 }
 
-// waitForExternalSecretsWebhook waits for the external-secrets webhook to be ready
+// waitForExternalSecretsWebhook waits for the external-secrets webhook to be ready using progress-based detection
 func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.ColorLogger) error {
-	maxAttempts := 30 // Reduced from 60 to 30 (2.5 minutes instead of 5)
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// Check if the webhook deployment is ready
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapExtSecMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+
+	for {
+		elapsed := time.Since(startTime)
+
+		// Safety net: fail if we've been waiting too long overall
+		if elapsed > maxWait {
+			return fmt.Errorf("external-secrets webhook did not become ready after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
+		// Check deployment status
 		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook",
-			"-n", "external-secrets",
-			"--output=jsonpath={.status.readyReplicas}",
+			"-n", constants.NSExternalSecret,
+			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}:{.status.conditions[?(@.type=='Available')].status}",
 			"--kubeconfig", config.KubeConfig)
 
 		output, err := cmd.Output()
-		if err != nil {
-			logger.Debug("Attempt %d/%d: Failed to check webhook deployment status", attempt, maxAttempts)
+		currentState := "not-found"
 
-			// Add diagnostic info on failure
-			if attempt%6 == 0 {
-				logger.Info("Still waiting for external-secrets webhook (attempt %d/%d)", attempt, maxAttempts)
-				if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", "external-secrets",
-					"--kubeconfig", config.KubeConfig).Output(); podErr == nil {
-					logger.Debug("External-secrets pods:\n%s", string(podOutput))
+		if err == nil {
+			currentState = strings.TrimSpace(string(output))
+
+			// Parse ready/total replicas
+			parts := strings.Split(currentState, ":")
+			if len(parts) >= 1 {
+				replicaInfo := parts[0]
+				replicaParts := strings.Split(replicaInfo, "/")
+				if len(replicaParts) == 2 {
+					readyReplicas := replicaParts[0]
+					if readyReplicas != "" && readyReplicas != "0" {
+						// Also check if the webhook service has endpoints
+						endpointsCmd := exec.Command("kubectl", "get", "endpoints", "external-secrets-webhook",
+							"-n", constants.NSExternalSecret,
+							"--output=jsonpath={.subsets[*].addresses[*].ip}",
+							"--kubeconfig", config.KubeConfig)
+
+						endpointsOutput, endpointsErr := endpointsCmd.Output()
+						if endpointsErr == nil {
+							endpoints := strings.TrimSpace(string(endpointsOutput))
+							if endpoints != "" {
+								logger.Success("External-secrets webhook is ready (took %v)", elapsed.Round(time.Second))
+								return nil
+							}
+						}
+						logger.Debug("Webhook deployment ready but no endpoints available yet")
+					}
 				}
 			}
-
-			if attempt == maxAttempts {
-				return fmt.Errorf("webhook deployment not found after %d attempts (2.5 minutes): %w", maxAttempts, err)
-			}
-			time.Sleep(5 * time.Second)
-			continue
 		}
 
-		readyReplicas := strings.TrimSpace(string(output))
-		if readyReplicas != "" && readyReplicas != "0" {
-			// Also check if the webhook service has endpoints
-			endpointsCmd := exec.Command("kubectl", "get", "endpoints", "external-secrets-webhook",
-				"-n", "external-secrets",
-				"--output=jsonpath={.subsets[*].addresses[*].ip}",
-				"--kubeconfig", config.KubeConfig)
-
-			endpointsOutput, endpointsErr := endpointsCmd.Output()
-			if endpointsErr == nil {
-				endpoints := strings.TrimSpace(string(endpointsOutput))
-				if endpoints != "" {
-					logger.Success("External-secrets webhook is ready with %s ready replicas", readyReplicas)
-					return nil
-				}
-			}
-			logger.Debug("Webhook deployment ready but no endpoints available yet")
-		} else {
-			logger.Debug("Webhook deployment not ready yet (ready replicas: %s)", readyReplicas)
+		// Check for progress (state change)
+		if currentState != lastState {
+			logger.Debug("External-secrets state change: %s -> %s", lastState, currentState)
+			lastProgressTime = time.Now()
+			lastState = currentState
 		}
 
-		if attempt%6 == 0 { // Log every 30 seconds
-			logger.Info("Still waiting for external-secrets webhook to be ready (attempt %d/%d)", attempt, maxAttempts)
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			// Get detailed pod info for debugging
+			podOutput, _ := exec.Command("kubectl", "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide",
+				"--kubeconfig", config.KubeConfig).Output()
+			return fmt.Errorf("external-secrets webhook stalled: no progress for %v (state: %s)\nPods:\n%s",
+				stallDuration.Round(time.Second), currentState, string(podOutput))
+		}
+
+		// Periodic status update
+		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for external-secrets webhook: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
 			// Show pod status for debugging
-			if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", "external-secrets", "-o", "wide",
+			if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide",
 				"--kubeconfig", config.KubeConfig).Output(); podErr == nil {
 				logger.Debug("External-secrets pods:\n%s", string(podOutput))
 			}
 		}
-		time.Sleep(5 * time.Second)
-	}
 
-	return fmt.Errorf("external-secrets webhook did not become ready after %d attempts (2.5 minutes)", maxAttempts)
+		time.Sleep(checkInterval)
+	}
 }
 
 // testDynamicValuesTemplate tests the dynamic values template rendering
@@ -2303,4 +2498,228 @@ func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLog
 
 	logger.Debug("Kubeconfig file updated in 1Password")
 	return nil
+}
+
+// waitForFluxReconciliation waits for Flux to complete its initial reconciliation
+// This ensures the cluster is actually ready before bootstrap declares success
+func waitForFluxReconciliation(config *BootstrapConfig, logger *common.ColorLogger) error {
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would wait for Flux reconciliation")
+		return nil
+	}
+
+	logger.Info("Waiting for Flux controllers to be ready...")
+
+	// Step 1: Wait for Flux source-controller to be running
+	if err := waitForFluxController(config, logger, "source-controller"); err != nil {
+		return fmt.Errorf("source-controller not ready: %w", err)
+	}
+
+	// Step 2: Wait for Flux kustomize-controller to be running
+	if err := waitForFluxController(config, logger, "kustomize-controller"); err != nil {
+		return fmt.Errorf("kustomize-controller not ready: %w", err)
+	}
+
+	// Step 3: Wait for Flux helm-controller to be running
+	if err := waitForFluxController(config, logger, "helm-controller"); err != nil {
+		return fmt.Errorf("helm-controller not ready: %w", err)
+	}
+
+	logger.Info("Flux controllers are ready, waiting for initial reconciliation...")
+
+	// Step 4: Wait for the GitRepository to be ready
+	if err := waitForGitRepositoryReady(config, logger); err != nil {
+		// Not fatal - Flux may still be cloning
+		logger.Warn("GitRepository not ready yet: %v", err)
+		logger.Info("Flux is still syncing - cluster is functional but reconciliation is in progress")
+		return nil
+	}
+
+	// Step 5: Wait for the flux-system Kustomization to reconcile
+	if err := waitForFluxKustomizationReady(config, logger, "cluster"); err != nil {
+		// Not fatal - initial reconcile can take time
+		logger.Warn("Flux Kustomization 'cluster' not ready yet: %v", err)
+		logger.Info("Flux is still reconciling - cluster is functional")
+		return nil
+	}
+
+	logger.Success("Flux initial reconciliation complete")
+	return nil
+}
+
+// waitForFluxController waits for a specific Flux controller deployment to be ready using progress-based detection
+func waitForFluxController(config *BootstrapConfig, logger *common.ColorLogger, controllerName string) error {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("%s did not become ready after %v (max wait exceeded)", controllerName, elapsed.Round(time.Second))
+		}
+
+		cmd := exec.Command("kubectl", "get", "deployment", controllerName,
+			"-n", constants.NSFluxSystem,
+			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}",
+			"--kubeconfig", config.KubeConfig)
+
+		output, err := cmd.Output()
+		currentState := "not-found"
+
+		if err == nil {
+			currentState = strings.TrimSpace(string(output))
+			parts := strings.Split(currentState, "/")
+			if len(parts) == 2 {
+				readyReplicas := parts[0]
+				if readyReplicas != "" && readyReplicas != "0" {
+					logger.Debug("Flux %s is ready (took %v)", controllerName, elapsed.Round(time.Second))
+					return nil
+				}
+			}
+		}
+
+		// Check for progress
+		if currentState != lastState {
+			logger.Debug("Flux %s state: %s", controllerName, currentState)
+			lastProgressTime = time.Now()
+			lastState = currentState
+		}
+
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			return fmt.Errorf("%s stalled: no progress for %v (state: %s)", controllerName, stallDuration.Round(time.Second), currentState)
+		}
+
+		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
+			logger.Debug("Waiting for Flux %s: state=%s, %v elapsed", controllerName, currentState, elapsed.Round(time.Second))
+		}
+		time.Sleep(checkInterval)
+	}
+}
+
+// waitForGitRepositoryReady waits for the flux-system GitRepository to be ready using progress-based detection
+func waitForGitRepositoryReady(config *BootstrapConfig, logger *common.ColorLogger) error {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("GitRepository did not become ready after %v (max wait exceeded)", elapsed.Round(time.Second))
+		}
+
+		// Check GitRepository status with more detail
+		cmd := exec.Command("kubectl", "get", "gitrepository", "flux-system",
+			"-n", constants.NSFluxSystem,
+			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.artifact.revision}",
+			"--kubeconfig", config.KubeConfig)
+
+		output, err := cmd.Output()
+		currentState := "not-found"
+
+		if err == nil {
+			currentState = strings.TrimSpace(string(output))
+			parts := strings.Split(currentState, ":")
+			if len(parts) >= 1 && parts[0] == "True" {
+				logger.Debug("GitRepository flux-system is ready (took %v)", elapsed.Round(time.Second))
+				return nil
+			}
+		}
+
+		// Check for progress (state change means something is happening)
+		if currentState != lastState {
+			logger.Debug("GitRepository state: %s", currentState)
+			lastProgressTime = time.Now()
+			lastState = currentState
+		}
+
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			// Get diagnostic info
+			diagCmd := exec.Command("kubectl", "get", "gitrepository", "-n", constants.NSFluxSystem, "-o", "wide",
+				"--kubeconfig", config.KubeConfig)
+			diagOutput, _ := diagCmd.Output()
+			return fmt.Errorf("GitRepository stalled: no progress for %v (state: %s)\n%s",
+				stallDuration.Round(time.Second), currentState, string(diagOutput))
+		}
+
+		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for GitRepository: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
+		}
+		time.Sleep(checkInterval)
+	}
+}
+
+// waitForFluxKustomizationReady waits for a specific Flux Kustomization to be ready using progress-based detection
+func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.ColorLogger, ksName string) error {
+	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
+	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+
+	startTime := time.Now()
+	lastProgressTime := time.Now()
+	lastState := ""
+
+	for {
+		elapsed := time.Since(startTime)
+
+		if elapsed > maxWait {
+			return fmt.Errorf("Kustomization %s did not become ready after %v (max wait exceeded)", ksName, elapsed.Round(time.Second))
+		}
+
+		// Check Kustomization status with more detail
+		cmd := exec.Command("kubectl", "get", "kustomization", ksName,
+			"-n", constants.NSFluxSystem,
+			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.lastAppliedRevision}",
+			"--kubeconfig", config.KubeConfig)
+
+		output, err := cmd.Output()
+		currentState := "not-found"
+
+		if err == nil {
+			currentState = strings.TrimSpace(string(output))
+			parts := strings.Split(currentState, ":")
+			if len(parts) >= 1 && parts[0] == "True" {
+				logger.Debug("Kustomization %s is ready (took %v)", ksName, elapsed.Round(time.Second))
+				return nil
+			}
+		}
+
+		// Check for progress
+		if currentState != lastState {
+			logger.Debug("Kustomization %s state: %s", ksName, currentState)
+			lastProgressTime = time.Now()
+			lastState = currentState
+		}
+
+		// Check for stall
+		stallDuration := time.Since(lastProgressTime)
+		if stallDuration > stallTimeout {
+			// Get diagnostic info
+			diagCmd := exec.Command("kubectl", "get", "kustomization", "-n", constants.NSFluxSystem, "-o", "wide",
+				"--kubeconfig", config.KubeConfig)
+			diagOutput, _ := diagCmd.Output()
+			return fmt.Errorf("Kustomization %s stalled: no progress for %v (state: %s)\n%s",
+				ksName, stallDuration.Round(time.Second), currentState, string(diagOutput))
+		}
+
+		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
+			logger.Info("Waiting for Kustomization '%s': state=%s, %v elapsed", ksName, currentState, elapsed.Round(time.Second))
+		}
+		time.Sleep(checkInterval)
+	}
 }
