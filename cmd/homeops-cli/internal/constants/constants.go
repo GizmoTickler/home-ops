@@ -76,6 +76,33 @@ const (
 	MaxRetryAttempts = 3
 )
 
+// Bootstrap-specific timing constants
+// These use a progress-based approach: keep waiting as long as progress is being made
+// Only fail if no progress is detected for the "stall timeout" period
+const (
+	// Check intervals - how often to poll for status
+	BootstrapCheckIntervalFast   = 4  // seconds - for CRDs, quick checks
+	BootstrapCheckIntervalNormal = 5  // seconds - for most operations
+	BootstrapCheckIntervalSlow   = 10 // seconds - for heavy operations
+
+	// Stall detection - fail only if no progress for this duration
+	BootstrapStallTimeout = 120 // seconds (2 minutes) - no progress = failure
+
+	// Maximum wait times (safety net) - these are very generous
+	BootstrapCRDMaxWait        = 600  // 10 minutes max for CRDs
+	BootstrapExtSecMaxWait     = 300  // 5 minutes max for external-secrets
+	BootstrapFluxMaxWait       = 900  // 15 minutes max for Flux reconciliation
+	BootstrapNodeMaxWait       = 1200 // 20 minutes max for nodes
+	BootstrapKubeconfigMaxWait = 300  // 5 minutes max for kubeconfig
+
+	// Legacy constants for backward compatibility (converted to use new approach)
+	BootstrapExtSecInstallAttempts = 12 // 1 minute to check if deployment exists
+
+	// Helm sync retries
+	BootstrapHelmMaxAttempts    = 3
+	BootstrapHelmRetryBaseDelay = 30 // seconds
+)
+
 // Talos Factory API
 const (
 	TalosFactoryBaseURL = "https://factory.talos.dev"

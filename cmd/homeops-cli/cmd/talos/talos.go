@@ -1428,15 +1428,15 @@ func listVMs(provider string) error {
 	// vSphere provider - get credentials
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
@@ -1605,15 +1605,15 @@ func infoVMOnVSphere(vmName string) error {
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
@@ -2417,15 +2417,15 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
@@ -2604,15 +2604,15 @@ func deleteVMOnVSphere(vmName string) error {
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
@@ -2775,15 +2775,15 @@ func powerOnVMOnVSphere(vmName string) error {
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
@@ -2824,15 +2824,15 @@ func powerOffVMOnVSphere(vmName string) error {
 	// Get vSphere credentials from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
-		host = os.Getenv("VSPHERE_HOST")
+		host = os.Getenv(constants.EnvVSphereHost)
 	}
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
-		username = os.Getenv("VSPHERE_USERNAME")
+		username = os.Getenv(constants.EnvVSphereUsername)
 	}
 	password := get1PasswordSecret("op://Infrastructure/esxi/password")
 	if password == "" {
-		password = os.Getenv("VSPHERE_PASSWORD")
+		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
 	if host == "" || username == "" || password == "" {
