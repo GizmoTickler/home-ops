@@ -17,22 +17,15 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 
 </div>
 
-<br/>
-
 <div align="center">
 
-| Cluster | | | |
-|:---:|:---:|:---:|:---:|
-| [![Age](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_age_days&style=flat-square&label=Age&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_uptime_days&style=flat-square&label=Uptime&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Nodes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_node_count&style=flat-square&label=Nodes&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Pods](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_pod_count&style=flat-square&label=Pods&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
-| [![Containers](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcontainer_count&style=flat-square&label=Containers&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![HelmReleases](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fhelmrelease_count&style=flat-square&label=HelmReleases&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![PVCs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fpvc_count&style=flat-square&label=PVCs&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Flux Errors](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fflux_failing_count&style=flat-square&label=Flux%20Errors&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
-
-</div>
-
-<div align="center">
-
-| Resources | | | | Health | |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| [![CPU](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_cpu_usage&style=flat-square&label=CPU&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Memory](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=flat-square&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Storage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fceph_storage_used&style=flat-square&label=Storage&cacheSeconds=60)](https://github.com/kashalls/kromgo) | | [![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=flat-square&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Certs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcert_expiry_days&style=flat-square&label=Cert%20Expiry&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
+[![Age](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_age_days&style=flat-square&label=Age&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![Uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_uptime_days&style=flat-square&label=Uptime&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![Nodes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_node_count&style=flat-square&label=Nodes&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![Pods](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_pod_count&style=flat-square&label=Pods&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![CPU](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_cpu_usage&style=flat-square&label=CPU&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![Memory](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=flat-square&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;
+[![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=flat-square&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo)
 
 </div>
 
