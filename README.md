@@ -3,7 +3,7 @@
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos, Flux, and GitOps_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
+_Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, managed via GitOps_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 </div>
 
@@ -17,15 +17,22 @@ _Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos
 
 </div>
 
+<br/>
+
 <div align="center">
 
-[![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_age_days&style=flat-square&label=Age&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Uptime-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_uptime_days&style=flat-square&label=Uptime&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_node_count&style=flat-square&label=Nodes&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Pod-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_pod_count&style=flat-square&label=Pods&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![CPU-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_cpu_usage&style=flat-square&label=CPU&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Memory-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=flat-square&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=flat-square&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo)
+| Cluster | | | |
+|:---:|:---:|:---:|:---:|
+| [![Age](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_age_days&style=flat-square&label=Age&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_uptime_days&style=flat-square&label=Uptime&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Nodes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_node_count&style=flat-square&label=Nodes&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Pods](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_pod_count&style=flat-square&label=Pods&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
+| [![Containers](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcontainer_count&style=flat-square&label=Containers&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![HelmReleases](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fhelmrelease_count&style=flat-square&label=HelmReleases&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![PVCs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fpvc_count&style=flat-square&label=PVCs&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Flux Errors](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fflux_failing_count&style=flat-square&label=Flux%20Errors&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
+
+</div>
+
+<div align="center">
+
+| Resources | | | | Health | |
+|:---:|:---:|:---:|:---:|:---:|:---:|
+| [![CPU](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_cpu_usage&style=flat-square&label=CPU&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Memory](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=flat-square&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Storage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fceph_storage_used&style=flat-square&label=Storage&cacheSeconds=60)](https://github.com/kashalls/kromgo) | | [![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=flat-square&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo) | [![Certs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcert_expiry_days&style=flat-square&label=Cert%20Expiry&cacheSeconds=60)](https://github.com/kashalls/kromgo) |
 
 </div>
 
@@ -35,25 +42,26 @@ _Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Talos Linux](https://www.talos.dev/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on VMware ESXi VMs with high-performance TrueNAS storage backing via both iSCSI (for block storage) and NFS 4.1 (for shared media) over 4x10Gbps link aggregation, providing production-grade virtualization with dedicated NVMe storage controllers for optimal performance.
+**Architecture**: The cluster runs on VMware ESXi VMs with [Rook Ceph](https://rook.io/) providing distributed storage using SSDs passed as pRDMs (physical Raw Device Mappings) directly to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 4x10Gbps link aggregation.
 
 ---
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with high-performance storage provided by TrueNAS over high-speed network connections. This setup provides a production-like Kubernetes environment with dedicated storage controllers for optimal performance.
+The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on SSDs passed directly to each VM as pRDMs (physical Raw Device Mappings). This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
 
 ### Infrastructure Details
 
 - **Hypervisor**: VMware ESXi with advanced virtualization features
-- **Storage Backend**: TrueNAS Scale providing iSCSI block storage and NFS 4.1 with multipath over 4x10Gbps link aggregation
+- **Primary Storage**: Rook Ceph distributed storage using dedicated SSDs passed as pRDMs to each Talos VM
+- **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
-- **Storage Strategy**: Dual NVMe controller architecture per VM:
-  - **Controller 1**: 500GB vdisk for Talos boot
-  - **Controller 2**: 1TB vdisk for OpenEBS local storage
-- **External Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) for TrueNAS iSCSI persistent volumes with NFS for shared media
+- **Storage Strategy**: Multiple storage tiers per VM:
+  - **Boot Disk**: Virtual disk for Talos OS
+  - **Ceph OSD**: Dedicated SSD passed as pRDM for Rook Ceph distributed storage
+  - **Local Storage**: OpenEBS hostPath for high-performance local workloads
 - **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: external-dns for both Cloudflare and Unifi local DNS management
@@ -68,7 +76,8 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [scale-csi](https://github.com/gizmotickler/scale-csi): Custom TrueNAS Scale CSI driver for iSCSI and NVMEoF block storage and NFS with metrics and Grafana dashboards.
+- [rook-ceph](https://github.com/rook/rook): Primary distributed storage using Ceph on dedicated SSDs passed as pRDMs.
+- [scale-csi](https://github.com/gizmotickler/scale-csi): TrueNAS Scale CSI driver for iSCSI, NVMe-oF, and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
@@ -111,7 +120,8 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 network        # Networking applications
 │   │   ├── 📁 observability  # Monitoring and logging
 │   │   ├── 📁 openebs-system # Local storage provisioner
-│   │   ├── 📁 scale-csi      # TrueNAS Scale iSCSI/NFS storage
+│   │   ├── 📁 rook-ceph      # Distributed Ceph storage
+│   │   ├── 📁 scale-csi      # TrueNAS Scale iSCSI/NVMe-oF/NFS storage
 │   │   ├── 📁 self-hosted    # Productivity and tools
 │   │   ├── 📁 system-upgrade # Automated upgrades
 │   │   └── 📁 volsync-system # Volume backup and recovery
@@ -129,14 +139,14 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ### Flux Workflow
 
-This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on scale-csi being installed and healthy.
+This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on Rook Ceph being installed and healthy.
 
 ```mermaid
 graph TD
-    A>Kustomization: scale-csi] -->|Creates| B[HelmRelease: scale-csi]
+    A>Kustomization: rook-ceph-cluster] -->|Creates| B[CephCluster: rook-ceph]
     C>Kustomization: volsync] -->|Creates| D[HelmRelease: volsync]
     E>Kustomization: atuin] -->|Creates| F(HelmRelease: atuin)
-    F>HelmRelease: atuin] -->|Depends on| B>HelmRelease: scale-csi]
+    F>HelmRelease: atuin] -->|Depends on| B>CephCluster: rook-ceph]
     F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: volsync]
 ```
 
@@ -296,7 +306,8 @@ Automation workloads run in the `automation` namespace so VolSync restores and K
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [scale-csi](https://github.com/gizmotickler/scale-csi) | TrueNAS Scale iSCSI/NFS block storage | Internal only |
+| [Rook Ceph](https://github.com/rook/rook) | Primary distributed storage (block + filesystem) | Internal only |
+| [scale-csi](https://github.com/gizmotickler/scale-csi) | TrueNAS Scale iSCSI/NVMe-oF/NFS storage | Internal only |
 | [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
 
 All applications use Cilium Gateway API for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
@@ -305,26 +316,45 @@ All applications use Cilium Gateway API for ingress with automatic TLS certifica
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4be/512.gif" alt="💾" width="20" height="20"> Storage Architecture
 
-The cluster uses a multi-tier storage architecture designed for performance, reliability, and flexibility:
+The cluster uses a multi-tier storage architecture with Rook Ceph as the primary distributed storage layer:
 
 ### Storage Tiers
 
-| Tier | Provider | Protocol | Use Case |
-|------|----------|----------|----------|
-| **Block Storage** | [scale-csi](https://github.com/gizmotickler/scale-csi) | iSCSI, NVMEoF & NFS | Application persistent volumes (databases, configs) |
-| **Local Storage** | OpenEBS | hostPath | High-performance local workloads |
-| **Shared Storage** | TrueNAS | NFS 4.1 | Media files, shared data across pods |
-| **Backup** | VolSync + Kopia | S3-compatible | Automated PVC backup and restore |
+| Tier | Provider | StorageClass | Use Case |
+|------|----------|--------------|----------|
+| **Distributed Block** | Rook Ceph | `ceph-block` (default) | Application PVCs with replication |
+| **Distributed Filesystem** | Rook Ceph | `ceph-filesystem` | Shared storage across pods |
+| **External Block** | scale-csi | `scale-iscsi`, `scale-nvmeof` | TrueNAS iSCSI/NVMe-oF volumes |
+| **External NFS** | scale-csi | `scale-nfs` | Media files, shared data |
+| **Local Storage** | OpenEBS | `openebs-hostpath` | High-performance local workloads |
+| **Backup** | VolSync + Kopia | — | Automated PVC backup and restore |
+
+### Rook Ceph Configuration
+
+[Rook Ceph](https://rook.io/) provides the primary distributed storage using SSDs passed as pRDMs (physical Raw Device Mappings) directly to each Talos VM on ESXi:
+
+- **Ceph Version**: v19.2.3 (Squid)
+- **OSD Configuration**: Dedicated SSD per node passed as pRDM for direct hardware access
+- **Replication**: 3-way replication across nodes for fault tolerance
+- **Pools**:
+  - `ceph-blockpool`: RBD block storage for application PVCs
+  - `ceph-filesystem`: CephFS for shared filesystem access
+- **Features**:
+  - Automatic PG autoscaling
+  - Disk failure prediction (local mode)
+  - TRIM/discard support enabled
+  - Integrated Prometheus metrics and Grafana dashboards
 
 ### scale-csi Configuration
 
-The custom [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides native integration with TrueNAS Scale:
+The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides additional storage from TrueNAS Scale:
 
-- **iSCSI Portal**: Dedicated network path (192.168.120.10:3260)
-- **ZFS Dataset**: `flashstor/scale-csi` for all dynamic volumes
+- **Protocols**: iSCSI, NVMe-oF, and NFS
+- **Network**: 4x10Gbps LACP between TrueNAS and ESXi
 - **StorageClasses**:
-  - `scale-iscsi` (default): ext4 formatted block volumes
-  - `scale-nfs`: NFSv4 shared volumes with noatime
+  - `scale-iscsi`: iSCSI block volumes
+  - `scale-nvmeof`: NVMe over Fabrics for high-performance workloads
+  - `scale-nfs`: NFSv4 shared volumes
 - **Features**:
   - Volume snapshots via CSI snapshot controller
   - Metrics exporting with Grafana dashboards
@@ -371,13 +401,13 @@ The custom [scale-csi](https://github.com/gizmotickler/scale-csi) driver provide
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 48GB   | 500GB NVMe vdisk (boot) + 1TB NVMe vdisk (OpenEBS local)   | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 48GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
 
 **Storage Details**:
-- Each VM has two dedicated NVMe controllers for isolation and performance
-- Controller 1: 500GB vdisk for Talos boot
-- Controller 2: 1TB vdisk for OpenEBS local storage
-- Persistent volumes: scale-csi provides TrueNAS iSCSI block storage for application data
+- **Boot Disk**: Virtual disk for Talos OS
+- **Ceph OSD**: Dedicated SSD passed as pRDM (physical Raw Device Mapping) for Rook Ceph distributed storage
+- **Local Storage**: Virtual disk for OpenEBS hostPath high-performance workloads
+- **External Storage**: scale-csi provides TrueNAS iSCSI/NVMe-oF/NFS for additional capacity
 
 **Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
 
