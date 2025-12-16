@@ -28,10 +28,6 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 [![Memory](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=for-the-badge&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
 [![Storage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fceph_storage_used&style=for-the-badge&label=Storage&cacheSeconds=60)](https://github.com/kashalls/kromgo)
 
-</div>
-
-<div align="center">
-
 [![HelmReleases](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fhelmrelease_count&style=for-the-badge&label=HelmReleases&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
 [![PVCs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fpvc_count&style=for-the-badge&label=PVCs&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
 [![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=for-the-badge&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
