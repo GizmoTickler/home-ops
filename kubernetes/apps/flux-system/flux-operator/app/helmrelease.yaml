@@ -10,6 +10,12 @@ spec:
     name: flux-operator
   interval: 1h
   values:
+    # Force Go to prefer IPv4 over IPv6 for external connections
+    # This prevents "network is unreachable" errors when ghcr.io returns AAAA records
+    # but the cluster lacks IPv6 connectivity
+    extraEnvs:
+      - name: GODEBUG
+        value: netdns=go
     serviceMonitor:
       create: false
     web:
