@@ -63,7 +63,10 @@
       "Bash(pkill:*)",
       "Bash(flux reconcile source git:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(flux get helmreleases:*)",
+      "Bash(flux reconcile helmrelease:*)",
+      "Bash(helm show:*)"
     ],
     "deny": [],
     "ask": []
