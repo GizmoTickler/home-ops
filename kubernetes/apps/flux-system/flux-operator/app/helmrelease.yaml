@@ -10,12 +10,12 @@ spec:
     name: flux-operator
   interval: 1h
   values:
-    # Force Go to prefer IPv4 over IPv6 for external connections
-    # This prevents "network is unreachable" errors when ghcr.io returns AAAA records
-    # but the cluster lacks IPv6 connectivity
-    extraEnvs:
-      - name: GODEBUG
-        value: netdns=go
+    # Disable IPv6 at the pod level to prevent "network is unreachable" errors
+    # when ghcr.io returns AAAA records but the cluster lacks IPv6 connectivity
+    podSecurityContext:
+      sysctls:
+        - name: net.ipv6.conf.all.disable_ipv6
+          value: "1"
     serviceMonitor:
       create: false
     web:
