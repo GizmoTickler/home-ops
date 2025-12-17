@@ -12,3 +12,6 @@ spec:
   values:
     serviceMonitor:
       create: false
+    web:
+      networkPolicy:
+        create: false
