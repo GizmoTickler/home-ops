@@ -39,6 +39,13 @@ spec:
               fallthrough in-addr.arpa ip6.arpa
           - name: autopath
             parameters: "@kubernetes"
+          # Filter AAAA records for external queries to prevent IPv6 connection failures
+          # when the cluster lacks global IPv6 connectivity. Returns NODATA (empty answer)
+          # for all AAAA queries, forcing applications to use IPv4.
+          - name: template
+            parameters: IN AAAA
+            configBlock: |-
+              rcode NOERROR
           - name: forward
             parameters: . /etc/resolv.conf
           - name: cache
