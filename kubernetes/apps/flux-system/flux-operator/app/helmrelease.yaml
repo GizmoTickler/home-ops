@@ -10,6 +10,9 @@ spec:
     name: flux-operator
   interval: 1h
   values:
+    extraEnvs:
+      - name: GODEBUG
+        value: netdns=go
     serviceMonitor:
       create: false
     web:
