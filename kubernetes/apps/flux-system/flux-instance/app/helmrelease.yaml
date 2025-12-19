@@ -10,6 +10,13 @@ spec:
     name: flux-instance
   interval: 1h
   values:
+    # Annotations to reduce artifact fetch frequency
+    # The flux-operator has a hardcoded 30s timeout for OCI fetches which can
+    # intermittently fail when GHCR is slow. Since the artifact version is pinned,
+    # we don't need to check frequently.
+    commonAnnotations:
+      fluxcd.controlplane.io/reconcileArtifactEvery: "24h"
+      fluxcd.controlplane.io/reconcileTimeout: "10m"
     instance:
       distribution:
         artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.37.1
