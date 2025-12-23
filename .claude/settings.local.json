@@ -67,7 +67,8 @@
       "Bash(flux get helmreleases:*)",
       "Bash(flux reconcile helmrelease:*)",
       "Bash(helm show:*)",
-      "Bash(docker manifest inspect:*)"
+      "Bash(docker manifest inspect:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []
