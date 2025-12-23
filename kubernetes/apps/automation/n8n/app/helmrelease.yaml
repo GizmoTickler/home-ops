@@ -24,7 +24,7 @@ spec:
           app:
             image:
               repository: ghcr.io/gizmotickler/n8n-playwright-debian
-              tag: sha-9c66b4d
+              tag: sha-6e647d6
             env:
               NODE_PATH: /usr/local/lib/node_modules
               NODE_FUNCTION_ALLOW_EXTERNAL: playwright
