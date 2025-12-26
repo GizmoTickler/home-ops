@@ -19,7 +19,7 @@ spec:
       fluxcd.controlplane.io/reconcileTimeout: "10m"
     instance:
       distribution:
-        artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.37.1@sha256:17949bc70d4cdc9a3a1b448219f4b0664f7df64e87938089ff2c705d49aa742d
+        artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.38.1
         version: 2.x
       cluster:
         networkPolicy: false
