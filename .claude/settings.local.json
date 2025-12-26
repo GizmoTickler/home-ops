@@ -68,7 +68,9 @@
       "Bash(flux reconcile helmrelease:*)",
       "Bash(helm show:*)",
       "Bash(docker manifest inspect:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(for i in 1 2 3 4 5 6)",
+      "Bash(do echo \"=== Check $i ===\")"
     ],
     "deny": [],
     "ask": []
