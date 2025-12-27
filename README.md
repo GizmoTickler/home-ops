@@ -58,7 +58,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
-- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs and 48GB RAM
+- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 64GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
   - **Boot Disk**: Virtual disk for Talos OS
   - **Ceph OSD**: Dedicated SSD passed as pRDM for Rook Ceph distributed storage
@@ -378,13 +378,15 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 | Component                   | Specifications                                      | Function                          |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
 | **ESXi Host**               | VMware ESXi Hypervisor                             | VM compute & management           |
-| ├─ **CPU**                  | 2x Intel Xeon E5-2640 v4 @ 2.40GHz (20 cores)     | VM compute resources              |
-| ├─ **Memory**               | 256GB RAM                                           | VM memory allocation              |
+| ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
+| ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | High-speed VM networking          |
-| └─ **Storage**              | 2x 500GB SATA SSD                                  | Boot and local datastore          |
+| └─ **Storage**              | 2x NVMe SSDs (local datastores) + 3x 1TB SSD (Ceph pRDM) | Boot, datastores, and Ceph OSDs |
 | **Storage Server**          | TrueNAS Scale                                       | iSCSI & NFS storage provider      |
-| ├─ **CPU**                  | 2x Intel Xeon E5-2630 v4 @ 2.20GHz (20 cores)     | Storage processing                |
-| ├─ **Memory**               | 384GB RAM                                           | ARC cache and services            |
+| ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
+| ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
+| ├─ **L2ARC**                | 2x 1TB NVMe (1.8TB read cache)                     | Extended read cache               |
+| ├─ **SLOG**                 | 2x 60GB NVMe (mirrored)                            | Synchronous write log             |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | Storage network (40Gbps total)   |
 | └─ **Protocols**            | iSCSI (block) + NFS 4.1 (file)                     | Kubernetes storage access         |
 | **Network Switch**          | Cisco Switch                                        | Infrastructure interconnect       |
@@ -394,23 +396,30 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | Storage Tier                | Hardware                                            | Purpose                           |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **TrueNAS Primary Pool**    | 3x RAIDZ vdevs (4 disks each, 3.8TB SSDs)         | iSCSI volumes + NFS exports       |
-| **SLOG (Intent Log)**       | 2x 800GB NVMe (mirrored)                           | Synchronous write acceleration    |
-| **Special Metadata vdev**   | 2x 1.5TB NVMe (mirrored)                           | Metadata & small block storage    |
+| **TrueNAS Primary Pool**    | 4x RAIDZ1 vdevs (3 disks each = 28.5TB usable)    | iSCSI volumes + NFS exports       |
+| **SLOG (Intent Log)**       | 2x 60GB NVMe (mirrored)                            | Synchronous write acceleration    |
+| **L2ARC (Read Cache)**      | 2x 1TB NVMe (1.8TB total)                          | Extended ARC read cache           |
 
 ### Virtual Machine Configuration
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 48GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 64GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
 
 **Storage Details**:
 - **Boot Disk**: Virtual disk for Talos OS
-- **Ceph OSD**: Dedicated SSD passed as pRDM (physical Raw Device Mapping) for Rook Ceph distributed storage
+- **Ceph OSD**: Dedicated 1TB SSD passed as pRDM (physical Raw Device Mapping) for Rook Ceph distributed storage
 - **Local Storage**: Virtual disk for OpenEBS hostPath high-performance workloads
 - **External Storage**: scale-csi provides TrueNAS iSCSI/NVMe-oF/NFS for additional capacity
 
-**Total VM Resources**: 48 vCPUs, 144GB RAM allocated from the 40-core, 256GB host system.
+**CPU & Memory Optimization**:
+- **NUMA Pinning**: Each VM is pinned to specific CPU cores with HT siblings for optimal memory locality
+  - k8s-0: Cores 0-7 + HT 16-23 (Socket 0)
+  - k8s-1: Cores 32-39 + HT 48-55 (Socket 1)
+  - k8s-2: Cores 8-15 + HT 24-31 (Socket 0)
+- **Memory Reservation**: 64GB reserved per VM (no overcommit)
+
+**Total VM Resources**: 48 vCPUs, 192GB RAM allocated from the 64-thread, 512GB host system.
 
 ---
 
