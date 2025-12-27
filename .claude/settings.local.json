@@ -70,7 +70,10 @@
       "Bash(docker manifest inspect:*)",
       "Bash(git pull:*)",
       "Bash(for i in 1 2 3 4 5 6)",
-      "Bash(do echo \"=== Check $i ===\")"
+      "Bash(do echo \"=== Check $i ===\")",
+      "Bash(op account list:*)",
+      "Bash(op plugin:*)",
+      "Bash(paste:*)"
     ],
     "deny": [],
     "ask": []
