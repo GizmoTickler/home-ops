@@ -130,9 +130,8 @@ spec:
             resources:
               requests:
                 cpu: 500m
-                memory: 4Gi
               limits:
-                memory: 12Gi
+                memory: 32Gi
     defaultPodOptions:
       securityContext:
         runAsNonRoot: true
@@ -200,5 +199,27 @@ spec:
         globalMounts:
           - path: /media/torrents
             subPath: torrents
-      tmp:
+      inter:
+        type: custom
+        volumeSpec:
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                storageClassName: openebs-hostpath
+                resources:
+                  requests:
+                    storage: 1Mi
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /inter
+      tmpfs:
         type: emptyDir
+        advancedMounts:
+          qbittorrent:
+            app:
+              - path: /config/qBittorrent/logs
+                subPath: logs
+              - path: /tmp
+                subPath: tmp
