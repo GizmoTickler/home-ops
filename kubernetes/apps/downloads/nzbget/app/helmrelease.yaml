@@ -73,7 +73,16 @@ spec:
           - path: /media/usenet
             subPath: usenet
       inter:
-        type: emptyDir
+        type: custom
+        volumeSpec:
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: ["ReadWriteOnce"]
+                storageClassName: openebs-hostpath
+                resources:
+                  requests:
+                    storage: 1Mi
         globalMounts:
           - path: /inter
       tmp:
