@@ -74,7 +74,9 @@
       "Bash(op account list:*)",
       "Bash(op plugin:*)",
       "Bash(paste:*)",
-      "Bash(./homeops-cli talos apply-node:*)"
+      "Bash(./homeops-cli talos apply-node:*)",
+      "Bash(op item get:*)",
+      "Bash(helm history:*)"
     ],
     "deny": [],
     "ask": []

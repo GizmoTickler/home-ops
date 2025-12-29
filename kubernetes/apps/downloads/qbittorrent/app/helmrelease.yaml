@@ -37,9 +37,11 @@ spec:
               - |
                 apk add --no-cache jq
                 echo "Fetching AirVPN server list..."
-                wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" '
+                wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" --arg ts "$(date +%s)" '
                   {
                     "airvpn": {
+                      "version": 1,
+                      "timestamp": ($ts | tonumber),
                       "servers": [.servers[] | select(.health == "ok") | {
                         "vpn": "wireguard",
                         "country": .country_name,
