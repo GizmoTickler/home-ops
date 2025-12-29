@@ -28,13 +28,14 @@ spec:
             dependsOn:
               - coredns
             image:
-              repository: ghcr.io/jqlang/jq
-              tag: "1.7.1"
+              repository: mirror.gcr.io/library/alpine
+              tag: "3.21"
             command:
               - /bin/sh
               - -c
               # yamllint disable-line rule:line-length
               - |
+                apk add --no-cache jq >/dev/null 2>&1
                 echo "Fetching AirVPN server list..."
                 wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" '
                   {
@@ -61,7 +62,7 @@ spec:
                     key: AIRVPN_PUBKEY
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: true
+              readOnlyRootFilesystem: false
               capabilities: { drop: [ALL] }
           gluetun:
             dependsOn:
