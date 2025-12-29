@@ -35,7 +35,7 @@ spec:
               - -c
               # yamllint disable-line rule:line-length
               - |
-                apk add --no-cache jq >/dev/null 2>&1
+                apk add --no-cache jq
                 echo "Fetching AirVPN server list..."
                 wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" '
                   {
