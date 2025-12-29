@@ -24,9 +24,48 @@ spec:
               - -conf
               - /etc/coredns/Corefile
             restartPolicy: Always
-          gluetun:
+          airvpn-servers:
             dependsOn:
               - coredns
+            image:
+              repository: ghcr.io/jqlang/jq
+              tag: "1.7.1"
+            command:
+              - /bin/sh
+              - -c
+              # yamllint disable-line rule:line-length
+              - |
+                echo "Fetching AirVPN server list..."
+                wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" '
+                  {
+                    "airvpn": {
+                      "servers": [.servers[] | select(.health == "ok") | {
+                        "vpn": "wireguard",
+                        "country": .country_name,
+                        "region": (if .country_name == "United States" then "America" elif .country_name == "Canada" then "America" elif .country_name == "Australia" then "Oceania" elif .country_name == "Japan" or .country_name == "Singapore" or .country_name == "Hong Kong" then "Asia" else "Europe" end),
+                        "city": .location,
+                        "server_name": .public_name,
+                        "hostname": (if .country_code == "US" then "us.vpn.airdns.org" elif .country_code == "CA" then "ca.vpn.airdns.org" elif .country_code == "GB" then "uk.vpn.airdns.org" elif .country_code == "DE" then "de.vpn.airdns.org" elif .country_code == "NL" then "nl.vpn.airdns.org" elif .country_code == "CH" then "ch.vpn.airdns.org" elif .country_code == "SE" then "se.vpn.airdns.org" elif .country_code == "FR" then "fr.vpn.airdns.org" elif .country_code == "ES" then "es.vpn.airdns.org" elif .country_code == "IT" then "it.vpn.airdns.org" elif .country_code == "AU" then "au.vpn.airdns.org" elif .country_code == "JP" then "jp.vpn.airdns.org" elif .country_code == "SG" then "sg.vpn.airdns.org" elif .country_code == "HK" then "hk.vpn.airdns.org" else "europe.vpn.airdns.org" end),
+                        "wgpubkey": $pubkey,
+                        "ips": [.ip_v4_in1]
+                      }]
+                    }
+                  }
+                ' > /gluetun-data/servers.json
+                echo "Built servers.json with $(jq '.airvpn.servers | length' /gluetun-data/servers.json) servers"
+            env:
+              AIRVPN_PUBKEY:
+                valueFrom:
+                  secretKeyRef:
+                    name: qbittorrent-secret
+                    key: AIRVPN_PUBKEY
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: { drop: [ALL] }
+          gluetun:
+            dependsOn:
+              - airvpn-servers
             image:
               repository: ghcr.io/qdm12/gluetun
               tag: v3.41.0@sha256:6b54856716d0de56e5bb00a77029b0adea57284cf5a466f23aad5979257d3045 # yamllint disable-line rule:line-length
@@ -43,7 +82,6 @@ spec:
               VPN_INTERFACE: tun0
               WIREGUARD_IMPLEMENTATION: kernelspace
               WIREGUARD_MTU: "1420"
-              UPDATER_PERIOD: "24h"
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
@@ -194,6 +232,15 @@ spec:
             gluetun:
               - path: *gluetunAuthPath
                 subPath: auth.toml
+      gluetun-data:
+        type: emptyDir
+        advancedMounts:
+          qbittorrent:
+            airvpn-servers:
+              - path: /gluetun-data
+            gluetun:
+              - path: /gluetun/servers.json
+                subPath: servers.json
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
