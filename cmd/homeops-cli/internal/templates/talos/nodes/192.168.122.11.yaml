@@ -1,7 +1,6 @@
 ---
 machine:
   network:
-    hostname: k8s-1
     interfaces:
       - deviceSelector:
           hardwareAddr: 00:a0:98:1a:f3:72
@@ -21,6 +20,10 @@ cluster:
       service:
         disabled: false
         endpoint: http://192.168.123.152:3000
+---
+apiVersion: v1alpha1
+kind: HostnameConfig
+hostname: k8s-1
 ---
 apiVersion: v1alpha1
 kind: WatchdogTimerConfig
