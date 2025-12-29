@@ -39,6 +39,7 @@ spec:
                 echo "Fetching AirVPN server list..."
                 wget -qO- "https://airvpn.org/api/status/" | jq -r --arg pubkey "$AIRVPN_PUBKEY" --arg ts "$(date +%s)" '
                   {
+                    "version": 1,
                     "airvpn": {
                       "version": 1,
                       "timestamp": ($ts | tonumber),
