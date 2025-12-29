@@ -49,7 +49,7 @@ spec:
                         "region": (if .country_name == "United States" then "America" elif .country_name == "Canada" then "America" elif .country_name == "Australia" then "Oceania" elif .country_name == "Japan" or .country_name == "Singapore" or .country_name == "Hong Kong" then "Asia" else "Europe" end),
                         "city": .location,
                         "server_name": .public_name,
-                        "hostname": (if .country_code == "US" then "us.vpn.airdns.org" elif .country_code == "CA" then "ca.vpn.airdns.org" elif .country_code == "GB" then "uk.vpn.airdns.org" elif .country_code == "DE" then "de.vpn.airdns.org" elif .country_code == "NL" then "nl.vpn.airdns.org" elif .country_code == "CH" then "ch.vpn.airdns.org" elif .country_code == "SE" then "se.vpn.airdns.org" elif .country_code == "FR" then "fr.vpn.airdns.org" elif .country_code == "ES" then "es.vpn.airdns.org" elif .country_code == "IT" then "it.vpn.airdns.org" elif .country_code == "AU" then "au.vpn.airdns.org" elif .country_code == "JP" then "jp.vpn.airdns.org" elif .country_code == "SG" then "sg.vpn.airdns.org" elif .country_code == "HK" then "hk.vpn.airdns.org" else "europe.vpn.airdns.org" end),
+                        "hostname": (.country_code + ".vpn.airdns.org"),
                         "wgpubkey": $pubkey,
                         "ips": [.ip_v4_in1]
                       }]
