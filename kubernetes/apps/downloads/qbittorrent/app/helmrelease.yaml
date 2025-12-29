@@ -42,6 +42,7 @@ spec:
               VPN_TYPE: wireguard
               VPN_INTERFACE: tun0
               WIREGUARD_IMPLEMENTATION: kernelspace
+              WIREGUARD_MTU: "1420"
             envFrom:
               - secretRef:
                   name: qbittorrent-secret
