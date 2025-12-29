@@ -17,7 +17,6 @@ machine:
       enabled: true
       port: 7445
     rbac: true
-    stableHostname: true
   files:
     - op: create
       path: /etc/cri/conf.d/20-customization.part
