@@ -73,7 +73,8 @@
       "Bash(do echo \"=== Check $i ===\")",
       "Bash(op account list:*)",
       "Bash(op plugin:*)",
-      "Bash(paste:*)"
+      "Bash(paste:*)",
+      "Bash(./homeops-cli talos apply-node:*)"
     ],
     "deny": [],
     "ask": []
