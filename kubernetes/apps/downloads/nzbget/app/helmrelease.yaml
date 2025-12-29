@@ -72,7 +72,12 @@ spec:
         globalMounts:
           - path: /media/usenet
             subPath: usenet
-      tmpfs:
+      inter:
+        type: emptyDir
+        sizeLimit: 100Gi
+        globalMounts:
+          - path: /inter
+      tmp:
         type: emptyDir
         advancedMounts:
           nzbget:
