@@ -164,10 +164,17 @@ spec:
         drop:
           - ALL
 
-    # Probes
+    # Probes - extended for initial migrations
+    startupProbe:
+      enabled: true
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 60  # 10 minutes for migrations
+
     readinessProbe:
       enabled: true
-      initialDelaySeconds: 30
+      initialDelaySeconds: 5
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
@@ -175,7 +182,7 @@ spec:
 
     livenessProbe:
       enabled: true
-      initialDelaySeconds: 60
+      initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
       failureThreshold: 6
