@@ -13,6 +13,9 @@ const (
 	OpESXiHost     = "op://Infrastructure/esxi/add more/host"
 	OpESXiUsername = "op://Infrastructure/esxi/username"
 	OpESXiPassword = "op://Infrastructure/esxi/password"
+
+	// ESXi SSH credentials
+	OpESXiSSHPrivateKey = "op://Infrastructure/esxi-ssh/private key"
 )
 
 // Environment variable names

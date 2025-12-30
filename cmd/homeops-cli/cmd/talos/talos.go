@@ -1011,10 +1011,10 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
-	cmd.Flags().IntVar(&memory, "memory", 48*1024, "Memory in MB (default: 48GB)")
+	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB (default: 250GB)")
-	cmd.Flags().IntVar(&openebsSize, "openebs-size", 1000, "OpenEBS disk size in GB (default: 1TB)")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", 800, "OpenEBS disk size in GB (default: 800GB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
@@ -1072,15 +1072,39 @@ func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, openebsSi
 		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
 		logger.Info("  Provider: vSphere/ESXi")
 		logger.Info("  VM Name: %s", baseName)
-		logger.Info("  Datastore: %s", datastore)
-		logger.Info("  Network: %s", network)
-		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-		if macAddress != "" {
-			logger.Info("  MAC Address: %s", macAddress)
+
+		// Check if this is a k8s node - show production configuration
+		if strings.HasPrefix(baseName, "k8s-") {
+			if nodeConfig, exists := vsphere.GetK8sNodeConfig(baseName); exists {
+				logger.Info("  Deployment Mode: SSH-based (production k8s node)")
+				logger.Info("  Boot Datastore: %s", nodeConfig.BootDatastore)
+				logger.Info("  OpenEBS Datastore: truenas-iscsi")
+				logger.Info("  RDM (Ceph): %s", nodeConfig.RDMPath)
+				logger.Info("  SR-IOV PCI Device: %s", nodeConfig.PCIDevice)
+				logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
+				logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
+				logger.Info("  Memory: %d MB (%d GB) - pinned reservation", memory, memory/1024)
+				logger.Info("  vCPUs: %d", vcpus)
+				logger.Info("  Boot Disk: %d GB", diskSize)
+				logger.Info("  OpenEBS Disk: %d GB", openebsSize)
+				logger.Info("  Network: %s (SR-IOV passthrough)", network)
+			} else {
+				logger.Warn("  Unknown k8s node: %s (valid: k8s-0, k8s-1, k8s-2, k8s-3)", baseName)
+			}
+		} else {
+			// Generic VM configuration
+			logger.Info("  Deployment Mode: govmomi (generic VM)")
+			logger.Info("  Datastore: %s", datastore)
+			logger.Info("  Network: %s (vmxnet3)", network)
+			logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
+			logger.Info("  vCPUs: %d", vcpus)
+			logger.Info("  Boot Disk: %d GB", diskSize)
+			logger.Info("  OpenEBS Disk: %d GB", openebsSize)
+			if macAddress != "" {
+				logger.Info("  MAC Address: %s", macAddress)
+			}
 		}
+
 		if nodeCount > 1 {
 			logger.Info("  Node Count: %d", nodeCount)
 			logger.Info("  Concurrent Deployments: %d", concurrent)
@@ -2414,11 +2438,98 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
 
-	// Get vSphere credentials from 1Password or environment
+	// Get ESXi host from 1Password or environment
 	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
 	if host == "" {
 		host = os.Getenv(constants.EnvVSphereHost)
 	}
+
+	if host == "" {
+		return fmt.Errorf("ESXi host not found. Please set VSPHERE_HOST environment variable or configure 1Password")
+	}
+
+	// Check if this is a k8s node deployment - use SSH-based method for exact config match
+	isK8sNode := strings.HasPrefix(baseName, "k8s-")
+	if isK8sNode {
+		return deployK8sVMViaSSH(baseName, host, memory, vcpus, diskSize, openebsSize, network, generateISO, nodeCount)
+	}
+
+	// For non-k8s VMs, use the standard govmomi approach
+	return deployGenericVMOnVSphere(baseName, host, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+}
+
+// deployK8sVMViaSSH deploys k8s VMs using SSH for exact configuration control
+// This ensures the VMs match the existing manually-deployed production VMs exactly
+func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, openebsSize int, network string, generateISO bool, nodeCount int) error {
+	logger := common.NewColorLogger()
+	logger.Info("Deploying k8s VM(s) via SSH with production configuration")
+
+	// ISO path on datastore1 (where the Talos ISO is stored)
+	isoPath := "[datastore1] vmware-amd64.iso"
+
+	// Create ESXi SSH client (fetches SSH key from 1Password)
+	esxiClient, err := vsphere.NewESXiSSHClient(host, "root")
+	if err != nil {
+		return fmt.Errorf("failed to create ESXi SSH client: %w", err)
+	}
+	defer esxiClient.Close() // Clean up SSH key file
+
+	// Determine which VMs to deploy
+	var vmNames []string
+	if nodeCount == 1 {
+		vmNames = append(vmNames, baseName)
+	} else {
+		for i := 0; i < nodeCount; i++ {
+			vmNames = append(vmNames, fmt.Sprintf("%s-%d", baseName, i))
+		}
+	}
+
+	// Deploy each VM
+	for _, vmName := range vmNames {
+		// Get the predefined k8s node configuration
+		nodeConfig, exists := vsphere.GetK8sNodeConfig(vmName)
+		if !exists {
+			return fmt.Errorf("no predefined configuration for k8s node: %s (valid nodes: k8s-0, k8s-1, k8s-2, k8s-3)", vmName)
+		}
+
+		logger.Info("Deploying %s with production configuration:", vmName)
+		logger.Info("  Boot Datastore: %s", nodeConfig.BootDatastore)
+		logger.Info("  OpenEBS Datastore: truenas-iscsi")
+		logger.Info("  RDM (Ceph): %s", nodeConfig.RDMPath)
+		logger.Info("  SR-IOV PCI: %s", nodeConfig.PCIDevice)
+		logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
+		logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
+		logger.Info("  Memory: %d MB (%d GB) - pinned reservation", memory, memory/1024)
+		logger.Info("  vCPUs: %d", vcpus)
+		logger.Info("  Boot Disk: %d GB", diskSize)
+		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
+
+		// Build VM configuration
+		config := vsphere.GetK8sVMConfig(vmName)
+		config.Memory = memory
+		config.VCPUs = vcpus
+		config.DiskSize = diskSize
+		config.OpenEBSSize = openebsSize
+		config.Network = network
+		config.ISO = isoPath
+		config.PowerOn = true
+
+		// Create the VM
+		if err := esxiClient.CreateK8sVM(config); err != nil {
+			return fmt.Errorf("failed to create VM %s: %w", vmName, err)
+		}
+
+		logger.Success("VM %s deployed successfully!", vmName)
+	}
+
+	return nil
+}
+
+// deployGenericVMOnVSphere deploys non-k8s VMs using govmomi (legacy behavior)
+func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
+	logger := common.NewColorLogger()
+
+	// Get additional vSphere credentials
 	username := get1PasswordSecret("op://Infrastructure/esxi/username")
 	if username == "" {
 		username = os.Getenv(constants.EnvVSphereUsername)
@@ -2428,8 +2539,8 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
+	if username == "" || password == "" {
+		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_USERNAME and VSPHERE_PASSWORD environment variables or configure 1Password")
 	}
 
 	// Create vSphere client
@@ -2447,33 +2558,17 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 	var isoPath string
 	if generateISO {
 		logger.Info("Generating custom Talos ISO...")
-		// Note: For vSphere, we assume the ISO is already on the datastore
-		// The user should run prepare-iso first or we need to handle upload differently
 		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the datastore")
 		logger.Warn("Run 'homeops talos prepare-iso' first if needed")
-		isoPath = "[datastore1] vmware-amd64.iso" // Use datastore1 to match manual VMs
+		isoPath = "[datastore1] vmware-amd64.iso"
 	} else {
-		// Use existing ISO on datastore1 (matches manual VMs)
 		isoPath = "[datastore1] vmware-amd64.iso"
 	}
 
-	// Prepare VM configurations with enhanced settings
+	// Prepare VM configurations
 	var configs []vsphere.VMConfig
 
 	if nodeCount == 1 {
-		// Single VM deployment
-		// Check if this is a k8s node and get the appropriate MAC address
-		vmMacAddress := macAddress
-		if vmMacAddress == "" && strings.HasPrefix(baseName, "k8s-") {
-			// Try to read MAC address from node configuration
-			if mac, err := getNodeMacAddress(baseName); err != nil {
-				logger.Warn("Failed to read MAC address from node config: %v", err)
-			} else if mac != "" {
-				vmMacAddress = mac
-				logger.Info("Using MAC address from node config: %s", mac)
-			}
-		}
-
 		config := vsphere.VMConfig{
 			Name:                 baseName,
 			Memory:               memory,
@@ -2483,31 +2578,18 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 			Datastore:            datastore,
 			Network:              network,
 			ISO:                  isoPath,
-			MacAddress:           vmMacAddress,
-			PowerOn:              true, // Power on with auto unregister/re-register on failure
-			EnableIOMMU:          true, // Enable IOMMU for Talos VMs
-			ExposeCounters:       true, // Expose CPU performance counters
-			ThinProvisioned:      true, // Use thin provisioned disks (matches manual VM)
-			EnablePrecisionClock: true, // Add precision clock device
-			EnableWatchdog:       true, // Add watchdog timer device
+			MacAddress:           macAddress,
+			PowerOn:              true,
+			EnableIOMMU:          true,
+			ExposeCounters:       true,
+			ThinProvisioned:      true,
+			EnablePrecisionClock: true,
+			EnableWatchdog:       true,
 		}
 		configs = append(configs, config)
 	} else {
-		// Multiple VM deployment with zero-indexed numbering (0, 1, 2, ...)
 		for i := 0; i < nodeCount; i++ {
 			vmName := fmt.Sprintf("%s-%d", baseName, i)
-
-			// Get MAC address for k8s nodes from configuration files
-			vmMacAddress := ""
-			if strings.HasPrefix(vmName, "k8s-") {
-				if mac, err := getNodeMacAddress(vmName); err != nil {
-					logger.Warn("Failed to read MAC address for %s: %v", vmName, err)
-				} else if mac != "" {
-					vmMacAddress = mac
-					logger.Info("Using MAC address from config for %s: %s", vmName, mac)
-				}
-			}
-
 			config := vsphere.VMConfig{
 				Name:                 vmName,
 				Memory:               memory,
@@ -2517,13 +2599,13 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 				Datastore:            datastore,
 				Network:              network,
 				ISO:                  isoPath,
-				MacAddress:           vmMacAddress,
-				PowerOn:              true, // Power on with auto unregister/re-register on failure
-				EnableIOMMU:          true, // Enable IOMMU for Talos VMs
-				ExposeCounters:       true, // Expose CPU performance counters
-				ThinProvisioned:      true, // Use thin provisioned disks (matches manual VM)
-				EnablePrecisionClock: true, // Add precision clock device
-				EnableWatchdog:       true, // Add watchdog timer device
+				MacAddress:           "", // Generic VMs use auto-generated MAC
+				PowerOn:              true,
+				EnableIOMMU:          true,
+				ExposeCounters:       true,
+				ThinProvisioned:      true,
+				EnablePrecisionClock: true,
+				EnableWatchdog:       true,
 			}
 			configs = append(configs, config)
 		}
