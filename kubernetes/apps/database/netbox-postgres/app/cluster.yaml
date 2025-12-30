@@ -65,13 +65,6 @@ spec:
         compression: gzip
     retentionPolicy: "14d"
 
-  # Scheduled backups
-  scheduledBackups:
-    - name: netbox-postgres-daily
-      schedule: "0 3 * * *"  # 3 AM daily
-      backupOwnerReference: self
-      immediate: true
-
   # Enable monitoring
   monitoring:
     enablePodMonitor: true
@@ -109,3 +102,15 @@ spec:
   dataFrom:
     - extract:
         key: netbox-postgres
+---
+# Scheduled backup configuration
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: netbox-postgres-daily
+spec:
+  schedule: "0 3 * * *"
+  backupOwnerReference: self
+  immediate: true
+  cluster:
+    name: netbox-postgres
