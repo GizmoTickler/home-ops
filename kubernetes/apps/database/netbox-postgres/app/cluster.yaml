@@ -7,7 +7,7 @@ metadata:
 spec:
   # PostgreSQL 16 with 3 instances for HA
   instances: 3
-  imageName: ghcr.io/cloudnative-pg/postgresql:16.6-1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
 
   # Use superuser secret from 1Password
   superuserSecret:
