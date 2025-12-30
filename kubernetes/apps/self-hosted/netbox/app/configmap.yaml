@@ -8,6 +8,9 @@ data:
     # OIDC Configuration for PocketID
     # Note: AUTHENTICATION_BACKENDS is set via remoteAuth.backends in HelmRelease
 
+    # OIDC endpoint (substituted by Flux)
+    SOCIAL_AUTH_OIDC_OIDC_ENDPOINT: "https://id.${SECRET_DOMAIN}"
+
     # Map OIDC claims to user attributes
     SOCIAL_AUTH_OIDC_USERNAME_KEY: preferred_username
 
