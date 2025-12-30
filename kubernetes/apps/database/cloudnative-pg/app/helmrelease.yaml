@@ -1,0 +1,30 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cloudnative-pg
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: cloudnative-pg
+  interval: 1h
+  values:
+    crds:
+      create: true
+    config:
+      data:
+        # Enable WAL archiving by default for all clusters
+        INHERITED_ANNOTATIONS: "kustomize.toolkit.fluxcd.io/*"
+        INHERITED_LABELS: "app.kubernetes.io/name"
+    monitoring:
+      podMonitorEnabled: true
+      grafanaDashboard:
+        create: false  # We'll add dashboards separately via grafana-operator
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
