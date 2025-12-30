@@ -27,3 +27,6 @@ data:
       - "https://netbox.${SECRET_DOMAIN}"
       - "https://id.${SECRET_DOMAIN}"
 
+    # Make OIDC the default login method
+    LOGIN_URL: "/oauth/login/oidc/"
+
