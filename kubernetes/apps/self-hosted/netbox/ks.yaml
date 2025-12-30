@@ -24,6 +24,8 @@ spec:
     substitute:
       APP: netbox
       VOLSYNC_CAPACITY: 10Gi
+      VOLSYNC_STORAGECLASS: ceph-filesystem
+      VOLSYNC_ACCESSMODES: ReadWriteMany
   prune: true
   sourceRef:
     kind: GitRepository
