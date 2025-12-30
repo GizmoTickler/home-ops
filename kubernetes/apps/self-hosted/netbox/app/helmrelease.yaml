@@ -11,7 +11,8 @@ spec:
   interval: 1h
   values:
     image:
-      repository: ghcr.io/netbox-community/netbox
+      repository: netbox-community/netbox
+      registry: ghcr.io
       pullPolicy: IfNotPresent
 
     # Superuser configuration
