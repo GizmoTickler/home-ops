@@ -77,19 +77,20 @@ spec:
       enabled: false  # We'll use social-auth instead via extraConfig
 
     # Extra configuration for OIDC via social-auth-app-django
-    # OIDC config via ConfigMap with Python code
+    # OIDC config via ConfigMap with YAML (loaded by configuration.py)
     extraConfig:
       - secret:
           secretName: netbox-secret
       - configMap:
           name: netbox-oidc-config
           items:
-            - key: oidc.py
-              path: oidc.py
+            - key: oidc.yaml
+              path: oidc.yaml
 
     # OIDC configuration via environment variables
+    # social-auth-core expects these specific env var names
     extraEnvs:
-      - name: SOCIAL_AUTH_OIDC_ENDPOINT
+      - name: SOCIAL_AUTH_OIDC_OIDC_ENDPOINT
         value: "https://id.${SECRET_DOMAIN}"
       - name: SOCIAL_AUTH_OIDC_KEY
         valueFrom:
