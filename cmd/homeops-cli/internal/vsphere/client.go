@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -754,4 +755,295 @@ func GetVMNames() ([]string, error) {
 	}
 
 	return vmNames, nil
+}
+
+// ESXiSSHClient wraps SSH operations for ESXi
+type ESXiSSHClient struct {
+	host        string
+	username    string
+	keyFile     string // Path to temporary key file
+	logger      *common.ColorLogger
+}
+
+// NewESXiSSHClient creates a new ESXi SSH client with 1Password key retrieval
+func NewESXiSSHClient(host, username string) (*ESXiSSHClient, error) {
+	logger := common.NewColorLogger()
+
+	// Fetch SSH private key from 1Password
+	logger.Debug("Fetching ESXi SSH key from 1Password...")
+	privateKey, err := common.Get1PasswordSecret(constants.OpESXiSSHPrivateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ESXi SSH key from 1Password: %w", err)
+	}
+
+	// Write key to temporary file with proper permissions
+	keyFile, err := os.CreateTemp("", "esxi-ssh-key-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file for SSH key: %w", err)
+	}
+
+	// Set restrictive permissions (600) before writing
+	if err := keyFile.Chmod(0600); err != nil {
+		os.Remove(keyFile.Name())
+		return nil, fmt.Errorf("failed to set SSH key permissions: %w", err)
+	}
+
+	// Write the key content
+	if _, err := keyFile.WriteString(privateKey); err != nil {
+		os.Remove(keyFile.Name())
+		return nil, fmt.Errorf("failed to write SSH key: %w", err)
+	}
+	keyFile.Close()
+
+	logger.Debug("ESXi SSH key written to %s", keyFile.Name())
+
+	return &ESXiSSHClient{
+		host:     host,
+		username: username,
+		keyFile:  keyFile.Name(),
+		logger:   logger,
+	}, nil
+}
+
+// Close cleans up the temporary SSH key file
+func (c *ESXiSSHClient) Close() {
+	if c.keyFile != "" {
+		os.Remove(c.keyFile)
+		c.logger.Debug("Cleaned up SSH key file")
+	}
+}
+
+// ExecuteCommand executes a command on ESXi via SSH using the 1Password key
+func (c *ESXiSSHClient) ExecuteCommand(command string) (string, error) {
+	c.logger.Debug("Executing ESXi command: %s", command)
+
+	cmd := exec.Command("ssh",
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "IdentitiesOnly=yes",
+		"-i", c.keyFile,
+		fmt.Sprintf("%s@%s", c.username, c.host),
+		command)
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(output), fmt.Errorf("SSH command failed: %w\nOutput: %s", err, string(output))
+	}
+
+	return string(output), nil
+}
+
+// CreateK8sVM creates a k8s VM on ESXi using SSH for exact configuration control
+// This method ensures the VM matches the existing manually-deployed VMs exactly
+func (c *ESXiSSHClient) CreateK8sVM(config VMConfig) error {
+	c.logger.Info("Creating k8s VM %s via SSH with production configuration", config.Name)
+
+	// Validate k8s node config exists
+	nodeConfig, exists := GetK8sNodeConfig(config.Name)
+	if !exists {
+		return fmt.Errorf("no predefined configuration for k8s node: %s", config.Name)
+	}
+
+	// Merge node-specific config
+	config.RDMPath = nodeConfig.RDMPath
+	config.PCIDevice = nodeConfig.PCIDevice
+	config.PCIDeviceHex = nodeConfig.PCIDeviceHex
+	config.MacAddress = nodeConfig.MacAddress
+	config.CPUAffinity = nodeConfig.CPUAffinity
+	config.BootDatastore = nodeConfig.BootDatastore
+
+	// Step 1: Create VM directory on boot datastore
+	vmDir := fmt.Sprintf("/vmfs/volumes/%s/%s", config.BootDatastore, config.Name)
+	c.logger.Info("Creating VM directory: %s", vmDir)
+	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", vmDir)); err != nil {
+		return fmt.Errorf("failed to create VM directory: %w", err)
+	}
+
+	// Step 2: Create OpenEBS directory on truenas-iscsi
+	openebsDir := fmt.Sprintf("/vmfs/volumes/%s/%s", config.OpenEBSDatastore, config.Name)
+	c.logger.Info("Creating OpenEBS directory: %s", openebsDir)
+	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", openebsDir)); err != nil {
+		return fmt.Errorf("failed to create OpenEBS directory: %w", err)
+	}
+
+	// Step 3: Create boot disk VMDK
+	bootVMDK := fmt.Sprintf("%s/%s.vmdk", vmDir, config.Name)
+	c.logger.Info("Creating boot disk: %s (%dGB)", bootVMDK, config.DiskSize)
+	createBootDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.DiskSize, bootVMDK)
+	if _, err := c.ExecuteCommand(createBootDisk); err != nil {
+		return fmt.Errorf("failed to create boot disk: %w", err)
+	}
+
+	// Step 4: Create OpenEBS disk VMDK
+	openebsVMDK := fmt.Sprintf("%s/%s.vmdk", openebsDir, config.Name)
+	c.logger.Info("Creating OpenEBS disk: %s (%dGB)", openebsVMDK, config.OpenEBSSize)
+	createOpenEBSDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.OpenEBSSize, openebsVMDK)
+	if _, err := c.ExecuteCommand(createOpenEBSDisk); err != nil {
+		return fmt.Errorf("failed to create OpenEBS disk: %w", err)
+	}
+
+	// Step 5: Generate VMX file
+	vmxPath := fmt.Sprintf("%s/%s.vmx", vmDir, config.Name)
+	vmxContent := c.generateK8sVMX(config, vmDir, openebsDir)
+	c.logger.Info("Writing VMX file: %s", vmxPath)
+
+	// Write VMX file via SSH using heredoc
+	writeVMXCmd := fmt.Sprintf("cat > %s << 'VMXEOF'\n%s\nVMXEOF", vmxPath, vmxContent)
+	if _, err := c.ExecuteCommand(writeVMXCmd); err != nil {
+		return fmt.Errorf("failed to write VMX file: %w", err)
+	}
+
+	// Step 6: Register VM
+	c.logger.Info("Registering VM...")
+	registerCmd := fmt.Sprintf("vim-cmd solo/registervm %s", vmxPath)
+	output, err := c.ExecuteCommand(registerCmd)
+	if err != nil {
+		return fmt.Errorf("failed to register VM: %w", err)
+	}
+	vmID := strings.TrimSpace(output)
+	c.logger.Info("VM registered with ID: %s", vmID)
+
+	// Step 7: Power on VM if requested
+	if config.PowerOn {
+		c.logger.Info("Powering on VM...")
+		powerOnCmd := fmt.Sprintf("vim-cmd vmsvc/power.on %s", vmID)
+		if _, err := c.ExecuteCommand(powerOnCmd); err != nil {
+			return fmt.Errorf("failed to power on VM: %w", err)
+		}
+		c.logger.Success("VM %s powered on successfully", config.Name)
+	}
+
+	c.logger.Success("K8s VM %s created successfully with production configuration!", config.Name)
+	return nil
+}
+
+// generateK8sVMX generates a VMX file content that exactly matches the production VMs
+func (c *ESXiSSHClient) generateK8sVMX(config VMConfig, vmDir, openebsDir string) string {
+	// Calculate datastore UUIDs from paths (these are looked up dynamically)
+	// For now, use the datastore names directly in paths
+
+	vmx := fmt.Sprintf(`.encoding = "UTF-8"
+config.version = "8"
+virtualHW.version = "21"
+vmci0.present = "TRUE"
+floppy0.present = "FALSE"
+numvcpus = "%d"
+memSize = "%d"
+bios.bootRetry.delay = "10"
+firmware = "efi"
+powerType.suspend = "soft"
+tools.upgrade.policy = "manual"
+sched.cpu.units = "mhz"
+sched.cpu.affinity = "%s"
+scsi0.virtualDev = "pvscsi"
+scsi0.present = "TRUE"
+sata0.present = "TRUE"
+usb.present = "TRUE"
+ehci.present = "TRUE"
+vwdt.present = "TRUE"
+vwdt.runOnBoot = "TRUE"
+precisionclock0.refClockProtocol = "ntp"
+precisionclock0.present = "TRUE"
+scsi0:0.deviceType = "scsi-hardDisk"
+scsi0:0.fileName = "%s"
+scsi0:0.mode = "independent-persistent"
+sched.scsi0:0.shares = "normal"
+sched.scsi0:0.throughputCap = "off"
+scsi0:0.present = "TRUE"
+nvme0.present = "TRUE"
+nvme0:0.fileName = "%s.vmdk"
+sched.nvme0:0.shares = "normal"
+sched.nvme0:0.throughputCap = "off"
+nvme0:0.present = "TRUE"
+nvme1.present = "TRUE"
+nvme1:0.fileName = "%s/%s.vmdk"
+nvme1:0.mode = "independent-persistent"
+sched.nvme1:0.shares = "normal"
+sched.nvme1:0.throughputCap = "off"
+nvme1:0.present = "TRUE"
+sata0:0.deviceType = "cdrom-image"
+sata0:0.fileName = "%s"
+sata0:0.present = "TRUE"
+displayName = "%s"
+guestOS = "other6xlinux-64"
+chipset.motherboardLayout = "acpi"
+toolScripts.afterPowerOn = "TRUE"
+toolScripts.afterResume = "TRUE"
+toolScripts.beforeSuspend = "TRUE"
+toolScripts.beforePowerOff = "TRUE"
+tools.syncTime = "FALSE"
+sched.cpu.min = "0"
+sched.cpu.shares = "normal"
+sched.mem.min = "%d"
+sched.mem.minSize = "%d"
+sched.mem.shares = "normal"
+sched.mem.pin = "TRUE"
+bios.bootOrder = "hdd,cdrom"
+pciPassthru31.MACAddressType = "static"
+pciPassthru31.MACAddress = "%s"
+pciPassthru31.networkName = "%s"
+pciPassthru31.pfId = "%s"
+pciPassthru31.deviceId = "0"
+pciPassthru31.vendorId = "0"
+pciPassthru31.systemId = "BYPASS"
+pciPassthru31.id = "%s"
+pciPassthru31.present = "TRUE"
+pciPassthru31.pxm = "0"
+pciPassthru31.pciSlotNumber = "64"
+cpuid.coresPerSocket = "1"
+nvram = "%s.nvram"
+svga.present = "TRUE"
+hpet0.present = "TRUE"
+RemoteDisplay.maxConnections = "-1"
+sched.cpu.latencySensitivity = "normal"
+svga.autodetect = "TRUE"
+tools.guest.desktop.autolock = "TRUE"
+disk.EnableUUID = "TRUE"
+pciBridge1.present = "TRUE"
+pciBridge1.virtualDev = "pciRootBridge"
+pciBridge1.functions = "2"
+pciBridge1:0.pxm = "0"
+pciBridge1:1.pxm = "-1"
+pciBridge0.present = "TRUE"
+pciBridge0.virtualDev = "pciRootBridge"
+pciBridge0.functions = "1"
+pciBridge0.pxm = "-1"
+scsi0.pciSlotNumber = "32"
+usb.pciSlotNumber = "33"
+ethernet0.pciSlotNumber = "-1"
+ehci.pciSlotNumber = "35"
+sata0.pciSlotNumber = "36"
+nvme0.pciSlotNumber = "37"
+nvme1.pciSlotNumber = "38"
+monitor.phys_bits_used = "45"
+softPowerOff = "FALSE"
+usb:1.speed = "2"
+usb:1.present = "TRUE"
+usb:1.deviceType = "hub"
+usb:1.port = "1"
+usb:1.parent = "-1"
+tools.remindInstall = "FALSE"
+svga.vramSize = "16777216"
+usb:0.present = "TRUE"
+usb:0.deviceType = "hid"
+usb:0.port = "0"
+usb:0.parent = "-1"
+`,
+		config.VCPUs,
+		config.Memory,
+		config.CPUAffinity,
+		config.RDMPath,
+		config.Name,
+		openebsDir, config.Name,
+		config.ISO,
+		config.Name,
+		config.Memory, config.Memory,
+		config.MacAddress,
+		config.Network,
+		config.PCIDeviceHex,
+		config.PCIDeviceHex,
+		config.Name,
+	)
+
+	return vmx
 }
