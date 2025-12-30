@@ -90,11 +90,9 @@ spec:
             - key: oidc.yaml
               path: oidc.yaml
 
-    # OIDC configuration via environment variables
-    # social-auth-core expects these specific env var names
+    # OIDC client credentials via environment variables
+    # These are picked up by social-auth-core for authentication
     extraEnvs:
-      - name: SOCIAL_AUTH_OIDC_OIDC_ENDPOINT
-        value: "https://id.${SECRET_DOMAIN}"
       - name: SOCIAL_AUTH_OIDC_KEY
         valueFrom:
           secretKeyRef:
