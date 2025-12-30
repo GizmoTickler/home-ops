@@ -4,22 +4,20 @@ kind: ConfigMap
 metadata:
   name: netbox-oidc-config
 data:
-  oidc.py: |
-    import os
-
+  oidc.yaml: |
     # OIDC Configuration for PocketID
-    # Add OIDC backend to authentication backends
-    AUTHENTICATION_BACKENDS = [
-        'social_core.backends.open_id_connect.OpenIdConnectAuth',
-        'netbox.authentication.ObjectPermissionBackend',
-    ]
-
-    # Social Auth settings - endpoint from environment variable
-    SOCIAL_AUTH_OIDC_OIDC_ENDPOINT = os.environ.get('SOCIAL_AUTH_OIDC_ENDPOINT', '')
-    SOCIAL_AUTH_OIDC_SCOPE = ['openid', 'profile', 'email']
+    AUTHENTICATION_BACKENDS:
+      - social_core.backends.open_id_connect.OpenIdConnectAuth
+      - netbox.authentication.ObjectPermissionBackend
 
     # Auto-create users from OIDC
-    SOCIAL_AUTH_AUTO_CREATE_USERS = True
+    SOCIAL_AUTH_AUTO_CREATE_USERS: true
 
     # Map OIDC claims to user attributes
-    SOCIAL_AUTH_OIDC_USERNAME_KEY = 'preferred_username'
+    SOCIAL_AUTH_OIDC_USERNAME_KEY: preferred_username
+
+    # OIDC scopes
+    SOCIAL_AUTH_OIDC_SCOPE:
+      - openid
+      - profile
+      - email
