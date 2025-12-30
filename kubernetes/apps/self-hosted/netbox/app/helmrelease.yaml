@@ -114,10 +114,10 @@ spec:
       enabled: true
       schedule: "0 4 * * *"
 
-    # Worker configuration
+    # Worker configuration (single replica for RWO storage)
     worker:
       enabled: true
-      replicaCount: 2
+      replicaCount: 1
       resources:
         requests:
           cpu: 100m
@@ -126,8 +126,8 @@ spec:
           cpu: 500m
           memory: 512Mi
 
-    # Main application
-    replicaCount: 2
+    # Main application (single replica for RWO storage)
+    replicaCount: 1
 
     resources:
       requests:
