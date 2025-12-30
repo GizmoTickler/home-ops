@@ -73,11 +73,14 @@ spec:
       existingSecretKey: redis_password
 
     # Remote authentication (PocketID OIDC)
+    # Note: remoteAuth.backends sets REMOTE_AUTH_BACKEND which becomes AUTHENTICATION_BACKENDS
     remoteAuth:
-      enabled: false  # We'll use social-auth instead via extraConfig
+      enabled: true
+      backends:
+        - social_core.backends.open_id_connect.OpenIdConnectAuth
+      autoCreateUser: true
 
-    # Extra configuration for OIDC via social-auth-app-django
-    # OIDC config via ConfigMap with YAML (loaded by configuration.py)
+    # Extra configuration for OIDC settings
     extraConfig:
       - secret:
           secretName: netbox-secret
