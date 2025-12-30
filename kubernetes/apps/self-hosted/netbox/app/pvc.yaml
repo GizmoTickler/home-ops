@@ -1,9 +1,4 @@
 ---
-# NetBox stores all data in PostgreSQL. This PVC is only for:
-# - media/ (user-uploaded images/attachments)
-# - reports/ (custom report scripts)
-# - scripts/ (custom automation scripts)
-# Using openebs-hostpath for simplicity since data is non-critical
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,4 +9,4 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: openebs-hostpath
+  storageClassName: ceph-block
