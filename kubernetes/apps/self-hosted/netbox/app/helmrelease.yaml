@@ -102,6 +102,21 @@ spec:
             - key: oidc.yaml
               path: oidc-settings.yaml
 
+    # Mount custom pipeline module for social-auth
+    extraVolumes:
+      - name: oidc-pipeline
+        configMap:
+          name: netbox-oidc-config
+          items:
+            - key: oidc_pipeline.py
+              path: oidc_pipeline.py
+
+    extraVolumeMounts:
+      - name: oidc-pipeline
+        mountPath: /opt/netbox/netbox/oidc_pipeline.py
+        subPath: oidc_pipeline.py
+        readOnly: true
+
     # Housekeeping job (disabled for initial deployment)
     housekeeping:
       enabled: false
@@ -211,6 +226,19 @@ spec:
   hostnames:
     - netbox.${SECRET_DOMAIN}
   rules:
+    # Redirect /login/ to OIDC login
+    - matches:
+        - path:
+            type: Exact
+            value: /login/
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /oauth/login/oidc/
+            statusCode: 302
+    # All other traffic to NetBox
     - matches:
         - path:
             type: PathPrefix
