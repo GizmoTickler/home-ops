@@ -19,3 +19,10 @@ data:
       - openid
       - profile
       - email
+
+    # Security settings for HTTPS behind reverse proxy
+    SESSION_COOKIE_SECURE: true
+    CSRF_COOKIE_SECURE: true
+    CSRF_TRUSTED_ORIGINS:
+      - "https://netbox.${SECRET_DOMAIN}"
+      - "https://id.${SECRET_DOMAIN}"
