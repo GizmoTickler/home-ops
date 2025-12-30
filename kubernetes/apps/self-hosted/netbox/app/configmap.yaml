@@ -6,12 +6,7 @@ metadata:
 data:
   oidc.yaml: |
     # OIDC Configuration for PocketID
-    AUTHENTICATION_BACKENDS:
-      - social_core.backends.open_id_connect.OpenIdConnectAuth
-      - netbox.authentication.ObjectPermissionBackend
-
-    # Auto-create users from OIDC
-    SOCIAL_AUTH_AUTO_CREATE_USERS: true
+    # Note: AUTHENTICATION_BACKENDS is set via remoteAuth.backends in HelmRelease
 
     # Map OIDC claims to user attributes
     SOCIAL_AUTH_OIDC_USERNAME_KEY: preferred_username
