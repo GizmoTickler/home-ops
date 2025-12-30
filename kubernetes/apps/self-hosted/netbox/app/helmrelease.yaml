@@ -79,6 +79,13 @@ spec:
       backends:
         - social_core.backends.open_id_connect.OpenIdConnectAuth
       autoCreateUser: true
+      # Auto-promote users to superuser/staff
+      superusers:
+        - a99940218
+      superuserGroups:
+        - admin
+      staffGroups:
+        - admin
 
     # Extra configuration for OIDC settings
     # Secret contains oidc.yaml with KEY and SECRET
