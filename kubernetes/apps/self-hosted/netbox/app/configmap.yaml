@@ -26,3 +26,4 @@ data:
     CSRF_TRUSTED_ORIGINS:
       - "https://netbox.${SECRET_DOMAIN}"
       - "https://id.${SECRET_DOMAIN}"
+
