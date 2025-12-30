@@ -1,0 +1,111 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/postgresql.cnpg.io/cluster_v1.json
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: netbox-postgres
+spec:
+  # PostgreSQL 16 with 3 instances for HA
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:16.6-1
+
+  # Use superuser secret from 1Password
+  superuserSecret:
+    name: netbox-postgres-superuser-secret
+
+  # Primary update strategy
+  primaryUpdateStrategy: unsupervised
+  primaryUpdateMethod: switchover
+
+  # Storage configuration
+  storage:
+    size: 10Gi
+    storageClass: ceph-block
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # PostgreSQL configuration
+  postgresql:
+    parameters:
+      # Performance tuning for small instance
+      shared_buffers: "256MB"
+      effective_cache_size: "512MB"
+      maintenance_work_mem: "64MB"
+      work_mem: "16MB"
+      # Logging
+      log_statement: "ddl"
+      log_checkpoints: "on"
+      log_lock_waits: "on"
+      # NetBox recommended settings
+      max_connections: "100"
+
+  # Backup configuration to TrueNAS S3
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://cnpg-backups/netbox-postgres
+      endpointURL: https://s3.${SECRET_DOMAIN}
+      s3Credentials:
+        accessKeyId:
+          name: netbox-postgres-s3-secret
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: netbox-postgres-s3-secret
+          key: ACCESS_SECRET_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+    retentionPolicy: "14d"
+
+  # Scheduled backups
+  scheduledBackups:
+    - name: netbox-postgres-daily
+      schedule: "0 3 * * *"  # 3 AM daily
+      backupOwnerReference: self
+      immediate: true
+
+  # Enable monitoring
+  monitoring:
+    enablePodMonitor: true
+
+  # Bootstrap a new cluster
+  bootstrap:
+    initdb:
+      database: netbox
+      owner: netbox
+      secret:
+        name: netbox-postgres-app-secret
+
+  # Anti-affinity for HA across nodes
+  affinity:
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
+---
+# Application user credentials (will be created by initdb)
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/external-secrets.io/externalsecret_v1.json
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: netbox-postgres-app
+spec:
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: onepassword
+  target:
+    name: netbox-postgres-app-secret
+    template:
+      engineVersion: v2
+      data:
+        username: netbox
+        password: "{{ .NETBOX_DB_PASSWORD }}"
+  dataFrom:
+    - extract:
+        key: netbox-postgres
