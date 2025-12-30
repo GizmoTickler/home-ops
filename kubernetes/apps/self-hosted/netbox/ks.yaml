@@ -1,0 +1,32 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: &app netbox
+spec:
+  targetNamespace: self-hosted
+  commonMetadata:
+    labels:
+      app.kubernetes.io/name: *app
+  components:
+    - ../../../../components/volsync
+  dependsOn:
+    - name: external-secrets
+      namespace: external-secrets
+    - name: netbox-postgres
+      namespace: database
+    - name: rook-ceph-cluster
+      namespace: rook-ceph
+  interval: 1h
+  path: ./kubernetes/apps/self-hosted/netbox/app
+  postBuild:
+    substitute:
+      APP: netbox
+      VOLSYNC_CAPACITY: 10Gi
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  wait: false

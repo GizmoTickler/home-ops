@@ -1,0 +1,227 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: netbox
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: netbox
+  interval: 1h
+  values:
+    image:
+      repository: ghcr.io/netbox-community/netbox
+      pullPolicy: IfNotPresent
+
+    # Superuser configuration
+    superuser:
+      name: admin
+      email: admin@${SECRET_DOMAIN}
+      existingSecret: netbox-secret
+      existingSecretKey: superuser_password
+      apiTokenExistingSecret: netbox-secret
+      apiTokenExistingSecretKey: superuser_api_token
+
+    # Existing secret for Django secret key
+    existingSecret: netbox-secret
+
+    # Skip startup scripts (fresh install)
+    skipStartupScripts: false
+
+    # Logging
+    logging:
+      django:
+        level: INFO
+        handlers:
+          - console
+
+    # Use external PostgreSQL (CNPG cluster)
+    postgresql:
+      enabled: false
+
+    externalDatabase:
+      host: netbox-postgres-rw.database.svc.cluster.local
+      port: 5432
+      database: netbox
+      username: netbox
+      existingSecretName: netbox-db-secret
+      existingSecretKey: password
+
+    # Use bundled Valkey (Redis-compatible)
+    valkey:
+      enabled: true
+      architecture: standalone
+      auth:
+        enabled: true
+        existingSecret: netbox-secret
+        existingSecretPasswordKey: redis_password
+      master:
+        persistence:
+          enabled: false
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+
+    # Task/cache Redis configuration (uses bundled Valkey)
+    tasksRedis:
+      host: "{{ .Release.Name }}-valkey-master"
+      existingSecretName: netbox-secret
+      existingSecretKey: redis_password
+
+    cachingRedis:
+      host: "{{ .Release.Name }}-valkey-master"
+      existingSecretName: netbox-secret
+      existingSecretKey: redis_password
+
+    # Remote authentication (PocketID OIDC)
+    remoteAuth:
+      enabled: false  # We'll use social-auth instead via extraConfig
+
+    # Extra configuration for OIDC via social-auth-app-django
+    extraConfig:
+      - secret:
+          secretName: netbox-secret
+      - values:
+          REMOTE_AUTH_ENABLED: false
+          # Social Auth OIDC Configuration
+          SOCIAL_AUTH_OIDC_ENABLED: true
+          SOCIAL_AUTH_OIDC_ENDPOINT: "https://id.${SECRET_DOMAIN}"
+          SOCIAL_AUTH_OIDC_SCOPE:
+            - openid
+            - profile
+            - email
+
+    extraEnvs:
+      - name: SOCIAL_AUTH_OIDC_KEY
+        valueFrom:
+          secretKeyRef:
+            name: netbox-secret
+            key: oidc_client_id
+      - name: SOCIAL_AUTH_OIDC_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: netbox-secret
+            key: oidc_client_secret
+
+    # Housekeeping job
+    housekeeping:
+      enabled: true
+      schedule: "0 4 * * *"
+
+    # Worker configuration
+    worker:
+      enabled: true
+      replicaCount: 2
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    # Main application
+    replicaCount: 2
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+
+    # Persistence for media files
+    persistence:
+      enabled: true
+      existingClaim: netbox
+      subPath: media
+
+    # Reports persistence
+    reportsPersistence:
+      enabled: true
+      existingClaim: netbox
+      subPath: reports
+
+    # Scripts persistence
+    scriptsPersistence:
+      enabled: true
+      existingClaim: netbox
+      subPath: scripts
+
+    # Service configuration
+    service:
+      type: ClusterIP
+      port: 80
+
+    # Disable built-in ingress (using Gateway API)
+    ingress:
+      enabled: false
+
+    # Pod security
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+      fsGroupChangePolicy: OnRootMismatch
+
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop:
+          - ALL
+
+    # Probes
+    readinessProbe:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+
+    livenessProbe:
+      enabled: true
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+
+    # Service account
+    serviceAccount:
+      create: true
+
+    # Metrics
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+---
+# HTTPRoute for Gateway API
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: netbox
+spec:
+  parentRefs:
+    - name: envoy-internal
+      namespace: network
+      sectionName: https
+  hostnames:
+    - netbox.${SECRET_DOMAIN}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: netbox
+          port: 80
