@@ -109,12 +109,11 @@ spec:
             name: netbox-secret
             key: oidc_client_secret
 
-    # Housekeeping job
+    # Housekeeping job (disabled for initial deployment)
     housekeeping:
-      enabled: true
-      schedule: "0 4 * * *"
+      enabled: false
 
-    # Worker configuration (single replica for RWO storage)
+    # Worker for background tasks
     worker:
       enabled: true
       replicaCount: 1
@@ -126,7 +125,7 @@ spec:
           cpu: 500m
           memory: 512Mi
 
-    # Main application (single replica for RWO storage)
+    # Main application
     replicaCount: 1
 
     resources:
@@ -137,23 +136,16 @@ spec:
         cpu: 1000m
         memory: 1Gi
 
-    # Persistence for media files
+    # Persistence disabled - all data lives in PostgreSQL
+    # Media uploads can be added later if needed
     persistence:
-      enabled: true
-      existingClaim: netbox
-      subPath: media
+      enabled: false
 
-    # Reports persistence
     reportsPersistence:
-      enabled: true
-      existingClaim: netbox
-      subPath: reports
+      enabled: false
 
-    # Scripts persistence
     scriptsPersistence:
-      enabled: true
-      existingClaim: netbox
-      subPath: scripts
+      enabled: false
 
     # Service configuration
     service:
