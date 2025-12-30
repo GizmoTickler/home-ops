@@ -5,8 +5,8 @@ metadata:
   name: netbox
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
-  storageClassName: ceph-filesystem
+  storageClassName: ceph-block
