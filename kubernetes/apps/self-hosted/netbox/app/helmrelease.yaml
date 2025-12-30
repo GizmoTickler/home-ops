@@ -81,28 +81,19 @@ spec:
       autoCreateUser: true
 
     # Extra configuration for OIDC settings
+    # Secret contains oidc.yaml with KEY and SECRET
+    # ConfigMap contains oidc.yaml with endpoint, scopes, username mapping
     extraConfig:
       - secret:
           secretName: netbox-secret
+          items:
+            - key: oidc.yaml
+              path: oidc-creds.yaml
       - configMap:
           name: netbox-oidc-config
           items:
             - key: oidc.yaml
-              path: oidc.yaml
-
-    # OIDC client credentials via environment variables
-    # These are picked up by social-auth-core for authentication
-    extraEnvs:
-      - name: SOCIAL_AUTH_OIDC_KEY
-        valueFrom:
-          secretKeyRef:
-            name: netbox-secret
-            key: oidc_client_id
-      - name: SOCIAL_AUTH_OIDC_SECRET
-        valueFrom:
-          secretKeyRef:
-            name: netbox-secret
-            key: oidc_client_secret
+              path: oidc-settings.yaml
 
     # Housekeeping job (disabled for initial deployment)
     housekeeping:
