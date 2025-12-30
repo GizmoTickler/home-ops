@@ -30,13 +30,6 @@ spec:
     # Skip startup scripts (fresh install)
     skipStartupScripts: false
 
-    # Logging
-    logging:
-      django:
-        level: INFO
-        handlers:
-          - console
-
     # Use external PostgreSQL (CNPG cluster)
     postgresql:
       enabled: false
