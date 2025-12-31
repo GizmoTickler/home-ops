@@ -24,10 +24,8 @@ spec:
         search.maxQueueDuration: "30s"
       resources:
         requests:
-          cpu: 500m
-          memory: 512Mi
+          cpu: 100m
         limits:
-          cpu: 1000m
           memory: 1Gi
     dashboards:
       enabled: true

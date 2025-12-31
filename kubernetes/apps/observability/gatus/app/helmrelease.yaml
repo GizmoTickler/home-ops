@@ -26,10 +26,8 @@ spec:
               - --enable-service
             resources:
               requests:
-                cpu: 10m
-                memory: 128Mi
-              limits:
                 cpu: 100m
+              limits:
                 memory: 256Mi
             restartPolicy: Always
         containers:
@@ -66,9 +64,7 @@ spec:
             resources:
               requests:
                 cpu: 100m
-                memory: 256Mi
               limits:
-                cpu: 500m
                 memory: 512Mi
         statefulset:
           volumeClaimTemplates:

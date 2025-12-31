@@ -40,10 +40,8 @@ spec:
             name: netdata-secret
       resources:
         requests:
-          cpu: 250m
-          memory: 512Mi
+          cpu: 100m
         limits:
-          cpu: 4000m
           memory: 2Gi
       persistence:
         enabled: true
@@ -64,9 +62,7 @@ spec:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
         limits:
-          cpu: 4000m
           memory: 2Gi
 
     # K8s state monitoring pod
@@ -75,9 +71,7 @@ spec:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
         limits:
-          cpu: 4000m
           memory: 2Gi
 
     # Disable ingress - using Gateway API instead

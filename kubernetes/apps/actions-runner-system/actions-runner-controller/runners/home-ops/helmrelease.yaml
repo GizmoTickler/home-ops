@@ -35,10 +35,8 @@ spec:
               - "/home/runner/run.sh"
             resources:
               requests:
-                cpu: 50m
-                memory: 128Mi
+                cpu: 100m
               limits:
-                cpu: 1000m
                 memory: 2Gi
             env:
               - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER

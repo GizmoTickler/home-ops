@@ -63,10 +63,8 @@ spec:
       rollOutPods: true
       resources:
         requests:
-          cpu: 250m
-          memory: 256Mi
+          cpu: 100m
         limits:
-          cpu: 500m
           memory: 512Mi
     pmtuDiscovery:
       enabled: true
@@ -79,10 +77,8 @@ spec:
     routingMode: native
     resources:
       requests:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 100m
       limits:
-        cpu: 1000m
         memory: 1Gi
     securityContext:
       capabilities:

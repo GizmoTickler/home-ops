@@ -25,10 +25,8 @@ spec:
       disableAuth: true
     resources:
       requests:
-        cpu: 200m
-        memory: 512Mi
+        cpu: 100m
       limits:
-        cpu: 1000m
         memory: 2Gi
     podSecurityContext:
       runAsNonRoot: true
