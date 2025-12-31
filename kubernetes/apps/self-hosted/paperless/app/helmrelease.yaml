@@ -93,10 +93,8 @@ spec:
                   - "SETGID"
             resources:
               requests:
-                cpu: 25m
-                memory: 2Gi
+                cpu: 100m
               limits:
-                cpu: 1000m
                 memory: 6Gi
       redis:
         containers:
@@ -106,10 +104,8 @@ spec:
               tag: 9.0.1
             resources:
               requests:
-                cpu: 5m
-                memory: 32Mi
+                cpu: 100m
               limits:
-                cpu: 50m
                 memory: 128Mi
     defaultPodOptions:
       securityContext:

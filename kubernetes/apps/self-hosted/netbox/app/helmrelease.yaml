@@ -55,10 +55,8 @@ spec:
           enabled: false
         resources:
           requests:
-            cpu: 10m
-            memory: 64Mi
-          limits:
             cpu: 100m
+          limits:
             memory: 128Mi
 
     # Task/cache Redis configuration (uses bundled Valkey)
@@ -128,9 +126,7 @@ spec:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
         limits:
-          cpu: 500m
           memory: 512Mi
 
     # Main application
@@ -139,9 +135,7 @@ spec:
     resources:
       requests:
         cpu: 100m
-        memory: 512Mi
       limits:
-        cpu: 1000m
         memory: 1Gi
 
     # Persistence disabled - all data lives in PostgreSQL

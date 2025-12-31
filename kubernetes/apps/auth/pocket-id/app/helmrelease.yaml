@@ -76,10 +76,8 @@ spec:
                   - "ALL"
             resources:
               requests:
-                cpu: 10m
-                memory: 64Mi
+                cpu: 100m
               limits:
-                cpu: 200m
                 memory: 256Mi
     service:
       app:
