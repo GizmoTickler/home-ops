@@ -33,9 +33,7 @@ spec:
             resources:
               requests:
                 cpu: 100m
-                memory: 512Mi
               limits:
-                cpu: 1000m
                 memory: 1Gi
     defaultPodOptions:
       securityContext:

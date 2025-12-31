@@ -29,10 +29,8 @@ spec:
     # Resource configuration
     resources:
       requests:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 100m
       limits:
-        cpu: 500m
         memory: 1Gi
 
     # Service configuration for LoadBalancer

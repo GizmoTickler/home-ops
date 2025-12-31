@@ -21,10 +21,8 @@ spec:
         basePath: &hostPath /var/mnt/local-hostpath
         resources:
           requests:
-            cpu: 50m
-            memory: 128Mi
+            cpu: 100m
           limits:
-            cpu: 200m
             memory: 512Mi
       hostpathClass:
         enabled: true

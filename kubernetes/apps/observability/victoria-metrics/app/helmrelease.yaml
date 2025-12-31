@@ -35,9 +35,7 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 256Mi
           limits:
-            cpu: 500m
             memory: 512Mi
       serviceMonitor:
         enabled: true # Enable operator self-monitoring
@@ -93,10 +91,8 @@ spec:
               storage: 300Gi
         resources:
           requests:
-            cpu: 500m
-            memory: 2Gi
+            cpu: 100m
           limits:
-            cpu: 2000m
             memory: 6Gi
       ingress:
         enabled: false
@@ -227,9 +223,7 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 128Mi
           limits:
-            cpu: 500m
             memory: 512Mi
 
     # VMAgent configuration
@@ -253,10 +247,8 @@ spec:
           promscrape.kubernetes.apiServerTimeout: 5m
         resources:
           requests:
-            cpu: 500m
-            memory: 500Mi
+            cpu: 100m
           limits:
-            cpu: 2000m
             memory: 1Gi
 
     # Disable Grafana (we use grafana-operator)
@@ -279,10 +271,8 @@ spec:
         - persistentvolumeclaims=[*]
       resources:
         requests:
-          cpu: 50m
-          memory: 256Mi
+          cpu: 100m
         limits:
-          cpu: 500m
           memory: 1Gi
       vmScrape:
         enabled: true
@@ -309,10 +299,8 @@ spec:
       fullnameOverride: node-exporter
       resources:
         requests:
-          cpu: 500m
-          memory: 256Mi
+          cpu: 100m
         limits:
-          cpu: 1000m
           memory: 512Mi
       vmScrape:
         enabled: true
