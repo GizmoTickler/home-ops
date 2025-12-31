@@ -1,6 +1,8 @@
 ---
 originRequest:
   originServerName: "external.${SECRET_DOMAIN}"
+  keepAliveTimeout: 3600s
+  tcpKeepAlive: 7200s
 
 ingress:
   - hostname: "${SECRET_DOMAIN}"
