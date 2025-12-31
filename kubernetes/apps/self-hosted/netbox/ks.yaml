@@ -25,6 +25,7 @@ spec:
       APP: netbox
       VOLSYNC_CAPACITY: 10Gi
       VOLSYNC_STORAGECLASS: ceph-filesystem
+      VOLSYNC_SNAPSHOTCLASS: csi-ceph-filesystem
       VOLSYNC_ACCESSMODES: ReadWriteMany
   prune: true
   sourceRef:
