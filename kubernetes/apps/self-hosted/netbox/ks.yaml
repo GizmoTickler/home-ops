@@ -9,9 +9,8 @@ spec:
   commonMetadata:
     labels:
       app.kubernetes.io/name: *app
-  # TODO: Enable volsync after initial deployment
-  # components:
-  #   - ../../../../components/volsync
+  components:
+    - ../../../../components/volsync
   dependsOn:
     - name: external-secrets
       namespace: external-secrets
