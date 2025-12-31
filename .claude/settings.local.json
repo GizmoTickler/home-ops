@@ -76,7 +76,8 @@
       "Bash(paste:*)",
       "Bash(./homeops-cli talos apply-node:*)",
       "Bash(op item get:*)",
-      "Bash(helm history:*)"
+      "Bash(helm history:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

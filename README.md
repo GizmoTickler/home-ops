@@ -58,7 +58,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
 - **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
 - **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
-- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 64GB RAM, and NUMA-pinned CPU affinity
+- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 96GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
   - **Boot Disk**: Virtual disk for Talos OS
   - **Ceph OSD**: Dedicated SSD passed as pRDM for Rook Ceph distributed storage
@@ -404,7 +404,7 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 64GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 96GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
 
 **Storage Details**:
 - **Boot Disk**: Virtual disk for Talos OS
