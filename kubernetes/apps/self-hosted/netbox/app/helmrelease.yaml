@@ -55,7 +55,7 @@ spec:
           enabled: false
         resources:
           requests:
-            cpu: 100m
+            cpu: 50m
             memory: 128Mi
           limits:
             cpu: null
@@ -127,7 +127,7 @@ spec:
       replicaCount: 1
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 128Mi
         limits:
           memory: 512Mi
@@ -137,7 +137,7 @@ spec:
 
     resources:
       requests:
-        cpu: 100m
+        cpu: 50m
         memory: 256Mi
       limits:
         memory: 1Gi

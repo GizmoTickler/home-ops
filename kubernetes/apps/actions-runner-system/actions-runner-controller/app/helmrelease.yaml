@@ -13,7 +13,7 @@ spec:
     fullnameOverride: *name
     resources:
       requests:
-        cpu: 100m
+        cpu: 50m
         memory: 19Mi
       limits:
         memory: 64Mi

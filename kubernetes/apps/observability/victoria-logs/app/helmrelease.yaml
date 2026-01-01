@@ -24,7 +24,7 @@ spec:
         search.maxQueueDuration: "30s"
       resources:
         requests:
-          cpu: 100m
+          cpu: 175m
           memory: 256Mi
         limits:
           memory: 1Gi
