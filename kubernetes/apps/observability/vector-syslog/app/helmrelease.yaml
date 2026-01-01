@@ -29,7 +29,7 @@ spec:
     # Resource configuration
     resources:
       requests:
-        cpu: 100m
+        cpu: 50m
         memory: 307Mi
       limits:
         memory: 1Gi

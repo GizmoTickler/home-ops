@@ -17,7 +17,7 @@ spec:
       enabled: true
     resources:
       requests:
-        cpu: 100m
+        cpu: 50m
         memory: 128Mi
       limits:
         memory: 512Mi
@@ -25,14 +25,14 @@ spec:
       replicaCount: 2
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 128Mi
         limits:
           memory: 512Mi
     certController:
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 256Mi
         limits:
           memory: 1Gi

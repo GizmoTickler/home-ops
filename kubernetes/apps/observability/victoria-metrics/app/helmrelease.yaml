@@ -34,7 +34,7 @@ spec:
         useCustomConfigReloader: true
         resources:
           requests:
-            cpu: 100m
+            cpu: 60m
             memory: 128Mi
           limits:
             memory: 512Mi
@@ -92,7 +92,7 @@ spec:
               storage: 300Gi
         resources:
           requests:
-            cpu: 100m
+            cpu: 2250m
             memory: 2Gi
           limits:
             memory: 6Gi
@@ -224,7 +224,7 @@ spec:
                   replacement: vmalert-stack
         resources:
           requests:
-            cpu: 100m
+            cpu: 165m
             memory: 128Mi
           limits:
             memory: 512Mi
@@ -250,7 +250,7 @@ spec:
           promscrape.kubernetes.apiServerTimeout: 5m
         resources:
           requests:
-            cpu: 100m
+            cpu: 1250m
             memory: 256Mi
           limits:
             memory: 1Gi
@@ -275,7 +275,7 @@ spec:
         - persistentvolumeclaims=[*]
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 256Mi
         limits:
           memory: 1Gi
@@ -304,7 +304,7 @@ spec:
       fullnameOverride: node-exporter
       resources:
         requests:
-          cpu: 100m
+          cpu: 80m
           memory: 128Mi
         limits:
           memory: 512Mi

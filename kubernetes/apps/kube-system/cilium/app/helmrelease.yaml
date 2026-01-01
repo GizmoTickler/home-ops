@@ -63,7 +63,7 @@ spec:
       rollOutPods: true
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 128Mi
         limits:
           memory: 512Mi
@@ -78,7 +78,7 @@ spec:
     routingMode: native
     resources:
       requests:
-        cpu: 100m
+        cpu: 400m
         memory: 256Mi
       limits:
         memory: 1Gi

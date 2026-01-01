@@ -35,7 +35,8 @@ spec:
               - "/home/runner/run.sh"
             resources:
               requests:
-                cpu: 100m
+                cpu: 500m
+                memory: 512Mi
               limits:
                 memory: 2Gi
             env:

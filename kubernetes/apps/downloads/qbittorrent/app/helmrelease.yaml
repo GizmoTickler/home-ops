@@ -159,7 +159,7 @@ spec:
                   - NET_ADMIN
             resources:
               requests:
-                cpu: 100m
+                cpu: 50m
                 memory: 128Mi
               limits:
                 squat.ai/tun: 1
@@ -192,7 +192,7 @@ spec:
               capabilities: { drop: [ALL] }
             resources:
               requests:
-                cpu: 100m
+                cpu: 180m
                 memory: 10Gi
               limits:
                 memory: 32Gi
