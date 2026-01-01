@@ -24,6 +24,12 @@ spec:
               - -conf
               - /etc/coredns/Corefile
             restartPolicy: Always
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
           airvpn-servers:
             dependsOn:
               - coredns
@@ -70,6 +76,12 @@ spec:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: false
               capabilities: { drop: [ALL] }
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
           gluetun:
             dependsOn:
               - airvpn-servers
@@ -146,8 +158,12 @@ spec:
                 add:
                   - NET_ADMIN
             resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
               limits:
                 squat.ai/tun: 1
+                memory: 512Mi
         containers:
           app:
             image:
