@@ -160,10 +160,10 @@ spec:
             resources:
               requests:
                 cpu: 500m
-                memory: 128Mi
+                memory: 1Gi
               limits:
                 squat.ai/tun: 1
-                memory: 512Mi
+                memory: 2Gi
         containers:
           app:
             image:
