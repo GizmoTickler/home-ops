@@ -53,12 +53,12 @@ spec:
       master:
         persistence:
           enabled: false
+        resourcesPreset: none
         resources:
           requests:
             cpu: 50m
             memory: 256Mi
           limits:
-            cpu: ~
             memory: 1Gi
 
     # Task/cache Redis configuration (uses bundled Valkey)
