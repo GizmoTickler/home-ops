@@ -57,7 +57,8 @@ spec:
           requests:
             cpu: 100m
           limits:
-            memory: 128Mi
+            cpu: null
+            memory: 256Mi
 
     # Task/cache Redis configuration (uses bundled Valkey)
     tasksRedis:
