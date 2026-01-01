@@ -21,4 +21,3 @@ resources:
   - ./silence-operator/ks.yaml
   - ./fluent-bit/ks.yaml
   - ./smartctl-exporter/ks.yaml
-  - ./netdata/ks.yaml
