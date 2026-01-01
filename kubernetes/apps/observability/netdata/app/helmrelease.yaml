@@ -42,7 +42,7 @@ spec:
         requests:
           cpu: 100m
         limits:
-          memory: 2Gi
+          memory: 4Gi
       persistence:
         enabled: true
         storageClass: ceph-block
@@ -63,7 +63,7 @@ spec:
         requests:
           cpu: 100m
         limits:
-          memory: 2Gi
+          memory: 4Gi
 
     # K8s state monitoring pod
     k8sState:
@@ -72,7 +72,7 @@ spec:
         requests:
           cpu: 100m
         limits:
-          memory: 2Gi
+          memory: 4Gi
 
     # Disable ingress - using Gateway API instead
     ingress:
