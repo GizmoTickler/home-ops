@@ -78,7 +78,8 @@
       "Bash(op item get:*)",
       "Bash(helm history:*)",
       "Bash(grep:*)",
-      "Bash(column -t -s'|':*)"
+      "Bash(column -t -s'|':*)",
+      "Bash(flux get:*)"
     ],
     "deny": [],
     "ask": []
