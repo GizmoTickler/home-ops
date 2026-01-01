@@ -63,9 +63,21 @@ spec:
         connections:
           requireMsgr2: true
       resources:
+        mgr:
+          requests:
+            cpu: 650m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+        mon:
+          requests:
+            cpu: 400m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
         osd:
           requests:
-            cpu: 100m
+            cpu: 400m
             memory: 2457Mi
           limits:
             memory: 8Gi
@@ -134,7 +146,7 @@ spec:
                       app.kubernetes.io/part-of: *cephFileSystemName
             resources:
               requests:
-                cpu: 100m
+                cpu: 220m
                 memory: 1229Mi
               limits:
                 memory: 4Gi

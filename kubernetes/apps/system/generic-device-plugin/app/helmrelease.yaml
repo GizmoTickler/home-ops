@@ -30,7 +30,7 @@ spec:
               - --config=/config/config.yaml
             resources:
               requests:
-                cpu: 100m
+                cpu: 50m
                 memory: 77Mi
               limits:
                 memory: 256Mi
