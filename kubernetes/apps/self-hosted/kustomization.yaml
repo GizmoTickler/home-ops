@@ -13,7 +13,5 @@ resources:
   - ./atuin/ks.yaml
   - ./freshrss/ks.yaml
   - ./it-tools/ks.yaml
-  - ./karakeep/ks.yaml
   - ./netbox/ks.yaml
-  - ./paperless/ks.yaml
   - ./webhook/ks.yaml
