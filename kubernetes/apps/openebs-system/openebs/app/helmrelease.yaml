@@ -22,6 +22,7 @@ spec:
         resources:
           requests:
             cpu: 100m
+            memory: 154Mi
           limits:
             memory: 512Mi
       hostpathClass:
