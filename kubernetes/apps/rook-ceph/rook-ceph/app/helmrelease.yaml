@@ -21,4 +21,5 @@ spec:
       requests:
         memory: 128Mi
         cpu: 350m
-      limits: {}
+      limits:
+        memory: 4Gi
