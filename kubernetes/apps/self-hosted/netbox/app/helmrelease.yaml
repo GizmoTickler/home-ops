@@ -50,7 +50,7 @@ spec:
         enabled: true
         existingSecret: netbox-secret
         existingSecretPasswordKey: redis_password
-      master:
+      primary:
         persistence:
           enabled: false
         resourcesPreset: none
