@@ -35,6 +35,7 @@ spec:
         osd:
           bluestore_slow_ops_warn_lifetime: "60" # quote
           bluestore_slow_ops_warn_threshold: "10" # quote
+          bdev_stalled_read_warn_threshold: "5" # tolerate occasional VM I/O stalls
       cleanupPolicy:
         wipeDevicesFromOtherClusters: true
       crashCollector:
