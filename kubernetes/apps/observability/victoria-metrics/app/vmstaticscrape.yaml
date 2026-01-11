@@ -12,6 +12,18 @@ spec:
       labels:
         job: node-exporter
 ---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: gateway-node-exporter
+spec:
+  jobName: node-exporter
+  targetEndpoints:
+    - targets:
+        - gateway0.${SECRET_DOMAIN}:9100
+      labels:
+        job: node-exporter
+---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
