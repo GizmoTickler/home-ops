@@ -79,7 +79,9 @@
       "Bash(helm history:*)",
       "Bash(grep:*)",
       "Bash(column -t -s'|':*)",
-      "Bash(flux get:*)"
+      "Bash(flux get:*)",
+      "Bash(git stash:*)",
+      "Bash(flux reconcile ks:*)"
     ],
     "deny": [],
     "ask": []

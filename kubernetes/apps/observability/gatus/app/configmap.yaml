@@ -8,7 +8,7 @@ data:
     ---
     connectivity:
       checker:
-        target: 1.1.1.1:53
+        target: 192.168.123.250:53
         interval: 1m
 
     metrics: true
