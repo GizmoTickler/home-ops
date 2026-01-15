@@ -81,7 +81,8 @@
       "Bash(column -t -s'|':*)",
       "Bash(flux get:*)",
       "Bash(git stash:*)",
-      "Bash(flux reconcile ks:*)"
+      "Bash(flux reconcile ks:*)",
+      "Bash(ping:*)"
     ],
     "deny": [],
     "ask": []
