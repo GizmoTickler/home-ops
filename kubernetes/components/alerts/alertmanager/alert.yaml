@@ -25,4 +25,5 @@ spec:
     - error.*lookup.*github
     - dial.*tcp.*timeout
     - waiting.*socket
+    - context.*deadline.*exceeded
   suspend: false
