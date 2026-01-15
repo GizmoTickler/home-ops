@@ -38,6 +38,45 @@ data:
                 },
                 {
                   "prefix": "/fluxcd/**"
+                },
+                {
+                  "prefix": "/bjw-s-labs/**"
+                },
+                {
+                  "prefix": "/home-operations/**"
+                },
+                {
+                  "prefix": "/victoriametrics/**"
+                },
+                {
+                  "prefix": "/rook/**"
+                },
+                {
+                  "prefix": "/prometheus-community/**"
+                },
+                {
+                  "prefix": "/stakater/**"
+                },
+                {
+                  "prefix": "/spegel-org/**"
+                },
+                {
+                  "prefix": "/piraeusdatastore/**"
+                },
+                {
+                  "prefix": "/openebs/**"
+                },
+                {
+                  "prefix": "/netbox-community/**"
+                },
+                {
+                  "prefix": "/actions/**"
+                },
+                {
+                  "prefix": "/grafana/**"
+                },
+                {
+                  "prefix": "/project-zot/**"
                 }
               ]
             }
