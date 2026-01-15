@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: 1.20.0
-  url: oci://ghcr.io/home-operations/charts-mirror/external-dns
+  url: oci://registry.${SECRET_DOMAIN}/home-operations/charts-mirror/external-dns
