@@ -104,4 +104,6 @@ spec:
           - SYS_RESOURCE
     socketLB:
       enabled: true
-      hostNamespaceOnly: true
+      # Allow pods to use socket-level LB for accessing external LB IPs.
+      # This fixes DSR mode issues where pods can't reach LoadBalancer IPs.
+      hostNamespaceOnly: false
