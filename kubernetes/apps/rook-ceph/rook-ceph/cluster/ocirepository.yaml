@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: v1.18.8
-  url: oci://ghcr.io/rook/rook-ceph-cluster
+  url: oci://registry.${SECRET_DOMAIN}/rook/rook-ceph-cluster

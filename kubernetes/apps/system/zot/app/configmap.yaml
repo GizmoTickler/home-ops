@@ -77,6 +77,15 @@ data:
                 },
                 {
                   "prefix": "/project-zot/**"
+                },
+                {
+                  "prefix": "/cloudnative-pg/**"
+                },
+                {
+                  "prefix": "/external-secrets/**"
+                },
+                {
+                  "prefix": "/coredns/**"
                 }
               ]
             }

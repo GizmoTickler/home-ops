@@ -6,6 +6,6 @@ metadata:
   name: prometheus-operator-crds
 spec:
   interval: 12h
-  url: oci://ghcr.io/prometheus-community/charts/prometheus-operator-crds
+  url: oci://registry.${SECRET_DOMAIN}/prometheus-community/charts/prometheus-operator-crds
   ref:
     tag: 26.0.0
