@@ -10,16 +10,15 @@ spec:
     name: flux-instance
   interval: 1h
   values:
-    # Annotations to reduce artifact fetch frequency
-    # The flux-operator has a hardcoded 30s timeout for OCI fetches which can
-    # intermittently fail when GHCR is slow. Since the artifact version is pinned,
-    # we don't need to check frequently.
+    # Use local Zot registry as pull-through cache for GHCR to avoid
+    # intermittent timeout issues with the flux-operator's hardcoded 30s timeout.
+    # Zot caches the artifact locally after the first successful fetch.
     commonAnnotations:
       fluxcd.controlplane.io/reconcileArtifactEvery: "24h"
       fluxcd.controlplane.io/reconcileTimeout: "10m"
     instance:
       distribution:
-        artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.38.1
+        artifact: oci://registry.${SECRET_DOMAIN}/controlplaneio-fluxcd/flux-operator-manifests:v0.38.1
         version: 2.x
       cluster:
         networkPolicy: false
