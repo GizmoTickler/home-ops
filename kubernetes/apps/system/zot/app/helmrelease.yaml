@@ -84,7 +84,9 @@ spec:
             subPath: config.json
             readOnly: true
       registry:
-        type: emptyDir
-        sizeLimit: 10Gi
+        type: persistentVolumeClaim
+        accessMode: ReadWriteOnce
+        size: 20Gi
+        storageClass: ceph-block
         globalMounts:
           - path: /var/lib/registry
