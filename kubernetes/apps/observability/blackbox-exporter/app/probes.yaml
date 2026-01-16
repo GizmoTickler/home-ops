@@ -16,7 +16,6 @@ spec:
         - nas01-console.${SECRET_DOMAIN}
         - unifi.${SECRET_DOMAIN}
         - jellyfin.${SECRET_DOMAIN}
-        - airconsole.${SECRET_DOMAIN}
         - s3.${SECRET_DOMAIN}
         - tailscale0.${SECRET_DOMAIN}
         - tailscale1.${SECRET_DOMAIN}
