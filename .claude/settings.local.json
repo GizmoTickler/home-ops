@@ -82,7 +82,8 @@
       "Bash(flux get:*)",
       "Bash(git stash:*)",
       "Bash(flux reconcile ks:*)",
-      "Bash(ping:*)"
+      "Bash(ping:*)",
+      "Bash(flux reconcile:*)"
     ],
     "deny": [],
     "ask": []
