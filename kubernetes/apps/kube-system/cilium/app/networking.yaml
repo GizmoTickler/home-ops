@@ -65,8 +65,8 @@ spec:
     - name: cilium
       localASN: 64550
       peers:
-        - name: uxg-fiber
-          peerASN: 64540
+        - name: C9300
+          peerASN: 64541
           peerAddress: 192.168.123.254
           peerConfigRef:
             name: l3-bgp-peer-config
