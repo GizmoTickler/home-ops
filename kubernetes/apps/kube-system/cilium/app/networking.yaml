@@ -4,37 +4,10 @@ apiVersion: cilium.io/v2alpha1
 kind: CiliumLoadBalancerIPPool
 metadata:
   name: pool
-  labels:
-    pool: legacy
-spec:
-  allowFirstLastIPs: "No"
-  blocks:
-    - cidr: "192.168.120.0/22"
----
-# yaml-language-server: $schema=https://datreeio.github.io/CRDs-catalog/cilium.io/ciliumloadbalancerippool_v2alpha1.json
-apiVersion: cilium.io/v2alpha1
-kind: CiliumLoadBalancerIPPool
-metadata:
-  name: pool-routed
-  labels:
-    pool: routed
 spec:
   allowFirstLastIPs: "No"
   blocks:
     - cidr: "192.168.255.0/24"
----
-# yaml-language-server: $schema=https://datreeio.github.io/CRDs-catalog/cilium.io/ciliuml2announcementpolicy_v2alpha1.json
-apiVersion: cilium.io/v2alpha1
-kind: CiliumL2AnnouncementPolicy
-metadata:
-  name: l2-policy
-spec:
-  loadBalancerIPs: true
-  interfaces:
-    - eth0
-  nodeSelector:
-    matchLabels:
-      kubernetes.io/os: linux
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cilium.io/ciliumbgpadvertisement_v2.json
 apiVersion: cilium.io/v2
