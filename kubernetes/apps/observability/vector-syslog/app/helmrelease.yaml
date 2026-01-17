@@ -39,7 +39,7 @@ spec:
       enabled: true
       type: LoadBalancer
       annotations:
-        lbipam.cilium.io/ips: "192.168.120.101"
+        lbipam.cilium.io/ips: "192.168.255.254"
       ports:
         - name: cisco-udp
           port: 514
