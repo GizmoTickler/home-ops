@@ -101,21 +101,3 @@ spec:
       port: 6443
       protocol: TCP
       targetPort: 6443
----
-# Test service to verify BGP-only routing on new pool
-# Delete after verification
-apiVersion: v1
-kind: Service
-metadata:
-  name: bgp-test
-  annotations:
-    lbipam.cilium.io/ips: 192.168.255.10
-spec:
-  type: LoadBalancer
-  selector:
-    app.kubernetes.io/name: echo
-  ports:
-    - name: http
-      port: 80
-      protocol: TCP
-      targetPort: 8080
