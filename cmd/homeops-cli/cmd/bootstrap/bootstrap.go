@@ -1410,7 +1410,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 			}
 
 			// Save kubeconfig to 1Password for chezmoi
-			if err := saveKubeconfigTo1Password(kubeconfigContent, logger); err != nil {
+			if err := common.SaveKubeconfigTo1Password(kubeconfigContent, logger); err != nil {
 				logger.Warn("Failed to save kubeconfig to 1Password: %v", err)
 				logger.Warn("Continuing with bootstrap - kubeconfig is available locally")
 			} else {
@@ -2466,37 +2466,6 @@ func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogg
 	}
 
 	logger.Success("Dynamic values template rendering test passed")
-	return nil
-}
-
-// saveKubeconfigTo1Password saves the kubeconfig content to the existing 1Password item as a file attachment
-func saveKubeconfigTo1Password(kubeconfigContent []byte, logger *common.ColorLogger) error {
-	logger.Debug("Updating kubeconfig file in 1Password...")
-
-	// Create a temporary file with the kubeconfig content
-	tmpFile, err := os.CreateTemp("", "kubeconfig-*.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to create temporary kubeconfig file: %w", err)
-	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-	defer func() { _ = tmpFile.Close() }()
-
-	if _, err := tmpFile.Write(kubeconfigContent); err != nil {
-		return fmt.Errorf("failed to write kubeconfig to temporary file: %w", err)
-	}
-	if err := tmpFile.Close(); err != nil {
-		return fmt.Errorf("failed to close temporary file: %w", err)
-	}
-
-	// Update the existing kubeconfig item by replacing the file attachment
-	cmd := exec.Command("op", "item", "edit", "kubeconfig", "--vault", "Infrastructure", fmt.Sprintf("kubeconfig[file]=%s", tmpFile.Name()))
-	output, err := cmd.CombinedOutput()
-
-	if err != nil {
-		return fmt.Errorf("failed to update kubeconfig file in 1Password: %w (output: %s)", err, string(output))
-	}
-
-	logger.Debug("Kubeconfig file updated in 1Password")
 	return nil
 }
 
