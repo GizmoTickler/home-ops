@@ -705,13 +705,35 @@ func resetCluster() error {
 }
 
 func newKubeconfigCommand() *cobra.Command {
+	var push, pull bool
+
 	cmd := &cobra.Command{
 		Use:   "kubeconfig",
-		Short: "Generate the kubeconfig for a Talos cluster",
+		Short: "Generate, push, or pull kubeconfig for a Talos cluster",
+		Long: `Manage kubeconfig for a Talos cluster.
+
+Without flags: generates kubeconfig from a cluster node
+With --push: generates and saves to 1Password
+With --pull: retrieves kubeconfig from 1Password`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return generateKubeconfig()
+			logger := common.NewColorLogger()
+
+			if pull {
+				return pullKubeconfigFrom1Password(logger)
+			}
+			if err := generateKubeconfig(); err != nil {
+				return err
+			}
+			if push {
+				return pushKubeconfigTo1Password(logger)
+			}
+			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&push, "push", false, "Save generated kubeconfig to 1Password")
+	cmd.Flags().BoolVar(&pull, "pull", false, "Pull kubeconfig from 1Password")
+	cmd.MarkFlagsMutuallyExclusive("push", "pull")
 
 	return cmd
 }
@@ -737,6 +759,32 @@ func generateKubeconfig() error {
 	}
 
 	logger.Success("Kubeconfig generated successfully")
+	return nil
+}
+
+func pushKubeconfigTo1Password(logger *common.ColorLogger) error {
+	rootDir := common.GetWorkingDirectory()
+	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
+
+	logger.Info("Pushing kubeconfig to 1Password...")
+	if err := common.PushKubeconfigTo1Password(kubeconfigPath, logger); err != nil {
+		return err
+	}
+
+	logger.Success("Kubeconfig saved to 1Password")
+	return nil
+}
+
+func pullKubeconfigFrom1Password(logger *common.ColorLogger) error {
+	rootDir := common.GetWorkingDirectory()
+	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
+
+	logger.Info("Pulling kubeconfig from 1Password...")
+	if err := common.PullKubeconfigFrom1Password(kubeconfigPath, logger); err != nil {
+		return err
+	}
+
+	logger.Success("Kubeconfig saved to %s", kubeconfigPath)
 	return nil
 }
 
