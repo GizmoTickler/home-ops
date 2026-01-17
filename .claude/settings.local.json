@@ -83,7 +83,9 @@
       "Bash(git stash:*)",
       "Bash(flux reconcile ks:*)",
       "Bash(ping:*)",
-      "Bash(flux reconcile:*)"
+      "Bash(flux reconcile:*)",
+      "Bash(openssl s_client:*)",
+      "Bash(openssl x509:*)"
     ],
     "deny": [],
     "ask": []

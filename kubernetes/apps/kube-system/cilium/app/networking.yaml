@@ -85,12 +85,31 @@ spec:
           peerConfigRef:
             name: l3-bgp-peer-config
 ---
+# Legacy kube-api LB (L2 pool) - will be removed after migration
 apiVersion: v1
 kind: Service
 metadata:
   name: kube-api
   annotations:
     lbipam.cilium.io/ips: 192.168.120.100
+spec:
+  type: LoadBalancer
+  selector:
+    k8s-app: kube-apiserver
+    tier: control-plane
+  ports:
+    - name: https
+      port: 6443
+      protocol: TCP
+      targetPort: 6443
+---
+# New kube-api LB (BGP-only routed pool)
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-api-routed
+  annotations:
+    lbipam.cilium.io/ips: 192.168.255.10
 spec:
   type: LoadBalancer
   selector:
