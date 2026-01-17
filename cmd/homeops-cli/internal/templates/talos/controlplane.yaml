@@ -7,7 +7,6 @@ machine:
     key: op://Infrastructure/talos/MACHINE_CA_KEY
   certSANs:
     - 127.0.0.1
-    - 192.168.120.100
     - 192.168.255.10
   features:
     apidCheckExtKeyUsage: true
@@ -98,7 +97,7 @@ cluster:
     key: op://Infrastructure/talos/CLUSTER_CA_KEY
   clusterName: home-ops-cluster
   controlPlane:
-    endpoint: https://192.168.120.100:6443
+    endpoint: op://Infrastructure/talos/K8S_ENDPOINT
   id: op://Infrastructure/talos/CLUSTER_ID
   network:
     cni:
