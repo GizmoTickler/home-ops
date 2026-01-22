@@ -22,7 +22,7 @@ machine:
         dhcp: true
   install:
     disk: /dev/sda
-    image: ghcr.io/siderolabs/installer:v1.12.1
+    image: ghcr.io/siderolabs/installer:v1.12.2
     wipe: false
   features:
     rbac: true
