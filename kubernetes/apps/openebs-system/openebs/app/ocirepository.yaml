@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: 4.4.0
-  url: oci://registry.${SECRET_DOMAIN}/openebs/dev/helm/openebs
+  url: oci://ghcr.io/openebs/dev/helm/openebs

@@ -57,8 +57,6 @@ spec:
         group: kustomize.toolkit.fluxcd.io
         kind: Kustomization
     - # Add common-config component to all child Kustomizations
-      # ConfigMap provides fallback values for CI (flux-local) - not deployed to cluster
-      # Secret provides real values in cluster and overrides ConfigMap
       patch: |-
         apiVersion: kustomize.toolkit.fluxcd.io/v1
         kind: Kustomization
@@ -67,9 +65,6 @@ spec:
         spec:
           postBuild:
             substituteFrom:
-              - kind: ConfigMap
-                name: cluster-config-vars
-                optional: true
               - kind: Secret
                 name: cluster-config-secret
                 optional: false

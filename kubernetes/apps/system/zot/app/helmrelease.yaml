@@ -70,7 +70,7 @@ spec:
     route:
       app:
         hostnames:
-          - "registry.${SECRET_DOMAIN}"
+          - "ghcr.io"
         parentRefs:
           - name: envoy-internal
             namespace: network
