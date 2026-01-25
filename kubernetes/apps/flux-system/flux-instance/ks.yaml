@@ -7,8 +7,6 @@ metadata:
 spec:
   dependsOn:
     - name: flux-operator
-    - name: zot
-      namespace: system
   interval: 1h
   path: ./kubernetes/apps/flux-system/flux-instance/app
   prune: true
