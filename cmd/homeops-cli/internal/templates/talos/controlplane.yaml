@@ -47,7 +47,7 @@ machine:
         wsize=1048576
   install:
     disk: /dev/nvme0n1
-    image: factory.talos.dev/vmware-installer/6886a62a32031814c59f70d6161bbd6ec94f666a89ea207ff034af24cb9d14f6:v1.12.1
+    image: factory.talos.dev/vmware-installer/6886a62a32031814c59f70d6161bbd6ec94f666a89ea207ff034af24cb9d14f6:v1.12.2
     wipe: false
   kernel:
     modules:
