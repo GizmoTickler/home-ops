@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: 0.6.0
-  url: oci://registry.${SECRET_DOMAIN}/spegel-org/helm-charts/spegel
+  url: oci://ghcr.io/spegel-org/helm-charts/spegel

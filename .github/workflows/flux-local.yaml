@@ -51,12 +51,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
-          # NOTE: --enable-helm disabled because OCI URLs use ${SECRET_DOMAIN}
-          # variable which flux-local cannot substitute (skips Secrets).
-          # Kustomization validation still runs.
           args: >-
             test
             --all-namespaces
+            --enable-helm
             --path /github/workspace/kubernetes/flux/cluster
             --verbose
 

@@ -11,4 +11,4 @@ spec:
     operation: copy
   ref:
     tag: 1.45.0
-  url: oci://registry.${SECRET_DOMAIN}/coredns/charts/coredns
+  url: oci://ghcr.io/coredns/charts/coredns
