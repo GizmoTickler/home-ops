@@ -1,0 +1,9 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/kustomization
+# This kustomization.yaml is for flux-local CI testing only.
+# It includes placeholder ConfigMap values that flux-local needs for variable substitution.
+# Flux ignores this file - it uses ks.yaml (Flux Kustomization resource) instead.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./flux-local-vars.yaml
