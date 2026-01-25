@@ -1417,6 +1417,13 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 				logger.Success("Kubeconfig saved to 1Password for chezmoi")
 			}
 
+			// Patch kubeconfig to use direct node IP for bootstrap
+			// The VIP won't work until Cilium BGP is up
+			if err := patchKubeconfigForBootstrap(config.KubeConfig, controller, logger); err != nil {
+				logger.Warn("Failed to patch kubeconfig for bootstrap: %v", err)
+				logger.Warn("Bootstrap may fail if VIP is not accessible")
+			}
+
 			logger.Success("Kubeconfig fetched and validated successfully")
 			return nil
 		}
@@ -1446,6 +1453,67 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 
 		time.Sleep(checkInterval)
 	}
+}
+
+// patchKubeconfigForBootstrap modifies the kubeconfig to use a direct node IP
+// instead of the VIP, since the VIP won't work until Cilium BGP is up
+func patchKubeconfigForBootstrap(kubeconfigPath, nodeIP string, logger *common.ColorLogger) error {
+	content, err := os.ReadFile(kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to read kubeconfig: %w", err)
+	}
+
+	// Parse kubeconfig as YAML
+	var kubeconfig map[string]interface{}
+	if err := yamlv3.Unmarshal(content, &kubeconfig); err != nil {
+		return fmt.Errorf("failed to parse kubeconfig: %w", err)
+	}
+
+	// Find and update the server URL in clusters
+	clusters, ok := kubeconfig["clusters"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid kubeconfig: clusters not found")
+	}
+
+	modified := false
+	for _, c := range clusters {
+		cluster, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		clusterData, ok := cluster["cluster"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if server, ok := clusterData["server"].(string); ok {
+			// Replace the hostname/VIP with the direct node IP
+			// Keep the port (usually 6443)
+			newServer := fmt.Sprintf("https://%s:6443", nodeIP)
+			if server != newServer {
+				logger.Debug("Patching kubeconfig server: %s -> %s", server, newServer)
+				clusterData["server"] = newServer
+				modified = true
+			}
+		}
+	}
+
+	if !modified {
+		logger.Debug("Kubeconfig already using direct node IP, no patch needed")
+		return nil
+	}
+
+	// Write back the modified kubeconfig
+	newContent, err := yamlv3.Marshal(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal kubeconfig: %w", err)
+	}
+
+	if err := os.WriteFile(kubeconfigPath, newContent, 0600); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
+	}
+
+	logger.Info("Kubeconfig patched to use direct node IP %s for bootstrap", nodeIP)
+	return nil
 }
 
 func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
