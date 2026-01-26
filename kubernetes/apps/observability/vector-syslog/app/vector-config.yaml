@@ -1,6 +1,10 @@
 ---
 # Vector configuration for syslog collection from network devices
-# Handles multiple syslog formats from Cisco and UniFi devices
+# Handles multiple syslog formats from Cisco, OPNsense, and UniFi devices
+# Ports:
+#   - 514:  Cisco syslog (UDP)
+#   - 5514: OPNsense syslog (UDP, RFC5424 format)
+#   - 5515: UniFi syslog (UDP)
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,9 +31,18 @@ data:
           codec: bytes
         host_key: source_ip
 
-      unifi_syslog:
+      opnsense_syslog:
         type: socket
         address: "0.0.0.0:5514"
+        mode: udp
+        max_length: 65536
+        decoding:
+          codec: bytes
+        host_key: source_ip
+
+      unifi_syslog:
+        type: socket
+        address: "0.0.0.0:5515"
         mode: udp
         max_length: 65536
         decoding:
@@ -125,6 +138,244 @@ data:
           del(.priority_str)
           del(.source_type)
           del(.port)
+
+      # Parse OPNsense messages (RFC5424 format)
+      parse_opnsense:
+        type: remap
+        inputs:
+          - opnsense_syslog
+        source: |
+          # Convert bytes to string
+          .raw_message = to_string!(.message)
+
+          # Extract source device IP
+          .device_ip = .source_ip
+
+          # Parse RFC5424 syslog format:
+          # <pri>version SP timestamp SP hostname SP app-name SP procid SP msgid SP structured-data SP msg
+          # Example: <134>1 2026-01-25T22:30:00Z opnsense filterlog 12345 - - CSV_DATA
+          if starts_with(.raw_message, "<") {
+            # Extract priority
+            .parts = split(.raw_message, ">", limit: 2)
+            if length(.parts) >= 2 {
+              .priority_str = replace!(.parts[0], "<", "")
+              .priority = to_int!(.priority_str)
+              .facility = to_int!(.priority / 8)
+              .severity = mod!(.priority, 8)
+
+              .remainder = .parts[1]
+
+              # RFC5424 starts with version number (typically "1")
+              # Split by space to get: version, timestamp, hostname, app-name, procid, msgid, structured-data, msg
+              .rfc5424_parts = split(.remainder, " ")
+
+              if length(.rfc5424_parts) >= 7 {
+                .syslog_version = .rfc5424_parts[0]
+                .syslog_timestamp = .rfc5424_parts[1]
+                .device_hostname = .rfc5424_parts[2]
+                .app_name = .rfc5424_parts[3]
+                .proc_id = .rfc5424_parts[4]
+                .msg_id = .rfc5424_parts[5]
+                .structured_data = .rfc5424_parts[6]
+
+                # The message is everything after the 7th field
+                # Reconstruct the message from remaining parts
+                if length(.rfc5424_parts) >= 8 {
+                  .msg_content = join!(slice!(.rfc5424_parts, 7), " ")
+                } else {
+                  .msg_content = ""
+                }
+
+                # Check if this is a filterlog message (firewall log)
+                if .app_name == "filterlog" {
+                  .message_type = "filterlog"
+
+                  # The msg_content is the CSV filterlog data
+                  .csv_data = .msg_content
+
+                  # Parse the CSV fields
+                  .fields = split(.csv_data, ",")
+                  .field_count = length(.fields)
+
+                  if .field_count >= 9 {
+                    # Common fields (all filterlog entries)
+                    .rule_number = .fields[0]
+                    .sub_rule = .fields[1]
+                    .anchor = .fields[2]
+                    .tracker = .fields[3]
+                    .in_interface = .fields[4]
+                    .reason = .fields[5]
+                    .action = .fields[6]
+                    .direction = .fields[7]
+                    .ip_version = .fields[8]
+
+                    # IPv4 specific parsing
+                    if .ip_version == "4" && .field_count >= 18 {
+                      .tos = .fields[9]
+                      .ecn = .fields[10]
+                      .ttl = to_int(.fields[11]) ?? null
+                      .packet_id = .fields[12]
+                      .offset = .fields[13]
+                      .ip_flags = .fields[14]
+                      .protocol_id = .fields[15]
+                      .protocol = downcase(.fields[16]) ?? .fields[16]
+                      .packet_length = to_int(.fields[17]) ?? null
+
+                      # TCP/UDP have src/dst IP and ports
+                      if (.protocol == "tcp" || .protocol == "udp") && .field_count >= 23 {
+                        .src_ip = .fields[18]
+                        .dst_ip = .fields[19]
+                        .src_port = to_int(.fields[20]) ?? null
+                        .dst_port = to_int(.fields[21]) ?? null
+                        .data_length = to_int(.fields[22]) ?? null
+
+                        # TCP flags (if present)
+                        if .protocol == "tcp" && .field_count >= 24 {
+                          .tcp_flags = .fields[23]
+                        }
+                      } else if .protocol == "icmp" && .field_count >= 22 {
+                        .src_ip = .fields[18]
+                        .dst_ip = .fields[19]
+                        .icmp_type = .fields[20]
+                        if .field_count >= 23 {
+                          .icmp_code = .fields[21]
+                        }
+                      } else if .field_count >= 20 {
+                        # Other protocols (GRE, ESP, etc.)
+                        .src_ip = .fields[18]
+                        .dst_ip = .fields[19]
+                      }
+
+                    # IPv6 specific parsing
+                    } else if .ip_version == "6" && .field_count >= 15 {
+                      .traffic_class = .fields[9]
+                      .flow_label = .fields[10]
+                      .hop_limit = to_int(.fields[11]) ?? null
+                      .protocol = downcase(.fields[12]) ?? .fields[12]
+                      .protocol_id = .fields[13]
+                      .packet_length = to_int(.fields[14]) ?? null
+
+                      if (.protocol == "tcp" || .protocol == "udp") && .field_count >= 20 {
+                        .src_ip = .fields[15]
+                        .dst_ip = .fields[16]
+                        .src_port = to_int(.fields[17]) ?? null
+                        .dst_port = to_int(.fields[18]) ?? null
+                        .data_length = to_int(.fields[19]) ?? null
+
+                        if .protocol == "tcp" && .field_count >= 21 {
+                          .tcp_flags = .fields[20]
+                        }
+                      } else if .protocol == "icmp" && .field_count >= 19 {
+                        .src_ip = .fields[15]
+                        .dst_ip = .fields[16]
+                        .icmp_type = .fields[17]
+                      } else if .field_count >= 17 {
+                        .src_ip = .fields[15]
+                        .dst_ip = .fields[16]
+                      }
+                    }
+
+                    # Determine traffic direction based on RFC1918 private IP ranges
+                    if exists(.src_ip) && exists(.dst_ip) {
+                      .src_ip_str = string!(.src_ip)
+                      .dst_ip_str = string!(.dst_ip)
+
+                      .src_is_private = starts_with(.src_ip_str, "192.168.") || starts_with(.src_ip_str, "10.") ||
+                                       (starts_with(.src_ip_str, "172.") &&
+                                        (starts_with(.src_ip_str, "172.16.") || starts_with(.src_ip_str, "172.17.") ||
+                                         starts_with(.src_ip_str, "172.18.") || starts_with(.src_ip_str, "172.19.") ||
+                                         starts_with(.src_ip_str, "172.20.") || starts_with(.src_ip_str, "172.21.") ||
+                                         starts_with(.src_ip_str, "172.22.") || starts_with(.src_ip_str, "172.23.") ||
+                                         starts_with(.src_ip_str, "172.24.") || starts_with(.src_ip_str, "172.25.") ||
+                                         starts_with(.src_ip_str, "172.26.") || starts_with(.src_ip_str, "172.27.") ||
+                                         starts_with(.src_ip_str, "172.28.") || starts_with(.src_ip_str, "172.29.") ||
+                                         starts_with(.src_ip_str, "172.30.") || starts_with(.src_ip_str, "172.31.")))
+
+                      .dst_is_private = starts_with(.dst_ip_str, "192.168.") || starts_with(.dst_ip_str, "10.") ||
+                                       (starts_with(.dst_ip_str, "172.") &&
+                                        (starts_with(.dst_ip_str, "172.16.") || starts_with(.dst_ip_str, "172.17.") ||
+                                         starts_with(.dst_ip_str, "172.18.") || starts_with(.dst_ip_str, "172.19.") ||
+                                         starts_with(.dst_ip_str, "172.20.") || starts_with(.dst_ip_str, "172.21.") ||
+                                         starts_with(.dst_ip_str, "172.22.") || starts_with(.dst_ip_str, "172.23.") ||
+                                         starts_with(.dst_ip_str, "172.24.") || starts_with(.dst_ip_str, "172.25.") ||
+                                         starts_with(.dst_ip_str, "172.26.") || starts_with(.dst_ip_str, "172.27.") ||
+                                         starts_with(.dst_ip_str, "172.28.") || starts_with(.dst_ip_str, "172.29.") ||
+                                         starts_with(.dst_ip_str, "172.30.") || starts_with(.dst_ip_str, "172.31.")))
+
+                      if .src_is_private {
+                        if .dst_is_private {
+                          .traffic_direction = "internal"
+                        } else {
+                          .traffic_direction = "outbound"
+                        }
+                      } else {
+                        .traffic_direction = "inbound"
+                      }
+                      del(.src_ip_str)
+                      del(.dst_ip_str)
+                      del(.src_is_private)
+                      del(.dst_is_private)
+                    }
+
+                    # Build descriptive message
+                    .action_str = upcase(.action) ?? .action
+                    if exists(.src_ip) && exists(.dst_ip) {
+                      if exists(.src_port) && exists(.dst_port) {
+                        ._msg = .action_str + " " + .protocol + " " + .src_ip + ":" + to_string!(.src_port) + " -> " + .dst_ip + ":" + to_string!(.dst_port) + " on " + .in_interface
+                      } else {
+                        ._msg = .action_str + " " + .protocol + " " + .src_ip + " -> " + .dst_ip + " on " + .in_interface
+                      }
+                    } else {
+                      ._msg = .csv_data
+                    }
+                  } else {
+                    # Not enough fields to parse, use raw CSV
+                    ._msg = .csv_data
+                  }
+                  .device_name = "opnsense-firewall"
+
+                } else {
+                  # Non-filterlog OPNsense message (system logs, services, etc.)
+                  .message_type = "system"
+                  ._msg = .app_name + ": " + .msg_content
+                  .device_name = "opnsense-" + downcase(.app_name) ?? "system"
+                }
+              } else {
+                # Not enough parts for RFC5424, try as simple message
+                .message_type = "unknown"
+                ._msg = .remainder
+                .device_name = "opnsense-unknown"
+              }
+            }
+          } else {
+            # Unknown format (no priority)
+            ._msg = .raw_message
+            .message_type = "unknown"
+            .device_name = "opnsense-unknown"
+          }
+
+          # Set final fields for Victoria Logs
+          ._stream = "network.opnsense." + replace!(replace!(.device_ip, ".", "_"), ":", "_")
+          ._time = to_string(now())
+          .device_type = "opnsense"
+          .log_source = "network"
+          .environment = "production"
+
+          # Clean up intermediate fields
+          del(.message)
+          del(.parts)
+          del(.rfc5424_parts)
+          del(.msg_content)
+          del(.csv_data)
+          del(.fields)
+          del(.field_count)
+          del(.remainder)
+          del(.priority_str)
+          del(.source_type)
+          del(.port)
+          del(.action_str)
+          del(.syslog_version)
+          del(.structured_data)
 
       # Parse UniFi messages
       parse_unifi:
@@ -505,6 +756,7 @@ data:
         type: http
         inputs:
           - parse_cisco
+          - parse_opnsense
           - parse_unifi
         uri: "http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline"
         method: post
@@ -552,6 +804,18 @@ data:
             - ttl
             - hop_limit
             - tcp_flags
+            # OPNsense specific fields
+            - app_name
+            - rule_number
+            - tracker
+            - action
+            - direction
+            - ip_version
+            - ip_flags
+            - icmp_type
+            - icmp_code
+            - data_length
+            - reason
         batch:
           max_bytes: 1048576
           max_events: 1000
@@ -570,6 +834,7 @@ data:
         type: console
         inputs:
           - parse_cisco
+          - parse_opnsense
           - parse_unifi
         encoding:
           codec: json
