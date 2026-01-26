@@ -166,38 +166,46 @@ data:
               .remainder = .parts[1]
 
               # RFC5424: version SP timestamp SP hostname SP app-name SP procid SP msgid SP structured-data SP msg
-              # Use regex to properly parse, handling structured data that may contain spaces
-              # Structured data is either "-" or "[...content...]" - look for "] " as boundary
-              .rfc5424_match = parse_regex(.remainder, r'^(?P<version>\d+) (?P<timestamp>\S+) (?P<hostname>\S+) (?P<appname>\S+) (?P<procid>\S+) (?P<msgid>\S+) (?P<sd>\[[^\]]+\]|-) (?P<msg>.*)$') ?? null
+              # Split into parts, then handle structured data specially
+              .rfc5424_parts = split!(.remainder, " ")
 
-              if .rfc5424_match != null {
-                .syslog_version = .rfc5424_match.version
-                .syslog_timestamp = .rfc5424_match.timestamp
-                .device_hostname = .rfc5424_match.hostname
-                .app_name = .rfc5424_match.appname
-                .proc_id = .rfc5424_match.procid
-                .msg_id = .rfc5424_match.msgid
-                .structured_data = .rfc5424_match.sd
-                .msg_content = .rfc5424_match.msg
-                del(.rfc5424_match)
-              } else {
-                # Fallback: simple space split for basic RFC5424 without complex structured data
-                .rfc5424_parts = split!(.remainder, " ")
-                if length(.rfc5424_parts) >= 7 {
-                  .syslog_version = .rfc5424_parts[0]
-                  .syslog_timestamp = .rfc5424_parts[1]
-                  .device_hostname = .rfc5424_parts[2]
-                  .app_name = .rfc5424_parts[3]
-                  .proc_id = .rfc5424_parts[4]
-                  .msg_id = .rfc5424_parts[5]
-                  .structured_data = .rfc5424_parts[6]
-                  if length(.rfc5424_parts) >= 8 {
-                    .msg_content = join!(slice!(.rfc5424_parts, 7), " ")
+              if length(.rfc5424_parts) >= 7 {
+                .syslog_version = .rfc5424_parts[0]
+                .syslog_timestamp = .rfc5424_parts[1]
+                .device_hostname = .rfc5424_parts[2]
+                .app_name = .rfc5424_parts[3]
+                .proc_id = .rfc5424_parts[4]
+                .msg_id = .rfc5424_parts[5]
+
+                # Everything from index 6 onwards is structured-data + message
+                .sd_and_msg = join!(slice!(.rfc5424_parts, 6), " ")
+
+                # If it starts with "[", structured data is present
+                if starts_with(.sd_and_msg, "[") {
+                  # Split on "] " to separate SD from MSG
+                  .sd_msg_parts = split!(.sd_and_msg, "] ")
+                  if length(.sd_msg_parts) >= 2 {
+                    .structured_data = string!(.sd_msg_parts[0]) + "]"
+                    .msg_content = join!(slice!(.sd_msg_parts, 1), "] ")
+                  } else {
+                    # No proper "] " boundary, treat entire thing as SD
+                    .structured_data = .sd_and_msg
+                    .msg_content = ""
+                  }
+                  del(.sd_msg_parts)
+                } else {
+                  # No structured data - first part is SD ("-"), rest is message
+                  .sd_parts_simple = split!(.sd_and_msg, " ", limit: 2)
+                  .structured_data = .sd_parts_simple[0]
+                  if length(.sd_parts_simple) >= 2 {
+                    .msg_content = .sd_parts_simple[1]
                   } else {
                     .msg_content = ""
                   }
-                  del(.rfc5424_parts)
+                  del(.sd_parts_simple)
                 }
+                del(.sd_and_msg)
+                del(.rfc5424_parts)
               }
 
               if exists(.app_name) {
