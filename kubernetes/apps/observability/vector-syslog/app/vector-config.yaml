@@ -165,66 +165,42 @@ data:
 
               .remainder = .parts[1]
 
-              # RFC5424 starts with version number (typically "1")
-              # Split by space to get: version, timestamp, hostname, app-name, procid, msgid, structured-data, msg
-              .rfc5424_parts = split!(.remainder, " ")
+              # RFC5424: version SP timestamp SP hostname SP app-name SP procid SP msgid SP structured-data SP msg
+              # Use regex to properly parse, handling structured data that may contain spaces
+              # Pattern: ^(\d+) (\S+) (\S+) (\S+) (\S+) (\S+) (\[.*?\]|-) (.*)$
+              .rfc5424_match = parse_regex(.remainder, r'^(?P<version>\d+) (?P<timestamp>\S+) (?P<hostname>\S+) (?P<appname>\S+) (?P<procid>\S+) (?P<msgid>\S+) (?P<sd>\[.*?\]|-) (?P<msg>.*)$') ?? null
 
-              if length(.rfc5424_parts) >= 7 {
-                .syslog_version = .rfc5424_parts[0]
-                .syslog_timestamp = .rfc5424_parts[1]
-                .device_hostname = .rfc5424_parts[2]
-                .app_name = .rfc5424_parts[3]
-                .proc_id = .rfc5424_parts[4]
-                .msg_id = .rfc5424_parts[5]
-
-                # Handle structured data - it can be "-" or "[key=val]" spanning multiple fields
-                # If it starts with "[", find where it ends with "]"
-                .sd_start = .rfc5424_parts[6]
-                if starts_with(string!(.sd_start), "[") {
-                  # Structured data present - find the closing bracket
-                  .sd_parts = [.sd_start]
-                  .msg_start_idx = 7
-                  .found_end = ends_with(string!(.sd_start), "]")
-
-                  if !.found_end {
-                    .idx = 7
-                    .max_idx = length(.rfc5424_parts)
-                    while .idx < .max_idx && !.found_end {
-                      .current_part = .rfc5424_parts[.idx]
-                      .sd_parts = push(.sd_parts, .current_part)
-                      if ends_with(string!(.current_part), "]") {
-                        .found_end = true
-                        .msg_start_idx = .idx + 1
-                      }
-                      .idx = .idx + 1
-                    }
-                  }
-                  .structured_data = join!(.sd_parts, " ")
-
-                  # Get message content after structured data
-                  if .msg_start_idx < length(.rfc5424_parts) {
-                    .msg_content = join!(slice!(.rfc5424_parts, .msg_start_idx), " ")
-                  } else {
-                    .msg_content = ""
-                  }
-                  del(.sd_parts)
-                  del(.sd_start)
-                  del(.found_end)
-                  del(.idx)
-                  del(.max_idx)
-                  del(.current_part)
-                  del(.msg_start_idx)
-                } else {
-                  # No structured data or "-"
-                  .structured_data = .sd_start
-                  del(.sd_start)
-                  # Message is everything after field 6
+              if .rfc5424_match != null {
+                .syslog_version = .rfc5424_match.version
+                .syslog_timestamp = .rfc5424_match.timestamp
+                .device_hostname = .rfc5424_match.hostname
+                .app_name = .rfc5424_match.appname
+                .proc_id = .rfc5424_match.procid
+                .msg_id = .rfc5424_match.msgid
+                .structured_data = .rfc5424_match.sd
+                .msg_content = .rfc5424_match.msg
+                del(.rfc5424_match)
+              } else {
+                # Fallback: simple space split for basic RFC5424 without complex structured data
+                .rfc5424_parts = split!(.remainder, " ")
+                if length(.rfc5424_parts) >= 7 {
+                  .syslog_version = .rfc5424_parts[0]
+                  .syslog_timestamp = .rfc5424_parts[1]
+                  .device_hostname = .rfc5424_parts[2]
+                  .app_name = .rfc5424_parts[3]
+                  .proc_id = .rfc5424_parts[4]
+                  .msg_id = .rfc5424_parts[5]
+                  .structured_data = .rfc5424_parts[6]
                   if length(.rfc5424_parts) >= 8 {
                     .msg_content = join!(slice!(.rfc5424_parts, 7), " ")
                   } else {
                     .msg_content = ""
                   }
+                  del(.rfc5424_parts)
                 }
+              }
+
+              if exists(.app_name) {
 
                 # Check if this is a filterlog message (firewall log)
                 if .app_name == "filterlog" {
@@ -381,7 +357,7 @@ data:
                   .device_name = "opnsense-" + downcase!(string!(.app_name))
                 }
               } else {
-                # Not enough parts for RFC5424, try as simple message
+                # Could not parse RFC5424 header, use raw remainder
                 .message_type = "unknown"
                 ._msg = .remainder
                 .device_name = "opnsense-unknown"
