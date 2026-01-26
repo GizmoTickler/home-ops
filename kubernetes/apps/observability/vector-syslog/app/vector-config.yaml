@@ -176,14 +176,54 @@ data:
                 .app_name = .rfc5424_parts[3]
                 .proc_id = .rfc5424_parts[4]
                 .msg_id = .rfc5424_parts[5]
-                .structured_data = .rfc5424_parts[6]
 
-                # The message is everything after the 7th field
-                # Reconstruct the message from remaining parts
-                if length(.rfc5424_parts) >= 8 {
-                  .msg_content = join!(slice!(.rfc5424_parts, 7), " ")
+                # Handle structured data - it can be "-" or "[key=val]" spanning multiple fields
+                # If it starts with "[", find where it ends with "]"
+                .sd_start = .rfc5424_parts[6]
+                if starts_with(string!(.sd_start), "[") {
+                  # Structured data present - find the closing bracket
+                  .sd_parts = [.sd_start]
+                  .msg_start_idx = 7
+                  .found_end = ends_with(string!(.sd_start), "]")
+
+                  if !.found_end {
+                    .idx = 7
+                    .max_idx = length(.rfc5424_parts)
+                    while .idx < .max_idx && !.found_end {
+                      .current_part = .rfc5424_parts[.idx]
+                      .sd_parts = push(.sd_parts, .current_part)
+                      if ends_with(string!(.current_part), "]") {
+                        .found_end = true
+                        .msg_start_idx = .idx + 1
+                      }
+                      .idx = .idx + 1
+                    }
+                  }
+                  .structured_data = join!(.sd_parts, " ")
+
+                  # Get message content after structured data
+                  if .msg_start_idx < length(.rfc5424_parts) {
+                    .msg_content = join!(slice!(.rfc5424_parts, .msg_start_idx), " ")
+                  } else {
+                    .msg_content = ""
+                  }
+                  del(.sd_parts)
+                  del(.sd_start)
+                  del(.found_end)
+                  del(.idx)
+                  del(.max_idx)
+                  del(.current_part)
+                  del(.msg_start_idx)
                 } else {
-                  .msg_content = ""
+                  # No structured data or "-"
+                  .structured_data = .sd_start
+                  del(.sd_start)
+                  # Message is everything after field 6
+                  if length(.rfc5424_parts) >= 8 {
+                    .msg_content = join!(slice!(.rfc5424_parts, 7), " ")
+                  } else {
+                    .msg_content = ""
+                  }
                 }
 
                 # Check if this is a filterlog message (firewall log)
