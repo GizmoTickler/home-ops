@@ -45,10 +45,14 @@ spec:
           port: 514
           protocol: UDP
           targetPort: 514
-        - name: unifi-udp
+        - name: opnsense-udp
           port: 5514
           protocol: UDP
           targetPort: 5514
+        - name: unifi-udp
+          port: 5515
+          protocol: UDP
+          targetPort: 5515
 
     # Pod annotations
     podAnnotations:
