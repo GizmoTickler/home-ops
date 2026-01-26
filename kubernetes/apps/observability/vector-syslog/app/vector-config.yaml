@@ -318,27 +318,27 @@ data:
                     }
 
                     # Build descriptive message
-                    .action_str = upcase(.action) ?? .action
+                    .action_str = upcase(string!(.action)) ?? string!(.action)
                     if exists(.src_ip) && exists(.dst_ip) {
                       if exists(.src_port) && exists(.dst_port) {
-                        ._msg = .action_str + " " + .protocol + " " + .src_ip + ":" + to_string!(.src_port) + " -> " + .dst_ip + ":" + to_string!(.dst_port) + " on " + .in_interface
+                        ._msg = string!(.action_str) + " " + string!(.protocol) + " " + string!(.src_ip) + ":" + to_string!(.src_port) + " -> " + string!(.dst_ip) + ":" + to_string!(.dst_port) + " on " + string!(.in_interface)
                       } else {
-                        ._msg = .action_str + " " + .protocol + " " + .src_ip + " -> " + .dst_ip + " on " + .in_interface
+                        ._msg = string!(.action_str) + " " + string!(.protocol) + " " + string!(.src_ip) + " -> " + string!(.dst_ip) + " on " + string!(.in_interface)
                       }
                     } else {
-                      ._msg = .csv_data
+                      ._msg = string!(.csv_data)
                     }
                   } else {
                     # Not enough fields to parse, use raw CSV
-                    ._msg = .csv_data
+                    ._msg = string!(.csv_data)
                   }
                   .device_name = "opnsense-firewall"
 
                 } else {
                   # Non-filterlog OPNsense message (system logs, services, etc.)
                   .message_type = "system"
-                  ._msg = .app_name + ": " + .msg_content
-                  .device_name = "opnsense-" + downcase(.app_name) ?? "system"
+                  ._msg = string!(.app_name) + ": " + string!(.msg_content)
+                  .device_name = "opnsense-" + (downcase(string!(.app_name)) ?? "system")
                 }
               } else {
                 # Not enough parts for RFC5424, try as simple message
