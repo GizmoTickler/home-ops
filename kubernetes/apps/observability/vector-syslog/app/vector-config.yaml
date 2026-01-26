@@ -218,7 +218,7 @@ data:
                       .offset = .fields[13]
                       .ip_flags = .fields[14]
                       .protocol_id = .fields[15]
-                      .protocol = downcase(.fields[16]) ?? .fields[16]
+                      .protocol = downcase!(string!(.fields[16]))
                       .packet_length = to_int(.fields[17]) ?? null
 
                       # TCP/UDP have src/dst IP and ports
@@ -251,7 +251,7 @@ data:
                       .traffic_class = .fields[9]
                       .flow_label = .fields[10]
                       .hop_limit = to_int(.fields[11]) ?? null
-                      .protocol = downcase(.fields[12]) ?? .fields[12]
+                      .protocol = downcase!(string!(.fields[12]))
                       .protocol_id = .fields[13]
                       .packet_length = to_int(.fields[14]) ?? null
 
@@ -318,7 +318,7 @@ data:
                     }
 
                     # Build descriptive message
-                    .action_str = upcase(string!(.action)) ?? string!(.action)
+                    .action_str = upcase!(string!(.action))
                     if exists(.src_ip) && exists(.dst_ip) {
                       if exists(.src_port) && exists(.dst_port) {
                         ._msg = string!(.action_str) + " " + string!(.protocol) + " " + string!(.src_ip) + ":" + to_string!(.src_port) + " -> " + string!(.dst_ip) + ":" + to_string!(.dst_port) + " on " + string!(.in_interface)
@@ -338,7 +338,7 @@ data:
                   # Non-filterlog OPNsense message (system logs, services, etc.)
                   .message_type = "system"
                   ._msg = string!(.app_name) + ": " + string!(.msg_content)
-                  .device_name = "opnsense-" + (downcase(string!(.app_name)) ?? "system")
+                  .device_name = "opnsense-" + downcase!(string!(.app_name))
                 }
               } else {
                 # Not enough parts for RFC5424, try as simple message
