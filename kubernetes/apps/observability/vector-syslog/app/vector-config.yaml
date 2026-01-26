@@ -156,7 +156,7 @@ data:
           # Example: <134>1 2026-01-25T22:30:00Z opnsense filterlog 12345 - - CSV_DATA
           if starts_with(.raw_message, "<") {
             # Extract priority
-            .parts = split(.raw_message, ">", limit: 2)
+            .parts = split!(.raw_message, ">", limit: 2)
             if length(.parts) >= 2 {
               .priority_str = replace!(.parts[0], "<", "")
               .priority = to_int!(.priority_str)
@@ -167,7 +167,7 @@ data:
 
               # RFC5424 starts with version number (typically "1")
               # Split by space to get: version, timestamp, hostname, app-name, procid, msgid, structured-data, msg
-              .rfc5424_parts = split(.remainder, " ")
+              .rfc5424_parts = split!(.remainder, " ")
 
               if length(.rfc5424_parts) >= 7 {
                 .syslog_version = .rfc5424_parts[0]
@@ -194,7 +194,7 @@ data:
                   .csv_data = .msg_content
 
                   # Parse the CSV fields
-                  .fields = split(.csv_data, ",")
+                  .fields = split!(.csv_data, ",")
                   .field_count = length(.fields)
 
                   if .field_count >= 9 {
