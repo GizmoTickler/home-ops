@@ -167,8 +167,8 @@ data:
 
               # RFC5424: version SP timestamp SP hostname SP app-name SP procid SP msgid SP structured-data SP msg
               # Use regex to properly parse, handling structured data that may contain spaces
-              # Pattern: ^(\d+) (\S+) (\S+) (\S+) (\S+) (\S+) (\[.*?\]|-) (.*)$
-              .rfc5424_match = parse_regex(.remainder, r'^(?P<version>\d+) (?P<timestamp>\S+) (?P<hostname>\S+) (?P<appname>\S+) (?P<procid>\S+) (?P<msgid>\S+) (?P<sd>\[.*?\]|-) (?P<msg>.*)$') ?? null
+              # Structured data is either "-" or "[...content...]" - look for "] " as boundary
+              .rfc5424_match = parse_regex(.remainder, r'^(?P<version>\d+) (?P<timestamp>\S+) (?P<hostname>\S+) (?P<appname>\S+) (?P<procid>\S+) (?P<msgid>\S+) (?P<sd>\[[^\]]+\]|-) (?P<msg>.*)$') ?? null
 
               if .rfc5424_match != null {
                 .syslog_version = .rfc5424_match.version
