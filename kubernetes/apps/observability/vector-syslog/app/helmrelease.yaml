@@ -66,6 +66,24 @@ spec:
     # Required when using existingConfigMaps
     dataDir: /vector-data-dir
 
+    # Container ports for syslog and metrics
+    containerPorts:
+      - name: cisco-udp
+        containerPort: 514
+        protocol: UDP
+      - name: opnsense-udp
+        containerPort: 5514
+        protocol: UDP
+      - name: unifi-udp
+        containerPort: 5515
+        protocol: UDP
+      - name: prom-exporter
+        containerPort: 9090
+        protocol: TCP
+      - name: api
+        containerPort: 8686
+        protocol: TCP
+
     # Persistence for disk buffer
     persistence:
       enabled: true
