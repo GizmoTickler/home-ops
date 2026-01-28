@@ -22,12 +22,19 @@ spec:
       extraArgs:
         search.maxConcurrentRequests: "8"
         search.maxQueueDuration: "30s"
+        # Query duration limit for complex queries
+        search.maxQueryDuration: "60s"
+        # Memory limit per query (256Mi)
+        search.maxMemoryPerQuery: "268435456"
+        # Block cache size for faster queries (512Mi)
+        storage.cacheSizeBlocksBytes: "536870912"
       resources:
         requests:
           cpu: 175m
           memory: 256Mi
         limits:
-          memory: 1Gi
+          # Increased for complex queries and caching
+          memory: 2Gi
     dashboards:
       enabled: true
       labels:

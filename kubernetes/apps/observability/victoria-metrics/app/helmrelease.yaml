@@ -83,6 +83,12 @@ spec:
           search.maxQueryDuration: "120s"
           # Memory limits per query to prevent OOM (536870912 bytes = 512Mi)
           search.maxMemoryPerQuery: "536870912"
+          # Deduplication for overlapping scrapes (matches scrapeInterval)
+          dedup.minScrapeInterval: "30s"
+          # Cache warming for faster cold starts after restarts
+          search.cacheTimestampOffset: "5m"
+          # Limit unique timeseries per query (prevents expensive queries)
+          search.maxUniqueTimeseries: "300000"
         storage:
           accessModes:
             - ReadWriteOnce
@@ -122,6 +128,7 @@ spec:
           group_by:
             - "alertname"
             - "job"
+            - "namespace"
           group_interval: 5m
           group_wait: 1m
           receiver: pushover
@@ -136,6 +143,13 @@ spec:
               repeat_interval: 5m
               matchers:
                 - alertname=Watchdog
+            # Warning alerts - less aggressive notification
+            - receiver: pushover
+              group_wait: 5m
+              repeat_interval: 24h
+              matchers:
+                - severity=warning
+            # Critical alerts - immediate notification
             - receiver: pushover
               matchers:
                 - severity=critical
@@ -146,6 +160,22 @@ spec:
               - severity = "warning"
             equal:
               - "alertname"
+              - "namespace"
+          # Inhibit node-level alerts when node is NotReady
+          - source_matchers:
+              - alertname = "KubernetesNodeNotReady"
+            target_matchers:
+              - alertname =~ "KubernetesNode.*"
+            equal:
+              - "node"
+          # Inhibit pod alerts when namespace has critical issues
+          - source_matchers:
+              - severity = "critical"
+              - component = "kubernetes"
+            target_matchers:
+              - severity = "warning"
+              - component = "kubernetes"
+            equal:
               - "namespace"
         receivers:
           - name: "null"

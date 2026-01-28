@@ -13,6 +13,7 @@ spec:
           expr: count(up == 1) without(instance,pod,node) or vector(0)
         - record: count:up0
           expr: count(up == 0) without(instance,pod,node) or vector(0)
+
     # VMSingle Health Rules
     - name: vmsingle.rules
       rules:
@@ -20,11 +21,13 @@ spec:
           expr: |-
             absent(up{job="vmsingle-stack"}) or up{job="vmsingle-stack"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMSingle instance is down
             description: >-
               VMSingle has been unavailable for more than 5 minutes. All metric ingestion and queries are failing.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
           labels:
             severity: critical
 
@@ -32,11 +35,13 @@ spec:
           expr: |-
             (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_disk_space_limit_bytes{job="vmsingle-stack"}) < 0.2
           for: 15m
+          keep_firing_for: 10m
           annotations:
             summary: >-
               VMSingle storage is nearly full
             description: >-
               VMSingle has less than 20% free disk space remaining ({{ $value | humanizePercentage }} free). Consider increasing retention or storage size.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#storage
           labels:
             severity: critical
 
@@ -44,11 +49,13 @@ spec:
           expr: |-
             rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m]) > 500000
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMSingle ingestion rate is unusually high
             description: >-
               VMSingle is ingesting {{ $value | humanize }} rows/sec, which may indicate a metrics explosion or misconfigured scraper.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#cardinality-limiter
           labels:
             severity: warning
 
@@ -56,11 +63,13 @@ spec:
           expr: |-
             rate(vm_slow_row_inserts_total{job="vmsingle-stack"}[5m]) > 200
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMSingle is experiencing slow metric inserts
             description: >-
               VMSingle has {{ $value | humanize }} slow inserts per second (>1% of normal rate). This may indicate storage performance issues.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
           labels:
             severity: warning
 
@@ -68,11 +77,27 @@ spec:
           expr: |-
             histogram_quantile(0.99, sum(rate(vm_request_duration_seconds_bucket{job="vmsingle-stack",path=~"/api/v1/(query|query_range)"}[5m])) by (le)) > 5
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMSingle query latency is high
             description: >-
               VMSingle p99 query latency is {{ $value | humanizeDuration }}, which may affect dashboard performance.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
+          labels:
+            severity: warning
+
+        - alert: VMSingleHighMemoryUsage
+          expr: |-
+            (process_resident_memory_bytes{job="vmsingle-stack"} / on() group_left() kube_pod_container_resource_limits{resource="memory",container="vmsingle"}) > 0.85
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: >-
+              VMSingle memory usage is high
+            description: >-
+              VMSingle is using {{ $value | humanizePercentage }} of its memory limit. Consider increasing memory limits.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
           labels:
             severity: warning
 
@@ -83,11 +108,13 @@ spec:
           expr: |-
             absent(up{job="vmagent-stack"}) or up{job="vmagent-stack"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAgent is down
             description: >-
               VMAgent has been unavailable for more than 5 minutes. Metrics scraping has stopped.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#troubleshooting
           labels:
             severity: critical
 
@@ -95,11 +122,13 @@ spec:
           expr: |-
             (sum(rate(vm_promscrape_scrapes_failed_total{job="vmagent-stack"}[5m])) / sum(rate(vm_promscrape_scrapes_total{job="vmagent-stack"}[5m]))) > 0.05
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAgent has high scrape error rate
             description: >-
               VMAgent scrape error rate is {{ $value | humanizePercentage }}. Check target availability and scrape configurations.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#troubleshooting
           labels:
             severity: warning
 
@@ -107,11 +136,13 @@ spec:
           expr: |-
             rate(vmagent_remotewrite_dropped_rows_total{job="vmagent-stack"}[5m]) > 100
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAgent is dropping metrics
             description: >-
               VMAgent is dropping {{ $value | humanize }} metrics/sec. This indicates remote write issues or buffer overflow.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#troubleshooting
           labels:
             severity: critical
 
@@ -119,11 +150,13 @@ spec:
           expr: |-
             vmagent_remotewrite_pending_data_bytes{job="vmagent-stack"} > 100000000
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAgent remote write queue is growing
             description: >-
               VMAgent has {{ $value | humanize1024 }} of pending data in the remote write queue. This may indicate network or storage issues.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#troubleshooting
           labels:
             severity: warning
 
@@ -131,13 +164,29 @@ spec:
           expr: |-
             sum(up{job="vmagent-stack"}) by (job) > 1000
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAgent is managing too many targets
             description: >-
               VMAgent is scraping {{ $value }} targets. Consider sharding VMAgent for better performance.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#sharding
           labels:
             severity: warning
+
+        - alert: VMAgentConfigReloadFailure
+          expr: |-
+            vm_promscrape_config_last_reload_successful{job="vmagent-stack"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: >-
+              VMAgent configuration reload failed
+            description: >-
+              VMAgent failed to reload its configuration. Check config syntax and permissions.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmagent/#troubleshooting
+          labels:
+            severity: critical
 
     # VMAlert Health Rules
     - name: vmalert.rules
@@ -146,11 +195,13 @@ spec:
           expr: |-
             absent(up{job="vmalert-stack"}) or up{job="vmalert-stack"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlert is down
             description: >-
               VMAlert has been unavailable for more than 5 minutes. Alert evaluation has stopped.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
           labels:
             severity: critical
 
@@ -158,11 +209,13 @@ spec:
           expr: |-
             rate(vmalert_iteration_total{job="vmalert-stack",result="error"}[5m]) > 0
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlert is experiencing rule evaluation failures
             description: >-
               VMAlert has {{ $value }} evaluation failures per second. Check rule syntax and datasource connectivity.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
           labels:
             severity: warning
 
@@ -170,11 +223,13 @@ spec:
           expr: |-
             histogram_quantile(0.99, sum(rate(vmalert_iteration_duration_seconds_bucket{job="vmalert-stack"}[5m])) by (le)) > 30
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlert rule evaluation is slow
             description: >-
               VMAlert p99 evaluation latency is {{ $value | humanizeDuration }}. This may delay alert notifications.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
           labels:
             severity: warning
 
@@ -182,13 +237,29 @@ spec:
           expr: |-
             rate(vmalert_alerts_send_errors_total{job="vmalert-stack"}[5m]) > 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlert cannot send notifications
             description: >-
               VMAlert has {{ $value }} notification failures per second. Check Alertmanager connectivity.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
           labels:
             severity: critical
+
+        - alert: VMAlertNoRulesLoaded
+          expr: |-
+            vmalert_alerting_rules_loaded{job="vmalert-stack"} == 0 and vmalert_recording_rules_loaded{job="vmalert-stack"} == 0
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: >-
+              VMAlert has no rules loaded
+            description: >-
+              VMAlert has no alerting or recording rules loaded. Check VMRule resources and selectors.
+            runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+          labels:
+            severity: warning
 
     # VMAlertmanager Health Rules
     - name: vmalertmanager.rules
@@ -197,11 +268,13 @@ spec:
           expr: |-
             absent(up{job="vmalertmanager-stack"}) or up{job="vmalertmanager-stack"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlertmanager is down
             description: >-
               VMAlertmanager has been unavailable for more than 5 minutes. Alert notifications will not be delivered.
+            runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
           labels:
             severity: critical
 
@@ -209,11 +282,13 @@ spec:
           expr: |-
             rate(alertmanager_notification_queue_length{job="vmalertmanager-stack"}[15m]) > 0
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlertmanager notification queue is growing
             description: >-
               VMAlertmanager notification queue has {{ $value }} pending notifications. Check integration endpoints.
+            runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
           labels:
             severity: warning
 
@@ -221,11 +296,13 @@ spec:
           expr: |-
             rate(alertmanager_notifications_failed_total{job="vmalertmanager-stack"}[5m]) > 0
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlertmanager notification failures
             description: >-
               VMAlertmanager has {{ $value }} notification failures per second for integration {{ $labels.integration }}.
+            runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
           labels:
             severity: warning
 
@@ -233,11 +310,13 @@ spec:
           expr: |-
             alertmanager_config_last_reload_successful{job="vmalertmanager-stack"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               VMAlertmanager configuration reload failed
             description: >-
               VMAlertmanager failed to reload its configuration. Check config syntax.
+            runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
           labels:
             severity: critical
 
@@ -248,11 +327,13 @@ spec:
           expr: |-
             absent(up{job="victoria-metrics-operator"}) or up{job="victoria-metrics-operator"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               Victoria Metrics Operator is down
             description: >-
               Victoria Metrics Operator has been unavailable for more than 5 minutes. CRD reconciliation has stopped.
+            runbook_url: https://docs.victoriametrics.com/operator/
           labels:
             severity: critical
 
@@ -260,10 +341,12 @@ spec:
           expr: |-
             rate(operator_controller_runtime_reconcile_errors_total[5m]) > 0
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: >-
               Victoria Metrics Operator is experiencing reconcile errors
             description: >-
               Victoria Metrics Operator has {{ $value }} reconcile errors per second for controller {{ $labels.controller }}.
+            runbook_url: https://docs.victoriametrics.com/operator/
           labels:
             severity: warning

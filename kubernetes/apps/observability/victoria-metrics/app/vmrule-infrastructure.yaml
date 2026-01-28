@@ -14,12 +14,14 @@ spec:
           expr: |-
             kube_node_status_condition{condition="Ready",status="true"} == 0
           for: 2m
+          keep_firing_for: 5m
           annotations:
             summary: "Kubernetes node {{ $labels.node }} is NotReady"
             description: |-
               Node {{ $labels.node }} has been in NotReady state for more than 2 minutes.
               This will trigger pod evictions and may cause service disruptions.
               Check kubelet logs and node resources immediately.
+            runbook_url: https://kubernetes.io/docs/concepts/architecture/nodes/#condition
           labels:
             severity: critical
             component: kubernetes
@@ -28,11 +30,13 @@ spec:
           expr: |-
             kube_node_status_condition{condition="MemoryPressure",status="true"} == 1
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.node }} is under memory pressure"
             description: |-
               Node {{ $labels.node }} is experiencing memory pressure.
               Pods may be evicted to free up memory.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
           labels:
             severity: warning
             component: kubernetes
@@ -41,11 +45,13 @@ spec:
           expr: |-
             kube_node_status_condition{condition="DiskPressure",status="true"} == 1
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.node }} is under disk pressure"
             description: |-
               Node {{ $labels.node }} is experiencing disk pressure.
               Pods may be evicted and new pods cannot be scheduled.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
           labels:
             severity: warning
             component: kubernetes
@@ -54,11 +60,13 @@ spec:
           expr: |-
             kube_node_status_condition{condition="PIDPressure",status="true"} == 1
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.node }} is under PID pressure"
             description: |-
               Node {{ $labels.node }} is running out of PIDs.
               No new processes can be created.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
           labels:
             severity: warning
             component: kubernetes
@@ -67,11 +75,13 @@ spec:
           expr: |-
             kube_node_status_condition{condition="NetworkUnavailable",status="true"} == 1
           for: 2m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.node }} network is unavailable"
             description: |-
               Node {{ $labels.node }} network is unavailable.
               Check CNI (Cilium) configuration and network connectivity.
+            runbook_url: https://docs.cilium.io/en/stable/operations/troubleshooting/
           labels:
             severity: critical
             component: kubernetes
@@ -80,11 +90,13 @@ spec:
           expr: |-
             (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) * 100 > 90
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.instance }} CPU usage is high"
             description: |-
               Node {{ $labels.instance }} CPU usage is {{ $value | humanize }}% for over 15 minutes.
               Consider rebalancing workloads or scaling the cluster.
+            runbook_url: https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/
           labels:
             severity: warning
             component: kubernetes
@@ -93,11 +105,28 @@ spec:
           expr: |-
             (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: "Node {{ $labels.instance }} memory usage is high"
             description: |-
               Node {{ $labels.instance }} memory usage is {{ $value | humanize }}% for over 15 minutes.
               Risk of OOM kills and pod evictions.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
+          labels:
+            severity: warning
+            component: kubernetes
+
+        - alert: KubernetesNodeFilesystemAlmostFull
+          expr: |-
+            (1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100 > 85
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Node {{ $labels.instance }} filesystem is almost full"
+            description: |-
+              Node {{ $labels.instance }} root filesystem is {{ $value | humanize }}% full.
+              Consider cleaning up unused images or logs.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
           labels:
             severity: warning
             component: kubernetes
@@ -109,12 +138,14 @@ spec:
         - alert: KubernetesPodEvictions
           expr: |-
             increase(kube_pod_status_reason{reason="Evicted"}[10m]) > 0
+          keep_firing_for: 5m
           annotations:
             summary: "Pods are being evicted in namespace {{ $labels.namespace }}"
             description: |-
               {{ $value }} pod(s) have been evicted in namespace {{ $labels.namespace }} in the last 10 minutes.
               Pod: {{ $labels.pod }}
               Check node resources and pod resource requests/limits.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/
           labels:
             severity: warning
             component: kubernetes
@@ -122,11 +153,13 @@ spec:
         - alert: KubernetesPodOOMKilled
           expr: |-
             increase(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[10m]) > 0
+          keep_firing_for: 5m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOM killed"
             description: |-
               Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} was killed due to out-of-memory.
               Consider increasing memory limits or investigating memory leaks.
+            runbook_url: https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/
           labels:
             severity: warning
             component: kubernetes
@@ -135,11 +168,13 @@ spec:
           expr: |-
             rate(kube_pod_container_status_restarts_total[15m]) > 0.1
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash looping"
             description: |-
               Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} is restarting frequently ({{ $value | humanize }} restarts/sec).
               Check pod logs for errors.
+            runbook_url: https://kubernetes.io/docs/tasks/debug/debug-application/debug-running-pod/
           labels:
             severity: warning
             component: kubernetes
@@ -150,11 +185,13 @@ spec:
             and
             kube_pod_status_phase{phase=~"Running"} == 1
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
             description: |-
               Pod {{ $labels.namespace }}/{{ $labels.pod }} has been in Running but Not Ready state for over 10 minutes.
               Check readiness probe and pod health.
+            runbook_url: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
           labels:
             severity: warning
             component: kubernetes
@@ -163,11 +200,13 @@ spec:
           expr: |-
             kube_pod_status_phase{phase="Pending"} == 1
           for: 15m
+          keep_firing_for: 5m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is stuck in Pending"
             description: |-
               Pod {{ $labels.namespace }}/{{ $labels.pod }} has been pending for over 15 minutes.
               Check resource availability, node affinity, and PVC binding.
+            runbook_url: https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/
           labels:
             severity: warning
             component: kubernetes
@@ -180,11 +219,13 @@ spec:
           expr: |-
             absent(up{job="apiserver"}) or up{job="apiserver"} == 0
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Kubernetes API server is down"
             description: |-
               Kubernetes API server has been unavailable for more than 5 minutes.
               The cluster control plane is not functioning.
+            runbook_url: https://kubernetes.io/docs/reference/command-line-tools-reference/kube-apiserver/
           labels:
             severity: critical
             component: kubernetes
@@ -193,11 +234,13 @@ spec:
           expr: |-
             histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH"}[5m])) by (le, verb)) > 1
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: "Kubernetes API server has high request latency"
             description: |-
               API server p99 request latency for {{ $labels.verb }} requests is {{ $value | humanizeDuration }}.
               This may indicate performance issues or high cluster load.
+            runbook_url: https://kubernetes.io/docs/concepts/cluster-administration/system-metrics/
           labels:
             severity: warning
             component: kubernetes
@@ -206,11 +249,13 @@ spec:
           expr: |-
             sum(rate(apiserver_request_total{code=~"5.."}[5m])) by (verb, code) / sum(rate(apiserver_request_total[5m])) by (verb) > 0.05
           for: 10m
+          keep_firing_for: 5m
           annotations:
             summary: "Kubernetes API server has high error rate"
             description: |-
               API server is returning {{ $value | humanizePercentage }} 5xx errors for {{ $labels.verb }} requests.
               Check API server logs for issues.
+            runbook_url: https://kubernetes.io/docs/concepts/cluster-administration/system-metrics/
           labels:
             severity: warning
             component: kubernetes
@@ -221,11 +266,13 @@ spec:
           expr: |-
             kube_pod_status_phase{namespace="kube-system",pod=~"kube-(controller-manager|scheduler).*",phase!="Running"} == 1
           for: 5m
+          keep_firing_for: 5m
           annotations:
             summary: "Control plane pod {{ $labels.pod }} is not running"
             description: |-
               Control plane pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is in {{ $labels.phase }} phase.
               This may indicate control plane issues.
+            runbook_url: https://kubernetes.io/docs/concepts/architecture/control-plane-node-communication/
           labels:
             severity: critical
             component: kubernetes
@@ -233,3 +280,71 @@ spec:
         # Note: Talos Linux embeds etcd and doesn't expose metrics by default.
         # Monitor etcd health indirectly via API server and node status.
         # If API server is up and nodes are Ready, etcd is functioning.
+
+    # Storage Alerts
+    - name: kubernetes-storage.rules
+      interval: 30s
+      rules:
+        - alert: KubernetesPVCPending
+          expr: |-
+            kube_persistentvolumeclaim_status_phase{phase="Pending"} == 1
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is pending"
+            description: |-
+              PVC {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} has been pending for over 15 minutes.
+              Check storage class availability and volume provisioner.
+            runbook_url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: KubernetesPVCNearlyFull
+          expr: |-
+            (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.85
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is nearly full"
+            description: |-
+              PVC {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is {{ $value | humanizePercentage }} full.
+              Consider expanding the volume or cleaning up data.
+            runbook_url: https://kubernetes.io/docs/concepts/storage/persistent-volumes/#expanding-persistent-volumes-claims
+          labels:
+            severity: warning
+            component: storage
+
+    # Network Alerts
+    - name: kubernetes-network.rules
+      interval: 30s
+      rules:
+        - alert: CiliumAgentDown
+          expr: |-
+            absent(up{job="cilium-agent"}) or up{job="cilium-agent"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Cilium agent is down"
+            description: |-
+              Cilium agent has been unavailable for more than 5 minutes.
+              Pod networking may be affected.
+            runbook_url: https://docs.cilium.io/en/stable/operations/troubleshooting/
+          labels:
+            severity: critical
+            component: network
+
+        - alert: CiliumEndpointNotReady
+          expr: |-
+            sum(cilium_endpoint_state{endpoint_state!="ready"}) by (endpoint_state) > 0
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Cilium has endpoints in {{ $labels.endpoint_state }} state"
+            description: |-
+              {{ $value }} Cilium endpoints are in {{ $labels.endpoint_state }} state.
+              This may affect pod networking.
+            runbook_url: https://docs.cilium.io/en/stable/operations/troubleshooting/
+          labels:
+            severity: warning
+            component: network
