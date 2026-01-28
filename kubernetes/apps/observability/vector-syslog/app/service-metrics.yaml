@@ -6,7 +6,7 @@ metadata:
   namespace: observability
   labels:
     app.kubernetes.io/instance: vector-syslog
-    app.kubernetes.io/name: vector
+    app.kubernetes.io/name: vector-syslog
 spec:
   type: ClusterIP
   ports:
