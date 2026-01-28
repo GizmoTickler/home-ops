@@ -14,7 +14,7 @@ metadata:
   name: vector-syslog
   namespace: observability
 data:
-  vector.yaml: |-
+  aggregator.yaml: |-
     # Data directory for disk buffer
     data_dir: /vector-data-dir
 
