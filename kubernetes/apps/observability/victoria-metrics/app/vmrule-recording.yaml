@@ -206,10 +206,10 @@ spec:
           expr: |-
             rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m])
 
-        # VMSingle storage usage ratio (uses total disk space since limit may not be set)
+        # VMSingle storage usage ratio (data size vs total disk space)
         - record: vmsingle:storage_utilization:ratio
           expr: |-
-            1 - (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_data_size_bytes{job="vmsingle-stack"})
+            sum(vm_data_size_bytes{job="vmsingle-stack"}) / (sum(vm_data_size_bytes{job="vmsingle-stack"}) + vm_free_disk_space_bytes{job="vmsingle-stack"})
 
         # VMAgent scrape success rate
         - record: vmagent:scrape_success_rate:ratio
