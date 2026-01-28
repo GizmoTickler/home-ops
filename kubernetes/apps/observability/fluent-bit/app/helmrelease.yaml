@@ -22,27 +22,46 @@ spec:
           http_listen 0.0.0.0
           http_port {{ .Values.metricsPort }}
           health_check on
+          # Persistent storage for reliability during restarts
+          storage.path /var/log/flb-storage/
+          storage.sync normal
+          storage.checksum off
+          storage.backlog.mem_limit 10M
 
       inputs: |-
         [INPUT]
           name tail
           alias kubernetes
           path /var/log/containers/*.log
-          parser containerd
           tag kubernetes.*
           skip_empty_lines on
           skip_long_lines on
+          # Multiline handling for stack traces (docker/cri format)
+          multiline.parser docker, cri
+          # Storage buffer for reliability
+          storage.type filesystem
+          mem_buf_limit 10MB
+          # Continue from last position on restart
+          db /var/log/flb-storage/tail.db
+          db.sync normal
 
       filters: |-
         [FILTER]
           name kubernetes
           match kubernetes.*
           merge_log on
+          merge_log_key log_parsed
           kube_tag_prefix kubernetes.var.log.containers.
           k8s-logging.parser on
           k8s-logging.exclude on
           namespace_labels off
           annotations off
+          # Enable pod labels for better filtering
+          labels on
+          # Cache metadata to reduce Kubernetes API calls
+          kube_meta_cache_ttl 300s
+          # Larger buffer for high-volume pods
+          buffer_size 5MB
 
         [FILTER]
           name nest
@@ -73,6 +92,42 @@ spec:
           time_key time
           time_format %Y-%m-%dT%H:%M:%S.%L%z
 
+        # JSON parser for structured application logs
+        [PARSER]
+          name json_structured
+          format json
+          time_key timestamp
+          time_format %Y-%m-%dT%H:%M:%S.%L%z
+
+        # Multiline parser for Java/Kotlin stack traces
+        [MULTILINE_PARSER]
+          name multiline-java
+          type regex
+          flush_timeout 1000
+          rule "start_state" "/^\d{4}-\d{2}-\d{2}/" "cont"
+          rule "cont" "/^\s+at\s/" "cont"
+          rule "cont" "/^\s+\.\.\./" "cont"
+          rule "cont" "/^Caused by:/" "cont"
+
+        # Multiline parser for Python tracebacks
+        [MULTILINE_PARSER]
+          name multiline-python
+          type regex
+          flush_timeout 1000
+          rule "start_state" "/^Traceback/" "python_tb"
+          rule "python_tb" "/^\s+File/" "python_tb"
+          rule "python_tb" "/^\s+/" "python_tb"
+          rule "python_tb" "/^\w+Error/" "start_state"
+
+        # Multiline parser for Go panics
+        [MULTILINE_PARSER]
+          name multiline-go
+          type regex
+          flush_timeout 1000
+          rule "start_state" "/^panic:/" "go_panic"
+          rule "go_panic" "/^goroutine/" "go_panic"
+          rule "go_panic" "/^\t/" "go_panic"
+
       outputs: |-
         [OUTPUT]
           name http
@@ -83,6 +138,10 @@ spec:
           format json_lines
           json_date_format iso8601
           compress gzip
+          # Retry configuration for reliability
+          retry_limit 5
+          # Storage buffer for backpressure handling
+          storage.total_limit_size 1G
     dashboards:
       enabled: true
     serviceMonitor:
@@ -94,3 +153,12 @@ spec:
         memory: 128Mi
       limits:
         memory: 512Mi
+    # Volume for persistent buffer storage
+    extraVolumes:
+      - name: flb-storage
+        hostPath:
+          path: /var/log/flb-storage
+          type: DirectoryOrCreate
+    extraVolumeMounts:
+      - name: flb-storage
+        mountPath: /var/log/flb-storage

@@ -64,3 +64,12 @@ spec:
 
     # Tell Vector to use existing ConfigMap named 'vector-syslog'
     existingConfigMap: vector-syslog
+
+    # Persistence for disk buffer
+    persistence:
+      enabled: true
+      existingClaim: ""
+      storageClassName: openebs-hostpath
+      accessModes:
+        - ReadWriteOnce
+      size: 1Gi
