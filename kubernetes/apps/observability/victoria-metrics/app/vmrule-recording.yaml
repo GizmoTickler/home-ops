@@ -21,11 +21,6 @@ spec:
           expr: |-
             sum(container_memory_working_set_bytes{container!="",pod!=""}) by (namespace, pod)
 
-        # Pod memory RSS
-        - record: pod:container_memory_rss_bytes:sum
-          expr: |-
-            sum(container_memory_rss_bytes{container!="",pod!=""}) by (namespace, pod)
-
         # Pod network receive bytes rate
         - record: pod:container_network_receive_bytes_total:sum_rate5m
           expr: |-
@@ -211,10 +206,10 @@ spec:
           expr: |-
             rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m])
 
-        # VMSingle storage usage ratio
+        # VMSingle storage usage ratio (uses total disk space since limit may not be set)
         - record: vmsingle:storage_utilization:ratio
           expr: |-
-            1 - (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_disk_space_limit_bytes{job="vmsingle-stack"})
+            1 - (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_data_size_bytes{job="vmsingle-stack"})
 
         # VMAgent scrape success rate
         - record: vmagent:scrape_success_rate:ratio
@@ -229,4 +224,4 @@ spec:
         # VictoriaLogs storage usage ratio
         - record: victorialogs:storage_utilization:ratio
           expr: |-
-            1 - (vl_free_disk_space_bytes{job="victoria-logs-server"} / vl_disk_space_limit_bytes{job="victoria-logs-server"})
+            1 - (vl_free_disk_space_bytes{job="victoria-logs-server"} / vl_total_disk_space_bytes{job="victoria-logs-server"})
