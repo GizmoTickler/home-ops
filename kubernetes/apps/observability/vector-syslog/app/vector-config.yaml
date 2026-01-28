@@ -23,8 +23,13 @@ data:
       enabled: true
       address: "0.0.0.0:8686"
 
-    # Sources - Raw UDP socket listeners
+    # Sources - Raw UDP socket listeners and internal metrics
     sources:
+      # Internal metrics for Prometheus exporter
+      internal_metrics:
+        type: internal_metrics
+        scrape_interval_secs: 30
+
       # Cisco syslog on UDP 514
       cisco_syslog:
         type: socket
@@ -531,8 +536,15 @@ data:
         threshold: 3000
         window_secs: 1
 
-    # Sinks - Send to Victoria Logs
+    # Sinks - Send to Victoria Logs and expose metrics
     sinks:
+      # Prometheus metrics exporter for VMAgent scraping
+      prometheus_exporter:
+        type: prometheus_exporter
+        inputs:
+          - internal_metrics
+        address: "0.0.0.0:9090"
+
       victoria_logs:
         type: http
         inputs:
