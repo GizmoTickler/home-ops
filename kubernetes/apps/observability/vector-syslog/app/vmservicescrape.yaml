@@ -7,8 +7,9 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: vector-syslog
+      app.kubernetes.io/name: vector
       app.kubernetes.io/instance: vector-syslog
+  jobLabel: app.kubernetes.io/instance
   endpoints:
     - port: prom-exporter
       path: /metrics
