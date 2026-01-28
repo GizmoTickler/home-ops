@@ -1,0 +1,232 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: recording-rules
+spec:
+  groups:
+    # Pod Resource Usage Recording Rules
+    # Pre-aggregate common metrics for faster dashboard queries
+    - name: pod-resource-usage.rules
+      interval: 30s
+      rules:
+        # Pod CPU usage rate
+        - record: pod:container_cpu_usage_seconds_total:sum_rate5m
+          expr: |-
+            sum(rate(container_cpu_usage_seconds_total{container!="",pod!=""}[5m])) by (namespace, pod)
+
+        # Pod memory working set
+        - record: pod:container_memory_working_set_bytes:sum
+          expr: |-
+            sum(container_memory_working_set_bytes{container!="",pod!=""}) by (namespace, pod)
+
+        # Pod memory RSS
+        - record: pod:container_memory_rss_bytes:sum
+          expr: |-
+            sum(container_memory_rss_bytes{container!="",pod!=""}) by (namespace, pod)
+
+        # Pod network receive bytes rate
+        - record: pod:container_network_receive_bytes_total:sum_rate5m
+          expr: |-
+            sum(rate(container_network_receive_bytes_total{pod!=""}[5m])) by (namespace, pod)
+
+        # Pod network transmit bytes rate
+        - record: pod:container_network_transmit_bytes_total:sum_rate5m
+          expr: |-
+            sum(rate(container_network_transmit_bytes_total{pod!=""}[5m])) by (namespace, pod)
+
+        # Pod restart count
+        - record: pod:kube_pod_container_status_restarts_total:sum
+          expr: |-
+            sum(kube_pod_container_status_restarts_total) by (namespace, pod)
+
+    # Namespace Resource Usage Recording Rules
+    - name: namespace-resource-usage.rules
+      interval: 30s
+      rules:
+        # Namespace CPU usage
+        - record: namespace:container_cpu_usage_seconds_total:sum_rate5m
+          expr: |-
+            sum(rate(container_cpu_usage_seconds_total{container!="",pod!=""}[5m])) by (namespace)
+
+        # Namespace memory usage
+        - record: namespace:container_memory_working_set_bytes:sum
+          expr: |-
+            sum(container_memory_working_set_bytes{container!="",pod!=""}) by (namespace)
+
+        # Namespace CPU requests
+        - record: namespace:kube_pod_container_resource_requests_cpu_cores:sum
+          expr: |-
+            sum(kube_pod_container_resource_requests{resource="cpu"}) by (namespace)
+
+        # Namespace memory requests
+        - record: namespace:kube_pod_container_resource_requests_memory_bytes:sum
+          expr: |-
+            sum(kube_pod_container_resource_requests{resource="memory"}) by (namespace)
+
+        # Namespace CPU limits
+        - record: namespace:kube_pod_container_resource_limits_cpu_cores:sum
+          expr: |-
+            sum(kube_pod_container_resource_limits{resource="cpu"}) by (namespace)
+
+        # Namespace memory limits
+        - record: namespace:kube_pod_container_resource_limits_memory_bytes:sum
+          expr: |-
+            sum(kube_pod_container_resource_limits{resource="memory"}) by (namespace)
+
+        # Namespace pod count
+        - record: namespace:kube_pod_info:count
+          expr: |-
+            count(kube_pod_info) by (namespace)
+
+    # Node Resource Usage Recording Rules
+    - name: node-resource-usage.rules
+      interval: 30s
+      rules:
+        # Node CPU utilization (1m average)
+        - record: node:node_cpu_utilization:avg1m
+          expr: |-
+            1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m])) by (instance)
+
+        # Node CPU utilization (5m average)
+        - record: node:node_cpu_utilization:avg5m
+          expr: |-
+            1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)
+
+        # Node memory utilization
+        - record: node:node_memory_utilization:ratio
+          expr: |-
+            1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+
+        # Node memory available
+        - record: node:node_memory_available_bytes:sum
+          expr: |-
+            node_memory_MemAvailable_bytes
+
+        # Node filesystem utilization
+        - record: node:node_filesystem_utilization:ratio
+          expr: |-
+            1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+
+        # Node filesystem available
+        - record: node:node_filesystem_avail_bytes:sum
+          expr: |-
+            node_filesystem_avail_bytes{mountpoint="/"}
+
+        # Node network receive rate
+        - record: node:node_network_receive_bytes_total:rate5m
+          expr: |-
+            sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|cali.*|cilium.*"}[5m])) by (instance)
+
+        # Node network transmit rate
+        - record: node:node_network_transmit_bytes_total:rate5m
+          expr: |-
+            sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|cali.*|cilium.*"}[5m])) by (instance)
+
+        # Node load average
+        - record: node:node_load1:avg
+          expr: |-
+            node_load1
+
+    # Cluster-Wide Recording Rules
+    - name: cluster-resource-usage.rules
+      interval: 30s
+      rules:
+        # Cluster total CPU capacity
+        - record: cluster:node_cpu_cores:sum
+          expr: |-
+            sum(machine_cpu_cores)
+
+        # Cluster total CPU usage
+        - record: cluster:container_cpu_usage_seconds_total:sum_rate5m
+          expr: |-
+            sum(rate(container_cpu_usage_seconds_total{container!=""}[5m]))
+
+        # Cluster CPU utilization
+        - record: cluster:cpu_utilization:ratio
+          expr: |-
+            cluster:container_cpu_usage_seconds_total:sum_rate5m / cluster:node_cpu_cores:sum
+
+        # Cluster total memory capacity
+        - record: cluster:node_memory_bytes:sum
+          expr: |-
+            sum(node_memory_MemTotal_bytes)
+
+        # Cluster total memory usage
+        - record: cluster:container_memory_working_set_bytes:sum
+          expr: |-
+            sum(container_memory_working_set_bytes{container!=""})
+
+        # Cluster memory utilization
+        - record: cluster:memory_utilization:ratio
+          expr: |-
+            cluster:container_memory_working_set_bytes:sum / cluster:node_memory_bytes:sum
+
+        # Cluster pod count
+        - record: cluster:kube_pod_info:count
+          expr: |-
+            count(kube_pod_info)
+
+        # Cluster node count
+        - record: cluster:kube_node_info:count
+          expr: |-
+            count(kube_node_info)
+
+        # Cluster running pods
+        - record: cluster:kube_pod_status_phase_running:count
+          expr: |-
+            count(kube_pod_status_phase{phase="Running"} == 1)
+
+    # Storage Recording Rules
+    - name: storage-resource-usage.rules
+      interval: 60s
+      rules:
+        # PVC usage ratio
+        - record: pvc:kubelet_volume_stats_used_bytes:ratio
+          expr: |-
+            kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes
+
+        # PVC available bytes
+        - record: pvc:kubelet_volume_stats_available_bytes:sum
+          expr: |-
+            kubelet_volume_stats_available_bytes
+
+        # Total PVC usage
+        - record: cluster:kubelet_volume_stats_used_bytes:sum
+          expr: |-
+            sum(kubelet_volume_stats_used_bytes)
+
+        # Total PVC capacity
+        - record: cluster:kubelet_volume_stats_capacity_bytes:sum
+          expr: |-
+            sum(kubelet_volume_stats_capacity_bytes)
+
+    # Observability Stack Recording Rules
+    - name: observability-metrics.rules
+      interval: 30s
+      rules:
+        # VMSingle ingestion rate
+        - record: vmsingle:vm_rows_inserted_total:rate5m
+          expr: |-
+            rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m])
+
+        # VMSingle storage usage ratio
+        - record: vmsingle:storage_utilization:ratio
+          expr: |-
+            1 - (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_disk_space_limit_bytes{job="vmsingle-stack"})
+
+        # VMAgent scrape success rate
+        - record: vmagent:scrape_success_rate:ratio
+          expr: |-
+            1 - (sum(rate(vm_promscrape_scrapes_failed_total{job="vmagent-stack"}[5m])) / sum(rate(vm_promscrape_scrapes_total{job="vmagent-stack"}[5m])))
+
+        # VictoriaLogs ingestion rate
+        - record: victorialogs:vl_rows_ingested_total:rate5m
+          expr: |-
+            rate(vl_rows_ingested_total{job="victoria-logs-server"}[5m])
+
+        # VictoriaLogs storage usage ratio
+        - record: victorialogs:storage_utilization:ratio
+          expr: |-
+            1 - (vl_free_disk_space_bytes{job="victoria-logs-server"} / vl_disk_space_limit_bytes{job="victoria-logs-server"})
