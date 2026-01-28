@@ -11,7 +11,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: vector-syslog
+  name: vector-syslog-config
   namespace: observability
 data:
   aggregator.yaml: |-

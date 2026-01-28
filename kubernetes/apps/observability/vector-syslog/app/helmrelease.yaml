@@ -62,8 +62,8 @@ spec:
     config:
       enabled: false
 
-    # Tell Vector to use existing ConfigMap named 'vector-syslog'
-    existingConfigMap: vector-syslog
+    # Tell Vector to use our custom ConfigMap (separate name to avoid Helm overwrite)
+    existingConfigMap: vector-syslog-config
 
     # Persistence for disk buffer
     persistence:
