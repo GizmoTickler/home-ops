@@ -75,14 +75,8 @@ data:
               .priority = to_int!(.priority_str)
               .facility = to_int!(.priority / 8)
               .severity = mod!(.priority, 8)
-              .severity_name = if .severity == 0 { "emergency" }
-                else if .severity == 1 { "alert" }
-                else if .severity == 2 { "critical" }
-                else if .severity == 3 { "error" }
-                else if .severity == 4 { "warning" }
-                else if .severity == 5 { "notice" }
-                else if .severity == 6 { "info" }
-                else { "debug" }
+              severity_names = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"]
+              .severity_name = get!(severity_names, [.severity]) ?? "debug"
 
               .remainder = .parts[1]
               .cisco_parts = split!(.remainder, ": ", limit: 6)
@@ -99,7 +93,7 @@ data:
                   .fsm_match = parse_regex(to_string!(.facility_msg), r'%(?P<facility_name>\w+)-(?P<sev>\d+)-(?P<mnemonic>\w+)') ?? {}
                   if exists(.fsm_match.facility_name) {
                     .cisco_facility = .fsm_match.facility_name
-                    .cisco_severity = to_int!(.fsm_match.sev) ?? 6
+                    .cisco_severity = to_int(.fsm_match.sev) ?? 6
                     .cisco_mnemonic = .fsm_match.mnemonic
                   }
                   if exists(.cisco_parts[5]) {
@@ -174,14 +168,8 @@ data:
               .priority = to_int!(.priority_str)
               .facility = to_int!(.priority / 8)
               .severity = mod!(.priority, 8)
-              .severity_name = if .severity == 0 { "emergency" }
-                else if .severity == 1 { "alert" }
-                else if .severity == 2 { "critical" }
-                else if .severity == 3 { "error" }
-                else if .severity == 4 { "warning" }
-                else if .severity == 5 { "notice" }
-                else if .severity == 6 { "info" }
-                else { "debug" }
+              severity_names = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"]
+              .severity_name = get!(severity_names, [.severity]) ?? "debug"
 
               .remainder = .parts[1]
 
@@ -306,9 +294,7 @@ data:
                         starts_with(.dst_ip_str, "172.28.") || starts_with(.dst_ip_str, "172.29.") ||
                         starts_with(.dst_ip_str, "172.30.") || starts_with(.dst_ip_str, "172.31.")
 
-                      .traffic_direction = if .src_is_private && .dst_is_private { "internal" }
-                        else if .src_is_private { "outbound" }
-                        else { "inbound" }
+                      .traffic_direction = if .src_is_private && .dst_is_private { "internal" } else if .src_is_private { "outbound" } else { "inbound" }
 
                       del(.src_ip_str)
                       del(.dst_ip_str)
@@ -499,9 +485,7 @@ data:
                 .dst_ip_str = string!(.dst_ip)
                 .src_is_private = starts_with(.src_ip_str, "192.168.") || starts_with(.src_ip_str, "10.")
                 .dst_is_private = starts_with(.dst_ip_str, "192.168.") || starts_with(.dst_ip_str, "10.")
-                .traffic_direction = if .src_is_private && .dst_is_private { "internal" }
-                  else if .src_is_private { "outbound" }
-                  else { "inbound" }
+                .traffic_direction = if .src_is_private && .dst_is_private { "internal" } else if .src_is_private { "outbound" } else { "inbound" }
               }
             }
             .device_name = "unifi-uxg-firewall"
