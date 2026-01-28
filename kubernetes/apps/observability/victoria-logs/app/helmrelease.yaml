@@ -24,8 +24,6 @@ spec:
         search.maxQueueDuration: "30s"
         # Query duration limit for complex queries
         search.maxQueryDuration: "60s"
-        # Memory limit per query (256Mi)
-        search.maxMemoryPerQuery: "268435456"
         # Block cache size for faster queries (512Mi)
         storage.cacheSizeBlocksBytes: "536870912"
       resources:
