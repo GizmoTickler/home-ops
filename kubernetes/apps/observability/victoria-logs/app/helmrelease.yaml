@@ -22,10 +22,7 @@ spec:
       extraArgs:
         search.maxConcurrentRequests: "8"
         search.maxQueueDuration: "30s"
-        # Query duration limit for complex queries
         search.maxQueryDuration: "60s"
-        # Block cache size for faster queries (512Mi)
-        storage.cacheSizeBlocksBytes: "536870912"
       resources:
         requests:
           cpu: 175m
