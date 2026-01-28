@@ -58,12 +58,13 @@ spec:
     podAnnotations:
       reloader.stakater.com/auto: "true"
 
-    # Disable creation of ConfigMap by Helm since we provide our own
-    config:
-      enabled: false
+    # Use existing ConfigMap instead of Helm-generated one
+    # Note: existingConfigMaps is plural and a list
+    existingConfigMaps:
+      - vector-syslog-config
 
-    # Tell Vector to use our custom ConfigMap (separate name to avoid Helm overwrite)
-    existingConfigMap: vector-syslog-config
+    # Required when using existingConfigMaps
+    dataDir: /vector-data-dir
 
     # Persistence for disk buffer
     persistence:
