@@ -180,7 +180,7 @@ data:
                 .syslog_version = .rfc5424_parts[0]
                 .syslog_timestamp = .rfc5424_parts[1]
                 .device_hostname = .rfc5424_parts[2]
-                .app_name = .rfc5424_parts[3]
+                .app_name = string(.rfc5424_parts[3]) ?? ""
                 .proc_id = .rfc5424_parts[4]
                 .msg_id = .rfc5424_parts[5]
 
