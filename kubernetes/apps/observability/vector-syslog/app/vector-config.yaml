@@ -76,7 +76,7 @@ data:
               .facility = to_int!(.priority / 8)
               .severity = mod!(.priority, 8)
               severity_names = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"]
-              .severity_name = get!(severity_names, [.severity]) ?? "debug"
+              .severity_name = get(severity_names, [.severity]) ?? "debug"
 
               .remainder = .parts[1]
               .cisco_parts = split!(.remainder, ": ", limit: 6)
@@ -122,7 +122,7 @@ data:
           ._time = to_string(now())
           .device_type = "cisco"
           .device_name = if .device_ip == "10.255.255.1" { "cisco-switch" } else { "cisco-" + to_string!(.device_ip) }
-          .device_hostname = .hostname ?? "unknown"
+          .device_hostname = string(.hostname) ?? "unknown"
           .log_source = "network"
           .environment = "production"
 
@@ -169,7 +169,7 @@ data:
               .facility = to_int!(.priority / 8)
               .severity = mod!(.priority, 8)
               severity_names = ["emergency", "alert", "critical", "error", "warning", "notice", "info", "debug"]
-              .severity_name = get!(severity_names, [.severity]) ?? "debug"
+              .severity_name = get(severity_names, [.severity]) ?? "debug"
 
               .remainder = .parts[1]
 
@@ -420,7 +420,7 @@ data:
 
                 if length(.cef_fields) >= 8 {
                   .msg_match = parse_regex(.cef_fields[7], r'msg=([^=]+(?:\s+[^=]+)*?)(?:\s+\w+=|$)') ?? {}
-                  ._msg = .msg_match."1" ?? .event_name
+                  ._msg = string(get(.msg_match, ["1"]) ?? null) ?? .event_name
                 } else {
                   ._msg = .event_name
                 }
