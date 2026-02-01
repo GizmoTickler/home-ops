@@ -36,7 +36,7 @@ machine:
         noatime=True
   install:
     disk: /dev/nvme0n1
-    image: factory.talos.dev/installer/e9e5424769aecd480f5fec862391b37f62e2956faa42fa23fd16ec757810fb35:v1.12.2
+    image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.12.2
     wipe: false
   kernel:
     modules:
