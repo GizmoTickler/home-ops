@@ -759,10 +759,10 @@ func GetVMNames() ([]string, error) {
 
 // ESXiSSHClient wraps SSH operations for ESXi
 type ESXiSSHClient struct {
-	host        string
-	username    string
-	keyFile     string // Path to temporary key file
-	logger      *common.ColorLogger
+	host     string
+	username string
+	keyFile  string // Path to temporary key file
+	logger   *common.ColorLogger
 }
 
 // NewESXiSSHClient creates a new ESXi SSH client with 1Password key retrieval
@@ -784,16 +784,16 @@ func NewESXiSSHClient(host, username string) (*ESXiSSHClient, error) {
 
 	// Set restrictive permissions (600) before writing
 	if err := keyFile.Chmod(0600); err != nil {
-		os.Remove(keyFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return nil, fmt.Errorf("failed to set SSH key permissions: %w", err)
 	}
 
 	// Write the key content
 	if _, err := keyFile.WriteString(privateKey); err != nil {
-		os.Remove(keyFile.Name())
+		_ = os.Remove(keyFile.Name())
 		return nil, fmt.Errorf("failed to write SSH key: %w", err)
 	}
-	keyFile.Close()
+	_ = keyFile.Close()
 
 	logger.Debug("ESXi SSH key written to %s", keyFile.Name())
 
@@ -808,7 +808,7 @@ func NewESXiSSHClient(host, username string) (*ESXiSSHClient, error) {
 // Close cleans up the temporary SSH key file
 func (c *ESXiSSHClient) Close() {
 	if c.keyFile != "" {
-		os.Remove(c.keyFile)
+		_ = os.Remove(c.keyFile)
 		c.logger.Debug("Cleaned up SSH key file")
 	}
 }

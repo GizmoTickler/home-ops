@@ -17,6 +17,7 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
@@ -264,6 +265,46 @@ func getTrueNASVMNames() ([]string, error) {
 
 	if len(vmNames) == 0 {
 		return nil, fmt.Errorf("no VMs found on TrueNAS")
+	}
+
+	return vmNames, nil
+}
+
+// getProxmoxVMNames retrieves the list of VM names from Proxmox
+func getProxmoxVMNames() ([]string, error) {
+	// Get Proxmox connection details
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return nil, err
+	}
+
+	// Create Proxmox client and connect
+	client, err := proxmox.NewClient(host, tokenID, secret, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Proxmox client: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if err := client.Connect(nodeName); err != nil {
+		return nil, fmt.Errorf("failed to connect to Proxmox: %w", err)
+	}
+
+	// Query VMs
+	vms, err := client.ListVMs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to query VMs: %w", err)
+	}
+
+	// Extract VM names
+	vmNames := make([]string, 0, len(vms))
+	for _, vm := range vms {
+		if vm.Name != "" {
+			vmNames = append(vmNames, vm.Name)
+		}
+	}
+
+	if len(vmNames) == 0 {
+		return nil, fmt.Errorf("no VMs found on Proxmox")
 	}
 
 	return vmNames, nil
@@ -808,6 +849,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 	providerOptions := []string{
 		"vSphere/ESXi - Deploy to vSphere or ESXi (default)",
 		"TrueNAS - Deploy to TrueNAS Scale",
+		"Proxmox - Deploy to Proxmox VE",
 	}
 
 	selectedProvider, err := ui.Choose("Select virtualization provider:", providerOptions)
@@ -818,6 +860,9 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 	if strings.HasPrefix(selectedProvider, "TrueNAS") {
 		*provider = "truenas"
 		logger.Info("Selected provider: TrueNAS")
+	} else if strings.HasPrefix(selectedProvider, "Proxmox") {
+		*provider = "proxmox"
+		logger.Info("Selected provider: Proxmox VE")
 	} else {
 		*provider = "vsphere"
 		logger.Info("Selected provider: vSphere/ESXi")
@@ -1012,13 +1057,14 @@ func newDeployVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
-		Short: "Deploy Talos VM on TrueNAS or vSphere/ESXi",
-		Long: `Deploy a new Talos VM on TrueNAS or vSphere/ESXi.
+		Short: "Deploy Talos VM on TrueNAS, vSphere/ESXi, or Proxmox",
+		Long: `Deploy a new Talos VM on TrueNAS, vSphere/ESXi, or Proxmox VE.
 
-Defaults to vSphere/ESXi deployment. Use --provider truenas for TrueNAS deployment.
+Defaults to vSphere/ESXi deployment. Use --provider truenas for TrueNAS or --provider proxmox for Proxmox VE.
 
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
 For vSphere/ESXi: Deploys to specified datastore with enhanced VM configuration.
+For Proxmox: Uses predefined node configs (k8s-0, k8s-1, k8s-2) with UEFI, NUMA, and disk passthrough.
 
 Use --generate-iso to create a custom ISO using the schematic.yaml configuration.
 
@@ -1048,15 +1094,19 @@ If no flags are provided, presents an interactive menu with default and custom p
 				logger.Info("🔍 DRY-RUN MODE - No changes will be made")
 			}
 
-			// Deploy to vSphere unless explicitly set to truenas
-			if provider == "truenas" {
+			// Deploy to appropriate provider
+			switch provider {
+			case "truenas":
 				return deployVMWithPatternDryRun(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO, dryRun)
+			case "proxmox":
+				return deployVMOnProxmoxDryRun(name, memory, vcpus, diskSize, openebsSize, generateISO, dryRun)
+			default:
+				return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
 			}
-			return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
@@ -1164,6 +1214,216 @@ func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, openebsSi
 		return nil
 	}
 	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+}
+
+// deployVMOnProxmoxDryRun handles Proxmox VM deployment with dry-run support
+func deployVMOnProxmoxDryRun(name string, memory, vcpus, diskSize, openebsSize int, generateISO, dryRun bool) error {
+	logger := common.NewColorLogger()
+
+	// Check if this is a predefined Talos node (k8s-0, k8s-1, k8s-2)
+	nodeConfig, isPredefined := proxmox.GetTalosNodeConfig(name)
+
+	if dryRun {
+		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
+		logger.Info("  Provider: Proxmox VE")
+		logger.Info("  VM Name: %s", name)
+
+		if isPredefined {
+			logger.Info("  Deployment Mode: Predefined Talos node configuration")
+			logger.Info("  VMID: %d", nodeConfig.VMID)
+			logger.Info("  Boot Storage: %s", nodeConfig.BootStorage)
+			logger.Info("  OpenEBS Storage: %s", nodeConfig.OpenEBSStorage)
+			logger.Info("  Ceph Disk (passthrough): /dev/disk/by-id/%s", nodeConfig.CephDiskByID)
+			logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
+			logger.Info("  NUMA Node: %d", nodeConfig.NUMANode)
+			logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
+			// Show default config values
+			defaultConfig := proxmox.DefaultVMConfig
+			logger.Info("  Memory: %d MB (%d GB)", defaultConfig.Memory, defaultConfig.Memory/1024)
+			logger.Info("  vCPUs: %d", defaultConfig.Cores)
+			logger.Info("  CPU Type: %s", defaultConfig.CPUType)
+			logger.Info("  Boot Disk: %d GB", defaultConfig.BootDiskSize)
+			logger.Info("  OpenEBS Disk: %d GB", defaultConfig.OpenEBSSize)
+			logger.Info("  Network: %s (VLAN %d, MTU %d)", defaultConfig.NetworkBridge, defaultConfig.VLANID, defaultConfig.NetworkMTU)
+			logger.Info("  BIOS: %s (UEFI)", defaultConfig.BIOS)
+			logger.Info("  NUMA: Enabled")
+			logger.Info("  SCSI Controller: %s", defaultConfig.SCSIController)
+		} else {
+			logger.Info("  Deployment Mode: Custom configuration")
+			logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
+			logger.Info("  vCPUs: %d", vcpus)
+			logger.Info("  Boot Disk: %d GB", diskSize)
+			logger.Info("  OpenEBS Disk: %d GB", openebsSize)
+		}
+
+		if generateISO {
+			logger.Info("  Generate Custom ISO: Yes")
+		}
+		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
+		return nil
+	}
+
+	return deployVMOnProxmox(name, memory, vcpus, diskSize, openebsSize, generateISO)
+}
+
+// deployVMOnProxmox deploys a VM on Proxmox VE
+func deployVMOnProxmox(name string, memory, vcpus, diskSize, openebsSize int, generateISO bool) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting Proxmox VE VM deployment: %s", name)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	// Check if this is a predefined Talos node
+	nodeConfig, isPredefined := proxmox.GetTalosNodeConfig(name)
+
+	var vmConfig proxmox.VMConfig
+	if isPredefined {
+		// Use predefined configuration
+		logger.Info("Using predefined Talos node configuration for %s", name)
+		vmConfig = proxmox.DefaultVMConfig
+		vmConfig.Name = name
+		vmConfig.BootStorage = nodeConfig.BootStorage
+		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+		vmConfig.CephDiskByID = nodeConfig.CephDiskByID
+		vmConfig.CPUAffinity = nodeConfig.CPUAffinity
+		vmConfig.NUMANode = nodeConfig.NUMANode
+		vmConfig.MacAddress = nodeConfig.MacAddress
+	} else {
+		// Use custom configuration
+		logger.Info("Using custom configuration for %s", name)
+		vmConfig = proxmox.DefaultVMConfig
+		vmConfig.Name = name
+		vmConfig.Memory = memory
+		vmConfig.Cores = vcpus
+		vmConfig.BootDiskSize = diskSize
+		vmConfig.OpenEBSSize = openebsSize
+	}
+
+	// Generate ISO if requested
+	if generateISO {
+		logger.Info("Generating custom Talos ISO...")
+		if err := prepareISOForProxmox(); err != nil {
+			return fmt.Errorf("failed to prepare ISO: %w", err)
+		}
+	}
+
+	// Deploy the VM
+	if err := vmManager.DeployVM(vmConfig); err != nil {
+		return fmt.Errorf("failed to deploy VM: %w", err)
+	}
+
+	logger.Success("VM %s deployed successfully on Proxmox VE", name)
+	return nil
+}
+
+// prepareISOForProxmox handles Proxmox-specific ISO preparation
+func prepareISOForProxmox() error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting custom Talos ISO preparation for Proxmox...")
+
+	// Load version configuration
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
+	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+
+	// Create factory client
+	logger.Debug("Creating Talos factory client")
+	factoryClient := talos.NewFactoryClient()
+	if factoryClient == nil {
+		return fmt.Errorf("failed to create factory client")
+	}
+
+	// Load schematic from embedded templates
+	logger.Info("STEP 1: Loading schematic configuration...")
+	schematic, err := factoryClient.LoadSchematicFromTemplate()
+	if err != nil {
+		return fmt.Errorf("failed to load schematic template: %w", err)
+	}
+	logger.Success("Schematic configuration loaded successfully")
+
+	// Generate ISO from schematic
+	logger.Info("STEP 2: Generating custom Talos ISO...")
+
+	var isoInfo *talos.ISOInfo
+	err = ui.SpinWithFunc("Generating custom Talos ISO", func() error {
+		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=nocloud", versionConfig.TalosVersion)
+		var genErr error
+		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "nocloud")
+		if genErr != nil {
+			return fmt.Errorf("ISO generation failed: %w", genErr)
+		}
+		if isoInfo == nil {
+			return fmt.Errorf("ISO generation returned nil result")
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	logger.Success("Custom ISO generated successfully")
+	logger.Info("ISO Details:")
+	logger.Info("  URL: %s", isoInfo.URL)
+	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() { _ = vmManager.Close() }()
+
+	// Upload ISO to Proxmox
+	logger.Info("STEP 3: Uploading ISO to Proxmox storage...")
+	isoFilename := fmt.Sprintf("talos-%s-nocloud-amd64.iso", isoInfo.TalosVersion)
+
+	err = ui.SpinWithFunc("Uploading ISO to Proxmox", func() error {
+		if uploadErr := vmManager.UploadISOFromURL(isoInfo.URL, isoFilename, "local"); uploadErr != nil {
+			return fmt.Errorf("failed to upload custom ISO to Proxmox: %w", uploadErr)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	logger.Success("Custom ISO uploaded to Proxmox successfully")
+	logger.Info("ISO Location: local:iso/%s", isoFilename)
+
+	// Update node templates with schematic ID
+	logger.Info("STEP 4: Updating node configuration templates...")
+	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
+		logger.Warn("Failed to update node templates: %v", err)
+		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+	} else {
+		logger.Success("Node configuration templates updated successfully")
+	}
+
+	logger.Success("ISO preparation for Proxmox completed successfully!")
+	return nil
 }
 
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate, generateISO bool) error {
@@ -1439,8 +1699,8 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 func newManageVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manage-vm",
-		Short: "Manage VMs on TrueNAS or vSphere",
-		Long:  `Commands for managing VMs on TrueNAS Scale or vSphere/ESXi`,
+		Short: "Manage VMs on Proxmox, TrueNAS, or vSphere",
+		Long:  `Commands for managing VMs on Proxmox VE, TrueNAS Scale, or vSphere/ESXi`,
 	}
 
 	cmd.AddCommand(
@@ -1462,13 +1722,13 @@ func newListVMsCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List all VMs on TrueNAS or vSphere",
+		Short: "List all VMs on Proxmox, TrueNAS, or vSphere",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return listVMs(provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 
 	return cmd
 }
@@ -1476,7 +1736,8 @@ func newListVMsCommand() *cobra.Command {
 func listVMs(provider string) error {
 	logger := common.NewColorLogger()
 
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		// Get TrueNAS connection details
 		host, apiKey, err := getTrueNASCredentials()
 		if err != nil {
@@ -1495,46 +1756,67 @@ func listVMs(provider string) error {
 		}()
 
 		return vmManager.ListVMs()
-	}
 
-	// vSphere provider - get credentials
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
+	case "proxmox":
+		// Get Proxmox connection details
+		host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+		if err != nil {
+			return err
+		}
 
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found")
-	}
+		// Create VM manager
+		vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+		if err != nil {
+			return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+		}
+		defer func() {
+			if closeErr := vmManager.Close(); closeErr != nil {
+				logger.Warn("Failed to close VM manager: %v", closeErr)
+			}
+		}()
 
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() { _ = client.Close() }()
+		return vmManager.ListVMs()
 
-	vms, err := client.ListVMs()
-	if err != nil {
-		return fmt.Errorf("failed to list VMs: %w", err)
-	}
+	default:
+		// vSphere provider - get credentials
+		host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
+		if host == "" {
+			host = os.Getenv(constants.EnvVSphereHost)
+		}
+		username := get1PasswordSecret("op://Infrastructure/esxi/username")
+		if username == "" {
+			username = os.Getenv(constants.EnvVSphereUsername)
+		}
+		password := get1PasswordSecret("op://Infrastructure/esxi/password")
+		if password == "" {
+			password = os.Getenv(constants.EnvVSpherePassword)
+		}
 
-	fmt.Println("\nVMs on vSphere:")
-	fmt.Println("================")
-	for _, vm := range vms {
-		fmt.Printf("- %s\n", vm.Name())
-	}
-	fmt.Printf("\nTotal: %d VMs\n", len(vms))
+		if host == "" || username == "" || password == "" {
+			return fmt.Errorf("vSphere credentials not found")
+		}
 
-	return nil
+		// Create vSphere client
+		client := vsphere.NewClient(host, username, password, true)
+		if err := client.Connect(host, username, password, true); err != nil {
+			return fmt.Errorf("failed to connect to vSphere: %w", err)
+		}
+		defer func() { _ = client.Close() }()
+
+		vms, err := client.ListVMs()
+		if err != nil {
+			return fmt.Errorf("failed to list VMs: %w", err)
+		}
+
+		fmt.Println("\nVMs on vSphere:")
+		fmt.Println("================")
+		for _, vm := range vms {
+			fmt.Printf("- %s\n", vm.Name())
+		}
+		fmt.Printf("\nTotal: %d VMs\n", len(vms))
+
+		return nil
+	}
 }
 
 func newStartVMCommand() *cobra.Command {
@@ -1545,14 +1827,14 @@ func newStartVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "start",
-		Short: "Start a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Start a VM on TrueNAS or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Start a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Start a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return startVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -1569,10 +1851,12 @@ func startVMWithProvider(name, provider string) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or any other value
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -1591,10 +1875,14 @@ func startVMWithProvider(name, provider string) error {
 	}
 
 	// Call appropriate start function based on provider
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return startVM(name)
+	case "proxmox":
+		return startVMOnProxmox(name)
+	default:
+		return powerOnVMOnVSphere(name)
 	}
-	return powerOnVMOnVSphere(name)
 }
 
 // stopVMWithProvider stops a VM on the specified provider with interactive selector
@@ -1605,10 +1893,12 @@ func stopVMWithProvider(name, provider string) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or any other value
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -1627,10 +1917,14 @@ func stopVMWithProvider(name, provider string) error {
 	}
 
 	// Call appropriate stop function based on provider
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return stopVM(name)
+	case "proxmox":
+		return stopVMOnProxmox(name, false)
+	default:
+		return powerOffVMOnVSphere(name)
 	}
-	return powerOffVMOnVSphere(name)
 }
 
 // infoVMWithProvider gets VM info from the specified provider with interactive selector
@@ -1641,10 +1935,12 @@ func infoVMWithProvider(name, provider string) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or any other value
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -1663,10 +1959,14 @@ func infoVMWithProvider(name, provider string) error {
 	}
 
 	// Call appropriate info function based on provider
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return infoVM(name)
+	case "proxmox":
+		return infoVMOnProxmox(name)
+	default:
+		return infoVMOnVSphere(name)
 	}
-	return infoVMOnVSphere(name)
 }
 
 // infoVMOnVSphere gets detailed VM information from vSphere/ESXi
@@ -1778,14 +2078,14 @@ func newStopVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stop a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Stop a VM on TrueNAS or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return stopVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -1843,14 +2143,14 @@ func newDeleteVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Delete a VM on TrueNAS (with ZVols) or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Delete a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Delete a VM on Proxmox, TrueNAS (with ZVols), or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return deleteVMWithConfirmation(name, provider, force)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 
@@ -1867,10 +2167,12 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or empty provider
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -1891,9 +2193,12 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 	// Add confirmation for deletion
 	if !force {
 		var message string
-		if provider == "vsphere" || provider == "esxi" {
+		switch provider {
+		case "vsphere", "esxi":
 			message = fmt.Sprintf("Delete VM '%s' on vSphere/ESXi? This is destructive!", name)
-		} else {
+		case "proxmox":
+			message = fmt.Sprintf("Delete VM '%s' on Proxmox? This is destructive!", name)
+		default:
 			message = fmt.Sprintf("Delete VM '%s' and all its ZVols on TrueNAS? This is destructive!", name)
 		}
 
@@ -1906,10 +2211,14 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 		}
 	}
 
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return deleteVM(name)
+	case "proxmox":
+		return deleteVMOnProxmox(name)
+	default:
+		return deleteVMOnVSphere(name)
 	}
-	return deleteVMOnVSphere(name)
 }
 
 func deleteVM(name string) error {
@@ -1947,14 +2256,14 @@ func newInfoVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "info",
-		Short: "Get detailed information about a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Get detailed information about a VM on TrueNAS or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return infoVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2727,6 +3036,106 @@ func deleteVMOnVSphere(vmName string) error {
 	return nil
 }
 
+// startVMOnProxmox starts a VM on Proxmox VE
+func startVMOnProxmox(name string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting Proxmox VM: %s", name)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return vmManager.StartVM(name)
+}
+
+// stopVMOnProxmox stops a VM on Proxmox VE
+func stopVMOnProxmox(name string, force bool) error {
+	logger := common.NewColorLogger()
+	logger.Info("Stopping Proxmox VM: %s", name)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return vmManager.StopVM(name, force)
+}
+
+// deleteVMOnProxmox deletes a VM on Proxmox VE
+func deleteVMOnProxmox(name string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Deleting Proxmox VM: %s", name)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return vmManager.DeleteVM(name)
+}
+
+// infoVMOnProxmox gets detailed VM information from Proxmox VE
+func infoVMOnProxmox(name string) error {
+	logger := common.NewColorLogger()
+	logger.Info("Getting Proxmox VM info: %s", name)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	if err != nil {
+		return err
+	}
+
+	// Create VM manager
+	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return vmManager.GetVMInfo(name)
+}
+
 func newPowerOnVMCommand() *cobra.Command {
 	var (
 		name     string
@@ -2735,14 +3144,14 @@ func newPowerOnVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "poweron",
-		Short: "Power on a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Power on a VM on TrueNAS or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return powerOnVM(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2759,14 +3168,14 @@ func newPowerOffVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "poweroff",
-		Short: "Power off a VM on TrueNAS or vSphere/ESXi",
-		Long:  `Power off a VM on TrueNAS or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Short: "Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi",
+		Long:  `Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return powerOffVM(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Virtualization provider: vsphere/esxi (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2775,7 +3184,6 @@ func newPowerOffVMCommand() *cobra.Command {
 	return cmd
 }
 
-// powerOnVMOnVSphere powers on a VM on vSphere/ESXi
 // powerOnVM powers on a VM on the specified provider with interactive selector
 func powerOnVM(name, provider string) error {
 	// If VM name is not provided, prompt for selection based on provider
@@ -2784,10 +3192,12 @@ func powerOnVM(name, provider string) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or empty provider
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -2806,10 +3216,14 @@ func powerOnVM(name, provider string) error {
 	}
 
 	// Call appropriate power on function based on provider
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return startVM(name)
+	case "proxmox":
+		return startVMOnProxmox(name)
+	default:
+		return powerOnVMOnVSphere(name)
 	}
-	return powerOnVMOnVSphere(name)
 }
 
 // powerOffVM powers off a VM on the specified provider with interactive selector
@@ -2820,10 +3234,12 @@ func powerOffVM(name, provider string) error {
 		var err error
 
 		// Use appropriate VM listing based on provider
-		if provider == "truenas" {
+		switch provider {
+		case "truenas":
 			vmNames, err = getTrueNASVMNames()
-		} else {
-			// Default to ESXi/vSphere for vsphere, esxi, or empty provider
+		case "proxmox":
+			vmNames, err = getProxmoxVMNames()
+		default:
 			vmNames, err = getESXiVMNames()
 		}
 
@@ -2842,10 +3258,14 @@ func powerOffVM(name, provider string) error {
 	}
 
 	// Call appropriate power off function based on provider
-	if provider == "truenas" {
+	switch provider {
+	case "truenas":
 		return stopVM(name)
+	case "proxmox":
+		return stopVMOnProxmox(name, false)
+	default:
+		return powerOffVMOnVSphere(name)
 	}
-	return powerOffVMOnVSphere(name)
 }
 
 func powerOnVMOnVSphere(vmName string) error {
