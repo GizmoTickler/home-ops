@@ -46,8 +46,8 @@ machine:
         rsize=1048576
         wsize=1048576
   install:
-    disk: /dev/nvme0n1
-    image: factory.talos.dev/vmware-installer/6886a62a32031814c59f70d6161bbd6ec94f666a89ea207ff034af24cb9d14f6:v1.12.2
+    disk: /dev/sda
+    image: factory.talos.dev/installer/6886a62a32031814c59f70d6161bbd6ec94f666a89ea207ff034af24cb9d14f6:v1.12.2
     wipe: false
   kernel:
     modules:
@@ -72,20 +72,20 @@ machine:
     fs.inotify.max_user_instances: 8192 # Watchdog
     net.core.default_qdisc: fq # 10Gb/s
     # Increase max socket buffers
-    net.core.rmem_max: "134217728"           # 128MB (was 64MB)
-    net.core.wmem_max: "134217728"           # 128MB (was 64MB)
+    net.core.rmem_max: "134217728" # 128MB (was 64MB)
+    net.core.wmem_max: "134217728" # 128MB (was 64MB)
     # Increase TCP buffer auto-tuning range
-    net.ipv4.tcp_rmem: "4096 87380 67108864"  # min 4KB, default 87KB, max 64MB (was 32MB)
-    net.ipv4.tcp_wmem: "4096 65536 67108864"  # min 4KB, default 64KB, max 64MB (was 32MB)
+    net.ipv4.tcp_rmem: "4096 87380 67108864" # min 4KB, default 87KB, max 64MB (was 32MB)
+    net.ipv4.tcp_wmem: "4096 65536 67108864" # min 4KB, default 64KB, max 64MB (was 32MB)
     net.ipv4.tcp_congestion_control: bbr # 10Gb/s
     net.ipv4.tcp_fastopen: 3 # Send and accept data in the opening SYN packet
     net.ipv4.tcp_mtu_probing: 1 # 10Gb/s | Jumbo frames
     net.ipv4.tcp_notsent_lowat: "131072" # 10Gb/s | Cloudflared / QUIC
     net.ipv4.tcp_window_scaling: 1 # 10Gb/s
-    net.core.netdev_max_backlog: "16384"        # Default 1000, helps with packet bursts
-    net.core.somaxconn: "8192"                  # Listen backlog for busy servers
-    net.ipv4.tcp_slow_start_after_idle: "0"     # Don't reset cwnd after idle (helps NFS)
-    net.ipv4.tcp_tw_reuse: "1"                  # Reuse TIME_WAIT sockets (many connections)
+    net.core.netdev_max_backlog: "16384" # Default 1000, helps with packet bursts
+    net.core.somaxconn: "8192" # Listen backlog for busy servers
+    net.ipv4.tcp_slow_start_after_idle: "0" # Don't reset cwnd after idle (helps NFS)
+    net.ipv4.tcp_tw_reuse: "1" # Reuse TIME_WAIT sockets (many connections)
     sunrpc.tcp_slot_table_entries: 128 # 10Gb/s | NFS
     sunrpc.tcp_max_slot_table_entries: 128 # 10Gb/s | NFS
     user.max_user_namespaces: 11255 # User Namespaces

@@ -83,7 +83,7 @@ spec:
         useAllNodes: true
         useAllDevices: false
         # Intel SSD passthrough - PHDV7070004K1P2DGN (1.2TB)
-        deviceFilter: "^sda$"
+        deviceFilter: "^sdb$"
         config:
           osdsPerDevice: "1"
     cephBlockPools:

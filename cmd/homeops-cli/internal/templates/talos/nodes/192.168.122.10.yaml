@@ -31,16 +31,11 @@ device: /dev/watchdog0
 timeout: 5m
 ---
 apiVersion: v1alpha1
-kind: EthernetConfig
-name: eth0
-rings: {rx: 4096, tx: 4096}
----
-apiVersion: v1alpha1
 kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    # Select nvme1n1 (859GB) for local-hostpath storage
-    match: disk.transport == "nvme" && !system_disk
+    # Select /dev/sdc (859GB) for local-hostpath storage
+    match: "!system_disk"
   maxSize: 900GB
   minSize: 800GB
