@@ -16,6 +16,12 @@ const (
 
 	// ESXi SSH credentials
 	OpESXiSSHPrivateKey = "op://Infrastructure/esxi-ssh/private key"
+
+	// Proxmox VE credentials
+	OpProxmoxHost        = "op://Infrastructure/PVE-API/HOST"
+	OpProxmoxTokenID     = "op://Infrastructure/PVE-API/TOKENID"
+	OpProxmoxTokenSecret = "op://Infrastructure/PVE-API/SECRET"
+	OpProxmoxNode        = "op://Infrastructure/PVE-API/node"
 )
 
 // Environment variable names
@@ -27,6 +33,11 @@ const (
 	EnvVSphereHost     = "VSPHERE_HOST"
 	EnvVSphereUsername = "VSPHERE_USERNAME"
 	EnvVSpherePassword = "VSPHERE_PASSWORD"
+
+	EnvProxmoxHost        = "PROXMOX_HOST"
+	EnvProxmoxTokenID     = "PROXMOX_TOKEN_ID"
+	EnvProxmoxTokenSecret = "PROXMOX_TOKEN_SECRET"
+	EnvProxmoxNode        = "PROXMOX_NODE"
 
 	EnvKubeconfig        = "KUBECONFIG"
 	EnvTalosconfig       = "TALOSCONFIG"

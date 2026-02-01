@@ -5,6 +5,7 @@ go 1.25.1
 require (
 	dario.cat/mergo v1.0.2
 	github.com/fatih/color v1.18.0
+	github.com/luthermonson/go-proxmox v0.3.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -18,7 +19,10 @@ require (
 )
 
 require (
+	github.com/buger/goterm v1.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/diskfs/go-diskfs v1.5.0 // indirect
+	github.com/djherbis/times v1.6.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
@@ -31,8 +35,10 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jinzhu/copier v0.3.4 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
+	github.com/magefile/mage v1.14.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

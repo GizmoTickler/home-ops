@@ -65,7 +65,7 @@ func (m *MockHTTPClient) AddError(url string, err error) {
 
 // MockKubernetesClient creates a fake Kubernetes client for testing
 func MockKubernetesClient(objects ...runtime.Object) kubernetes.Interface {
-	return fake.NewSimpleClientset(objects...)
+	return fake.NewClientset(objects...)
 }
 
 // CreateTestPod creates a test pod object

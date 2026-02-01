@@ -342,7 +342,6 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 		currentState := "no-connection"
 		cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
 		if err := cmd.Run(); err == nil {
-			currentState = "api-reachable"
 			// If cluster-info succeeds, test node accessibility
 			cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
 			if err := cmd.Run(); err == nil {
@@ -2715,7 +2714,7 @@ func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.Color
 		elapsed := time.Since(startTime)
 
 		if elapsed > maxWait {
-			return fmt.Errorf("Kustomization %s did not become ready after %v (max wait exceeded)", ksName, elapsed.Round(time.Second))
+			return fmt.Errorf("kustomization %s did not become ready after %v (max wait exceeded)", ksName, elapsed.Round(time.Second))
 		}
 
 		// Check Kustomization status with more detail
@@ -2750,7 +2749,7 @@ func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.Color
 			diagCmd := exec.Command("kubectl", "get", "kustomization", "-n", constants.NSFluxSystem, "-o", "wide",
 				"--kubeconfig", config.KubeConfig)
 			diagOutput, _ := diagCmd.Output()
-			return fmt.Errorf("Kustomization %s stalled: no progress for %v (state: %s)\n%s",
+			return fmt.Errorf("kustomization %s stalled: no progress for %v (state: %s)\n%s",
 				ksName, stallDuration.Round(time.Second), currentState, string(diagOutput))
 		}
 
