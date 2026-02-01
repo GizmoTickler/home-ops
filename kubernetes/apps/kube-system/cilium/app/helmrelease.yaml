@@ -30,7 +30,7 @@ spec:
       exclusive: false
     dashboards:
       enabled: false
-    devices: eth0
+    devices: ens18
     enableIPv4BIGTCP: true
     endpointRoutes:
       enabled: true
