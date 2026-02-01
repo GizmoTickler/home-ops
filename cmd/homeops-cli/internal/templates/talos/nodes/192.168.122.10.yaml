@@ -36,6 +36,6 @@ name: local-hostpath
 provisioning:
   diskSelector:
     # Select /dev/sdc explicitly for local-hostpath storage (leaves sdb for Ceph)
-    match: disk.dev_path == "/dev/sdc"
+    match: disk.dev_path == "/dev/sdb"
   minSize: 800GB
   maxSize: 900GB
