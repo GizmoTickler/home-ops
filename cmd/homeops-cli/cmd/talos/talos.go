@@ -2155,9 +2155,9 @@ func prepareISOForVSphere() error {
 
 	var isoInfo *talos.ISOInfo
 	err = ui.SpinWithFunc("Generating custom Talos ISO", func() error {
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=vmware", versionConfig.TalosVersion)
+		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=nocloud", versionConfig.TalosVersion)
 		var genErr error
-		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "vmware")
+		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "nocloud")
 		if genErr != nil {
 			return fmt.Errorf("ISO generation failed: %w", genErr)
 		}
@@ -2332,14 +2332,14 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	}
 
 	// Build the new factory image URL with the schematic ID
-	newFactoryImage := fmt.Sprintf("factory.talos.dev/vmware-installer/%s:%s", schematicID, talosVersion)
+	newFactoryImage := fmt.Sprintf("factory.talos.dev/installer/%s:%s", schematicID, talosVersion)
 
 	// Replace the existing factory image URL with the new schematic-based URL
 	contentStr := string(content)
 	lines := strings.Split(contentStr, "\n")
 
 	for i, line := range lines {
-		if strings.Contains(line, "image: factory.talos.dev/vmware-installer/") {
+		if strings.Contains(line, "image: factory.talos.dev/installer/") {
 			// Extract the indentation to maintain YAML formatting
 			indent := ""
 			for _, char := range line {
@@ -2432,56 +2432,6 @@ func cleanupOrphanedZVols(vmName, storagePool string) error {
 }
 
 // deployVMOnVSphere deploys one or more VMs on vSphere/ESXi
-// getNodeMacAddress reads the MAC address from the node's YAML configuration file
-func getNodeMacAddress(nodeName string) (string, error) {
-	// Map node names to IP addresses
-	nodeIPs := map[string]string{
-		"k8s-0": "192.168.122.10",
-		"k8s-1": "192.168.122.11",
-		"k8s-2": "192.168.122.12",
-	}
-
-	// Get the IP for this node
-	nodeIP, ok := nodeIPs[nodeName]
-	if !ok {
-		// Not a predefined k8s node, return empty for auto-generation
-		return "", nil
-	}
-
-	// Read the node configuration from embedded templates
-	nodeConfigPath := fmt.Sprintf("talos/nodes/%s.yaml", nodeIP)
-	templateContent, err := templates.GetTalosTemplate(nodeConfigPath)
-	if err != nil {
-		// If template doesn't exist, return empty for auto-generation
-		return "", nil
-	}
-	data := []byte(templateContent)
-
-	// Parse the YAML to extract MAC address
-	var nodeConfig map[string]interface{}
-	if err := yaml.Unmarshal(data, &nodeConfig); err != nil {
-		return "", fmt.Errorf("failed to parse node config: %w", err)
-	}
-
-	// Navigate through the YAML structure to find the MAC address
-	// Path: machine.network.interfaces[0].deviceSelector.hardwareAddr
-	if machine, ok := nodeConfig["machine"].(map[string]interface{}); ok {
-		if network, ok := machine["network"].(map[string]interface{}); ok {
-			if interfaces, ok := network["interfaces"].([]interface{}); ok && len(interfaces) > 0 {
-				if iface, ok := interfaces[0].(map[string]interface{}); ok {
-					if deviceSelector, ok := iface["deviceSelector"].(map[string]interface{}); ok {
-						if hardwareAddr, ok := deviceSelector["hardwareAddr"].(string); ok {
-							return hardwareAddr, nil
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return "", nil // Return empty if MAC not found in config
-}
-
 func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")

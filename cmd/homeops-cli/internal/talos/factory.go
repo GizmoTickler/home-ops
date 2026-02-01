@@ -254,7 +254,7 @@ func (fc *FactoryClient) validateISORequest(req ISOGenerationRequest) error {
 	}
 
 	// Validate platform
-	validPlatforms := []string{"metal", "aws", "azure", "gcp", "vmware"}
+	validPlatforms := []string{"metal", "aws", "azure", "gcp", "vmware", "nocloud"}
 	validPlatform := false
 	for _, platform := range validPlatforms {
 		if req.Platform == platform {
