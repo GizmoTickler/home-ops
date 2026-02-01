@@ -35,7 +35,5 @@ kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    # Select /dev/sdc (859GB) for local-hostpath storage - exclude 1TB+ disks for Ceph
-    match: disk.size < 1000000000000u && !system_disk
-  maxSize: 900GB
-  minSize: 800GB
+    # Select /dev/sdc explicitly for local-hostpath storage (leaves sdb for Ceph)
+    match: disk.name == "sdc" && !system_disk
