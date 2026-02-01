@@ -14,6 +14,7 @@ customization:
     officialExtensions:
       - siderolabs/iscsi-tools
       - siderolabs/nfsrahead
+      - siderolabs/multipath-tools
       - siderolabs/nvme-cli
       - siderolabs/util-linux-tools
-      - siderolabs/vmtoolsd-guest-agent
+      - siderolabs/qemu-guest-agent
