@@ -188,9 +188,12 @@ spec:
       failureThreshold: 6
       successThreshold: 1
 
-    # Liveness probe - use /api/ endpoint on http port (not nginx-status which doesn't exist)
+    # Disable default liveness probe (uses nginx-status port that doesn't exist)
     livenessProbe:
-      enabled: true
+      enabled: false
+
+    # Custom liveness probe using /api/ endpoint on http port
+    customLivenessProbe:
       httpGet:
         path: /api/
         port: http
