@@ -43,27 +43,50 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Talos Linux](https://www.talos.dev/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on VMware ESXi VMs with [Rook Ceph](https://rook.io/) providing distributed storage using SSDs passed as pRDMs (physical Raw Device Mappings) directly to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 4x10Gbps link aggregation.
+**Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
+
+### Recent Infrastructure Migration
+
+**January 2026**: Successfully migrated the entire infrastructure from VMware ESXi to Proxmox VE 9.1, maintaining zero downtime for critical workloads. Key migration highlights:
+
+- **Hypervisor**: VMware ESXi → Proxmox VE 9.1 (KVM/QEMU)
+- **Talos Platform**: Updated from `vmware` to `nocloud` for Proxmox compatibility
+- **Storage**: Transitioned from pRDMs to disk passthrough via disk-by-id
+- **Network**: Updated from `vmxnet3` to VirtIO adapters with multi-queue support
+- **Guest Agent**: Replaced VMware Tools with QEMU Guest Agent
+- **Cost Savings**: Eliminated VMware licensing costs while maintaining enterprise-grade features
+- **Performance**: Achieved comparable or better performance with open-source virtualization stack
+
+The migration leveraged Talos Linux's immutable infrastructure capabilities and GitOps workflows to ensure consistent configuration across the new platform.
 
 ---
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on VMware ESXi VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on SSDs passed directly to each VM as pRDMs (physical Raw Device Mappings). This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
+The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on Proxmox VE 9.1 VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
 
 ### Infrastructure Details
 
-- **Hypervisor**: VMware ESXi with advanced virtualization features
-- **Primary Storage**: Rook Ceph distributed storage using dedicated SSDs passed as pRDMs to each Talos VM
+- **Hypervisor**: Proxmox VE 9.1 with KVM/QEMU virtualization
+- **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Talos VM
 - **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
-- **Network Infrastructure**: Cisco switch with 4x10Gbps LACP between TrueNAS and ESXi
-- **Kubernetes Distribution**: Talos Linux (immutable, minimal, secure)
+- **Network Infrastructure**:
+  - 40Gbps LACP link aggregation between Proxmox host and TrueNAS Scale
+  - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP
+  - Cisco switch providing high-speed interconnect
+  - Jumbo frames (MTU 9000) enabled end-to-end
+- **Kubernetes Distribution**: Talos Linux v1.12.2 (immutable, minimal, secure)
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 96GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
-  - **Boot Disk**: Virtual disk for Talos OS
-  - **Ceph OSD**: Dedicated SSD passed as pRDM for Rook Ceph distributed storage
-  - **Local Storage**: OpenEBS hostPath for high-performance local workloads
-- **Networking**: Cilium CNI with eBPF, Gateway API, and L2/BGP announcements
+  - **Boot Disk**: 200GB VirtIO SCSI disk for Talos OS (`/dev/sda`)
+  - **Ceph OSD**: Dedicated 1TB SSD passthrough via disk-by-id for Rook Ceph distributed storage (`/dev/sdc`)
+  - **Local Storage**: 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads (`/dev/sdb`)
+- **Networking**:
+  - Cilium CNI with eBPF datapath
+  - Gateway API for ingress with L2/BGP announcements
+  - VirtIO network adapters with multi-queue (8 queues)
+  - Network interface: `ens18` (Proxmox VirtIO)
+- **Guest Integration**: QEMU Guest Agent for enhanced VM management
 - **Ingress**: Cilium Gateway API with per-application LoadBalancer services
 - **DNS**: external-dns for both Cloudflare and Unifi local DNS management
 
@@ -77,7 +100,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [rook-ceph](https://github.com/rook/rook): Primary distributed storage using Ceph on dedicated SSDs passed as pRDMs.
+- [rook-ceph](https://github.com/rook/rook): Primary distributed storage using Ceph on dedicated 1TB SSDs passed through via disk-by-id.
 - [scale-csi](https://github.com/gizmotickler/scale-csi): TrueNAS Scale CSI driver for iSCSI, NVMe-oF, and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
@@ -162,7 +185,7 @@ A purpose-built Go application that provides complete infrastructure automation:
 **Core Capabilities:**
 - **Bootstrap**: Complete cluster initialization with preflight checks and 1Password integration
 - **Talos Operations**: Node configuration, VM deployment, ISO generation, and Kubernetes upgrades
-- **VM Management**: ESXi VM creation with custom Talos ISOs and dedicated storage controllers
+- **VM Management**: Proxmox VE 9.1 VM creation with custom Talos ISOs via Factory API
 - **Volume Operations**: VolSync-based backup and restore with Kopia integration
 - **Kubernetes Management**: Deployment restarts, PVC browsing, and maintenance operations
 
@@ -223,10 +246,24 @@ The cluster implements a sophisticated networking architecture using Cilium and 
 - **Cilium Announcements**: Cilium L2/BGP announcements for LoadBalancer IP allocation
 
 ### Network Architecture
+- **Physical Layer**:
+  - 40Gbps LACP bond aggregating 4x 10GbE Intel X540 NICs
+  - IEEE 802.3ad Link Aggregation Control Protocol (LACP)
+  - Jumbo frames (MTU 9000) enabled end-to-end
+  - Bidirectional bandwidth between Proxmox host and TrueNAS Scale
 - **CNI**: Cilium with eBPF datapath for high-performance networking
 - **Load Balancing**: Maglev algorithm with DSR (Direct Server Return) mode
-- **IP Management**: Kubernetes IPAM with native routing (10.42.0.0/16)
-- **Gateway IPs**: Dedicated IP range (192.168.123.101-149) for application access
+- **IP Management**: Kubernetes IPAM with native routing (Pod CIDR: 10.42.0.0/16)
+- **BGP Peering**:
+  - Cilium ASN: 64550
+  - Cisco C9300 ASN: 64541
+  - LoadBalancer IP pool: 192.168.255.0/24
+- **Gateway IPs**: LoadBalancer services advertised via L2 and BGP
+- **Kernel Optimizations**:
+  - TCP Congestion Control: BBR
+  - TCP Buffer Sizes: 64MB max
+  - Socket Buffers: 128MB (rcvbuf/sndbuf)
+  - NFS nconnect: 16 parallel connections
 
 ---
 
@@ -332,10 +369,10 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 
 ### Rook Ceph Configuration
 
-[Rook Ceph](https://rook.io/) provides the primary distributed storage using SSDs passed as pRDMs (physical Raw Device Mappings) directly to each Talos VM on ESXi:
+[Rook Ceph](https://rook.io/) provides the primary distributed storage using dedicated SSDs passed through to each Talos VM on Proxmox VE:
 
 - **Ceph Version**: v19.2.3 (Squid)
-- **OSD Configuration**: Dedicated SSD per node passed as pRDM for direct hardware access
+- **OSD Configuration**: Dedicated 1TB SSD per node passed through via disk-by-id for direct hardware access
 - **Replication**: 3-way replication across nodes for fault tolerance
 - **Pools**:
   - `ceph-blockpool`: RBD block storage for application PVCs
@@ -351,11 +388,16 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides additional storage from TrueNAS Scale:
 
 - **Protocols**: iSCSI, NVMe-oF, and NFS
-- **Network**: 4x10Gbps LACP between TrueNAS and ESXi
+- **Network**: 40Gbps LACP link aggregation (4x 10GbE Intel X540 NICs) between TrueNAS and Proxmox host
+- **Configuration**:
+  - Jumbo frames (MTU 9000) enabled across all network interfaces
+  - NFS optimized with `nconnect=16` for parallel connections
+  - TCP congestion control: BBR (Better Congestion Control)
+  - Socket buffer sizes: 128MB for receive/send
 - **StorageClasses**:
   - `scale-iscsi`: iSCSI block volumes
   - `scale-nvmeof`: NVMe over Fabrics for high-performance workloads
-  - `scale-nfs`: NFSv4 shared volumes
+  - `scale-nfs`: NFSv4 shared volumes with optimized parameters
 - **Features**:
   - Volume snapshots via CSI snapshot controller
   - Metrics exporting with Grafana dashboards
@@ -377,20 +419,22 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | Component                   | Specifications                                      | Function                          |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **ESXi Host**               | VMware ESXi Hypervisor                             | VM compute & management           |
+| **Proxmox Host**            | Proxmox VE 9.1 (KVM/QEMU)                          | VM compute & management           |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
-| ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | High-speed VM networking          |
-| └─ **Storage**              | 2x NVMe SSDs (local datastores) + 3x 1TB SSD (Ceph pRDM) | Boot, datastores, and Ceph OSDs |
-| **Storage Server**          | TrueNAS Scale                                       | iSCSI & NFS storage provider      |
+| ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
+| └─ **Storage**              | 2x NVMe SSDs (local storage) + 3x 1TB SSD (Ceph passthrough) | Boot, VM storage, and Ceph OSDs |
+| **Storage Server**          | TrueNAS Scale                                       | iSCSI, NVMe-oF & NFS storage     |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
 | ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
 | ├─ **L2ARC**                | 2x 1TB NVMe (1.8TB read cache)                     | Extended read cache               |
 | ├─ **SLOG**                 | 2x 60GB NVMe (mirrored)                            | Synchronous write log             |
-| ├─ **Network**              | 4x 10GbE Intel X540 NICs (LACP to Cisco switch)   | Storage network (40Gbps total)   |
-| └─ **Protocols**            | iSCSI (block) + NFS 4.1 (file)                     | Kubernetes storage access         |
-| **Network Switch**          | Cisco Switch                                        | Infrastructure interconnect       |
-| └─ **Configuration**        | 4x10Gbps LACP between TrueNAS and ESXi            | High-bandwidth storage path       |
+| ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | Storage network        |
+| └─ **Protocols**            | iSCSI (block) + NVMe-oF (block) + NFS 4.2 (file)  | Kubernetes storage access         |
+| **Network Switch**          | Cisco C9300                                         | Infrastructure interconnect       |
+| ├─ **LACP Configuration**   | IEEE 802.3ad Link Aggregation (40Gbps total)      | High-bandwidth storage path       |
+| ├─ **BGP Peering**          | AS 64541 (peering with Cilium AS 64550)           | LoadBalancer IP advertisement     |
+| └─ **MTU**                  | Jumbo frames (9000 bytes) enabled                  | Optimized large frame throughput  |
 
 ### Storage Architecture
 
@@ -404,22 +448,30 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 96GB   | Boot vdisk + SSD pRDM (Ceph OSD) + Local vdisk (OpenEBS)   | Talos Linux   |
+| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 200GB boot + 1TB SSD passthrough (Ceph OSD) + 800GB local (OpenEBS) | Talos Linux v1.12.2 |
 
 **Storage Details**:
-- **Boot Disk**: Virtual disk for Talos OS
-- **Ceph OSD**: Dedicated 1TB SSD passed as pRDM (physical Raw Device Mapping) for Rook Ceph distributed storage
-- **Local Storage**: Virtual disk for OpenEBS hostPath high-performance workloads
+- **Boot Disk** (`scsi0`, `/dev/sda`): 200GB VirtIO SCSI disk for Talos OS
+- **Ceph OSD** (`scsi2`, `/dev/sdc`): Dedicated 1TB SSD passed through via disk-by-id for Rook Ceph distributed storage
+- **Local Storage** (`scsi1`, `/dev/sdb`): 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads
 - **External Storage**: scale-csi provides TrueNAS iSCSI/NVMe-oF/NFS for additional capacity
+
+**VM Configuration**:
+- **Platform**: `nocloud` (Proxmox/KVM/QEMU)
+- **BIOS**: OVMF (UEFI)
+- **CPU Type**: `host,flags=+pdpe1gb;-spec-ctrl`
+- **Network**: VirtIO with multi-queue (8 queues), MTU 9000, bridge `vmbr0`, VLAN 999
+- **Guest Agent**: QEMU Guest Agent for enhanced management
+- **Machine Type**: Q35 chipset
 
 **CPU & Memory Optimization**:
 - **NUMA Pinning**: Each VM is pinned to specific CPU cores with HT siblings for optimal memory locality
-  - k8s-0: Cores 0-7 + HT 16-23 (Socket 0)
-  - k8s-1: Cores 32-39 + HT 48-55 (Socket 1)
-  - k8s-2: Cores 8-15 + HT 24-31 (Socket 0)
-- **Memory Reservation**: 64GB reserved per VM (no overcommit)
+  - k8s-0 (VMID 200): Cores 0-7,32-39 (Socket 0, NUMA 0)
+  - k8s-1 (VMID 201): Cores 16-23,48-55 (Socket 1, NUMA 1)
+  - k8s-2 (VMID 202): Cores 8-15,40-47 (Socket 0, NUMA 0)
+- **Memory**: 96GB (98304 MB) per VM, no overcommit
 
-**Total VM Resources**: 48 vCPUs, 192GB RAM allocated from the 64-thread, 512GB host system.
+**Total VM Resources**: 48 vCPUs, 288GB RAM allocated from the 64-thread, 512GB host system.
 
 ---
 
