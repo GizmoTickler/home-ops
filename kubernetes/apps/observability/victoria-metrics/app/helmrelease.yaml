@@ -278,6 +278,10 @@ spec:
           promscrape.dropOriginalLabels: "true"
           # Reduce Kubernetes API load
           promscrape.kubernetes.apiServerTimeout: 5m
+          # Memory management - set slightly under limit to reduce spikes
+          memory.allowedBytes: "900000000"
+          # Cardinality protection - limit unique series per hour
+          remoteWrite.maxHourlySeries: "1000000"
         resources:
           requests:
             cpu: 1250m
