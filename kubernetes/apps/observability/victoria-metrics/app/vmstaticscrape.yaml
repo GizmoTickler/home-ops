@@ -9,9 +9,11 @@ spec:
   targetEndpoints:
     - targets:
         - nas01.${SECRET_DOMAIN}:9100
+      scrapeTimeout: 10s
       labels:
         job: node-exporter
 ---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
 metadata:
@@ -21,6 +23,7 @@ spec:
   targetEndpoints:
     - targets:
         - gateway0.${SECRET_DOMAIN}:9100
+      scrapeTimeout: 10s
       labels:
         job: node-exporter
 ---
@@ -34,6 +37,7 @@ spec:
   targetEndpoints:
     - targets:
         - nas01.${SECRET_DOMAIN}:9633
+      scrapeTimeout: 10s
       labels:
         job: smartctl-exporter
 ---
@@ -46,8 +50,9 @@ spec:
   jobName: onepassword-connect
   targetEndpoints:
     - targets:
-        - passwords.${SECRET_DOMAIN}
+        - passwords.${SECRET_DOMAIN}:443
       scheme: https
+      scrapeTimeout: 10s
       tlsConfig:
         insecureSkipVerify: true
       labels:
