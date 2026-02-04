@@ -188,8 +188,12 @@ spec:
       failureThreshold: 6
       successThreshold: 1
 
+    # Liveness probe - use /api/ endpoint on http port (not nginx-status which doesn't exist)
     livenessProbe:
       enabled: true
+      httpGet:
+        path: /api/
+        port: http
       initialDelaySeconds: 30
       periodSeconds: 10
       timeoutSeconds: 5
