@@ -123,16 +123,9 @@ spec:
     housekeeping:
       enabled: false
 
-    # Worker for background tasks
+    # Worker for background tasks (disabled - not needed for basic usage)
     worker:
-      enabled: true
-      replicaCount: 1
-      resources:
-        requests:
-          cpu: 50m
-          memory: 128Mi
-        limits:
-          memory: 512Mi
+      enabled: false
 
     # Main application
     replicaCount: 1
@@ -185,7 +178,7 @@ spec:
       initialDelaySeconds: 60
       periodSeconds: 10
       timeoutSeconds: 5
-      failureThreshold: 60  # 10 minutes for migrations
+      failureThreshold: 60 # 10 minutes for migrations
 
     readinessProbe:
       enabled: true
