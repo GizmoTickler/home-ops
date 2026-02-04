@@ -45,22 +45,6 @@ This repository contains the configuration for my homelab Kubernetes cluster bui
 
 **Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
 
-### Recent Infrastructure Migration
-
-**January 2026**: Successfully migrated the entire infrastructure from VMware ESXi to Proxmox VE 9.1, maintaining zero downtime for critical workloads. Key migration highlights:
-
-- **Hypervisor**: VMware ESXi → Proxmox VE 9.1 (KVM/QEMU)
-- **Talos Platform**: Updated from `vmware` to `nocloud` for Proxmox compatibility
-- **Storage**: Transitioned from pRDMs to disk passthrough via disk-by-id
-- **Network**: Updated from `vmxnet3` to VirtIO adapters with multi-queue support
-- **Guest Agent**: Replaced VMware Tools with QEMU Guest Agent
-- **Cost Savings**: Eliminated VMware licensing costs while maintaining enterprise-grade features
-- **Performance**: Achieved comparable or better performance with open-source virtualization stack
-
-The migration leveraged Talos Linux's immutable infrastructure capabilities and GitOps workflows to ensure consistent configuration across the new platform.
-
----
-
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
 The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on Proxmox VE 9.1 VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
@@ -285,7 +269,6 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 |-------------|---------|--------|
 | [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
 | [FreshRSS](https://github.com/FreshRSS/FreshRSS) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
-| [Karakeep](https://github.com/karakeep-app/karakeep) | Bookmarking & read-it-later capture | `karakeep.${SECRET_DOMAIN}` |
 
 All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
