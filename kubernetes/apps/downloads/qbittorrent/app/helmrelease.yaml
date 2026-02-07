@@ -75,7 +75,7 @@ spec:
               runAsGroup: 0
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: false
-              capabilities: { drop: [ALL] }
+              capabilities: {drop: [ALL]}
             resources:
               requests:
                 cpu: 50m
@@ -167,8 +167,8 @@ spec:
         containers:
           app:
             image:
-              repository: ghcr.io/home-operations/qbittorrent
-              tag: 5.1.4@sha256:56ecd30a7f5e1357daf5eea2a6935134d329b7b268a3a9b9c67041b65fb87fc6 # yamllint disable-line rule:line-length
+              repository: ghcr.io/home-operations/qbittorrent-libtorrentv1
+              tag: 5.1.4@sha256:fc48ae3a5b3daa2e80811207f659d0349da459f086faa06810f5353050da541b # yamllint disable-line rule:line-length
             env:
               UMASK: "022"
               QBT_WEBUI_PORT: &port 80
@@ -189,7 +189,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: [ALL] }
+              capabilities: {drop: [ALL]}
             resources:
               requests:
                 cpu: 2000m
@@ -278,7 +278,8 @@ spec:
           ephemeral:
             volumeClaimTemplate:
               spec:
-                accessModes: ["ReadWriteOnce"]
+                accessModes:
+                  - "ReadWriteOnce"
                 storageClassName: openebs-hostpath
                 resources:
                   requests:
