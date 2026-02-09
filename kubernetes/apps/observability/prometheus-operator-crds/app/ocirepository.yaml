@@ -6,6 +6,9 @@ metadata:
   name: prometheus-operator-crds
 spec:
   interval: 12h
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
   url: oci://ghcr.io/prometheus-community/charts/prometheus-operator-crds
   ref:
     tag: 27.0.0
