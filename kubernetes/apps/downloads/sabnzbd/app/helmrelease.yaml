@@ -30,7 +30,7 @@ spec:
                 spec:
                   httpGet:
                     path: /api?mode=version
-                    port: &port 8080
+                    port: &port 80
                   initialDelaySeconds: 0
                   periodSeconds: 10
                   timeoutSeconds: 5
