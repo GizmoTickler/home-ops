@@ -51,7 +51,7 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 100m
+                cpu: 500m
                 memory: 4Gi
               limits:
                 memory: 32Gi
@@ -101,6 +101,8 @@ spec:
             subPath: usenet
       tmpfs:
         type: emptyDir
+        medium: Memory
+        sizeLimit: 1Gi
         advancedMounts:
           sabnzbd:
             app:
