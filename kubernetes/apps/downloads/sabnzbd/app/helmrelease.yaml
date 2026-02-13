@@ -3,43 +3,56 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: nzbget
+  name: sabnzbd
 spec:
   chartRef:
     kind: OCIRepository
-    name: nzbget
+    name: sabnzbd
   interval: 1h
   values:
     controllers:
-      nzbget:
+      sabnzbd:
+        annotations:
+          reloader.stakater.com/auto: "true"
         containers:
           app:
             image:
-              repository: ghcr.io/home-operations/nzbget
-              tag: 26.0.0@sha256:a60b71e46cb01b41874c0b8028f661e9e3a958b20402a7403517ca6f9d95976f
+              repository: ghcr.io/home-operations/sabnzbd
+              tag: 4.5.5@sha256:485440a3e9209a3515c01e1c73d6088726491a292302a721d4cb9e7c6375c768
             env:
-              NZBGET__PORT: &port 80
+              SABNZBD__PORT: &port 80
+              SABNZBD__HOST_WHITELIST_ENTRIES: >-
+                sabnzbd.${SECRET_DOMAIN}
               TZ: America/New_York
+            envFrom:
+              - secretRef:
+                  name: sabnzbd-secret
             probes:
               liveness: &probes
                 enabled: true
                 custom: true
                 spec:
-                  tcpSocket:
+                  httpGet:
+                    path: /api?mode=version
                     port: *port
                   initialDelaySeconds: 0
                   periodSeconds: 10
-                  timeoutSeconds: 1
+                  timeoutSeconds: 5
                   failureThreshold: 3
               readiness: *probes
+              startup:
+                enabled: true
+                spec:
+                  periodSeconds: 10
+                  failureThreshold: 30
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 2000m
-                memory: 18Gi
+                cpu: 100m
+                memory: 4Gi
               limits:
                 memory: 32Gi
     defaultPodOptions:
@@ -65,6 +78,20 @@ spec:
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
+      incomplete:
+        type: custom
+        volumeSpec:
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - "ReadWriteOnce"
+                storageClassName: openebs-hostpath
+                resources:
+                  requests:
+                    storage: 1Mi
+        globalMounts:
+          - path: /incomplete
       media:
         type: nfs
         server: nas01.${SECRET_DOMAIN}
@@ -72,23 +99,10 @@ spec:
         globalMounts:
           - path: /media/usenet
             subPath: usenet
-      inter:
-        type: custom
-        volumeSpec:
-          ephemeral:
-            volumeClaimTemplate:
-              spec:
-                accessModes: ["ReadWriteOnce"]
-                storageClassName: openebs-hostpath
-                resources:
-                  requests:
-                    storage: 1Mi
-        globalMounts:
-          - path: /inter
       tmpfs:
         type: emptyDir
         advancedMounts:
-          nzbget:
+          sabnzbd:
             app:
               - path: /config/logs
                 subPath: logs
