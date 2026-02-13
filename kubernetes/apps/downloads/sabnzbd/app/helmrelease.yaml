@@ -38,7 +38,10 @@ spec:
               readiness: *probes
               startup:
                 enabled: true
+                custom: true
                 spec:
+                  tcpSocket:
+                    port: *port
                   periodSeconds: 10
                   failureThreshold: 30
             resources:
