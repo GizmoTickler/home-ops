@@ -14,6 +14,28 @@ spec:
       autobrr:
         annotations:
           reloader.stakater.com/auto: "true"
+        initContainers:
+          fix-auth:
+            image:
+              repository: ghcr.io/home-operations/busybox
+              tag: 1.37.0@sha256:026ed7273270ec08f6902b4ae8334c23b473e5394bec3bbbdbfe580c710d50bc
+            command:
+              - sh
+              - -c
+              - |
+                if [ -f /config/config.toml ]; then
+                  if grep -q 'oidcDisableBuiltInLogin' /config/config.toml; then
+                    sed -i 's/.*oidcDisableBuiltInLogin.*/oidcDisableBuiltInLogin = true/' /config/config.toml
+                  else
+                    echo 'oidcDisableBuiltInLogin = true' >> /config/config.toml
+                  fi
+                fi
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
         containers:
           app:
             image:
