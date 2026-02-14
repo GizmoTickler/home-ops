@@ -22,6 +22,7 @@ spec:
               tag: 2.8.3@sha256:86ca6159752b741589012dd766f20d46a72cf052186f8f59d10cfc5252d8ac5c
             env:
               WEBHOOK__PORT: &port 80
+              SEERR_URL: "https://requests.${SECRET_DOMAIN}"
               TZ: America/New_York
             envFrom:
               - secretRef:
@@ -29,7 +30,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { drop: ["ALL"] }
+              capabilities: {drop: ["ALL"]}
             resources:
               requests:
                 cpu: 50m
