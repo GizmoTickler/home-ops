@@ -3,10 +3,10 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: technitium-dns
+  name: powerdns
 spec:
   interval: 1h
-  path: ./kubernetes/apps/network/technitium-dns/app
+  path: ./kubernetes/apps/network/powerdns/app
   postBuild:
     substituteFrom:
       - kind: Secret
