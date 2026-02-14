@@ -4,7 +4,7 @@ set -euo pipefail
 SEERR_PUSHOVER_URL=${1:?}
 PAYLOAD=${2:?}
 
-SEERR_URL="https://requests.${SECRET_DOMAIN}"
+SEERR_URL="${SEERR_URL:?SEERR_URL env var is required}"
 
 echo "[DEBUG] Payload: ${PAYLOAD}"
 
