@@ -74,9 +74,30 @@ data:
         conditions:
           - "[STATUS] == 200"
 
-      - name: "Wireless Controller"
+      - name: "Primary Gateway"
         group: "infrastructure"
-        url: https://ewlc01.${SECRET_DOMAIN}
+        url: https://gateway0.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+
+      - name: Secondary Gateway
+        group: connectivity
+        url: icmp://10.255.255.252
+        interval: 1m
+        conditions:
+          - "[CONNECTED] == true"
+
+      - name: "5G Gateway Primary"
+        group: "infrastructure"
+        url: https://cell-gateway0.${SECRET_DOMAIN}
+        interval: 1m
+        conditions:
+          - "[STATUS] == 200"
+
+      - name: "5G Gateway Backuo"
+        group: "infrastructure"
+        url: https://cell-gateway1.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
@@ -88,9 +109,9 @@ data:
         conditions:
           - "[STATUS] == 200"
 
-      - name: "vSphere"
+      - name: "Proxmox"
         group: "infrastructure"
-        url: https://vc01.${SECRET_DOMAIN}
+        url: https://pve.${SECRET_DOMAIN}
         interval: 1m
         conditions:
           - "[STATUS] == 200"
