@@ -82,7 +82,7 @@ data:
           - "[STATUS] == 403"
 
       - name: Secondary Gateway
-        group: connectivity
+        group: "infrastructure"
         url: icmp://10.255.255.252
         interval: 1m
         conditions:
