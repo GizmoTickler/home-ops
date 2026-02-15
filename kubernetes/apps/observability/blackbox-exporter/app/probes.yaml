@@ -25,8 +25,8 @@ spec:
         - gateway1.${SECRET_DOMAIN}
         - mgateway1.${SECRET_DOMAIN}
         - mgateway2.${SECRET_DOMAIN}
+        - cell-gateway0.${SECRET_DOMAIN}
         - cell-gateway1.${SECRET_DOMAIN}
-        - cell-gateway2.${SECRET_DOMAIN}
 
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/probe_v1.json
