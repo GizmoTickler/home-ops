@@ -17,13 +17,16 @@ spec:
         - unifi.${SECRET_DOMAIN}
         - jellyfin.${SECRET_DOMAIN}
         - s3.${SECRET_DOMAIN}
-        - tailscale0.${SECRET_DOMAIN}
-        - tailscale1.${SECRET_DOMAIN}
+        - twingate0.${SECRET_DOMAIN}
+        - twingate1.${SECRET_DOMAIN}
         - dns-0.${SECRET_DOMAIN}
         - dns-1.${SECRET_DOMAIN}
         - gateway0.${SECRET_DOMAIN}
-#        - mgateway1.${SECRET_DOMAIN}
-#        - mgateway2.${SECRET_DOMAIN}
+        - gateway1.${SECRET_DOMAIN}
+        - mgateway1.${SECRET_DOMAIN}
+        - mgateway2.${SECRET_DOMAIN}
+        - cell-gateway1.${SECRET_DOMAIN}
+        - cell-gateway2.${SECRET_DOMAIN}
 
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/probe_v1.json
