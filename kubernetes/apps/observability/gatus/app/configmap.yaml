@@ -79,7 +79,7 @@ data:
         url: https://gateway0.${SECRET_DOMAIN}
         interval: 1m
         conditions:
-          - "[STATUS] == 200"
+          - "[STATUS] == 403"
 
       - name: Secondary Gateway
         group: connectivity
@@ -93,14 +93,14 @@ data:
         url: https://cell-gateway0.${SECRET_DOMAIN}
         interval: 1m
         conditions:
-          - "[STATUS] == 200"
+          - "[STATUS] == 403"
 
       - name: "5G Gateway Backuo"
         group: "infrastructure"
         url: https://cell-gateway1.${SECRET_DOMAIN}
         interval: 1m
         conditions:
-          - "[STATUS] == 200"
+          - "[STATUS] == 403"
 
       - name: "unifi"
         group: "infrastructure"
