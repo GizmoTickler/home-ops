@@ -1,0 +1,27 @@
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: envoy-proxy-params
+spec:
+  kube:
+    envoyContainer:
+      bootstrap:
+        logLevel: info
+      resources:
+        requests:
+          cpu: 80m
+          memory: 512Mi
+        limits:
+          memory: 1Gi
+    deployment:
+      replicas: 2
+    service:
+      type: LoadBalancer
+      externalTrafficPolicy: Cluster
+    podTemplate:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10101
+    stats:
+      enabled: true
