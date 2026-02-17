@@ -7,7 +7,7 @@ spec:
   hostnames:
     - logs.${SECRET_DOMAIN}
   parentRefs:
-    - name: envoy-internal
+    - name: kgateway-internal
       namespace: network
       sectionName: https
   rules:

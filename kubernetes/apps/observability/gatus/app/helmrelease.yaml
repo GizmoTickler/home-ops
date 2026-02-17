@@ -61,7 +61,7 @@ spec:
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
-              capabilities: { add: ["NET_RAW"], drop: ["ALL"] }
+              capabilities: {add: ["NET_RAW"], drop: ["ALL"]}
             resources:
               requests:
                 cpu: 50m
@@ -98,7 +98,7 @@ spec:
         hostnames:
           - status.${SECRET_DOMAIN}
         parentRefs:
-          - name: envoy-internal
+          - name: kgateway-internal
             namespace: network
             sectionName: https
     rbac:
