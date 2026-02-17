@@ -67,20 +67,21 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
   - **Local Storage**: 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads (`/dev/sdb`)
 - **Networking**:
   - Cilium CNI with eBPF datapath
-  - Gateway API for ingress with L2/BGP announcements
+  - kgateway (Gateway API) for ingress with L2/BGP announcements
   - VirtIO network adapters with multi-queue (8 queues)
   - Network interface: `ens18` (Proxmox VirtIO)
 - **Guest Integration**: QEMU Guest Agent for enhanced VM management
-- **Ingress**: Cilium Gateway API with per-application LoadBalancer services
-- **DNS**: external-dns for both Cloudflare and Unifi local DNS management
+- **Ingress**: kgateway (Gateway API) with Cilium L2/BGP LoadBalancer services
+- **DNS**: external-dns for Cloudflare (public) and PowerDNS via RFC2136 (internal) DNS management
 
 ### Core Components
 
 - [actions-runner-controller](https://github.com/actions/actions-runner-controller): Self-hosted GitHub runners for CI/CD workflows.
 - [cert-manager](https://github.com/cert-manager/cert-manager): Automated TLS certificate management with Google Trust Services.
-- [cilium](https://github.com/cilium/cilium): eBPF-based networking, security, and Gateway API implementation with L2 announcements.
+- [cilium](https://github.com/cilium/cilium): eBPF-based networking, security, and L2/BGP announcements for LoadBalancer IP allocation.
 - [cloudflared](https://github.com/cloudflare/cloudflared): Secure tunnels to Cloudflare for external access via Cloudflare Tunnel.
-- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and Unifi API integration.
+- [kgateway](https://github.com/kgateway-dev/kgateway): Gateway API controller using Envoy proxy for ingress routing and traffic management.
+- [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and PowerDNS (RFC2136) integration.
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
@@ -217,15 +218,15 @@ Alternative solutions would involve running a separate cloud-hosted Kubernetes c
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f30e/512.gif" alt="🌎" width="20" height="20"> DNS & Networking
 
-The cluster implements a sophisticated networking architecture using Cilium and Gateway API:
+The cluster implements a sophisticated networking architecture using Cilium and kgateway (Gateway API):
 
 ### External Access
 - **Cloudflare Tunnel**: Secure external access via `cloudflared` without port forwarding
 - **External DNS (Cloudflare)**: Automatic DNS record management in Cloudflare for public services
-- **Gateway API**: Cilium-based ingress with dedicated LoadBalancer IPs per application
+- **Gateway API**: kgateway-based ingress with dedicated LoadBalancer IPs per application
 
 ### Internal Resolution
-- **External DNS (Unifi)**: Additional external-dns deployment leveraging Unifi local API for internal DNS record updates
+- **External DNS (PowerDNS)**: external-dns deployment using RFC2136 provider for internal DNS record management via PowerDNS
 - **CoreDNS**: Kubernetes cluster DNS with custom configurations
 - **Cilium Announcements**: Cilium L2/BGP announcements for LoadBalancer IP allocation
 
@@ -331,7 +332,7 @@ Automation workloads run in the `automation` namespace so VolSync restores and K
 | [scale-csi](https://github.com/gizmotickler/scale-csi) | TrueNAS Scale iSCSI/NVMe-oF/NFS storage | Internal only |
 | [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
 
-All applications use Cilium Gateway API for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
+All applications use kgateway (Gateway API) for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
 
 ---
 
