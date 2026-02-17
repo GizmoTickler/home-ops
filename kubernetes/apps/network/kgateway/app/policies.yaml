@@ -10,9 +10,11 @@ spec:
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: envoy-internal
+      sectionName: https
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: envoy-external
+      sectionName: https
   compression:
     responseCompression: {}
   retry:
