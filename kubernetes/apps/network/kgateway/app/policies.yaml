@@ -23,7 +23,7 @@ spec:
       - reset
       - connect-failure
       - retriable-status-codes
-    retriableStatusCodes:
+    statusCodes:
       - 503
   timeouts:
     request: 0s
