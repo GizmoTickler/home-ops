@@ -1,7 +1,39 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/gateway.envoyproxy.io/securitypolicy_v1alpha1.json
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: SecurityPolicy
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: Backend
+metadata:
+  name: pocket-id-oidc-sonarr
+spec:
+  type: Static
+  static:
+    hosts:
+      - host: pocket-id.auth.svc.cluster.local
+        port: 1411
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayExtension
+metadata:
+  name: sonarr-oidc
+spec:
+  oauth2:
+    backendRef:
+      kind: Backend
+      group: gateway.kgateway.dev
+      name: pocket-id-oidc-sonarr
+    issuerURI: https://id.${SECRET_DOMAIN}
+    credentials:
+      clientID: sonarr
+      clientSecretRef:
+        name: sonarr-oidc-secret
+    redirectURI: https://sonarr.${SECRET_DOMAIN}/oauth2/callback
+    logoutPath: /oauth2/logout
+    scopes:
+      - openid
+      - email
+      - profile
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
 metadata:
   name: sonarr-oidc
 spec:
@@ -9,17 +41,6 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       name: sonarr
-  oidc:
-    provider:
-      issuer: https://id.${SECRET_DOMAIN}
-    clientID: sonarr
-    clientSecret:
-      name: sonarr-oidc-secret
-    redirectURL: https://sonarr.${SECRET_DOMAIN}/oauth2/callback
-    logoutPath: /oauth2/logout
-    defaultTokenTTL: 15m
-    defaultRefreshTokenTTL: 1h
-    scopes:
-      - openid
-      - email
-      - profile
+  oauth2:
+    extensionRef:
+      name: sonarr-oidc
