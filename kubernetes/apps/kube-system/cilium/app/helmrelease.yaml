@@ -18,7 +18,6 @@ spec:
       datapathMode: netkit
       masquerade: true
       preallocateMaps: true
-      tproxy: true
     bpfClockProbe: true
     bgpControlPlane:
       enabled: true
@@ -104,6 +103,4 @@ spec:
           - SYS_RESOURCE
     socketLB:
       enabled: true
-      # Allow pods to use socket-level LB for accessing external LB IPs.
-      # This fixes DSR mode issues where pods can't reach LoadBalancer IPs.
-      hostNamespaceOnly: false
+      hostNamespaceOnly: true
