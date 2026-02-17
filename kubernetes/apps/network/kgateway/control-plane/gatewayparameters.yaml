@@ -18,10 +18,11 @@ spec:
       replicas: 2
     service:
       type: LoadBalancer
-      externalTrafficPolicy: Cluster
+      externalTrafficPolicy: Local
     podTemplate:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10101
     stats:
       enabled: true
+      enableStatsRoute: false

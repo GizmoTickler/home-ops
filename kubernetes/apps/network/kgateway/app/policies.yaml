@@ -21,6 +21,10 @@ spec:
     attempts: 2
     retryOn:
       - reset
+      - connect-failure
+      - retriable-status-codes
+    retriableStatusCodes:
+      - 503
   timeouts:
     request: 0s
 ---

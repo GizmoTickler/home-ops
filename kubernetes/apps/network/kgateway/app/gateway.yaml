@@ -41,6 +41,7 @@ spec:
         namespaces:
           from: All
       tls:
+        mode: Terminate
         certificateRefs:
           - kind: Secret
             name: home-ops-wc-tls
@@ -73,6 +74,7 @@ spec:
         namespaces:
           from: All
       tls:
+        mode: Terminate
         certificateRefs:
           - kind: Secret
             name: home-ops-wc-tls
