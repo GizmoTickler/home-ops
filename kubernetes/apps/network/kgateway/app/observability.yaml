@@ -17,21 +17,20 @@ spec:
       path: /stats/prometheus
       honorLabels: true
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/servicemonitor_v1.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/podmonitor_v1.json
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
-  name: kgateway
-  namespace: kgateway-system
+  name: kgateway-controller
 spec:
-  jobLabel: kgateway
+  jobLabel: kgateway-controller
   namespaceSelector:
     matchNames:
       - kgateway-system
   selector:
     matchLabels:
       app.kubernetes.io/name: kgateway
-  endpoints:
+  podMetricsEndpoints:
     - port: metrics
       path: /metrics
       honorLabels: true
