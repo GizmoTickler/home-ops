@@ -17,21 +17,20 @@ spec:
       path: /stats/prometheus
       honorLabels: true
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmservicescrape_v1beta1.json
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmpodscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMServiceScrape
+kind: VMPodScrape
 metadata:
-  name: kgateway
-  namespace: kgateway-system
+  name: kgateway-controller
 spec:
-  jobLabel: kgateway
+  jobLabel: kgateway-controller
   namespaceSelector:
     matchNames:
       - kgateway-system
   selector:
     matchLabels:
       app.kubernetes.io/name: kgateway
-  endpoints:
+  podMetricsEndpoints:
     - port: metrics
       path: /metrics
       honorLabels: true
