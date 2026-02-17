@@ -11,9 +11,9 @@ spec:
       - network
   selector:
     matchLabels:
-      gloo: kube-gateway
+      kgateway: kube-gateway
   podMetricsEndpoints:
-    - port: metrics
+    - port: http-monitoring
       path: /stats/prometheus
       honorLabels: true
 ---
