@@ -25,4 +25,4 @@ spec:
         runAsUser: 10101
     stats:
       enabled: true
-      enableStatsRoute: false
+      enableStatsRoute: true
