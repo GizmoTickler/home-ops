@@ -13,12 +13,14 @@ spec:
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: envoy-external
-  compression: {}
+  compression:
+    responseCompression: {}
   retry:
-    numRetries: 2
-    retryOn: reset
-  timeout:
-    requestTimeout: 0s
+    attempts: 2
+    retryOn:
+      - reset
+  timeouts:
+    request: 0s
 ---
 # Replaces Envoy Gateway ClientTrafficPolicy
 # Provides header manipulation and listener-level settings
