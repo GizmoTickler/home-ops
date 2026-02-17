@@ -8,6 +8,7 @@ spec:
   interval: 12h
   path: ./kubernetes/apps/network/kgateway/gateway-api-crds
   prune: false
+  targetNamespace: network
   sourceRef:
     kind: GitRepository
     name: flux-system
