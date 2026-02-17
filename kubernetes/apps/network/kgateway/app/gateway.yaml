@@ -2,27 +2,27 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
-  name: envoy
+  name: kgateway
 spec:
   controllerName: kgateway.dev/kgateway
   parametersRef:
     group: gateway.kgateway.dev
     kind: GatewayParameters
-    name: envoy-proxy-params
-    namespace: kgateway-system
+    name: kgateway-proxy-params
+    namespace: network
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: envoy-external
+  name: kgateway-external
   annotations:
-    external-dns.alpha.kubernetes.io/target: &externalHostname "envoy-external.${SECRET_DOMAIN}"
+    external-dns.alpha.kubernetes.io/target: &externalHostname "kgateway-external.${SECRET_DOMAIN}"
     gatus.home-operations.com/endpoint: |-
       client:
         dns-resolver: tcp://192.168.123.250:53
       group: external
 spec:
-  gatewayClassName: envoy
+  gatewayClassName: kgateway
   infrastructure:
     annotations:
       external-dns.alpha.kubernetes.io/hostname: *externalHostname
@@ -49,13 +49,13 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: envoy-internal
+  name: kgateway-internal
   annotations:
-    external-dns.alpha.kubernetes.io/target: &internalHostname "envoy-internal.${SECRET_DOMAIN}"
+    external-dns.alpha.kubernetes.io/target: &internalHostname "kgateway-internal.${SECRET_DOMAIN}"
     gatus.home-operations.com/endpoint: |-
       group: internal
 spec:
-  gatewayClassName: envoy
+  gatewayClassName: kgateway
   infrastructure:
     annotations:
       external-dns.alpha.kubernetes.io/hostname: *internalHostname
@@ -87,10 +87,10 @@ metadata:
     external-dns.alpha.kubernetes.io/controller: none
 spec:
   parentRefs:
-    - name: envoy-external
+    - name: kgateway-external
       namespace: network
       sectionName: http
-    - name: envoy-internal
+    - name: kgateway-internal
       namespace: network
       sectionName: http
   rules:

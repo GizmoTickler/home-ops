@@ -65,6 +65,6 @@ spec:
         hostnames:
           - "{{ .Release.Name }}.${SECRET_DOMAIN}"
         parentRefs:
-          - name: envoy-external
+          - name: kgateway-external
             namespace: network
             sectionName: https
