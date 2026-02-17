@@ -1,0 +1,44 @@
+---
+# Replaces Envoy Gateway BackendTrafficPolicy
+# Provides compression, retry, and timeout configuration
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: default-backend
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-external
+  compression: {}
+  retry:
+    numRetries: 2
+    retryOn: reset
+  timeout:
+    requestTimeout: 0s
+---
+# Replaces Envoy Gateway ClientTrafficPolicy
+# Provides header manipulation and listener-level settings
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: HTTPListenerPolicy
+metadata:
+  name: default-listener
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-external
+  useRemoteAddress: true
+  xffNumTrustedHops: 0
+  earlyRequestHeaderModifier:
+    set:
+      - name: X-Forwarded-Proto
+        value: https
+      - name: X-Real-IP
+        value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"

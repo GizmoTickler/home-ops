@@ -1,0 +1,11 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kgateway-crds
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: kgateway-crds
+  interval: 1h

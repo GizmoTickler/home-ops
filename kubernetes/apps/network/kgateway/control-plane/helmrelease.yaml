@@ -1,0 +1,24 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kgateway
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: kgateway
+  dependsOn:
+    - name: kgateway-crds
+  interval: 1h
+  values:
+    controller:
+      replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    validation:
+      level: standard
