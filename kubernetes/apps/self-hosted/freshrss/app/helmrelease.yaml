@@ -19,7 +19,10 @@ spec:
             image:
               repository: ghcr.io/home-operations/busybox
               tag: 1.37.0@sha256:026ed7273270ec08f6902b4ae8334c23b473e5394bec3bbbdbfe580c710d50bc
-            command: ["sh", "-c", "chown -R 100:101 /data"]
+            command:
+              - "sh"
+              - "-c"
+              - "chown -R 100:101 /data"
             securityContext:
               runAsUser: 0
             resources:
@@ -89,7 +92,7 @@ spec:
         hostnames:
           - "rss.${SECRET_DOMAIN}"
         parentRefs:
-          - name: envoy-internal
+          - name: kgateway-internal
             namespace: network
             sectionName: https
         rules:

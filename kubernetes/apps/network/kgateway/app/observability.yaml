@@ -26,7 +26,7 @@ spec:
   jobLabel: kgateway-controller
   namespaceSelector:
     matchNames:
-      - kgateway-system
+      - network
   selector:
     matchLabels:
       app.kubernetes.io/name: kgateway

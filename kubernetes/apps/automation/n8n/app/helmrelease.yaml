@@ -69,7 +69,7 @@ spec:
         hostnames:
           - *hostName
         parentRefs:
-          - name: envoy-internal
+          - name: kgateway-internal
             namespace: network
             sectionName: https
       webhooks:
@@ -79,7 +79,7 @@ spec:
         hostnames:
           - "{{ .Release.Name }}-webhook.${SECRET_DOMAIN}"
         parentRefs:
-          - name: envoy-external
+          - name: kgateway-external
             namespace: network
             sectionName: https
         rules:

@@ -7,7 +7,7 @@ spec:
   hostnames:
     - "metrics.${SECRET_DOMAIN}"
   parentRefs:
-    - name: envoy-internal
+    - name: kgateway-internal
       namespace: network
       sectionName: https
   rules:
@@ -23,7 +23,7 @@ spec:
   hostnames:
     - "alertmanager.${SECRET_DOMAIN}"
   parentRefs:
-    - name: envoy-internal
+    - name: kgateway-internal
       namespace: network
       sectionName: https
   rules:
