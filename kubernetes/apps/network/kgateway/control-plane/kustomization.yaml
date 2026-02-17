@@ -8,3 +8,4 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease-crds.yaml
   - ./helmrelease.yaml
+  - ./gatewayparameters.yaml
