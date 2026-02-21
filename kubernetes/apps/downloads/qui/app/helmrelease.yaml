@@ -77,3 +77,11 @@ spec:
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
+      media:
+        type: nfs
+        server: nas01.${SECRET_DOMAIN}
+        path: /mnt/flashstor/data
+        globalMounts:
+          - path: /media/torrents
+            subPath: torrents
+            readOnly: true
