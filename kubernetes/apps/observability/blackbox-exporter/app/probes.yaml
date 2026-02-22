@@ -23,8 +23,8 @@ spec:
         - dns-1.${SECRET_DOMAIN}
         - gateway0.${SECRET_DOMAIN}
         - gateway1.${SECRET_DOMAIN}
+        - mgateway0.${SECRET_DOMAIN}
         - mgateway1.${SECRET_DOMAIN}
-        - mgateway2.${SECRET_DOMAIN}
         - cell-gateway0.${SECRET_DOMAIN}
         - cell-gateway1.${SECRET_DOMAIN}
 
