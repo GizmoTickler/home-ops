@@ -14,7 +14,7 @@ sonarr:
         rename: true
         standard: default
       season: default
-      series: jellyfin-imdb
+      series: jellyfin-tvdb
     quality_definition:
       type: series
     quality_profiles:
