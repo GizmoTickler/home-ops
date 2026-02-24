@@ -226,7 +226,7 @@ spec:
         existingClaim: "{{ .Release.Name }}"
       config-template:
         type: configMap
-        name: nzbget-config
+        name: "{{ .Release.Name }}"
         advancedMounts:
           nzbget:
             init-config:
