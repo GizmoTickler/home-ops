@@ -221,7 +221,7 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 
 func setEnvironment() {
 	// Set default environment variables if not already set
-	// KUBECONFIG, TALOSCONFIG, and SOPS_AGE_KEY_FILE should use global environment variables
+	// KUBECONFIG and TALOSCONFIG should use global environment variables
 
 	// Convert relative path to absolute for MINIJINJA_CONFIG_FILE
 	minijinjaConfig := "./.minijinja.toml"

@@ -338,12 +338,6 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: sops-age
-  namespace: flux-system
----
-apiVersion: v1
-kind: Secret
-metadata:
   name: cloudflare-tunnel-id-secret
   namespace: default
 `,
