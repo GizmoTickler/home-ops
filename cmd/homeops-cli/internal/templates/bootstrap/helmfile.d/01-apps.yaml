@@ -93,7 +93,7 @@ releases:
   - name: flux-operator
     namespace: flux-system
     chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator
-    version: 0.41.1
+    version: 0.42.1
     values:
       - ./templates/values.yaml.gotmpl
     needs:
@@ -102,13 +102,13 @@ releases:
   - name: flux-instance
     namespace: flux-system
     chart: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-instance
-    version: 0.41.1
+    version: 0.42.1
     values:
       - ./templates/values.yaml.gotmpl
       # Override artifact URL during bootstrap since Zot doesn't exist yet.
       # After Flux takes over, it will reconcile with the git values (using Zot).
       - instance:
           distribution:
-            artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.41.1
+            artifact: oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:v0.42.1
     needs:
       - flux-system/flux-operator
