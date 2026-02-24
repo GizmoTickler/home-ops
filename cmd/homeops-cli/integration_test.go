@@ -354,9 +354,8 @@ func (s *IntegrationTestSuite) TestErrorHandlingScenarios() {
 	s.Run("EnvironmentValidation", func() {
 		// Test behavior with missing environment variables
 		originalEnv := map[string]string{
-			"KUBECONFIG":        os.Getenv("KUBECONFIG"),
-			"TALOSCONFIG":       os.Getenv("TALOSCONFIG"),
-			"SOPS_AGE_KEY_FILE": os.Getenv("SOPS_AGE_KEY_FILE"),
+			"KUBECONFIG":  os.Getenv("KUBECONFIG"),
+			"TALOSCONFIG": os.Getenv("TALOSCONFIG"),
 		}
 
 		defer func() {
@@ -373,7 +372,6 @@ func (s *IntegrationTestSuite) TestErrorHandlingScenarios() {
 		// Test with missing environment variables
 		os.Unsetenv("KUBECONFIG")
 		os.Unsetenv("TALOSCONFIG")
-		os.Unsetenv("SOPS_AGE_KEY_FILE")
 
 		rootCmd := createTestRootCommand()
 

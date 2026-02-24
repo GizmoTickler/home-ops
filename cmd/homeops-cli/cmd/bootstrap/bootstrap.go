@@ -556,7 +556,7 @@ func validateResourcesYAML(yamlContent string, logger *common.ColorLogger) error
 	}
 
 	// Check that expected secrets were created (no namespaces since resources.yaml only contains secrets)
-	expectedSecrets := []string{"onepassword-secret", "sops-age", "cloudflare-tunnel-id-secret"}
+	expectedSecrets := []string{"onepassword-secret", "cloudflare-tunnel-id-secret"}
 	for _, secret := range expectedSecrets {
 		if !strings.Contains(yamlContent, fmt.Sprintf("name: %s", secret)) {
 			return fmt.Errorf("expected secret '%s' not found in YAML content", secret)
