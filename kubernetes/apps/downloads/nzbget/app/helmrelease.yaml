@@ -1,0 +1,253 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nzbget
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: nzbget
+  interval: 1h
+  values:
+    controllers:
+      nzbget:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-config:
+            image:
+              repository: ghcr.io/nzbgetcom/nzbget
+              tag: v26.0@sha256:5ea1c8fdd01955cd671ef6cbd00aa54af19b5249558ff431f7b8ab13ee25acbb
+            command:
+              - /bin/sh
+              - -c
+              - |
+                if [ ! -f /config/nzbget.conf ]; then
+                  cp /tmp/nzbget-config/nzbget.conf /config/nzbget.conf
+                  # Inject Usenet server config from env vars
+                  for i in 1 2 3 4; do
+                    for suffix in NAME HOST USER PASS; do
+                      eval val="\${SERVER${i}_${suffix}}"
+                      sed -i "s|__SERVER${i}_${suffix}__|${val}|g" /config/nzbget.conf
+                    done
+                  done
+                  echo "Config initialized from template"
+                else
+                  echo "Config already exists, skipping initialization"
+                fi
+            envFrom:
+              - secretRef:
+                  name: nzbget-secret
+        containers:
+          app:
+            image:
+              repository: ghcr.io/nzbgetcom/nzbget
+              tag: v26.0@sha256:5ea1c8fdd01955cd671ef6cbd00aa54af19b5249558ff431f7b8ab13ee25acbb
+            env:
+              PUID: "1000"
+              PGID: "1000"
+              TZ: America/New_York
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: &port 6789
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  periodSeconds: 10
+                  failureThreshold: 30
+            resources:
+              requests:
+                cpu: 500m
+                memory: 4Gi
+              limits:
+                memory: 32Gi
+    configMaps:
+      config:
+        data:
+          nzbget.conf: |
+            # NZBGet configuration — deployed via Flux/GitOps
+            # This template is copied to /config/nzbget.conf on first run only.
+            # Runtime changes via the web UI are preserved.
+
+            # Paths
+            MainDir=/downloads
+            TempDir=/tmp/nzbget
+            InterDir=/incomplete
+            WebDir=/app/nzbget/webui
+            ConfigTemplate=/app/nzbget/share/nzbget/nzbget.conf
+            LockFile=/config/nzbget.lock
+            LogFile=/config/nzbget.log
+            DestDir=/media/usenet
+
+            # Server Control
+            ControlPort=6789
+            ControlUsername=nzbget
+            ControlPassword=
+            AuthorizedIP=0.0.0.0/0
+            DaemonUsername=root
+
+            # Performance Tuning
+            ArticleCache=2000
+            DirectWrite=yes
+            DirectRename=yes
+            DirectUnpack=yes
+            WriteBuffer=1024
+            CrcCheck=no
+            FlushQueue=no
+            ContinuePartial=no
+            AccurateRate=no
+
+            # Par/Repair
+            ParCheck=auto
+            ParQuick=yes
+            ParBuffer=1024
+            ParThreads=16
+            ParPauseQueue=no
+            ParRename=yes
+
+            # Unpack
+            UnpackPauseQueue=no
+
+            # Logging (minimal for performance)
+            InfoTarget=screen
+            WarningTarget=screen
+            ErrorTarget=both
+            DebugTarget=none
+            DetailTarget=none
+            WriteLog=rotate
+            RotateLog=3
+
+            # Server 1 (primary)
+            Server1.Active=yes
+            Server1.Name=__SERVER1_NAME__
+            Server1.Host=__SERVER1_HOST__
+            Server1.Port=563
+            Server1.Encryption=yes
+            Server1.Connections=50
+            Server1.Username=__SERVER1_USER__
+            Server1.Password=__SERVER1_PASS__
+            Server1.Level=0
+            Server1.Group=0
+            Server1.Cipher=TLS_AES_128_GCM_SHA256
+
+            # Server 2 (primary)
+            Server2.Active=yes
+            Server2.Name=__SERVER2_NAME__
+            Server2.Host=__SERVER2_HOST__
+            Server2.Port=563
+            Server2.Encryption=yes
+            Server2.Connections=50
+            Server2.Username=__SERVER2_USER__
+            Server2.Password=__SERVER2_PASS__
+            Server2.Level=0
+            Server2.Group=0
+            Server2.Cipher=TLS_AES_128_GCM_SHA256
+
+            # Server 3 (fill)
+            Server3.Active=yes
+            Server3.Name=__SERVER3_NAME__
+            Server3.Host=__SERVER3_HOST__
+            Server3.Port=563
+            Server3.Encryption=yes
+            Server3.Connections=50
+            Server3.Username=__SERVER3_USER__
+            Server3.Password=__SERVER3_PASS__
+            Server3.Level=0
+            Server3.Group=0
+            Server3.Cipher=TLS_AES_128_GCM_SHA256
+
+            # Server 4 (block/fill)
+            Server4.Active=yes
+            Server4.Name=__SERVER4_NAME__
+            Server4.Host=__SERVER4_HOST__
+            Server4.Port=563
+            Server4.Encryption=yes
+            Server4.Connections=10
+            Server4.Username=__SERVER4_USER__
+            Server4.Password=__SERVER4_PASS__
+            Server4.Level=1
+            Server4.Group=0
+            Server4.Cipher=TLS_AES_128_GCM_SHA256
+
+            # Categories
+            Category1.Name=movies
+            Category1.DestDir=
+            Category1.Aliases=movies*
+
+            Category2.Name=series
+            Category2.DestDir=
+            Category2.Aliases=tv*
+
+            Category3.Name=music
+            Category3.DestDir=
+            Category3.Aliases=music*
+
+            Category4.Name=software
+            Category4.DestDir=
+            Category4.Aliases=software*
+    service:
+      app:
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: kgateway-internal
+            namespace: network
+            sectionName: https
+    persistence:
+      config:
+        existingClaim: "{{ .Release.Name }}"
+      config-template:
+        type: configMap
+        name: nzbget-config
+        advancedMounts:
+          nzbget:
+            init-config:
+              - path: /tmp/nzbget-config
+                readOnly: true
+      incomplete:
+        type: custom
+        volumeSpec:
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - "ReadWriteOnce"
+                storageClassName: openebs-hostpath
+                resources:
+                  requests:
+                    storage: 1Mi
+        globalMounts:
+          - path: /incomplete
+      media:
+        type: nfs
+        server: nas01.${SECRET_DOMAIN}
+        path: /mnt/flashstor/data
+        globalMounts:
+          - path: /media/usenet
+            subPath: usenet
+      tmpfs:
+        type: emptyDir
+        medium: Memory
+        sizeLimit: 1Gi
+        advancedMounts:
+          nzbget:
+            app:
+              - path: /tmp
