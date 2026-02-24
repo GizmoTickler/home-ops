@@ -118,7 +118,7 @@ spec:
             DaemonUsername=root
 
             # Performance — Download
-            ArticleCache=2000
+            ArticleCache=4000
             DirectWrite=yes
             DirectRename=yes
             DirectUnpack=yes
@@ -137,7 +137,7 @@ spec:
             PropagationDelay=0
 
             # Performance — v26 features
-            HardLinking=yes
+            HardLinking=no
             SystemHealthCheck=no
             PostStrategy=aggressive
 
@@ -190,7 +190,7 @@ spec:
             Server2.Username=__SERVER2_USER__
             Server2.Password=__SERVER2_PASS__
             Server2.Level=0
-            Server2.Group=0
+            Server2.Group=1
             Server2.Cipher=TLS_AES_128_GCM_SHA256
 
             # Server 3 (fill)
@@ -203,7 +203,7 @@ spec:
             Server3.Username=__SERVER3_USER__
             Server3.Password=__SERVER3_PASS__
             Server3.Level=0
-            Server3.Group=0
+            Server3.Group=2
             Server3.Cipher=TLS_AES_128_GCM_SHA256
 
             # Server 4 (block/fill)
