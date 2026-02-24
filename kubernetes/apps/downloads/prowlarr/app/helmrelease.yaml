@@ -94,6 +94,9 @@ spec:
           - name: kgateway-internal
             namespace: network
             sectionName: https
+        rules:
+          - timeouts:
+              request: 120s
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
