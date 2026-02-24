@@ -1,0 +1,48 @@
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: Backend
+metadata:
+  name: pocket-id-oidc-nzbget
+spec:
+  type: Static
+  static:
+    hosts:
+      - host: pocket-id.auth.svc.cluster.local
+        port: 1411
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayExtension
+metadata:
+  name: nzbget-oidc
+spec:
+  oauth2:
+    backendRef:
+      kind: Backend
+      group: gateway.kgateway.dev
+      name: pocket-id-oidc-nzbget
+    authorizationEndpoint: https://id.${SECRET_DOMAIN}/authorize
+    tokenEndpoint: https://id.${SECRET_DOMAIN}/api/oidc/token
+    endSessionEndpoint: https://id.${SECRET_DOMAIN}/api/oidc/end-session
+    credentials:
+      clientID: d12606ec-7c67-46aa-b990-8bba4b782ffe
+      clientSecretRef:
+        name: nzbget-oidc-secret
+    redirectURI: https://nzbget.${SECRET_DOMAIN}/oauth2/callback
+    logoutPath: /oauth2/logout
+    scopes:
+      - openid
+      - email
+      - profile
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: nzbget-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: nzbget
+  oauth2:
+    extensionRef:
+      name: nzbget-oidc
