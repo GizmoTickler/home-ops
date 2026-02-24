@@ -117,7 +117,7 @@ spec:
             RestrictedPassword=__RESTRICTED_PASS__
             DaemonUsername=root
 
-            # Performance Tuning
+            # Performance — Download
             ArticleCache=2000
             DirectWrite=yes
             DirectRename=yes
@@ -126,6 +126,20 @@ spec:
             CrcCheck=no
             FlushQueue=no
             ContinuePartial=no
+            RawArticle=no
+            ArticleRetries=3
+            ArticleInterval=5
+            ArticleTimeout=30
+            UrlConnections=4
+            FileNaming=auto
+            ReorderFiles=yes
+            SkipWrite=no
+            PropagationDelay=0
+
+            # Performance — v26 features
+            HardLinking=yes
+            SystemHealthCheck=no
+            PostStrategy=aggressive
 
             # Par/Repair
             ParCheck=auto
@@ -134,9 +148,15 @@ spec:
             ParThreads=16
             ParPauseQueue=no
             ParRename=yes
+            RarRename=yes
+            ParScan=extended
+            ParRepair=yes
+            HealthCheck=park
 
             # Unpack
+            Unpack=yes
             UnpackPauseQueue=no
+            UnpackCleanupDisk=yes
 
             # Logging (minimal for performance)
             InfoTarget=screen
