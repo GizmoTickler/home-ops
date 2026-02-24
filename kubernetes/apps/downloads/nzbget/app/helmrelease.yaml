@@ -23,6 +23,7 @@ spec:
               - /bin/sh
               - -c
               - |
+                mkdir -p /config/queue /config/nzb /config/scripts
                 if [ ! -f /config/nzbget.conf ]; then
                   cp /tmp/nzbget-config/nzbget.conf /config/nzbget.conf
                   # Inject Usenet server config from env vars
@@ -96,11 +97,14 @@ spec:
             MainDir=/downloads
             TempDir=/tmp/nzbget
             InterDir=/incomplete
+            DestDir=/media/usenet
+            QueueDir=/config/queue
+            NzbDir=/config/nzb
+            ScriptDir=/config/scripts
             WebDir=/app/nzbget/webui
             ConfigTemplate=/app/nzbget/share/nzbget/nzbget.conf
             LockFile=/config/nzbget.lock
             LogFile=/config/nzbget.log
-            DestDir=/media/usenet
 
             # Server Control
             ControlPort=6789
@@ -118,7 +122,6 @@ spec:
             CrcCheck=no
             FlushQueue=no
             ContinuePartial=no
-            AccurateRate=no
 
             # Par/Repair
             ParCheck=auto
