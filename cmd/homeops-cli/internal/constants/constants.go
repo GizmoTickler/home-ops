@@ -43,7 +43,6 @@ const (
 	EnvTalosconfig       = "TALOSCONFIG"
 	EnvKubernetesVersion = "KUBERNETES_VERSION"
 	EnvTalosVersion      = "TALOS_VERSION"
-	EnvSOPSAgeKeyFile    = "SOPS_AGE_KEY_FILE"
 	EnvMiniJinjaConfig   = "MINIJINJA_CONFIG_FILE"
 	EnvDebug             = "DEBUG"
 	EnvLogLevel          = "LOG_LEVEL"
