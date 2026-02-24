@@ -43,6 +43,8 @@ spec:
                   sed -i "s|__SERVER4_HOST__|$SERVER4_HOST|g" /config/nzbget.conf
                   sed -i "s|__SERVER4_USER__|$SERVER4_USER|g" /config/nzbget.conf
                   sed -i "s|__SERVER4_PASS__|$SERVER4_PASS|g" /config/nzbget.conf
+                  sed -i "s|__RESTRICTED_USER__|$RESTRICTED_USER|g" /config/nzbget.conf
+                  sed -i "s|__RESTRICTED_PASS__|$RESTRICTED_PASS|g" /config/nzbget.conf
                   echo "Config initialized from template"
                 else
                   echo "Config already exists, skipping initialization"
@@ -111,8 +113,8 @@ spec:
             ControlUsername=nzbget
             ControlPassword=
             AuthorizedIP=0.0.0.0/0
-            RestrictedUsername=arr
-            RestrictedPassword=arr
+            RestrictedUsername=__RESTRICTED_USER__
+            RestrictedPassword=__RESTRICTED_PASS__
             DaemonUsername=root
 
             # Performance Tuning
