@@ -10,17 +10,8 @@ spec:
     name: flux-operator
   interval: 1h
   values:
-    extraEnvs:
-      - name: GODEBUG
-        value: netdns=go
     serviceMonitor:
-      create: false
+      create: true
     web:
       networkPolicy:
         create: false
-    resources:
-      requests:
-        cpu: 115m
-        memory: 256Mi
-      limits:
-        memory: 1Gi
