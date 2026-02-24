@@ -76,7 +76,9 @@ spec:
             namespace: network
             sectionName: https
         rules:
-          - timeouts:
+          - backendRefs:
+              - identifier: app
+            timeouts:
               request: 120s
     persistence:
       config:
