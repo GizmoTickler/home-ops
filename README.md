@@ -45,6 +45,40 @@ This repository contains the configuration for my homelab Kubernetes cluster bui
 
 **Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
 
+---
+
+## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6e0_fe0f/512.gif" alt="🛠" width="20" height="20"> homeops-cli — Custom Go CLI
+
+> **Built from scratch** — ~25,000 lines of Go powering the entire cluster lifecycle.
+
+[`homeops-cli`](./cmd/homeops-cli) is a purpose-built command-line tool that automates every operational aspect of this infrastructure. It is not a wrapper around shell scripts — it's a full Go application with 19 internal packages, native API clients, and embedded template rendering.
+
+| Command | What it does |
+|---------|-------------|
+| `homeops-cli bootstrap` | End-to-end cluster initialization with preflight checks and 1Password secret injection |
+| `homeops-cli talos deploy-vm` | Provisions Proxmox VMs with custom Talos ISOs generated via Factory API |
+| `homeops-cli talos apply-node` | Renders and applies Talos machine configs with Jinja2 templating ([minijinja](https://github.com/mitsuhiko/minijinja)) |
+| `homeops-cli talos upgrade-k8s` | Orchestrated Kubernetes version upgrades across the cluster |
+| `homeops-cli volsync snapshot` | Triggers Kopia-backed PVC snapshots via VolSync |
+| `homeops-cli volsync restore` | Point-in-time PVC recovery from Kopia repository |
+| `homeops-cli workstation` | Developer workstation setup and validation |
+
+**Key internals:**
+
+- **Native API clients** for Proxmox VE, TrueNAS Scale, and Talos Factory — no shelling out
+- **1Password CLI integration** for zero-plaintext secret management
+- **Embedded Jinja2 templates** via minijinja for Talos machine config rendering
+- **Interactive TUI** with rich prompts, spinners, and progress indicators
+- **Full test suite** with unit and integration tests
+
+```
+cmd/homeops-cli/
+├── cmd/           # CLI commands (bootstrap, talos, volsync, kubernetes, workstation)
+├── internal/      # 19 packages: proxmox, truenas, talos, ssh, iso, config, security, ui, ...
+├── main.go        # Cobra root command with signal handling
+└── Makefile       # Build, test, lint, coverage
+```
+
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
 The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on Proxmox VE 9.1 VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
