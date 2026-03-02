@@ -211,50 +211,55 @@ function makeNetworkPanel(links) {
   const radius = 8;
   const midY = panelH / 2;
 
-  let tints = "";
+  // Layout constants (pixels)
+  const padL = 14, padR = 14;
+  const iconW = 12, iconGap = 6;
+  const dotGap = 8, dotDiam = 8, dotTextGap = 4;
+
   let content = "";
 
   links.forEach((link, i) => {
     const bx = i * secW;
     const statusText = (link.message || "?").toUpperCase();
     const dotColor = resolveColor(link.color);
+    const labelPx = tw(link.label) * 11 / 100;
+    const statusPx = tw(statusText) * 11 / 100;
 
-    // Subtle status tint per section
-    tints += `<rect x="${bx}" y="0" width="${secW}" height="${panelH}" fill="${dotColor}" opacity="0.07"/>`;
+    // Center content block within section
+    const contentW = iconW + iconGap + labelPx + dotGap + dotDiam + dotTextGap + statusPx;
+    const offset = Math.max(0, (secW - padL - padR - contentW) / 2);
+    const sx = bx + padL + offset;
 
     // Icon
-    const ix = bx + 14;
     if (link.icon === "bolt") {
-      // Lightning bolt — gold
-      content += `<polygon points="${ix + 5},${midY - 7} ${ix + 1},${midY} ${ix + 3.5},${midY} ${ix + 2.5},${midY + 7} ${ix + 8},${midY - 2} ${ix + 5},${midY - 2}" fill="#f0c040"/>`;
+      content += `<polygon points="${sx + 5},${midY - 7} ${sx + 1},${midY} ${sx + 3.5},${midY} ${sx + 2.5},${midY + 7} ${sx + 8},${midY - 2} ${sx + 5},${midY - 2}" fill="#f0c040"/>`;
     } else {
-      // Signal bars — blue, ascending height
       const bb = midY + 7;
-      content += `<rect x="${ix}" y="${bb - 5}" width="3" height="5" rx="0.5" fill="#58a6ff"/>`;
-      content += `<rect x="${ix + 4.5}" y="${bb - 9}" width="3" height="9" rx="0.5" fill="#58a6ff"/>`;
-      content += `<rect x="${ix + 9}" y="${bb - 13}" width="3" height="13" rx="0.5" fill="#58a6ff"/>`;
+      content += `<rect x="${sx}" y="${bb - 5}" width="3" height="5" rx="0.5" fill="#58a6ff"/>`;
+      content += `<rect x="${sx + 4.5}" y="${bb - 9}" width="3" height="9" rx="0.5" fill="#58a6ff"/>`;
+      content += `<rect x="${sx + 9}" y="${bb - 13}" width="3" height="13" rx="0.5" fill="#58a6ff"/>`;
     }
 
-    // Label text
-    content += `<text x="${ix + 18}" y="${midY + 4}" fill="#fff" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
+    // Label
+    const labelX = sx + iconW + iconGap;
+    content += `<text x="${labelX}" y="${midY + 4}" fill="#fff" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
 
-    // Status dot with glow + status text (right-aligned)
-    const stwPx = tw(statusText) * 11 / 100;
-    const rightEdge = bx + secW - 14;
-    const textStart = rightEdge - stwPx;
-    const dotCx = textStart - 9;
-
+    // Status dot with glow
+    const dotCx = labelX + labelPx + dotGap + dotDiam / 2;
     content += `<circle cx="${dotCx}" cy="${midY}" r="6" fill="${dotColor}" opacity="0.25"/>`;
     content += `<circle cx="${dotCx}" cy="${midY}" r="4" fill="${dotColor}"/>`;
-    content += `<text x="${textStart}" y="${midY + 4}" fill="${dotColor}" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
 
-    // Vertical divider between sections
+    // Status text
+    const statusX = dotCx + dotDiam / 2 + dotTextGap;
+    content += `<text x="${statusX}" y="${midY + 4}" fill="${dotColor}" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
+
+    // Divider
     if (i < 2) {
       content += `<line x1="${bx + secW}" y1="8" x2="${bx + secW}" y2="${panelH - 8}" stroke="#6e7681" stroke-opacity="0.4"/>`;
     }
   });
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelW}" height="${panelH}" role="img" aria-label="Network Status"><title>Network Status</title><defs><linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="${panelW}" height="${panelH}" rx="${radius}"/></clipPath></defs><g clip-path="url(#r)"><rect width="${panelW}" height="${panelH}" fill="#555"/>${tints}<rect width="${panelW}" height="${panelH}" fill="url(#g)"/>${content}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelW}" height="${panelH}" role="img" aria-label="Network Status"><title>Network Status</title><defs><linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="${panelW}" height="${panelH}" rx="${radius}"/></clipPath></defs><g clip-path="url(#r)"><rect width="${panelW}" height="${panelH}" fill="#555"/><rect width="${panelW}" height="${panelH}" fill="url(#g)"/>${content}</g></svg>`;
 }
 
 export { index_default as default };
