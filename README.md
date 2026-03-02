@@ -9,7 +9,6 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 
 <div align="center">
 
-[![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
 [![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos&color=blue&logo=talos)](https://talos.dev)&nbsp;&nbsp;
 [![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes&color=blue&logo=kubernetes)](https://kubernetes.io)&nbsp;&nbsp;
 [![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux&color=blue&logo=flux)](https://fluxcd.io)&nbsp;&nbsp;
