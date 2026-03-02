@@ -10,9 +10,9 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 <div align="center">
 
 [![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
-[![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos)](https://talos.dev)&nbsp;&nbsp;
-[![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes)](https://kubernetes.io)&nbsp;&nbsp;
-[![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux)](https://fluxcd.io)&nbsp;&nbsp;
+[![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos&color=blue)](https://talos.dev)&nbsp;&nbsp;
+[![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes&color=blue)](https://kubernetes.io)&nbsp;&nbsp;
+[![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux&color=blue)](https://fluxcd.io)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/github/actions/workflow/status/GizmoTickler/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
 
 </div>
