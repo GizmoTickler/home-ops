@@ -163,7 +163,7 @@ spec:
         - alert: CellularWAN1Down
           expr: |-
             count(probe_success{job="cgw0-wan-probes"} == 0) >= 2
-          for: 10m
+          for: 90s
           keep_firing_for: 5m
           annotations:
             summary: "Cellular WAN 1 (cell-gateway0) has lost internet reachability"
@@ -177,7 +177,7 @@ spec:
         - alert: CellularWAN2Down
           expr: |-
             count(probe_success{job="cgw1-wan-probes"} == 0) >= 2
-          for: 10m
+          for: 90s
           keep_firing_for: 5m
           annotations:
             summary: "Cellular WAN 2 (cell-gateway1) has lost internet reachability"
