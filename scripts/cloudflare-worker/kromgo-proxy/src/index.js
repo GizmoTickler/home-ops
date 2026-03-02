@@ -1,6 +1,28 @@
 // src/index.js — Kromgo badge proxy
 // Generates polished SVG badges with rounded corners, gradients, and logos
 
+// --- Rate limiter (per-isolate, sliding window) ---
+const RATE_LIMIT = 60;          // max requests per window
+const RATE_WINDOW_MS = 60_000;  // 1 minute window
+const rateMap = new Map();      // IP -> { count, resetAt }
+
+function isRateLimited(ip) {
+  const now = Date.now();
+  let entry = rateMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
+    rateMap.set(ip, entry);
+  }
+  entry.count++;
+  // Evict stale entries every 256 requests to prevent memory bloat
+  if (rateMap.size > 1024) {
+    for (const [key, val] of rateMap) {
+      if (now > val.resetAt) rateMap.delete(key);
+    }
+  }
+  return entry.count > RATE_LIMIT;
+}
+
 const COLORS = {
   green: "#97ca00",
   brightgreen: "#4c1",
@@ -109,6 +131,15 @@ var index_default = {
       });
     }
     if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+
+    const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (isRateLimited(clientIp)) {
+      return new Response("Too many requests", {
+        status: 429,
+        headers: { "Retry-After": "60", "Content-Type": "text/plain" },
+      });
+    }
+
     if (!env.CF_CLIENT_ID || !env.CF_CLIENT_SECRET || !env.SECRET_DOMAIN) {
       return svgResponse(makeBadge("error", "misconfigured", "critical"), 500);
     }
@@ -164,29 +195,26 @@ var index_default = {
   },
 };
 
+const SECURITY_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Cache-Control": "no-cache, max-age=0",
+  "X-Robots-Tag": "noindex",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+};
+
 function svgResponse(svg, status) {
   return new Response(svg, {
     status,
-    headers: {
-      "Content-Type": "image/svg+xml",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "no-cache, max-age=0",
-      "X-Robots-Tag": "noindex",
-      "Referrer-Policy": "no-referrer",
-      "X-Content-Type-Options": "nosniff",
-    },
+    headers: { ...SECURITY_HEADERS, "Content-Type": "image/svg+xml" },
   });
 }
 
 function jsonResponse(data, status) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "no-cache, max-age=0",
-      "X-Robots-Tag": "noindex",
-    },
+    headers: { ...SECURITY_HEADERS, "Content-Type": "application/json" },
   });
 }
 
