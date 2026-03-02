@@ -98,6 +98,7 @@ const ALLOWED_METRICS = new Set([
   "cluster_alert_count", "ceph_storage_used", "ceph_health",
   "cert_expiry_days", "flux_failing_count", "helmrelease_count",
   "pvc_count", "container_count", "wan_primary", "wan_cellular1", "wan_cellular2",
+  "network_status",
 ]);
 
 var index_default = {
@@ -116,6 +117,20 @@ var index_default = {
     const metricName = url.pathname.substring(1);
     if (!metricName || !ALLOWED_METRICS.has(metricName)) {
       return svgResponse(makeBadge("error", "not found", "red"), 404);
+    }
+
+    // Unified network status panel — fetches all 3 WAN metrics
+    if (metricName === "network_status") {
+      const [fiber, cell1, cell2] = await Promise.all([
+        fetchWanMetric("wan_primary", env),
+        fetchWanMetric("wan_cellular1", env),
+        fetchWanMetric("wan_cellular2", env),
+      ]);
+      return svgResponse(makeNetworkPanel([
+        { label: "FIBER", icon: "bolt", message: fiber.message, color: fiber.color },
+        { label: "CELL 1", icon: "signal", message: cell1.message, color: cell1.color },
+        { label: "CELL 2", icon: "signal", message: cell2.message, color: cell2.color },
+      ]), 200);
     }
 
     const wantJson = url.searchParams.has("json");
@@ -173,6 +188,73 @@ function jsonResponse(data, status) {
       "X-Robots-Tag": "noindex",
     },
   });
+}
+
+async function fetchWanMetric(metric, env) {
+  try {
+    const resp = await fetch(`https://kromgo.${env.SECRET_DOMAIN}/${metric}`, {
+      headers: { "CF-Access-Client-Id": env.CF_CLIENT_ID, "CF-Access-Client-Secret": env.CF_CLIENT_SECRET },
+      signal: AbortSignal.timeout(5000),
+    });
+    const ct = resp.headers.get("content-type") || "";
+    if (ct.includes("text/html") || !resp.ok) return { message: "ERR", color: "grey" };
+    return await resp.json();
+  } catch {
+    return { message: "ERR", color: "grey" };
+  }
+}
+
+function makeNetworkPanel(links) {
+  const secW = 156;
+  const panelW = secW * 3;
+  const panelH = 38;
+  const radius = 8;
+  const midY = panelH / 2;
+
+  let tints = "";
+  let content = "";
+
+  links.forEach((link, i) => {
+    const bx = i * secW;
+    const statusText = (link.message || "?").toUpperCase();
+    const dotColor = resolveColor(link.color);
+
+    // Subtle status tint per section
+    tints += `<rect x="${bx}" y="0" width="${secW}" height="${panelH}" fill="${dotColor}" opacity="0.07"/>`;
+
+    // Icon
+    const ix = bx + 14;
+    if (link.icon === "bolt") {
+      // Lightning bolt — gold
+      content += `<polygon points="${ix + 5},${midY - 7} ${ix + 1},${midY} ${ix + 3.5},${midY} ${ix + 2.5},${midY + 7} ${ix + 8},${midY - 2} ${ix + 5},${midY - 2}" fill="#f0c040"/>`;
+    } else {
+      // Signal bars — blue, ascending height
+      const bb = midY + 7;
+      content += `<rect x="${ix}" y="${bb - 5}" width="3" height="5" rx="0.5" fill="#58a6ff"/>`;
+      content += `<rect x="${ix + 4.5}" y="${bb - 9}" width="3" height="9" rx="0.5" fill="#58a6ff"/>`;
+      content += `<rect x="${ix + 9}" y="${bb - 13}" width="3" height="13" rx="0.5" fill="#58a6ff"/>`;
+    }
+
+    // Label text
+    content += `<text x="${ix + 18}" y="${midY + 4}" fill="#fff" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
+
+    // Status dot with glow + status text (right-aligned)
+    const stwPx = tw(statusText) * 11 / 100;
+    const rightEdge = bx + secW - 14;
+    const textStart = rightEdge - stwPx;
+    const dotCx = textStart - 9;
+
+    content += `<circle cx="${dotCx}" cy="${midY}" r="6" fill="${dotColor}" opacity="0.25"/>`;
+    content += `<circle cx="${dotCx}" cy="${midY}" r="4" fill="${dotColor}"/>`;
+    content += `<text x="${textStart}" y="${midY + 4}" fill="${dotColor}" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
+
+    // Vertical divider between sections
+    if (i < 2) {
+      content += `<line x1="${bx + secW}" y1="8" x2="${bx + secW}" y2="${panelH - 8}" stroke="#6e7681" stroke-opacity="0.4"/>`;
+    }
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelW}" height="${panelH}" role="img" aria-label="Network Status"><title>Network Status</title><defs><linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="${panelW}" height="${panelH}" rx="${radius}"/></clipPath></defs><g clip-path="url(#r)"><rect width="${panelW}" height="${panelH}" fill="#555"/>${tints}<rect width="${panelW}" height="${panelH}" fill="url(#g)"/>${content}</g></svg>`;
 }
 
 export { index_default as default };
