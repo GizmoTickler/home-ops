@@ -144,3 +144,177 @@ spec:
           targetLabel: instance
         - targetLabel: __address__
           replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
+---
+# WAN HTTP probes — gateway0 (Frontier fiber)
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: gateway-wan-http
+spec:
+  jobName: gateway-wan-http
+  targetEndpoints:
+    - targets:
+        - "http://www.google.com"
+        - "http://www.amazon.com"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - http_2xx
+      labels:
+        job: gateway-wan-http
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "gateway0.${SECRET_DOMAIN}:9115"
+---
+# WAN HTTP probes — cell-gateway0
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw0-wan-http
+spec:
+  jobName: cgw0-wan-http
+  targetEndpoints:
+    - targets:
+        - "http://www.google.com"
+        - "http://www.amazon.com"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - http_2xx
+      labels:
+        job: cgw0-wan-http
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway0.${SECRET_DOMAIN}:9115"
+---
+# WAN HTTP probes — cell-gateway1
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw1-wan-http
+spec:
+  jobName: cgw1-wan-http
+  targetEndpoints:
+    - targets:
+        - "http://www.google.com"
+        - "http://www.amazon.com"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - http_2xx
+      labels:
+        job: cgw1-wan-http
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
+---
+# WAN TCP probes — gateway0 (Frontier fiber)
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: gateway-wan-tcp
+spec:
+  jobName: gateway-wan-tcp
+  targetEndpoints:
+    - targets:
+        - "www.apple.com:80"
+        - "www.microsoft.com:80"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - tcp_connect
+      labels:
+        job: gateway-wan-tcp
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "gateway0.${SECRET_DOMAIN}:9115"
+---
+# WAN TCP probes — cell-gateway0
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw0-wan-tcp
+spec:
+  jobName: cgw0-wan-tcp
+  targetEndpoints:
+    - targets:
+        - "www.apple.com:80"
+        - "www.microsoft.com:80"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - tcp_connect
+      labels:
+        job: cgw0-wan-tcp
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway0.${SECRET_DOMAIN}:9115"
+---
+# WAN TCP probes — cell-gateway1
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw1-wan-tcp
+spec:
+  jobName: cgw1-wan-tcp
+  targetEndpoints:
+    - targets:
+        - "www.apple.com:80"
+        - "www.microsoft.com:80"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - tcp_connect
+      labels:
+        job: cgw1-wan-tcp
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"

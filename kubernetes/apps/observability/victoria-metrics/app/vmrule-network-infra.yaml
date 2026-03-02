@@ -102,29 +102,30 @@ spec:
 
         - alert: PrimaryWANDown
           expr: |-
-            count(probe_success{job="gateway-wan-probes"} == 0) >= 2
+            count(probe_success{job=~"gateway-wan.*"} == 0) >= 5
           for: 3m
           keep_firing_for: 5m
           annotations:
             summary: "Primary WAN (Frontier fiber) has lost internet reachability"
             description: |-
-              {{ $value }} of 3 external ICMP probes from gateway0 are failing.
+              {{ $value }} of 7 multi-protocol probes (ICMP/HTTP/TCP) from gateway0 are failing.
               Frontier fiber link may be up but ISP routing is broken.
               Traffic should fail over to cellular (gateway1) via BGP.
-              Failing targets checked: 8.8.8.8, 9.9.9.9, 208.67.222.222
           labels:
             severity: critical
             component: gateway
 
         - alert: PrimaryWANDegraded
           expr: |-
-            count(probe_success{job="gateway-wan-probes"} == 0) == 1
+            count(probe_success{job=~"gateway-wan.*"} == 0) >= 2
+            and
+            count(probe_success{job=~"gateway-wan.*"} == 0) < 5
           for: 5m
           keep_firing_for: 5m
           annotations:
             summary: "Primary WAN has partial reachability loss"
             description: |-
-              1 of 3 external ICMP probes from gateway0 is failing ({{ $labels.instance }}).
+              {{ $value }} of 7 multi-protocol probes from gateway0 are failing.
               Frontier fiber may have partial routing issues.
           labels:
             severity: warning
@@ -146,15 +147,15 @@ spec:
 
         - alert: CellularWANDown
           expr: |-
-            (count(probe_success{job="cgw0-wan-probes"} == 0) >= 2)
+            (count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5)
             and
-            (count(probe_success{job="cgw1-wan-probes"} == 0) >= 2)
+            (count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5)
           for: 5m
           keep_firing_for: 5m
           annotations:
             summary: "Both cellular WANs have lost internet reachability"
             description: |-
-              External ICMP probes from both cell-gateway0 and cell-gateway1 are failing.
+              Multi-protocol probes (ICMP/HTTP/TCP) from both cell-gateway0 and cell-gateway1 are failing.
               Cellular backup internet is completely unavailable.
           labels:
             severity: warning
@@ -162,13 +163,13 @@ spec:
 
         - alert: CellularWAN1Down
           expr: |-
-            count(probe_success{job="cgw0-wan-probes"} == 0) >= 2
+            count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5
           for: 90s
           keep_firing_for: 5m
           annotations:
             summary: "Cellular WAN 1 (cell-gateway0) has lost internet reachability"
             description: |-
-              External ICMP probes from cell-gateway0 (T-Mobile modem #1) are failing.
+              {{ $value }} of 7 multi-protocol probes from cell-gateway0 (T-Mobile modem #1) are failing.
               Cell-gateway1 may still be providing backup connectivity.
           labels:
             severity: warning
@@ -176,13 +177,13 @@ spec:
 
         - alert: CellularWAN2Down
           expr: |-
-            count(probe_success{job="cgw1-wan-probes"} == 0) >= 2
+            count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5
           for: 90s
           keep_firing_for: 5m
           annotations:
             summary: "Cellular WAN 2 (cell-gateway1) has lost internet reachability"
             description: |-
-              External ICMP probes from cell-gateway1 (T-Mobile modem #2) are failing.
+              {{ $value }} of 7 multi-protocol probes from cell-gateway1 (T-Mobile modem #2) are failing.
               Cell-gateway0 may still be providing backup connectivity.
           labels:
             severity: warning
