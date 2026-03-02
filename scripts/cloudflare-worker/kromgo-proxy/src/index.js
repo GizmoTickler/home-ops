@@ -1,10 +1,9 @@
 // src/index.js — Kromgo badge proxy
 // Generates SVG badges directly, bypassing shields.io caching
 
-// Color name → hex mapping (shields.io compatible)
 const COLORS = {
-  green: "#4c1",
-  brightgreen: "#4c1",
+  green: "#44cc11",
+  brightgreen: "#44cc11",
   yellowgreen: "#a4a61d",
   yellow: "#dfb317",
   orange: "#fe7d37",
@@ -22,18 +21,23 @@ function resolveColor(color) {
   return COLORS[color.toLowerCase()] || COLORS.lightgrey;
 }
 
-// Approximate character width for Verdana 11px (for-the-badge uses uppercase)
-function textWidth(text) {
-  // Average character width for Verdana bold 11px uppercase
-  const AVG_CHAR_WIDTH = 7.5;
+// Verdana Bold 11px character widths — measured from shields.io reference renders
+// These are per-character widths for uppercase text at 110 DPI
+const CHAR_WIDTHS = {
+  " ": 3.58, "!": 4.57, '"': 5.73, "#": 8.46, $: 6.86, "%": 9.56, "&": 8.09,
+  "'": 3.07, "(": 4.57, ")": 4.57, "*": 6.86, "+": 8.46, ",": 3.58, "-": 4.57,
+  ".": 3.58, "/": 4.86, 0: 6.86, 1: 6.86, 2: 6.86, 3: 6.86, 4: 6.86, 5: 6.86,
+  6: 6.86, 7: 6.86, 8: 6.86, 9: 6.86, ":": 4.01, ";": 4.01, "<": 8.46,
+  "=": 8.46, ">": 8.46, "?": 6.18, "@": 10.56, A: 7.73, B: 7.73, C: 7.37,
+  D: 8.41, E: 7.01, F: 6.47, G: 8.41, H: 8.41, I: 5.07, J: 5.57, K: 7.73,
+  L: 6.47, M: 9.56, N: 8.41, O: 8.41, P: 7.01, Q: 8.41, R: 7.73, S: 7.01,
+  T: 6.47, U: 8.41, V: 7.73, W: 10.56, X: 7.37, Y: 6.86, Z: 7.01,
+};
+
+function measureText(text) {
   let width = 0;
   for (const ch of text) {
-    if (ch === " ") width += 3.5;
-    else if ("MWØÆ".includes(ch)) width += 10;
-    else if ("mw%".includes(ch.toLowerCase())) width += 9.5;
-    else if ("NDGQOUHAB".includes(ch)) width += 8.5;
-    else if ("Il1i!|.:".includes(ch)) width += 4;
-    else width += AVG_CHAR_WIDTH;
+    width += CHAR_WIDTHS[ch] || CHAR_WIDTHS[ch.toUpperCase()] || 7.5;
   }
   return width;
 }
@@ -43,32 +47,43 @@ function makeBadge(label, message, color) {
   message = (message || "").toUpperCase();
   const hex = resolveColor(color);
 
-  const PADDING = 18;
   const HEIGHT = 28;
+  const HPAD = 9; // horizontal padding each side
   const FONT_SIZE = 11;
+  const TEXT_Y = 17.5; // vertical center for text baseline
 
-  const labelW = textWidth(label) + PADDING;
-  const messageW = textWidth(message) + PADDING;
-  const totalW = labelW + messageW;
+  const labelTextW = measureText(label);
+  const messageTextW = measureText(message);
 
-  const labelX = labelW / 2;
-  const messageX = labelW + messageW / 2;
+  const labelW = Math.round((labelTextW + HPAD * 2) * 10) / 10;
+  const messageW = Math.round((messageTextW + HPAD * 2) * 10) / 10;
+  const totalW = Math.round((labelW + messageW) * 10) / 10;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${HEIGHT}" role="img">
-  <title>${label}: ${message}</title>
+  const labelX = Math.round((labelW / 2) * 10) / 10;
+  const messageX = Math.round((labelW + messageW / 2) * 10) / 10;
+
+  // Drop shadow for readability (matches shields.io)
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${totalW}" height="${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}">
+  <title>${escapeXml(label)}: ${escapeXml(message)}</title>
   <g shape-rendering="crispEdges">
     <rect width="${labelW}" height="${HEIGHT}" fill="#555"/>
     <rect x="${labelW}" width="${messageW}" height="${HEIGHT}" fill="${hex}"/>
   </g>
   <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="${FONT_SIZE}">
-    <text x="${labelX}" y="${HEIGHT / 2 + 4}" font-weight="bold" textLength="${labelW - PADDING}" lengthAdjust="">${escapeXml(label)}</text>
-    <text x="${messageX}" y="${HEIGHT / 2 + 4}" font-weight="bold" textLength="${messageW - PADDING}" lengthAdjust="">${escapeXml(message)}</text>
+    <text x="${labelX}" y="${TEXT_Y}" fill="#010101" fill-opacity=".3" font-weight="bold">${escapeXml(label)}</text>
+    <text x="${labelX}" y="${TEXT_Y - 1}" font-weight="bold">${escapeXml(label)}</text>
+    <text x="${messageX}" y="${TEXT_Y}" fill="#010101" fill-opacity=".3" font-weight="bold">${escapeXml(message)}</text>
+    <text x="${messageX}" y="${TEXT_Y - 1}" font-weight="bold">${escapeXml(message)}</text>
   </g>
 </svg>`;
 }
 
 function escapeXml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 const ALLOWED_METRICS = new Set([
@@ -121,7 +136,6 @@ var index_default = {
       return svgResponse(makeBadge("error", "not found", "red"), 404);
     }
 
-    // Check if caller wants JSON (shields.io endpoint format) via query param
     const wantJson = url.searchParams.has("json");
 
     try {
@@ -155,9 +169,9 @@ var index_default = {
         return jsonResponse(data, 200);
       }
 
-      // Use label override from query param, or Kromgo's label field
       const label = url.searchParams.get("label") || data.label || metricName;
-      return svgResponse(makeBadge(label, data.message, data.color), 200);
+      const color = url.searchParams.get("color") || data.color;
+      return svgResponse(makeBadge(label, data.message, color), 200);
     } catch (error) {
       return wantJson
         ? jsonResponse({ schemaVersion: 1, label: "error", message: "timeout", color: "lightgrey" }, 503)
