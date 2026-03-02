@@ -1,0 +1,189 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: network-infra-alerts
+spec:
+  groups:
+    # DNS/DHCP Server Alerts
+    - name: dns-dhcp.rules
+      interval: 30s
+      rules:
+        - alert: DNSServerDown
+          expr: |-
+            probe_success{job="probe/observability/dns"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "DNS server {{ $labels.instance }} is down"
+            description: |-
+              TCP probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
+              DHCP clients may lose DNS resolution if both servers fail.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: DNSAllServersDown
+          expr: |-
+            count(probe_success{job="probe/observability/dns"} == 0) == 2
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "All DNS servers are down"
+            description: |-
+              Both dns-0 (192.168.123.250) and dns-1 (192.168.123.251) are unreachable on port 53.
+              All DNS resolution for the network is offline. Immediate action required.
+          labels:
+            severity: critical
+            component: dns
+
+        - alert: DHCPPrimaryDown
+          expr: |-
+            probe_success{job="probe/observability/devices",instance=~"dns-0.*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Primary DHCP server (dns-0) is down"
+            description: |-
+              ICMP probe to dns-0 has been failing for over 5 minutes.
+              Kea HA standby (dns-1) should take over DHCP serving.
+              Investigate dns-0 VM on TrueNAS.
+          labels:
+            severity: warning
+            component: dhcp
+
+        - alert: DHCPAllServersDown
+          expr: |-
+            count(probe_success{job="probe/observability/devices",instance=~"dns-[01].*"} == 0) == 2
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "All DHCP servers are down"
+            description: |-
+              Both dns-0 and dns-1 are unreachable via ICMP.
+              No DHCP leases can be issued or renewed. Existing clients retain leases until expiry.
+              Immediate action required.
+          labels:
+            severity: critical
+            component: dhcp
+
+    # WAN / Gateway Alerts
+    - name: wan-gateway.rules
+      interval: 30s
+      rules:
+        - alert: GatewayNodeDown
+          expr: |-
+            up{job="node-exporter",instance=~"10.255.255.254.*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Primary gateway (gateway0) node exporter is unreachable"
+            description: |-
+              Node exporter on gateway0 (10.255.255.254:9100) has been unreachable for over 5 minutes.
+              Gateway0 may be down. Traffic should fail over to gateway1 via BGP.
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: GatewayWANInterfaceDown
+          expr: |-
+            node_network_carrier{instance=~"10.255.255.254.*",device="eth0"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Primary WAN interface (eth0) on gateway0 is down"
+            description: |-
+              The Frontier fiber WAN interface on gateway0 has lost carrier for over 2 minutes.
+              BGP should withdraw the default route and traffic will fail over to cellular (gateway1).
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: PrimaryWANDown
+          expr: |-
+            count(probe_success{job="gateway-wan-probes"} == 0) >= 2
+          for: 3m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Primary WAN (Frontier fiber) has lost internet reachability"
+            description: |-
+              {{ $value }} of 3 external ICMP probes from gateway0 are failing.
+              Frontier fiber link may be up but ISP routing is broken.
+              Traffic should fail over to cellular (gateway1) via BGP.
+              Failing targets checked: 8.8.8.8, 9.9.9.9, 208.67.222.222
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: PrimaryWANDegraded
+          expr: |-
+            count(probe_success{job="gateway-wan-probes"} == 0) == 1
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Primary WAN has partial reachability loss"
+            description: |-
+              1 of 3 external ICMP probes from gateway0 is failing ({{ $labels.instance }}).
+              Frontier fiber may have partial routing issues.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: BackupGatewayDown
+          expr: |-
+            probe_success{job="probe/observability/devices",instance=~"gateway1.*"} == 0
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Backup gateway (gateway1) is unreachable"
+            description: |-
+              ICMP probe to gateway1 (ISR 4321) has been failing for over 10 minutes.
+              Cellular WAN backup is unavailable. Primary fiber (gateway0) is the only internet path.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: CellularWANDown
+          expr: |-
+            (count(probe_success{job="cgw0-wan-probes"} == 0) >= 2)
+            and
+            (count(probe_success{job="cgw1-wan-probes"} == 0) >= 2)
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Both cellular WANs have lost internet reachability"
+            description: |-
+              External ICMP probes from both cell-gateway0 and cell-gateway1 are failing.
+              Cellular backup internet is completely unavailable.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: CellularWAN1Down
+          expr: |-
+            count(probe_success{job="cgw0-wan-probes"} == 0) >= 2
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Cellular WAN 1 (cell-gateway0) has lost internet reachability"
+            description: |-
+              External ICMP probes from cell-gateway0 (T-Mobile modem #1) are failing.
+              Cell-gateway1 may still be providing backup connectivity.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: CellularWAN2Down
+          expr: |-
+            count(probe_success{job="cgw1-wan-probes"} == 0) >= 2
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Cellular WAN 2 (cell-gateway1) has lost internet reachability"
+            description: |-
+              External ICMP probes from cell-gateway1 (T-Mobile modem #2) are failing.
+              Cell-gateway0 may still be providing backup connectivity.
+          labels:
+            severity: warning
+            component: gateway
