@@ -35,6 +35,10 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 [![Flux Errors](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fflux_failing_count&style=for-the-badge&label=Flux%20Errors&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
 [![Cert Expiry](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcert_expiry_days&style=for-the-badge&label=Cert%20Expiry&cacheSeconds=60)](https://github.com/kashalls/kromgo)
 
+[![Fiber WAN](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_primary&style=for-the-badge&label=Fiber%20WAN&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Cell WAN 1](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_cellular1&style=for-the-badge&label=Cell%20WAN%201&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Cell WAN 2](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_cellular2&style=for-the-badge&label=Cell%20WAN%202&cacheSeconds=60)](https://github.com/kashalls/kromgo)
+
 </div>
 
 ---

@@ -13,6 +13,7 @@ resources:
   - ./vmservicescrape-stack.yaml
   - ./vmrule-stack.yaml
   - ./vmrule-infrastructure.yaml
+  - ./vmrule-network-infra.yaml
   - ./vmrule-recording.yaml
   - ./httproute.yaml
   - ./grafanadashboards.yaml

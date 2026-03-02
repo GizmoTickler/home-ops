@@ -50,7 +50,10 @@ var index_default = {
       "flux_failing_count",
       "helmrelease_count",
       "pvc_count",
-      "container_count"
+      "container_count",
+      "wan_primary",
+      "wan_cellular1",
+      "wan_cellular2"
     ];
 
     const metricName = url.pathname.substring(1);

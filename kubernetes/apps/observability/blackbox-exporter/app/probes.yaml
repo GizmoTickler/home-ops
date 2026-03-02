@@ -42,3 +42,19 @@ spec:
     staticConfig:
       static:
         - 192.168.120.10:2049
+
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/monitoring.coreos.com/probe_v1.json
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: dns
+spec:
+  module: tcp_connect
+  prober:
+    url: blackbox-exporter.observability.svc.cluster.local:9115
+  targets:
+    staticConfig:
+      static:
+        - 192.168.123.250:53
+        - 192.168.123.251:53

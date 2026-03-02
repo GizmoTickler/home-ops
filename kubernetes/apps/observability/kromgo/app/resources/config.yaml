@@ -129,3 +129,36 @@ metrics:
     colors:
       - {color: "green", min: 0, max: 9999}
     title: Containers
+
+  - name: wan_primary
+    query: |
+      (label_replace(count(probe_success{job="gateway-wan-probes"} == 1), "status", "UP", "", "") and on() (count(probe_success{job="gateway-wan-probes"} == 1) >= 2))
+      or (label_replace(count(probe_success{job="gateway-wan-probes"} == 0), "status", "DOWN", "", "") and on() (count(probe_success{job="gateway-wan-probes"} == 0) >= 2))
+      or vector(0)
+    label: status
+    colors:
+      - {color: "green", min: 2, max: 3}
+      - {color: "red", min: 0, max: 1}
+    title: Fiber
+
+  - name: wan_cellular1
+    query: |
+      (label_replace(count(probe_success{job="cgw0-wan-probes"} == 1), "status", "UP", "", "") and on() (count(probe_success{job="cgw0-wan-probes"} == 1) >= 2))
+      or (label_replace(count(probe_success{job="cgw0-wan-probes"} == 0), "status", "DOWN", "", "") and on() (count(probe_success{job="cgw0-wan-probes"} == 0) >= 2))
+      or vector(0)
+    label: status
+    colors:
+      - {color: "green", min: 2, max: 3}
+      - {color: "red", min: 0, max: 1}
+    title: Cell 1
+
+  - name: wan_cellular2
+    query: |
+      (label_replace(count(probe_success{job="cgw1-wan-probes"} == 1), "status", "UP", "", "") and on() (count(probe_success{job="cgw1-wan-probes"} == 1) >= 2))
+      or (label_replace(count(probe_success{job="cgw1-wan-probes"} == 0), "status", "DOWN", "", "") and on() (count(probe_success{job="cgw1-wan-probes"} == 0) >= 2))
+      or vector(0)
+    label: status
+    colors:
+      - {color: "green", min: 2, max: 3}
+      - {color: "red", min: 0, max: 1}
+    title: Cell 2
