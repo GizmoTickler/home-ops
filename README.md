@@ -10,34 +10,34 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 <div align="center">
 
 [![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
-[![Talos](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Ftalos_version&style=for-the-badge&logo=talos&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://talos.dev)&nbsp;&nbsp;
-[![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fkubernetes_version&style=for-the-badge&logo=kubernetes&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://kubernetes.io)&nbsp;&nbsp;
-[![Flux](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fflux_version&style=for-the-badge&logo=flux&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://fluxcd.io)&nbsp;&nbsp;
+[![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos)](https://talos.dev)&nbsp;&nbsp;
+[![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes)](https://kubernetes.io)&nbsp;&nbsp;
+[![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux)](https://fluxcd.io)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/github/actions/workflow/status/GizmoTickler/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
 
 </div>
 
 <div align="center">
 
-[![Age](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_age_days&style=for-the-badge&label=Age&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_uptime_days&style=for-the-badge&label=Uptime&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Nodes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_node_count&style=for-the-badge&label=Nodes&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Pods](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_pod_count&style=for-the-badge&label=Pods&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Containers](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcontainer_count&style=for-the-badge&label=Containers&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![CPU](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_cpu_usage&style=for-the-badge&label=CPU&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Memory](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_memory_usage&style=for-the-badge&label=Memory&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Storage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fceph_storage_used&style=for-the-badge&label=Storage&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Ceph](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fceph_health&style=for-the-badge&label=Ceph&cacheSeconds=60)](https://github.com/kashalls/kromgo)
+[![Age](https://kromgo-proxy.pixel-forge.workers.dev/cluster_age_days?label=Age)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Uptime](https://kromgo-proxy.pixel-forge.workers.dev/cluster_uptime_days?label=Uptime)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Nodes](https://kromgo-proxy.pixel-forge.workers.dev/cluster_node_count?label=Nodes)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Pods](https://kromgo-proxy.pixel-forge.workers.dev/cluster_pod_count?label=Pods)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Containers](https://kromgo-proxy.pixel-forge.workers.dev/container_count?label=Containers)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![CPU](https://kromgo-proxy.pixel-forge.workers.dev/cluster_cpu_usage?label=CPU)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Memory](https://kromgo-proxy.pixel-forge.workers.dev/cluster_memory_usage?label=Memory)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Storage](https://kromgo-proxy.pixel-forge.workers.dev/ceph_storage_used?label=Storage)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Ceph](https://kromgo-proxy.pixel-forge.workers.dev/ceph_health?label=Ceph)](https://github.com/kashalls/kromgo)
 
-[![HelmReleases](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fhelmrelease_count&style=for-the-badge&label=HelmReleases&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![PVCs](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fpvc_count&style=for-the-badge&label=PVCs&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcluster_alert_count&style=for-the-badge&label=Alerts&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Flux Errors](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fflux_failing_count&style=for-the-badge&label=Flux%20Errors&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cert Expiry](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fcert_expiry_days&style=for-the-badge&label=Cert%20Expiry&cacheSeconds=60)](https://github.com/kashalls/kromgo)
+[![HelmReleases](https://kromgo-proxy.pixel-forge.workers.dev/helmrelease_count?label=HelmReleases)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![PVCs](https://kromgo-proxy.pixel-forge.workers.dev/pvc_count?label=PVCs)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Alerts](https://kromgo-proxy.pixel-forge.workers.dev/cluster_alert_count?label=Alerts)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Flux Errors](https://kromgo-proxy.pixel-forge.workers.dev/flux_failing_count?label=Flux%20Errors)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Cert Expiry](https://kromgo-proxy.pixel-forge.workers.dev/cert_expiry_days?label=Cert%20Expiry)](https://github.com/kashalls/kromgo)
 
-[![Fiber WAN](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_primary&style=for-the-badge&label=Fiber%20WAN&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cell WAN 1](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_cellular1&style=for-the-badge&label=Cell%20WAN%201&cacheSeconds=60)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cell WAN 2](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.pixel-forge.workers.dev%2Fwan_cellular2&style=for-the-badge&label=Cell%20WAN%202&cacheSeconds=60)](https://github.com/kashalls/kromgo)
+[![Fiber WAN](https://kromgo-proxy.pixel-forge.workers.dev/wan_primary?label=Fiber%20WAN)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Cell WAN 1](https://kromgo-proxy.pixel-forge.workers.dev/wan_cellular1?label=Cell%20WAN%201)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
+[![Cell WAN 2](https://kromgo-proxy.pixel-forge.workers.dev/wan_cellular2?label=Cell%20WAN%202)](https://github.com/kashalls/kromgo)
 
 </div>
 
