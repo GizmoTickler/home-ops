@@ -34,9 +34,11 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 [![Flux Errors](https://kromgo-proxy.pixel-forge.workers.dev/flux_failing_count?label=Flux%20Errors)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
 [![Cert Expiry](https://kromgo-proxy.pixel-forge.workers.dev/cert_expiry_days?label=Cert%20Expiry)](https://github.com/kashalls/kromgo)
 
-[![Fiber WAN](https://kromgo-proxy.pixel-forge.workers.dev/wan_primary?label=Fiber%20WAN)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cell WAN 1](https://kromgo-proxy.pixel-forge.workers.dev/wan_cellular1?label=Cell%20WAN%201)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cell WAN 2](https://kromgo-proxy.pixel-forge.workers.dev/wan_cellular2?label=Cell%20WAN%202)](https://github.com/kashalls/kromgo)
+</div>
+
+<div align="center">
+
+[![Network Status](https://kromgo-proxy.pixel-forge.workers.dev/network_status)](https://github.com/kashalls/kromgo)
 
 </div>
 
