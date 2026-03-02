@@ -132,7 +132,7 @@ metrics:
 
   - name: wan_primary
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job="gateway-wan-probes"} == 1) >= 2))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"gateway-wan.*"} == 1) >= 5))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:
@@ -142,7 +142,7 @@ metrics:
 
   - name: wan_cellular1
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job="cgw0-wan-probes"} == 1) >= 2))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw0-wan.*"} == 1) >= 5))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:
@@ -152,7 +152,7 @@ metrics:
 
   - name: wan_cellular2
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job="cgw1-wan-probes"} == 1) >= 2))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw1-wan.*"} == 1) >= 5))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:
