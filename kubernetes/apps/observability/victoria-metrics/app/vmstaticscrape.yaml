@@ -57,3 +57,90 @@ spec:
         insecureSkipVerify: true
       labels:
         job: onepassword-connect
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: gateway-wan-probes
+spec:
+  jobName: gateway-wan-probes
+  targetEndpoints:
+    - targets:
+        - "8.8.8.8"
+        - "9.9.9.9"
+        - "208.67.222.222"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - wan_reachability
+      labels:
+        job: gateway-wan-probes
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "gateway0.${SECRET_DOMAIN}:9115"
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw0-wan-probes
+spec:
+  jobName: cgw0-wan-probes
+  targetEndpoints:
+    - targets:
+        - "8.8.8.8"
+        - "9.9.9.9"
+        - "208.67.222.222"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - wan_reachability
+      labels:
+        job: cgw0-wan-probes
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway0.${SECRET_DOMAIN}:9115"
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: cgw1-wan-probes
+spec:
+  jobName: cgw1-wan-probes
+  targetEndpoints:
+    - targets:
+        - "8.8.8.8"
+        - "9.9.9.9"
+        - "208.67.222.222"
+      path: /probe
+      scrapeTimeout: 10s
+      params:
+        module:
+          - wan_reachability
+      labels:
+        job: cgw1-wan-probes
+      relabelConfigs:
+        - sourceLabels:
+            - "__address__"
+          targetLabel: __param_target
+        - sourceLabels:
+            - "__param_target"
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
