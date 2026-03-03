@@ -309,19 +309,20 @@ function makeNetworkPanel(links) {
   // Layout constants (pixels)
   const padL = 14, padR = 14;
   const iconW = 12, iconGap = 6;
-  const dotGap = 8, dotDiam = 8, dotTextGap = 4;
+  const arrowGap = 8, arrowW = 10, arrowTextGap = 3;
 
   let content = "";
 
   links.forEach((link, i) => {
     const bx = i * secW;
     const statusText = (link.message || "?").toUpperCase();
-    const dotColor = resolveColor(link.color);
+    const statusColor = resolveColor(link.color);
     const labelPx = tw(link.label) * 11 / 100;
     const statusPx = tw(statusText) * 11 / 100;
+    const isUp = statusText === "UP";
 
     // Center content block within section
-    const contentW = iconW + iconGap + labelPx + dotGap + dotDiam + dotTextGap + statusPx;
+    const contentW = iconW + iconGap + labelPx + arrowGap + arrowW + arrowTextGap + statusPx;
     const offset = Math.max(0, (secW - padL - padR - contentW) / 2);
     const sx = bx + padL + offset;
 
@@ -339,14 +340,20 @@ function makeNetworkPanel(links) {
     const labelX = sx + iconW + iconGap;
     content += `<text x="${labelX}" y="${midY + 4}" fill="#fff" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
 
-    // Status dot with glow
-    const dotCx = labelX + labelPx + dotGap + dotDiam / 2;
-    content += `<circle cx="${dotCx}" cy="${midY}" r="6" fill="${dotColor}" opacity="0.25"/>`;
-    content += `<circle cx="${dotCx}" cy="${midY}" r="4" fill="${dotColor}"/>`;
+    // Status arrow (▲ up / ▼ down)
+    const arrowX = labelX + labelPx + arrowGap;
+    const ac = arrowX + arrowW / 2; // arrow center x
+    if (isUp) {
+      // ▲ pointing up
+      content += `<polygon points="${ac},${midY - 5} ${ac + 5},${midY + 3} ${ac - 5},${midY + 3}" fill="${statusColor}"/>`;
+    } else {
+      // ▼ pointing down
+      content += `<polygon points="${ac - 5},${midY - 3} ${ac + 5},${midY - 3} ${ac},${midY + 5}" fill="${statusColor}"/>`;
+    }
 
     // Status text
-    const statusX = dotCx + dotDiam / 2 + dotTextGap;
-    content += `<text x="${statusX}" y="${midY + 4}" fill="${dotColor}" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
+    const statusX = arrowX + arrowW + arrowTextGap;
+    content += `<text x="${statusX}" y="${midY + 4}" fill="${statusColor}" font-size="11" font-weight="bold" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
 
     // Divider
     if (i < 2) {
