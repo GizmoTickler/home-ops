@@ -12,7 +12,7 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 [![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos&color=blue&logo=talos)](https://talos.dev)&nbsp;&nbsp;
 [![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes&color=blue&logo=kubernetes)](https://kubernetes.io)&nbsp;&nbsp;
 [![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux&color=blue&logo=flux)](https://fluxcd.io)&nbsp;&nbsp;
-[![Renovate](https://img.shields.io/github/actions/workflow/status/GizmoTickler/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
+[![Renovate](https://kromgo-proxy.pixel-forge.workers.dev/renovate?label=Renovate&color=blue&logo=renovatebot)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
 
 </div>
 
