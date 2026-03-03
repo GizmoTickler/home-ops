@@ -13,6 +13,12 @@ name = "kromgo-proxy"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
+# Import .txt files as ES module text (used for embedded logo base64)
+[[rules]]
+type = "Text"
+globs = ["**/*.b64.txt"]
+fallthrough = true
+
 # Worker will be available at: https://kromgo-proxy.<your-username>.workers.dev
 # You can also add a custom domain if desired (but defeats the purpose)
 
