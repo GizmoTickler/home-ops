@@ -141,16 +141,16 @@ var index_default = {
       });
     }
 
-    if (!env.CF_CLIENT_ID || !env.CF_CLIENT_SECRET || !env.SECRET_DOMAIN) {
-      return svgResponse(makeBadge("error", "misconfigured", "critical"), 500);
-    }
-
     const url = new URL(request.url);
     const metricName = url.pathname.substring(1);
 
-    // Proxy the repo logo image with caching
+    // Static assets — no secrets needed
     if (metricName === "logo") {
       return serveLogo();
+    }
+
+    if (!env.CF_CLIENT_ID || !env.CF_CLIENT_SECRET || !env.SECRET_DOMAIN) {
+      return svgResponse(makeBadge("error", "misconfigured", "critical"), 500);
     }
 
     if (!metricName || !ALLOWED_METRICS.has(metricName)) {
@@ -173,6 +173,9 @@ var index_default = {
 
     // Renovate workflow status — fetches from GitHub Actions API
     if (metricName === "renovate") {
+      if (!env.GIT_PAT) {
+        return svgResponse(makeBadge("renovate", "no token", "critical", "renovatebot"), 500);
+      }
       try {
         const ghResp = await fetch(
           "https://api.github.com/repos/GizmoTickler/home-ops/actions/workflows/renovate.yaml/runs?branch=main&per_page=1",
