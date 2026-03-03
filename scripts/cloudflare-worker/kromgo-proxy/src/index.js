@@ -2,19 +2,32 @@
 // Generates polished SVG badges with rounded corners, gradients, and logos
 
 // --- Rate limiter (per-isolate, sliding window) ---
-const RATE_LIMIT = 60;          // max requests per window
+const RATE_LIMIT = 30;          // max requests per IP per window (~1 full page load)
 const RATE_WINDOW_MS = 60_000;  // 1 minute window
+const DAILY_LIMIT = 50_000;     // global circuit breaker — 50% of free tier (100K/day)
 const rateMap = new Map();      // IP -> { count, resetAt }
+let dailyCount = 0;
+let dailyResetAt = 0;
 
 function isRateLimited(ip) {
   const now = Date.now();
+
+  // Global daily circuit breaker (per-isolate approximation)
+  if (now > dailyResetAt) {
+    dailyCount = 0;
+    dailyResetAt = now + 86_400_000;
+  }
+  dailyCount++;
+  if (dailyCount > DAILY_LIMIT) return true;
+
+  // Per-IP sliding window
   let entry = rateMap.get(ip);
   if (!entry || now > entry.resetAt) {
     entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
     rateMap.set(ip, entry);
   }
   entry.count++;
-  // Evict stale entries every 256 requests to prevent memory bloat
+  // Evict stale entries to prevent memory bloat
   if (rateMap.size > 1024) {
     for (const [key, val] of rateMap) {
       if (now > val.resetAt) rateMap.delete(key);
