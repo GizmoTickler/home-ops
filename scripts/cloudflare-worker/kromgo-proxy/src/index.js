@@ -147,6 +147,12 @@ var index_default = {
 
     const url = new URL(request.url);
     const metricName = url.pathname.substring(1);
+
+    // Proxy the repo logo image with caching
+    if (metricName === "logo") {
+      return serveLogo();
+    }
+
     if (!metricName || !ALLOWED_METRICS.has(metricName)) {
       return svgResponse(makeBadge("error", "not found", "red"), 404);
     }
@@ -333,6 +339,25 @@ function makeNetworkPanel(links) {
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelW}" height="${panelH}" role="img" aria-label="Network Status"><title>Network Status</title><defs><linearGradient id="g" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient><clipPath id="r"><rect width="${panelW}" height="${panelH}" rx="${radius}"/></clipPath></defs><g clip-path="url(#r)"><rect width="${panelW}" height="${panelH}" fill="#555"/><rect width="${panelW}" height="${panelH}" fill="url(#g)"/>${content}</g></svg>`;
+}
+
+// Repo logo — 350x350 PNG (2x retina for 175px display), base64 in separate file
+// Loaded at build time by wrangler's module bundler
+import LOGO_B64 from "./logo.b64.txt";
+
+let _logoBytes;
+function serveLogo() {
+  if (!_logoBytes) {
+    _logoBytes = Uint8Array.from(atob(LOGO_B64), (c) => c.charCodeAt(0));
+  }
+  return new Response(_logoBytes, {
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=86400, s-maxage=604800",
+      "Access-Control-Allow-Origin": "*",
+      "X-Robots-Tag": "noindex",
+    },
+  });
 }
 
 export { index_default as default };
