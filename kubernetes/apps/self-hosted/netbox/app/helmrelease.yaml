@@ -96,6 +96,8 @@ spec:
       - secret:
           secretName: netbox-secret
           items:
+            - key: token-peppers.yaml
+              path: token-peppers.yaml
             - key: oidc.yaml
               path: oidc-creds.yaml
       - configMap:
@@ -133,9 +135,9 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 256Mi
+        memory: 512Mi
       limits:
-        memory: 1Gi
+        memory: 2Gi
 
     # Persistence disabled - all data lives in PostgreSQL
     # Media uploads can be added later if needed
