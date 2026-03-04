@@ -12,6 +12,7 @@ import (
 
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/ui"
 
@@ -72,13 +73,13 @@ func changeVolsyncState(state string) error {
 	logger.Info("Setting VolSync state to: %s", state)
 
 	// Suspend/resume kustomization
-	cmd := exec.Command("flux", "--namespace", "volsync-system", state, "kustomization", "volsync")
+	cmd := exec.Command("flux", "--namespace", constants.NSVolsyncSystem, state, "kustomization", "volsync")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to %s kustomization: %w\n%s", state, err, output)
 	}
 
 	// Suspend/resume helmrelease
-	cmd = exec.Command("flux", "--namespace", "volsync-system", state, "helmrelease", "volsync")
+	cmd = exec.Command("flux", "--namespace", constants.NSVolsyncSystem, state, "helmrelease", "volsync")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to %s helmrelease: %w\n%s", state, err, output)
 	}
@@ -89,7 +90,7 @@ func changeVolsyncState(state string) error {
 		replicas = "0"
 	}
 
-	cmd = exec.Command("kubectl", "--namespace", "volsync-system", "scale", "deployment", "volsync", "--replicas", replicas)
+	cmd = exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "scale", "deployment", "volsync", "--replicas", replicas)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to scale deployment: %w\n%s", err, output)
 	}
@@ -504,6 +505,11 @@ func newSnapshotAllCommand() *cobra.Command {
 func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun bool, concurrency int) error {
 	logger := common.NewColorLogger()
 
+	// Validate concurrency to prevent deadlock from zero-length semaphore channel
+	if concurrency <= 0 {
+		concurrency = 1
+	}
+
 	// Discover all ReplicationSources
 	replicationSources, err := discoverReplicationSources(namespace)
 	if err != nil {
@@ -777,7 +783,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 			}
 
 			// Get all snapshots from kopia
-			cmd := exec.Command("kubectl", "--namespace", "volsync-system", "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
+			cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
 			output, err := cmd.CombinedOutput()
 			if err != nil {
 				return fmt.Errorf("failed to get snapshots from kopia: %w", err)
@@ -1196,7 +1202,7 @@ func listSnapshots(appFilter, format string) error {
 	}
 
 	// Get all snapshots from kopia
-	cmd := exec.Command("kubectl", "--namespace", "volsync-system", "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
+	cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to get snapshots: %w\nOutput: %s", err, output)
@@ -1242,7 +1248,7 @@ type AppSnapshot struct {
 }
 
 func findKopiaPod() (string, error) {
-	cmd := exec.Command("kubectl", "--namespace", "volsync-system", "get", "pods", "-l", "app.kubernetes.io/name=kopia", "-o", "jsonpath={.items[0].metadata.name}")
+	cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "get", "pods", "-l", "app.kubernetes.io/name=kopia", "-o", "jsonpath={.items[0].metadata.name}")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err

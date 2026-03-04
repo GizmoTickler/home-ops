@@ -393,11 +393,11 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		constants.NSNetwork,
 		constants.NSObservability,
 		constants.NSOpenEBSSystem,
-		"rook-ceph",
-		"scale-csi",
+		constants.NSRookCeph,
+		constants.NSScaleCSI,
 		constants.NSSelfHosted,
 		constants.NSSystem,
-		"system-upgrade",
+		constants.NSSystemUpgrade,
 		constants.NSVolsyncSystem,
 	}
 
@@ -542,7 +542,7 @@ func validate1PasswordReference(ref string) error {
 
 // validateYAMLSyntax validates YAML syntax by attempting to parse it
 func validateYAMLSyntax(content []byte) error {
-	var result interface{}
+	var result any
 	return yamlv3.Unmarshal(content, &result)
 }
 
@@ -1021,7 +1021,7 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 	return "controlplane", nil
 }
 
-func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, machineType string, logger *common.ColorLogger) ([]byte, error) {
+func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logger *common.ColorLogger) ([]byte, error) {
 	// Get base config from embedded YAML file with proper talos/ prefix
 	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
 	baseConfig, err := templates.GetTalosTemplate(fullBaseTemplatePath)
@@ -1265,7 +1265,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	maxAttempts := 10
 	var lastErr error
 	var lastOutput string
-	for attempts := 0; attempts < maxAttempts; attempts++ {
+	for attempts := range maxAttempts {
 		logger.Debug("Bootstrap attempt %d/%d on controller %s", attempts+1, maxAttempts, controller)
 
 		cmd := buildTalosctlCmd(config.TalosConfig, "--nodes", controller, "bootstrap")
@@ -1463,24 +1463,24 @@ func patchKubeconfigForBootstrap(kubeconfigPath, nodeIP string, logger *common.C
 	}
 
 	// Parse kubeconfig as YAML
-	var kubeconfig map[string]interface{}
+	var kubeconfig map[string]any
 	if err := yamlv3.Unmarshal(content, &kubeconfig); err != nil {
 		return fmt.Errorf("failed to parse kubeconfig: %w", err)
 	}
 
 	// Find and update the server URL in clusters
-	clusters, ok := kubeconfig["clusters"].([]interface{})
+	clusters, ok := kubeconfig["clusters"].([]any)
 	if !ok {
 		return fmt.Errorf("invalid kubeconfig: clusters not found")
 	}
 
 	modified := false
 	for _, c := range clusters {
-		cluster, ok := c.(map[string]interface{})
+		cluster, ok := c.(map[string]any)
 		if !ok {
 			continue
 		}
-		clusterData, ok := cluster["cluster"].(map[string]interface{})
+		clusterData, ok := cluster["cluster"].(map[string]any)
 		if !ok {
 			continue
 		}
@@ -1831,7 +1831,7 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	}
 
 	// Apply resources with force-conflicts to handle cert-manager managed fields
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "--filename", "-")
+	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "--filename", "-", "--kubeconfig", config.KubeConfig)
 	cmd.Stdin = bytes.NewReader([]byte(resolvedResources))
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -1849,14 +1849,6 @@ func get1PasswordSecret(reference string) (string, error) {
 
 // resolve1PasswordReferences resolves all 1Password references in the content
 func resolve1PasswordReferences(content string, logger *common.ColorLogger) (string, error) {
-	// Debug: Show lines containing the problematic secret before resolution
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if strings.Contains(line, "secretboxEncryptionSecret") {
-			logger.Debug("Line %d with secretboxEncryptionSecret: '%s'", i+1, line)
-		}
-	}
-
 	// Fast path: if no references present, return as-is
 	opRefs := extractOnePasswordReferences(content)
 	if len(opRefs) == 0 {
@@ -1894,14 +1886,6 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 		}
 	}
 
-	// Debug: Show the final result for secretboxEncryptionSecret after resolution
-	finalLines := strings.Split(resolved, "\n")
-	for i, line := range finalLines {
-		if strings.Contains(line, "secretboxEncryptionSecret") {
-			logger.Debug("Final line %d with secretboxEncryptionSecret: '%s'", i+1, line)
-		}
-	}
-
 	// Optional validation message
 	if strings.Contains(resolved, "op://") {
 		logger.Warn("Warning: Resolved content still contains 1Password references")
@@ -1927,7 +1911,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 
 // saveRenderedConfig saves the rendered configuration to a file for inspection
 func saveRenderedConfig(config, filename string, logger *common.ColorLogger) error {
-	file, err := os.Create(filename)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", filename, err)
 	}
@@ -1970,7 +1954,7 @@ func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger
 	}
 
 	// Apply cluster secret store with force-conflicts to handle field management conflicts
-	cmd := exec.Command("kubectl", "apply", "--namespace=external-secrets", "--server-side", "--force-conflicts", "--filename", "-", "--wait=true")
+	cmd := exec.Command("kubectl", "apply", "--namespace", constants.NSExternalSecret, "--server-side", "--force-conflicts", "--filename", "-", "--wait=true", "--kubeconfig", config.KubeConfig)
 	cmd.Stdin = bytes.NewReader([]byte(resolvedClusterSecretStore))
 
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -2283,9 +2267,9 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 		releaseName      string
 		releaseNamespace string
 	}{
-		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: "external-secrets"},
-		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: "cert-manager"},
-		"gateway.networking.k8s.io": {releaseName: "cilium", releaseNamespace: "kube-system"},
+		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
+		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
+		"gateway.networking.k8s.io": {releaseName: "cilium", releaseNamespace: constants.NSKubeSystem},
 	}
 
 	// Get all CRDs

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -81,11 +82,11 @@ func parseKustomizationFile(ksPath string) (*KustomizationInfo, error) {
 			continue
 		}
 		if inSpec {
-			if strings.HasPrefix(trimmed, "targetNamespace:") {
-				namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "targetNamespace:"))
+			if rest, ok := strings.CutPrefix(trimmed, "targetNamespace:"); ok {
+				namespace = strings.TrimSpace(rest)
 			}
-			if strings.HasPrefix(trimmed, "path:") {
-				path = strings.TrimSpace(strings.TrimPrefix(trimmed, "path:"))
+			if rest, ok := strings.CutPrefix(trimmed, "path:"); ok {
+				path = strings.TrimSpace(rest)
 			}
 		}
 	}
@@ -877,30 +878,70 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 	successCount := 0
 	failCount := 0
 
-	for _, resource := range resources {
-		if resource == "" {
-			continue
-		}
+	if parallel {
+		// Parallel execution using goroutines
+		var mu sync.Mutex
+		var wg sync.WaitGroup
 
-		parts := strings.Split(resource, ",")
-		if len(parts) != 2 {
-			logger.Warn("Invalid resource format: %s", resource)
-			continue
-		}
-
-		ns := parts[0]
-		name := parts[1]
-
-		logger.Info("Syncing %s %s/%s", fullType, ns, name)
-
-		syncCmd := exec.Command("flux", "reconcile", fullType, name, "-n", ns)
-		if err := syncCmd.Run(); err != nil {
-			logger.Error("Failed to sync %s/%s: %v", ns, name, err)
-			failCount++
-			if !parallel {
+		for _, resource := range resources {
+			if resource == "" {
 				continue
 			}
-		} else {
+
+			parts := strings.Split(resource, ",")
+			if len(parts) != 2 {
+				logger.Warn("Invalid resource format: %s", resource)
+				continue
+			}
+
+			ns := parts[0]
+			name := parts[1]
+
+			wg.Add(1)
+			go func(ns, name string) {
+				defer wg.Done()
+
+				logger.Info("Syncing %s %s/%s", fullType, ns, name)
+
+				syncCmd := exec.Command("flux", "reconcile", fullType, name, "-n", ns)
+				if err := syncCmd.Run(); err != nil {
+					mu.Lock()
+					logger.Error("Failed to sync %s/%s: %v", ns, name, err)
+					failCount++
+					mu.Unlock()
+				} else {
+					mu.Lock()
+					successCount++
+					mu.Unlock()
+				}
+			}(ns, name)
+		}
+
+		wg.Wait()
+	} else {
+		// Sequential execution
+		for _, resource := range resources {
+			if resource == "" {
+				continue
+			}
+
+			parts := strings.Split(resource, ",")
+			if len(parts) != 2 {
+				logger.Warn("Invalid resource format: %s", resource)
+				continue
+			}
+
+			ns := parts[0]
+			name := parts[1]
+
+			logger.Info("Syncing %s %s/%s", fullType, ns, name)
+
+			syncCmd := exec.Command("flux", "reconcile", fullType, name, "-n", ns)
+			if err := syncCmd.Run(); err != nil {
+				logger.Error("Failed to sync %s/%s: %v", ns, name, err)
+				failCount++
+				continue
+			}
 			successCount++
 		}
 	}
@@ -947,7 +988,7 @@ func newForceSyncExternalSecretCommand() *cobra.Command {
 	return cmd
 }
 
-func forceSyncExternalSecret(namespace, secretName string, all bool, timeout int) error {
+func forceSyncExternalSecret(namespace, secretName string, all bool, _timeout int) error {
 	logger := common.NewColorLogger()
 
 	var secrets []string

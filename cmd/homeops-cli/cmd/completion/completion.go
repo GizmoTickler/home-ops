@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"homeops-cli/internal/constants"
+
 	"github.com/spf13/cobra"
 )
 
@@ -182,16 +184,16 @@ func ValidNamespaces(cmd *cobra.Command, args []string, toComplete string) ([]st
 	// Fallback to static namespaces
 	namespaces := []string{
 		"default",
-		"kube-system",
-		"flux-system",
-		"cert-manager",
-		"external-secrets",
-		"observability",
-		"network",
-		"rook-ceph",
-		"openebs-system",
-		"volsync-system",
-		"system-upgrade",
+		constants.NSKubeSystem,
+		constants.NSFluxSystem,
+		constants.NSCertManager,
+		constants.NSExternalSecret,
+		constants.NSObservability,
+		constants.NSNetwork,
+		constants.NSRookCeph,
+		constants.NSOpenEBSSystem,
+		constants.NSVolsyncSystem,
+		constants.NSSystemUpgrade,
 		"actions-runner-system",
 	}
 	return namespaces, cobra.ShellCompDirectiveNoFileComp

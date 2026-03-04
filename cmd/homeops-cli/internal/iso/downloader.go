@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ssh"
 )
 
@@ -145,11 +146,11 @@ func (d *Downloader) validateConfig(config DownloadConfig) error {
 // GetDefaultConfig returns a default configuration for ISO download
 func GetDefaultConfig() DownloadConfig {
 	return DownloadConfig{
-		TrueNASHost:     "op://Infrastructure/talosdeploy/TRUENAS_HOST",
-		TrueNASUsername: "op://Infrastructure/talosdeploy/TRUENAS_USERNAME",
+		TrueNASHost:     constants.OpTrueNASHost,
+		TrueNASUsername: constants.OpTrueNASUsername,
 		TrueNASPort:     "22",
 		ISOStoragePath:  "/mnt/flashstor/ISO",
 		ISOFilename:     "metal-amd64.iso",
-		SSHItemRef:      "op://Infrastructure/NAS01/private key",
+		SSHItemRef:      constants.OpTrueNASSSHPrivateKey,
 	}
 }
