@@ -17,6 +17,10 @@ const (
 	// ESXi SSH credentials
 	OpESXiSSHPrivateKey = "op://Infrastructure/esxi-ssh/private key"
 
+	// TrueNAS SSH/username credentials
+	OpTrueNASUsername      = "op://Infrastructure/talosdeploy/TRUENAS_USERNAME"
+	OpTrueNASSSHPrivateKey = "op://Infrastructure/NAS01/private key"
+
 	// Proxmox VE credentials
 	OpProxmoxHost        = "op://Infrastructure/PVE-API/HOST"
 	OpProxmoxTokenID     = "op://Infrastructure/PVE-API/TOKENID"
@@ -64,6 +68,9 @@ const (
 	NSAutomation     = "automation"
 	NSTrueNASCSI     = "truenas-csi"
 	NSOpenEBSSystem  = "openebs-system"
+	NSRookCeph       = "rook-ceph"
+	NSScaleCSI       = "scale-csi"
+	NSSystemUpgrade  = "system-upgrade"
 	NSSystem         = "system"
 	NSDatabase       = "database"
 	NSStorage        = "storage"
@@ -119,6 +126,11 @@ const (
 // Talos Factory API
 const (
 	TalosFactoryBaseURL = "https://factory.talos.dev"
+)
+
+// TrueNAS storage paths
+const (
+	TrueNASStandardISOPath = "/mnt/flashstor/ISO/vmware-amd64.iso"
 )
 
 // Application labels used for Kubernetes resources

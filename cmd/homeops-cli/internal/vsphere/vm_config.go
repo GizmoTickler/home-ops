@@ -12,13 +12,13 @@ type VMConfig struct {
 	OpenEBSSize int // OpenEBS disk size in GB (default: 800GB) - virtual disk on truenas-iscsi for local storage class
 
 	// Multi-datastore configuration (for k8s nodes)
-	BootDatastore   string // Datastore for boot/OS disk (e.g., "local-nvme1")
+	BootDatastore    string // Datastore for boot/OS disk (e.g., "local-nvme1")
 	OpenEBSDatastore string // Datastore for OpenEBS disk (e.g., "truenas-iscsi")
-	Datastore       string // Legacy: single datastore for all disks (deprecated, use Boot/Ceph datastores)
-	Network         string // Network name (e.g., "vl999") - used only for vmxnet3
-	ISO             string // ISO path on datastore (e.g., "[datastore1] vmware-amd64.iso")
-	ISODatastore    string // Datastore where ISO is stored (e.g., "datastore1")
-	MacAddress      string // Static MAC address for network (SR-IOV or vmxnet3)
+	Datastore        string // Legacy: single datastore for all disks (deprecated, use Boot/Ceph datastores)
+	Network          string // Network name (e.g., "vl999") - used only for vmxnet3
+	ISO              string // ISO path on datastore (e.g., "[datastore1] vmware-amd64.iso")
+	ISODatastore     string // Datastore where ISO is stored (e.g., "datastore1")
+	MacAddress       string // Static MAC address for network (SR-IOV or vmxnet3)
 
 	// RDM (Raw Device Mapping) configuration for Rook/Ceph distributed storage
 	// These are physical Intel SSDs passed through as pRDM for Ceph OSD
@@ -30,9 +30,9 @@ type VMConfig struct {
 	PCIDeviceHex string // PCI device in hex format for VMX (e.g., "00000:004:00.0")
 
 	// CPU and Memory optimization
-	CPUAffinity   string // CPU affinity mask (e.g., "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23")
-	MemoryPinned  bool   // Pin memory reservation (sched.mem.pin = TRUE)
-	CoresPerSocket int   // Cores per socket (default: 1)
+	CPUAffinity    string // CPU affinity mask (e.g., "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23")
+	MemoryPinned   bool   // Pin memory reservation (sched.mem.pin = TRUE)
+	CoresPerSocket int    // Cores per socket (default: 1)
 
 	// Deployment options
 	PowerOn              bool // Power on VM after creation
@@ -73,18 +73,20 @@ type VMDeploymentConfig struct {
 
 // K8sNodeConfig holds the predefined configuration for each k8s node
 type K8sNodeConfig struct {
-	RDMPath      string // Path to RDM descriptor
-	PCIDevice    string // PCI device for SR-IOV (standard format)
-	PCIDeviceHex string // PCI device for VMX (decimal format)
-	MacAddress   string // Static MAC address
-	CPUAffinity  string // CPU affinity mask
+	RDMPath       string // Path to RDM descriptor
+	PCIDevice     string // PCI device for SR-IOV (standard format)
+	PCIDeviceHex  string // PCI device for VMX (decimal format)
+	MacAddress    string // Static MAC address
+	CPUAffinity   string // CPU affinity mask
 	BootDatastore string // Datastore for boot disk
 }
 
 // k8sNodeConfigs contains the predefined configurations for k8s nodes
 // CPU Affinity Layout (2×E5-2697 v4: 2 sockets × 16 cores × 2 HT = 64 CPUs):
-//   Socket 0 (NUMA Node 0): Physical cores 0-15 → CPUs 0-15, HT siblings → CPUs 16-31
-//   Socket 1 (NUMA Node 1): Physical cores 0-15 → CPUs 32-47, HT siblings → CPUs 48-63
+//
+//	Socket 0 (NUMA Node 0): Physical cores 0-15 → CPUs 0-15, HT siblings → CPUs 16-31
+//	Socket 1 (NUMA Node 1): Physical cores 0-15 → CPUs 32-47, HT siblings → CPUs 48-63
+//
 // Each VM gets 8 physical cores + 8 HT siblings = 16 vCPUs with no overlap
 var k8sNodeConfigs = map[string]K8sNodeConfig{
 	"k8s-0": {
@@ -113,9 +115,9 @@ var k8sNodeConfigs = map[string]K8sNodeConfig{
 	},
 	"k8s-3": {
 		RDMPath:       "[datastore1] rdm/intel-ssd-4.vmdk",
-		PCIDevice:     "0000:0b:00.1",    // Second port on second X540
+		PCIDevice:     "0000:0b:00.1", // Second port on second X540
 		PCIDeviceHex:  "00000:011:00.1",
-		MacAddress:    "",                // To be assigned
+		MacAddress:    "",                                                // To be assigned
 		CPUAffinity:   "40,41,42,43,44,45,46,47,56,57,58,59,60,61,62,63", // Socket 1, cores 8-15 + HT
 		BootDatastore: "local-nvme2",
 	},
@@ -139,15 +141,15 @@ func GetDefaultVMConfig(name string) VMConfig {
 		OpenEBSDatastore:     "truenas-iscsi", // OpenEBS disk on TrueNAS iSCSI
 		ISODatastore:         "datastore1",    // ISO stored on datastore1
 		Network:              "vl999",
-		PowerOn:              true,  // Power on by default
-		EnableIOMMU:          true,  // Enable IOMMU/VT-d
-		ExposeCounters:       true,  // Expose CPU performance counters
-		ThinProvisioned:      true,  // Use thin provisioned disks
-		EnablePrecisionClock: true,  // Add precision clock device
-		EnableWatchdog:       true,  // Add watchdog timer device
-		EnableSRIOV:          true,  // Use SR-IOV by default for k8s nodes
-		MemoryPinned:         true,  // Pin memory reservation
-		CoresPerSocket:       1,     // 1 core per socket (matches actual VMs)
+		PowerOn:              true, // Power on by default
+		EnableIOMMU:          true, // Enable IOMMU/VT-d
+		ExposeCounters:       true, // Expose CPU performance counters
+		ThinProvisioned:      true, // Use thin provisioned disks
+		EnablePrecisionClock: true, // Add precision clock device
+		EnableWatchdog:       true, // Add watchdog timer device
+		EnableSRIOV:          true, // Use SR-IOV by default for k8s nodes
+		MemoryPinned:         true, // Pin memory reservation
+		CoresPerSocket:       1,    // 1 core per socket (matches actual VMs)
 	}
 }
 

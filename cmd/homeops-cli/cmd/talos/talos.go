@@ -208,8 +208,8 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 
 	if dryRun {
 		// Basic YAML validation to ensure the rendered config is structurally valid
-		var any interface{}
-		if err := yaml.Unmarshal([]byte(resolvedConfig), &any); err != nil {
+		var data any
+		if err := yaml.Unmarshal([]byte(resolvedConfig), &data); err != nil {
 			return fmt.Errorf("rendered config failed YAML validation: %w", err)
 		}
 		logger.Info("[DRY RUN] Would apply config to %s (type: %s)", nodeIP, machineType)
@@ -1522,8 +1522,8 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 
 		// Create download configuration
 		downloadConfig := iso.GetDefaultConfig()
-		downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-		downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+		downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
+		downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
 		downloadConfig.ISOURL = isoURL
 		downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", schematicID[:8]) // Use schematic ID prefix for unique filename
 
@@ -1538,7 +1538,7 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		logger.Info("ISO preparation completed - proceeding with VM deployment...")
 	} else {
 		// Check if a prepared ISO exists at the standard location
-		standardISOPath := "/mnt/flashstor/ISO/vmware-amd64.iso"
+		standardISOPath := constants.TrueNASStandardISOPath
 		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
 
 		// Connect to TrueNAS to check if the prepared ISO exists
@@ -1550,9 +1550,9 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		// Create SSH client to check if ISO exists
 		sshConfig := ssh.SSHConfig{
 			Host:       host,
-			Username:   get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME"),
+			Username:   get1PasswordSecret(constants.OpTrueNASUsername),
 			Port:       "22",
-			SSHItemRef: "op://Infrastructure/NAS01/private key",
+			SSHItemRef: constants.OpTrueNASSSHPrivateKey,
 		}
 		sshClient := ssh.NewSSHClient(sshConfig)
 
@@ -2393,8 +2393,8 @@ func prepareISOForTrueNAS() error {
 
 	// Create download configuration with standard filename
 	downloadConfig := iso.GetDefaultConfig()
-	downloadConfig.TrueNASHost = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_HOST")
-	downloadConfig.TrueNASUsername = get1PasswordSecret("op://Infrastructure/talosdeploy/TRUENAS_USERNAME")
+	downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
+	downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
 	downloadConfig.ISOURL = isoInfo.URL
 	downloadConfig.ISOFilename = "vmware-amd64.iso" // Standard filename for vSphere provider
 
@@ -2650,15 +2650,15 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	for i, line := range lines {
 		if strings.Contains(line, "image: factory.talos.dev/installer/") {
 			// Extract the indentation to maintain YAML formatting
-			indent := ""
+			var indent strings.Builder
 			for _, char := range line {
 				if char == ' ' {
-					indent += " "
+					indent.WriteRune(char)
 				} else {
 					break
 				}
 			}
-			lines[i] = indent + "image: " + newFactoryImage
+			lines[i] = indent.String() + "image: " + newFactoryImage
 			logger.Debug("Updated factory image to: %s", newFactoryImage)
 			break
 		}
@@ -2767,7 +2767,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 
 // deployK8sVMViaSSH deploys k8s VMs using SSH for exact configuration control
 // This ensures the VMs match the existing manually-deployed production VMs exactly
-func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, openebsSize int, network string, generateISO bool, nodeCount int) error {
+func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, openebsSize int, network string, _generateISO bool, nodeCount int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Deploying k8s VM(s) via SSH with production configuration")
 
