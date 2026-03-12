@@ -1,6 +1,5 @@
 ---
-# Replaces Envoy Gateway BackendTrafficPolicy
-# Provides compression, retry, and timeout configuration
+# Gateway-level defaults: compression, retry, and timeout configuration
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: TrafficPolicy
 metadata:
@@ -18,18 +17,22 @@ spec:
   compression:
     responseCompression: {}
   retry:
-    attempts: 2
+    attempts: 3
     retryOn:
       - reset
       - connect-failure
       - retriable-status-codes
     statusCodes:
+      - 502
       - 503
+      - 504
+    perTryTimeout: 30s
+    backoffBaseInterval: 250ms
   timeouts:
-    request: 0s
+    request: 300s
+    streamIdle: 300s
 ---
-# Replaces Envoy Gateway ClientTrafficPolicy
-# Provides header manipulation and listener-level settings
+# Listener-level settings: headers, timeouts, WebSocket support
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: HTTPListenerPolicy
 metadata:
@@ -44,6 +47,11 @@ spec:
       name: kgateway-external
   useRemoteAddress: true
   xffNumTrustedHops: 0
+  streamIdleTimeout: 300s
+  idleTimeout: 3600s
+  upgradeConfig:
+    enabledUpgrades:
+      - websocket
   earlyRequestHeaderModifier:
     set:
       - name: X-Forwarded-Proto
