@@ -1,0 +1,29 @@
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: BackendConfigPolicy
+metadata:
+  name: self-hosted-backend
+spec:
+  targetSelectors:
+    - group: ""
+      kind: Service
+      matchLabels:
+        app.kubernetes.io/managed-by: Helm
+  connectTimeout: 5s
+  tcpKeepalive:
+    keepAliveProbes: 3
+    keepAliveTime: 60s
+    keepAliveInterval: 15s
+  commonHttpProtocolOptions:
+    idleTimeout: 300s
+    maxRequestsPerConnection: 0
+  outlierDetection:
+    consecutive5xx: 5
+    interval: 10s
+    baseEjectionTime: 30s
+    maxEjectionPercent: 100
+  circuitBreakers:
+    maxConnections: 1024
+    maxPendingRequests: 1024
+    maxRequests: 1024
+    maxRetries: 3

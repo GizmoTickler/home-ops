@@ -9,4 +9,5 @@ components:
 
 resources:
   - ./namespace.yaml
+  - ./backendconfigpolicy.yaml
   - ./n8n/ks.yaml
