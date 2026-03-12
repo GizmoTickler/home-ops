@@ -80,6 +80,7 @@ spec:
               - identifier: app
             timeouts:
               request: 120s
+              backendRequest: 120s
     persistence:
       config:
         existingClaim: "{{ .Release.Name }}"
