@@ -9,6 +9,7 @@ components:
 
 resources:
   - ./namespace.yaml
+  - ./backendconfigpolicy.yaml
   - ./actual/ks.yaml
   - ./atuin/ks.yaml
   - ./freshrss/ks.yaml
