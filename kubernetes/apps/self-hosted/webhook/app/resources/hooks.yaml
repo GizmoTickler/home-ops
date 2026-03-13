@@ -88,6 +88,13 @@
       source: payload
       name: series.title
 
+- id: ntopng-alertmanager
+  execute-command: /config/ntopng-alertmanager.sh
+  command-working-directory: /config
+  pass-environment-to-command:
+    - envname: NTOPNG_PAYLOAD
+      source: entire-payload
+
 - id: sonarr-tag-codecs
   execute-command: /config/sonarr-tag-codecs.sh
   command-working-directory: /config
