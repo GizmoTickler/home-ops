@@ -15,6 +15,7 @@ configMapGenerator:
       - sonarr-pushover.sh=./resources/sonarr-pushover.sh
       - sonarr-refresh-series.sh=./resources/sonarr-refresh-series.sh
       - sonarr-tag-codecs.sh=./resources/sonarr-tag-codecs.sh
+      - ntopng-alertmanager.sh=./resources/ntopng-alertmanager.sh
 generatorOptions:
   disableNameSuffixHash: true
   annotations:
