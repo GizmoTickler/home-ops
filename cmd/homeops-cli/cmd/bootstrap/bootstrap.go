@@ -2270,7 +2270,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 	}{
 		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
 		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
-		"gateway.networking.k8s.io": {releaseName: "kgateway", releaseNamespace: constants.NSNetwork},
+		"gateway.networking.k8s.io": {releaseName: "kgateway-crds", releaseNamespace: constants.NSNetwork},
 	}
 
 	// Get all CRDs
