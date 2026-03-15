@@ -388,6 +388,199 @@ machine:
 	}
 }
 
+// TestGetGatewayAPICRDsURL tests extracting the Gateway API CRDs URL from a kustomization file
+func TestGetGatewayAPICRDsURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		content     string
+		expectedURL string
+		expectError bool
+		errContains string
+	}{
+		{
+			name: "valid kustomization",
+			content: `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml`,
+			expectedURL: "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml",
+			expectError: false,
+		},
+		{
+			name: "no gateway-api resource",
+			content: `apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./some-other-resource.yaml`,
+			expectError: true,
+			errContains: "not found",
+		},
+		{
+			name:        "invalid yaml",
+			content:     `{invalid yaml: [`,
+			expectError: true,
+			errContains: "failed to parse",
+		},
+		{
+			name:        "empty resources",
+			content:     `apiVersion: kustomize.config.k8s.io/v1beta1`,
+			expectError: true,
+			errContains: "not found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+
+			// Create the expected directory structure
+			kustomizationDir := filepath.Join(tmpDir, "kubernetes", "apps", "network", "kgateway", "gateway-api-crds")
+			if err := os.MkdirAll(kustomizationDir, 0755); err != nil {
+				t.Fatalf("Failed to create test directory: %v", err)
+			}
+
+			kustomizationPath := filepath.Join(kustomizationDir, "kustomization.yaml")
+			if err := os.WriteFile(kustomizationPath, []byte(tt.content), 0644); err != nil {
+				t.Fatalf("Failed to write test file: %v", err)
+			}
+
+			url, err := getGatewayAPICRDsURL(tmpDir)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tt.errContains)
+				} else if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if url != tt.expectedURL {
+					t.Errorf("Expected URL %q, got %q", tt.expectedURL, url)
+				}
+			}
+		})
+	}
+
+	// Test missing file
+	t.Run("missing kustomization file", func(t *testing.T) {
+		_, err := getGatewayAPICRDsURL("/nonexistent/path")
+		if err == nil {
+			t.Error("Expected error for missing file, got nil")
+		}
+	})
+}
+
+// TestValidateGatewayAPICRDsURL tests URL validation for Gateway API CRDs
+func TestValidateGatewayAPICRDsURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		url         string
+		expectError bool
+		errContains string
+	}{
+		{
+			name:        "valid URL",
+			url:         "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml",
+			expectError: false,
+		},
+		{
+			name:        "wrong host",
+			url:         "https://evil.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/install.yaml",
+			expectError: true,
+			errContains: "unexpected host",
+		},
+		{
+			name:        "wrong path",
+			url:         "https://github.com/some-other/repo/releases/download/v1.0.0/install.yaml",
+			expectError: true,
+			errContains: "unexpected path",
+		},
+		{
+			name:        "malformed URL",
+			url:         "://not-a-url",
+			expectError: true,
+			errContains: "malformed URL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateGatewayAPICRDsURL(tt.url)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("Expected error containing %q, got nil", tt.errContains)
+				} else if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("Expected error containing %q, got: %v", tt.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestApplyGatewayAPICRDsValidation tests input validation for applyGatewayAPICRDs
+func TestApplyGatewayAPICRDsValidation(t *testing.T) {
+	t.Run("empty kubeconfig", func(t *testing.T) {
+		config := &BootstrapConfig{
+			RootDir:    "/tmp",
+			KubeConfig: "",
+		}
+		logger := common.NewColorLogger()
+
+		err := applyGatewayAPICRDs(config, logger)
+		if err == nil {
+			t.Error("Expected error for empty kubeconfig, got nil")
+		}
+		if !strings.Contains(err.Error(), "kubeconfig path is required") {
+			t.Errorf("Expected kubeconfig error, got: %v", err)
+		}
+	})
+
+	t.Run("missing kustomization file", func(t *testing.T) {
+		config := &BootstrapConfig{
+			RootDir:    "/nonexistent/path",
+			KubeConfig: "/tmp/kubeconfig",
+		}
+		logger := common.NewColorLogger()
+
+		err := applyGatewayAPICRDs(config, logger)
+		if err == nil {
+			t.Error("Expected error for missing kustomization, got nil")
+		}
+	})
+
+	t.Run("dry run succeeds with valid kustomization", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		kustomizationDir := filepath.Join(tmpDir, "kubernetes", "apps", "network", "kgateway", "gateway-api-crds")
+		if err := os.MkdirAll(kustomizationDir, 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+		content := `resources:
+  - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml`
+		if err := os.WriteFile(filepath.Join(kustomizationDir, "kustomization.yaml"), []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		config := &BootstrapConfig{
+			RootDir:    tmpDir,
+			KubeConfig: "/tmp/kubeconfig",
+			DryRun:     true,
+		}
+		logger := common.NewColorLogger()
+
+		err := applyGatewayAPICRDs(config, logger)
+		if err != nil {
+			t.Errorf("Dry run should succeed with valid kustomization: %v", err)
+		}
+	})
+}
+
 func BenchmarkExtractOnePasswordReferences(b *testing.B) {
 	content := `
 secret1: op://vault/item1/field1

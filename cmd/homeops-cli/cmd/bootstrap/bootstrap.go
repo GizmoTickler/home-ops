@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1732,9 +1733,15 @@ func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return applyCRDsFromHelmfile(config, logger)
 }
 
+// expectedGatewayAPICRDsHost is the only allowed host for Gateway API CRD URLs.
+const expectedGatewayAPICRDsHost = "github.com"
+
+// expectedGatewayAPICRDsPathPrefix is the expected URL path prefix for validation.
+const expectedGatewayAPICRDsPathPrefix = "/kubernetes-sigs/gateway-api/releases/download/"
+
 // getGatewayAPICRDsURL reads the Gateway API CRDs install URL from the
 // kustomization file so the version is managed by Renovate in one place.
-func getGatewayAPICRDsURL(rootDir string, logger *common.ColorLogger) (string, error) {
+func getGatewayAPICRDsURL(rootDir string) (string, error) {
 	kustomizationPath := filepath.Join(rootDir, gatewayAPICRDsKustomizationPath)
 	content, err := os.ReadFile(kustomizationPath)
 	if err != nil {
@@ -1751,6 +1758,9 @@ func getGatewayAPICRDsURL(rootDir string, logger *common.ColorLogger) (string, e
 
 	for _, resource := range kustomization.Resources {
 		if strings.Contains(resource, "kubernetes-sigs/gateway-api") {
+			if err := validateGatewayAPICRDsURL(resource); err != nil {
+				return "", fmt.Errorf("invalid Gateway API CRDs URL in %s: %w", kustomizationPath, err)
+			}
 			return resource, nil
 		}
 	}
@@ -1758,12 +1768,32 @@ func getGatewayAPICRDsURL(rootDir string, logger *common.ColorLogger) (string, e
 	return "", fmt.Errorf("gateway-api release URL not found in %s", kustomizationPath)
 }
 
+// validateGatewayAPICRDsURL validates that the URL points to the expected
+// kubernetes-sigs/gateway-api GitHub release location.
+func validateGatewayAPICRDsURL(rawURL string) error {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("malformed URL %q: %w", rawURL, err)
+	}
+	if parsed.Host != expectedGatewayAPICRDsHost {
+		return fmt.Errorf("unexpected host %q, expected %q", parsed.Host, expectedGatewayAPICRDsHost)
+	}
+	if !strings.HasPrefix(parsed.Path, expectedGatewayAPICRDsPathPrefix) {
+		return fmt.Errorf("unexpected path %q, expected prefix %q", parsed.Path, expectedGatewayAPICRDsPathPrefix)
+	}
+	return nil
+}
+
 // applyGatewayAPICRDs installs the standard Gateway API CRDs from the official
 // kubernetes-sigs/gateway-api GitHub release. These are applied via Kustomize in
 // the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
 // to be present before Flux starts reconciling.
 func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	url, err := getGatewayAPICRDsURL(config.RootDir, logger)
+	if config.KubeConfig == "" {
+		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation")
+	}
+
+	url, err := getGatewayAPICRDsURL(config.RootDir)
 	if err != nil {
 		return err
 	}
@@ -1777,7 +1807,7 @@ func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) er
 
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply Gateway API CRDs: %w\nOutput: %s", err, string(output))
+		return fmt.Errorf("failed to apply Gateway API CRDs from %s: %w\nOutput: %s", url, err, string(output))
 	}
 
 	logger.Success("Gateway API CRDs applied successfully")
