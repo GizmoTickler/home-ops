@@ -2264,13 +2264,15 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 	logger.Info("Checking for CRDs that need Helm ownership metadata...")
 
 	// Define known CRD groups and their Helm release ownership
+	// Only include CRD groups that are actually managed by Helm releases.
+	// Gateway API CRDs (gateway.networking.k8s.io) are installed via Kustomize
+	// from the official kubernetes-sigs/gateway-api GitHub release, not Helm.
 	crdGroups := map[string]struct {
 		releaseName      string
 		releaseNamespace string
 	}{
-		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
-		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
-		"gateway.networking.k8s.io": {releaseName: "kgateway-crds", releaseNamespace: constants.NSNetwork},
+		"external-secrets.io": {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
+		"cert-manager.io":     {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
 	}
 
 	// Get all CRDs
