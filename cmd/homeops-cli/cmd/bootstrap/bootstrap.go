@@ -383,8 +383,10 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 	// This ensures all namespaces exist before any resources are applied
 	namespaces := []string{
 		"actions-runner-system",
+		constants.NSAuth,
 		constants.NSAutomation,
 		constants.NSCertManager,
+		constants.NSDatabase,
 		constants.NSDownloads,
 		constants.NSExternalSecret,
 		constants.NSFluxSystem,
@@ -394,7 +396,6 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		constants.NSObservability,
 		constants.NSOpenEBSSystem,
 		constants.NSRookCeph,
-		constants.NSScaleCSI,
 		constants.NSSelfHosted,
 		constants.NSSystem,
 		constants.NSSystemUpgrade,
@@ -2269,7 +2270,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 	}{
 		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
 		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
-		"gateway.networking.k8s.io": {releaseName: "cilium", releaseNamespace: constants.NSKubeSystem},
+		"gateway.networking.k8s.io": {releaseName: "kgateway", releaseNamespace: constants.NSNetwork},
 	}
 
 	// Get all CRDs

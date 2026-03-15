@@ -22,10 +22,10 @@ releases:
     chart: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.1.0
 
-  - name: envoy-gateway
+  - name: kgateway
     namespace: network
-    chart: oci://mirror.gcr.io/envoyproxy/gateway-helm
-    version: 1.7.1
+    chart: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway
+    version: v2.2.1
 
   - name: grafana-operator
     namespace: observability
