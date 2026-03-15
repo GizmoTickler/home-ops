@@ -1716,8 +1716,10 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 	}
 }
 
-// Gateway API CRDs version - should match kubernetes/apps/network/kgateway/gateway-api-crds/kustomization.yaml
-const gatewayAPICRDsVersion = "v1.4.1"
+// gatewayAPICRDsKustomizationPath is the path (relative to repo root) to the
+// kustomization that installs Gateway API CRDs. The version is extracted from
+// this file so Renovate manages it in a single place.
+const gatewayAPICRDsKustomizationPath = "kubernetes/apps/network/kgateway/gateway-api-crds/kustomization.yaml"
 
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Apply Gateway API CRDs from official kubernetes-sigs release
@@ -1730,14 +1732,43 @@ func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return applyCRDsFromHelmfile(config, logger)
 }
 
+// getGatewayAPICRDsURL reads the Gateway API CRDs install URL from the
+// kustomization file so the version is managed by Renovate in one place.
+func getGatewayAPICRDsURL(rootDir string, logger *common.ColorLogger) (string, error) {
+	kustomizationPath := filepath.Join(rootDir, gatewayAPICRDsKustomizationPath)
+	content, err := os.ReadFile(kustomizationPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read gateway-api-crds kustomization at %s: %w", kustomizationPath, err)
+	}
+
+	// Parse the kustomization to extract the GitHub release URL from resources
+	var kustomization struct {
+		Resources []string `yaml:"resources"`
+	}
+	if err := yamlv3.Unmarshal(content, &kustomization); err != nil {
+		return "", fmt.Errorf("failed to parse gateway-api-crds kustomization: %w", err)
+	}
+
+	for _, resource := range kustomization.Resources {
+		if strings.Contains(resource, "kubernetes-sigs/gateway-api") {
+			return resource, nil
+		}
+	}
+
+	return "", fmt.Errorf("gateway-api release URL not found in %s", kustomizationPath)
+}
+
 // applyGatewayAPICRDs installs the standard Gateway API CRDs from the official
 // kubernetes-sigs/gateway-api GitHub release. These are applied via Kustomize in
 // the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
 // to be present before Flux starts reconciling.
 func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	url := fmt.Sprintf("https://github.com/kubernetes-sigs/gateway-api/releases/download/%s/experimental-install.yaml", gatewayAPICRDsVersion)
+	url, err := getGatewayAPICRDsURL(config.RootDir, logger)
+	if err != nil {
+		return err
+	}
 
-	logger.Info("Applying Gateway API CRDs (%s)...", gatewayAPICRDsVersion)
+	logger.Info("Applying Gateway API CRDs from %s", url)
 
 	if config.DryRun {
 		logger.Info("[DRY RUN] Would apply Gateway API CRDs from %s", url)
