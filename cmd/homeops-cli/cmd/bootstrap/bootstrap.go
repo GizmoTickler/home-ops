@@ -1790,7 +1790,7 @@ func validateGatewayAPICRDsURL(rawURL string) error {
 // to be present before Flux starts reconciling.
 func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 	if config.KubeConfig == "" {
-		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation")
+		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation - ensure KUBECONFIG environment variable is set")
 	}
 
 	url, err := getGatewayAPICRDsURL(config.RootDir)
@@ -1807,10 +1807,10 @@ func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) er
 
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply Gateway API CRDs from %s: %w\nOutput: %s", url, err, string(output))
+		return fmt.Errorf("failed to apply Gateway API CRDs from %s: %w\nKubectl output: %s", url, err, string(output))
 	}
 
-	logger.Success("Gateway API CRDs applied successfully")
+	logger.Success("Gateway API CRDs applied successfully from %s", url)
 	return nil
 }
 
