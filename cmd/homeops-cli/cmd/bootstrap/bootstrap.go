@@ -1784,6 +1784,19 @@ func validateGatewayAPICRDsURL(rawURL string) error {
 	return nil
 }
 
+// extractGatewayAPIVersion extracts the version tag (e.g. "v1.4.1") from a
+// validated Gateway API CRDs URL. Returns the full URL as fallback.
+func extractGatewayAPIVersion(rawURL string) string {
+	rest := strings.TrimPrefix(rawURL, "https://"+expectedGatewayAPICRDsHost+expectedGatewayAPICRDsPathPrefix)
+	if rest == rawURL {
+		return rawURL
+	}
+	if idx := strings.Index(rest, "/"); idx > 0 {
+		return rest[:idx]
+	}
+	return rawURL
+}
+
 // applyGatewayAPICRDs installs the standard Gateway API CRDs from the official
 // kubernetes-sigs/gateway-api GitHub release. These are applied via Kustomize in
 // the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
@@ -1798,19 +1811,20 @@ func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) er
 		return err
 	}
 
-	logger.Info("Applying Gateway API CRDs from %s", url)
+	version := extractGatewayAPIVersion(url)
+	logger.Info("Applying Gateway API CRDs %s from %s", version, url)
 
 	if config.DryRun {
-		logger.Info("[DRY RUN] Would apply Gateway API CRDs from %s", url)
+		logger.Info("[DRY RUN] Would apply Gateway API CRDs %s from %s", version, url)
 		return nil
 	}
 
 	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to apply Gateway API CRDs from %s: %w\nKubectl output: %s", url, err, string(output))
+		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, string(output))
 	}
 
-	logger.Success("Gateway API CRDs applied successfully from %s", url)
+	logger.Success("Gateway API CRDs %s applied successfully", version)
 	return nil
 }
 

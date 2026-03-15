@@ -524,6 +524,45 @@ func TestValidateGatewayAPICRDsURL(t *testing.T) {
 	}
 }
 
+// TestExtractGatewayAPIVersion tests version extraction from Gateway API URLs
+func TestExtractGatewayAPIVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		url      string
+		expected string
+	}{
+		{
+			name:     "standard release URL",
+			url:      "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml",
+			expected: "v1.4.1",
+		},
+		{
+			name:     "different version",
+			url:      "https://github.com/kubernetes-sigs/gateway-api/releases/download/v2.0.0/standard-install.yaml",
+			expected: "v2.0.0",
+		},
+		{
+			name:     "non-matching URL returns full URL",
+			url:      "https://example.com/some/other/path",
+			expected: "https://example.com/some/other/path",
+		},
+		{
+			name:     "empty string",
+			url:      "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractGatewayAPIVersion(tt.url)
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
 // TestApplyGatewayAPICRDsValidation tests input validation for applyGatewayAPICRDs
 func TestApplyGatewayAPICRDsValidation(t *testing.T) {
 	t.Run("empty kubeconfig", func(t *testing.T) {
