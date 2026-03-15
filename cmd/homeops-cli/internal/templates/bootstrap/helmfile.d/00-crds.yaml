@@ -22,9 +22,9 @@ releases:
     chart: oci://ghcr.io/external-secrets/charts/external-secrets
     version: 2.1.0
 
-  - name: kgateway
+  - name: kgateway-crds
     namespace: network
-    chart: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway
+    chart: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
     version: v2.2.1
 
   - name: grafana-operator
