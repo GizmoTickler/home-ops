@@ -1716,9 +1716,41 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 	}
 }
 
+// Gateway API CRDs version - should match kubernetes/apps/network/kgateway/gateway-api-crds/kustomization.yaml
+const gatewayAPICRDsVersion = "v1.4.1"
+
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	// Use the new helmfile-based CRD application method
+	// Apply Gateway API CRDs from official kubernetes-sigs release
+	// These are not in a Helm chart so they must be applied separately
+	if err := applyGatewayAPICRDs(config, logger); err != nil {
+		return fmt.Errorf("failed to apply Gateway API CRDs: %w", err)
+	}
+
+	// Apply remaining CRDs from Helm charts via helmfile
 	return applyCRDsFromHelmfile(config, logger)
+}
+
+// applyGatewayAPICRDs installs the standard Gateway API CRDs from the official
+// kubernetes-sigs/gateway-api GitHub release. These are applied via Kustomize in
+// the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
+// to be present before Flux starts reconciling.
+func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
+	url := fmt.Sprintf("https://github.com/kubernetes-sigs/gateway-api/releases/download/%s/experimental-install.yaml", gatewayAPICRDsVersion)
+
+	logger.Info("Applying Gateway API CRDs (%s)...", gatewayAPICRDsVersion)
+
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would apply Gateway API CRDs from %s", url)
+		return nil
+	}
+
+	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply Gateway API CRDs: %w\nOutput: %s", err, string(output))
+	}
+
+	logger.Success("Gateway API CRDs applied successfully")
+	return nil
 }
 
 func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) error {
