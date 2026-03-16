@@ -66,17 +66,12 @@ const (
 	NSMedia          = "media"
 	NSSelfHosted     = "self-hosted"
 	NSAutomation     = "automation"
-	NSTrueNASCSI     = "truenas-csi"
+	NSAuth           = "auth"
 	NSOpenEBSSystem  = "openebs-system"
 	NSRookCeph       = "rook-ceph"
-	NSScaleCSI       = "scale-csi"
 	NSSystemUpgrade  = "system-upgrade"
 	NSSystem         = "system"
 	NSDatabase       = "database"
-	NSStorage        = "storage"
-	NSMonitoring     = "monitoring"
-	NSLogs           = "logs"
-	NSHome           = "home"
 )
 
 // Timeouts and intervals

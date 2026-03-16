@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -383,8 +384,10 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 	// This ensures all namespaces exist before any resources are applied
 	namespaces := []string{
 		"actions-runner-system",
+		constants.NSAuth,
 		constants.NSAutomation,
 		constants.NSCertManager,
+		constants.NSDatabase,
 		constants.NSDownloads,
 		constants.NSExternalSecret,
 		constants.NSFluxSystem,
@@ -394,7 +397,6 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 		constants.NSObservability,
 		constants.NSOpenEBSSystem,
 		constants.NSRookCeph,
-		constants.NSScaleCSI,
 		constants.NSSelfHosted,
 		constants.NSSystem,
 		constants.NSSystemUpgrade,
@@ -1715,9 +1717,115 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 	}
 }
 
+// gatewayAPICRDsKustomizationPath is the path (relative to repo root) to the
+// kustomization that installs Gateway API CRDs. The version is extracted from
+// this file so Renovate manages it in a single place.
+const gatewayAPICRDsKustomizationPath = "kubernetes/apps/network/kgateway/gateway-api-crds/kustomization.yaml"
+
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	// Use the new helmfile-based CRD application method
+	// Apply Gateway API CRDs from official kubernetes-sigs release
+	// These are not in a Helm chart so they must be applied separately
+	if err := applyGatewayAPICRDs(config, logger); err != nil {
+		return fmt.Errorf("failed to apply Gateway API CRDs: %w", err)
+	}
+
+	// Apply remaining CRDs from Helm charts via helmfile
 	return applyCRDsFromHelmfile(config, logger)
+}
+
+// expectedGatewayAPICRDsHost is the only allowed host for Gateway API CRD URLs.
+const expectedGatewayAPICRDsHost = "github.com"
+
+// expectedGatewayAPICRDsPathPrefix is the expected URL path prefix for validation.
+const expectedGatewayAPICRDsPathPrefix = "/kubernetes-sigs/gateway-api/releases/download/"
+
+// getGatewayAPICRDsURL reads the Gateway API CRDs install URL from the
+// kustomization file so the version is managed by Renovate in one place.
+func getGatewayAPICRDsURL(rootDir string) (string, error) {
+	kustomizationPath := filepath.Join(rootDir, gatewayAPICRDsKustomizationPath)
+	content, err := os.ReadFile(kustomizationPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read gateway-api-crds kustomization at %s: %w", kustomizationPath, err)
+	}
+
+	// Parse the kustomization to extract the GitHub release URL from resources
+	var kustomization struct {
+		Resources []string `yaml:"resources"`
+	}
+	if err := yamlv3.Unmarshal(content, &kustomization); err != nil {
+		return "", fmt.Errorf("failed to parse gateway-api-crds kustomization: %w", err)
+	}
+
+	for _, resource := range kustomization.Resources {
+		if strings.Contains(resource, "kubernetes-sigs/gateway-api") {
+			if err := validateGatewayAPICRDsURL(resource); err != nil {
+				return "", fmt.Errorf("invalid Gateway API CRDs URL in %s: %w", kustomizationPath, err)
+			}
+			return resource, nil
+		}
+	}
+
+	return "", fmt.Errorf("gateway-api release URL not found in %s", kustomizationPath)
+}
+
+// validateGatewayAPICRDsURL validates that the URL points to the expected
+// kubernetes-sigs/gateway-api GitHub release location.
+func validateGatewayAPICRDsURL(rawURL string) error {
+	parsed, err := neturl.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("malformed URL %q: %w", rawURL, err)
+	}
+	if parsed.Host != expectedGatewayAPICRDsHost {
+		return fmt.Errorf("unexpected host %q, expected %q", parsed.Host, expectedGatewayAPICRDsHost)
+	}
+	if !strings.HasPrefix(parsed.Path, expectedGatewayAPICRDsPathPrefix) {
+		return fmt.Errorf("unexpected path %q, expected prefix %q", parsed.Path, expectedGatewayAPICRDsPathPrefix)
+	}
+	return nil
+}
+
+// extractGatewayAPIVersion extracts the version tag (e.g. "v1.4.1") from a
+// validated Gateway API CRDs URL. Returns the full URL as fallback.
+func extractGatewayAPIVersion(rawURL string) string {
+	rest := strings.TrimPrefix(rawURL, "https://"+expectedGatewayAPICRDsHost+expectedGatewayAPICRDsPathPrefix)
+	if rest == rawURL {
+		return rawURL
+	}
+	if idx := strings.Index(rest, "/"); idx > 0 {
+		return rest[:idx]
+	}
+	return rawURL
+}
+
+// applyGatewayAPICRDs installs the standard Gateway API CRDs from the official
+// kubernetes-sigs/gateway-api GitHub release. These are applied via Kustomize in
+// the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
+// to be present before Flux starts reconciling.
+func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
+	if config.KubeConfig == "" {
+		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation - ensure KUBECONFIG environment variable is set")
+	}
+
+	url, err := getGatewayAPICRDsURL(config.RootDir)
+	if err != nil {
+		return err
+	}
+
+	version := extractGatewayAPIVersion(url)
+	logger.Info("Applying Gateway API CRDs %s from %s", version, url)
+
+	if config.DryRun {
+		logger.Info("[DRY RUN] Would apply Gateway API CRDs %s from %s", version, url)
+		return nil
+	}
+
+	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, string(output))
+	}
+
+	logger.Success("Gateway API CRDs %s applied successfully", version)
+	return nil
 }
 
 func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) error {
@@ -2263,13 +2371,15 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 	logger.Info("Checking for CRDs that need Helm ownership metadata...")
 
 	// Define known CRD groups and their Helm release ownership
+	// Only include CRD groups that are actually managed by Helm releases.
+	// Gateway API CRDs (gateway.networking.k8s.io) are installed via Kustomize
+	// from the official kubernetes-sigs/gateway-api GitHub release, not Helm.
 	crdGroups := map[string]struct {
 		releaseName      string
 		releaseNamespace string
 	}{
-		"external-secrets.io":       {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
-		"cert-manager.io":           {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
-		"gateway.networking.k8s.io": {releaseName: "cilium", releaseNamespace: constants.NSKubeSystem},
+		"external-secrets.io": {releaseName: "external-secrets", releaseNamespace: constants.NSExternalSecret},
+		"cert-manager.io":     {releaseName: "cert-manager", releaseNamespace: constants.NSCertManager},
 	}
 
 	// Get all CRDs
