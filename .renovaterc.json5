@@ -28,6 +28,14 @@
     "**/*.sops.*",
     "**/resources/**",
   ],
+  packageRules: [
+    {
+      description: "Ignore unpinnable claude-code-action beta tag",
+      matchManagers: ["github-actions"],
+      matchPackageNames: ["anthropics/claude-code-action"],
+      enabled: false,
+    },
+  ],
   flux: {
     managerFilePatterns: ["/\\.yaml(?:\\.j2)?$/"],
   },
