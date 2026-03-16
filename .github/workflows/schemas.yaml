@@ -22,6 +22,7 @@ jobs:
   main:
     name: Schemas
     runs-on: home-ops-runner
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write

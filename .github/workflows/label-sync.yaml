@@ -10,7 +10,7 @@ on:
     paths:
       - .github/labels.yaml
   schedule:
-    - cron: 0 0 * * *
+    - cron: 0 0 * * 0
 
 permissions:
   contents: read
@@ -19,6 +19,7 @@ jobs:
   main:
     name: Label Sync - Sync Labels
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: write

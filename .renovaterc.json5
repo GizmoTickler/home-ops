@@ -18,6 +18,7 @@
     ":semanticCommits",
     ":timezone(America/New_York)",
   ],
+  platformAutomerge: true,
   dependencyDashboardTitle: "Renovate Dashboard 🤖",
   suppressNotifications: [
     "prEditedNotification",
