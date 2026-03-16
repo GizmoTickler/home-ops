@@ -27,7 +27,7 @@
   ignorePaths: [
     "**/*.sops.*",
     "**/resources/**",
-    "cmd/**/templates/**",
+    "cmd/**/templates/volsync/**",
     "archive/**",
   ],
   packageRules: [
