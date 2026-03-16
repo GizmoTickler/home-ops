@@ -32,15 +32,10 @@ jobs:
     needs: filter
     name: Image Pull - Extract Images
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        branch:
-          - default
-          - pull
-      fail-fast: false
+    timeout-minutes: 15
     outputs:
-      default: ${{ steps.extract.outputs.default }}
-      pull: ${{ steps.extract.outputs.pull }}
+      default: ${{ steps.extract-default.outputs.images }}
+      pull: ${{ steps.extract-pull.outputs.images }}
     steps:
       - name: Generate Token
         uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
@@ -49,14 +44,22 @@ jobs:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
 
-      - name: Checkout
+      - name: Checkout Default Branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          path: default
           persist-credentials: false
-          ref: ${{ matrix.branch == 'default' && github.event.repository.default_branch || '' }}
+          ref: ${{ github.event.repository.default_branch }}
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Gather Images
+      - name: Checkout Pull Request Branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: pull
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Gather Default Branch Images
         uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -64,25 +67,48 @@ jobs:
           args: >-
             get cluster
             --all-namespaces
-            --path /github/workspace/kubernetes/flux/cluster
+            --path /github/workspace/default/kubernetes/flux/cluster
             --enable-images
             --only-images
             --output json
-            --output-file images.json
+            --output-file default-images.json
 
-      - name: Extract Images
-        id: extract
+      - name: Gather Pull Request Images
+        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        with:
+          args: >-
+            get cluster
+            --all-namespaces
+            --path /github/workspace/pull/kubernetes/flux/cluster
+            --enable-images
+            --only-images
+            --output json
+            --output-file pull-images.json
+
+      - name: Extract Default Images
+        id: extract-default
         run: |-
-          echo "${{ matrix.branch }}=$(jq --compact-output '.' images.json)" >> $GITHUB_OUTPUT
-
-          echo '## Branch ${{ matrix.branch }} images' >> $GITHUB_STEP_SUMMARY
+          echo "images=$(jq --compact-output '.' default-images.json)" >> $GITHUB_OUTPUT
+          echo '## Default branch images' >> $GITHUB_STEP_SUMMARY
           echo '```json' >> $GITHUB_STEP_SUMMARY
-          jq '.' images.json >> $GITHUB_STEP_SUMMARY
+          jq '.' default-images.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Extract Pull Request Images
+        id: extract-pull
+        run: |-
+          echo "images=$(jq --compact-output '.' pull-images.json)" >> $GITHUB_OUTPUT
+          echo '## Pull request images' >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          jq '.' pull-images.json >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   diff:
     if: ${{ needs.extract.outputs.default != needs.extract.outputs.pull }}
     needs: extract
+    timeout-minutes: 5
     name: Image Pull - Diff Images
     runs-on: ubuntu-latest
     outputs:
@@ -108,6 +134,7 @@ jobs:
     needs: diff
     name: Image Pull - Pull Images
     runs-on: home-ops-runner
+    timeout-minutes: 10
     strategy:
       matrix:
         image: ${{ fromJSON(needs.diff.outputs.images) }}
@@ -124,7 +151,10 @@ jobs:
 
   success:
     if: ${{ !cancelled() }}
-    needs: pull
+    needs:
+      - extract
+      - diff
+      - pull
     name: Image Pull - Success
     runs-on: ubuntu-latest
     steps:
