@@ -9,8 +9,6 @@ spec:
     kind: OCIRepository
     name: victoria-logs
   interval: 1h
-  upgrade:
-    force: true
   values:
     fullnameOverride: victoria-logs
     server:
