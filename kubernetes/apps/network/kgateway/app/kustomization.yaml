@@ -5,6 +5,8 @@ kind: Kustomization
 resources:
   - ./gateway.yaml
   - ./policies.yaml
-  - ./grafanadashboard.yaml
+  - ./grafanadashboard-downstream.yaml
+  - ./grafanadashboard-overview.yaml
+  - ./grafanadashboard-upstream.yaml
   - ./observability.yaml
   - ./vmobservability.yaml
