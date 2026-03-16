@@ -103,7 +103,7 @@ spec:
 
         - alert: KubernetesNodeHighMemory
           expr: |-
-            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+            (1 - (node_memory_MemAvailable_bytes{instance!~"nas01.*"} / node_memory_MemTotal_bytes{instance!~"nas01.*"})) * 100 > 90
           for: 15m
           keep_firing_for: 5m
           annotations:
@@ -277,9 +277,9 @@ spec:
             severity: critical
             component: kubernetes
 
-        # Note: Talos Linux embeds etcd and doesn't expose metrics by default.
-        # Monitor etcd health indirectly via API server and node status.
-        # If API server is up and nodes are Ready, etcd is functioning.
+      # Note: Talos Linux embeds etcd and doesn't expose metrics by default.
+      # Monitor etcd health indirectly via API server and node status.
+      # If API server is up and nodes are Ready, etcd is functioning.
 
     # Storage Alerts
     - name: kubernetes-storage.rules
