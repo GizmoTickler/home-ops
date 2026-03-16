@@ -61,7 +61,6 @@
         "/kgateway/",
         "/external-secrets/",
         "/cloudnative-pg/",
-        "/victoria-metrics-k8s-stack/",
       ],
     },
     {
