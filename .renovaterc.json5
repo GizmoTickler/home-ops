@@ -27,6 +27,7 @@
   ignorePaths: [
     "**/*.sops.*",
     "**/resources/**",
+    "cmd/**/templates/**",
   ],
   packageRules: [
     {
