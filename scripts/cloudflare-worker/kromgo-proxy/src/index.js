@@ -435,6 +435,12 @@ async function renderMetric(metricName, url, env) {
         ? jsonResponse({ schemaVersion: 1, label: "error", message: "unavailable", color: "lightgrey" }, 503)
         : svgResponse(makeBadge("error", "unavailable", "lightgrey"), 503);
     }
+    // Treat kromgo "no data" responses as errors — don't cache them
+    const msg = (result.data.message || "").toLowerCase();
+    if (msg.includes("no data") || msg.includes("error")) {
+      const badge = makeBadge(result.data.label || metricName, result.data.message, "lightgrey", METRIC_ICON_MAP[metricName]);
+      return svgResponse(badge, 503);
+    }
     if (wantJson) return jsonResponse(result.data, 200);
     const label = url.searchParams.get("label") || result.data.label || metricName;
     const color = url.searchParams.get("color") || result.data.color;
