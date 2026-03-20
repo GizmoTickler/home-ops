@@ -22,12 +22,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       changed-files: ${{ steps.changed-files.outputs.changed_files }}
+      namespaces: ${{ steps.extract.outputs.namespaces }}
     steps:
       - name: Get Changed Files
         id: changed-files
         uses: bjw-s-labs/action-changed-files@015416e33c709af88f84a4496f4030c1f0ef212e # v0.5.0
         with:
           patterns: kubernetes/**/*
+
+      - name: Extract affected namespaces
+        id: extract
+        run: |
+          namespaces=$(echo '${{ steps.changed-files.outputs.changed_files }}' \
+            | jq -r '.[]' \
+            | grep '^kubernetes/apps/' \
+            | cut -d'/' -f3 \
+            | sort -u \
+            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "namespaces=$namespaces" >> $GITHUB_OUTPUT
+          echo "Affected namespaces: $namespaces"
 
   reconcile:
     if: ${{ needs.filter.outputs.changed-files != '[]' }}
@@ -56,6 +69,55 @@ jobs:
         run: |
           echo "Waiting for all HelmReleases to become ready..."
           kubectl wait helmrelease.helm.toolkit.fluxcd.io --for=condition=Ready --all -A --timeout=5m 2>&1 || true
+
+      - name: Wait for affected deployments to roll out
+        env:
+          NAMESPACES: ${{ needs.filter.outputs.namespaces }}
+        run: |
+          echo "## Rollout Status" >> $GITHUB_STEP_SUMMARY
+          echo "$NAMESPACES" | jq -r '.[]' | while read -r ns; do
+            echo "Checking rollouts in namespace: $ns"
+            for deploy in $(kubectl get deployments -n "$ns" --no-headers -o custom-columns=':metadata.name' 2>/dev/null); do
+              echo "  Waiting for deployment/$deploy in $ns..."
+              if kubectl rollout status deployment/"$deploy" -n "$ns" --timeout=3m 2>&1; then
+                echo "  ✓ $ns/$deploy rolled out" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "  ✗ $ns/$deploy rollout failed" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+            for sts in $(kubectl get statefulsets -n "$ns" --no-headers -o custom-columns=':metadata.name' 2>/dev/null); do
+              echo "  Waiting for statefulset/$sts in $ns..."
+              if kubectl rollout status statefulset/"$sts" -n "$ns" --timeout=3m 2>&1; then
+                echo "  ✓ $ns/$sts rolled out" >> $GITHUB_STEP_SUMMARY
+              else
+                echo "  ✗ $ns/$sts rollout failed" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
+          done
+
+      - name: Check for pod restarts in affected namespaces
+        id: restarts
+        env:
+          NAMESPACES: ${{ needs.filter.outputs.namespaces }}
+        run: |
+          echo "## Pod Restart Check" >> $GITHUB_STEP_SUMMARY
+          restarting=""
+          echo "$NAMESPACES" | jq -r '.[]' | while read -r ns; do
+            high_restarts=$(kubectl get pods -n "$ns" -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name} restarts={range .status.containerStatuses[*]}{.restartCount}{" "}{end}{"\n"}{end}' 2>/dev/null \
+              | awk '{for(i=2;i<=NF;i++) if(split($i,a,"=")==2 && a[2]+0>=3) print $1" ("a[2]" restarts)"}')
+            if [ -n "$high_restarts" ]; then
+              echo "$high_restarts" >> /tmp/restarting_pods
+            fi
+          done
+          if [ -f /tmp/restarting_pods ] && [ -s /tmp/restarting_pods ]; then
+            echo "::warning::Pods with high restart counts detected"
+            cat /tmp/restarting_pods
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            cat /tmp/restarting_pods >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No high restart counts in affected namespaces" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Verify Flux health
         id: health
