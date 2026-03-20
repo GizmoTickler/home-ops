@@ -36,10 +36,16 @@ jobs:
     runs-on: home-ops-runner
     timeout-minutes: 10
     steps:
+      - name: Install Flux CLI
+        uses: fluxcd/flux2/action@main
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede # v4.0.1
+
       - name: Trigger Flux reconciliation
         run: |
-          kubectl annotate --overwrite gitrepository flux-system -n flux-system reconcile.fluxcd.io/requestedAt="$(date +%s)"
-          kubectl annotate --overwrite kustomization cluster-apps -n flux-system reconcile.fluxcd.io/requestedAt="$(date +%s)"
+          flux reconcile source git flux-system --timeout=5m
+          flux reconcile kustomization cluster-apps --timeout=5m
 
       - name: Wait for all Kustomizations to reconcile
         run: |
