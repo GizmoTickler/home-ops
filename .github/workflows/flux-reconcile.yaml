@@ -36,20 +36,20 @@ jobs:
     runs-on: home-ops-runner
     timeout-minutes: 10
     steps:
-      - name: Trigger and wait for Flux reconciliation
+      - name: Trigger Flux reconciliation
         run: |
-          flux reconcile source git flux-system --timeout=5m
-          flux reconcile kustomization cluster-apps --timeout=5m
+          kubectl annotate --overwrite gitrepository flux-system -n flux-system reconcile.fluxcd.io/requestedAt="$(date +%s)"
+          kubectl annotate --overwrite kustomization cluster-apps -n flux-system reconcile.fluxcd.io/requestedAt="$(date +%s)"
 
       - name: Wait for all Kustomizations to reconcile
         run: |
           echo "Waiting for all Kustomizations to become ready..."
-          kubectl wait kustomization --for=condition=Ready --all -A --timeout=5m 2>&1 || true
+          kubectl wait kustomization.kustomize.toolkit.fluxcd.io --for=condition=Ready --all -A --timeout=5m 2>&1 || true
 
       - name: Wait for all HelmReleases to reconcile
         run: |
           echo "Waiting for all HelmReleases to become ready..."
-          kubectl wait helmrelease --for=condition=Ready --all -A --timeout=5m 2>&1 || true
+          kubectl wait helmrelease.helm.toolkit.fluxcd.io --for=condition=Ready --all -A --timeout=5m 2>&1 || true
 
       - name: Verify Flux health
         id: health
