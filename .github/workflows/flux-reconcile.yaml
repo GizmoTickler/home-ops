@@ -108,15 +108,18 @@ jobs:
         env:
           PUSHOVER_TOKEN: ${{ secrets.PUSHOVER_API_TOKEN }}
           PUSHOVER_USER: ${{ secrets.PUSHOVER_USER_KEY }}
+          SUMMARY: ${{ steps.health.outputs.summary }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          msg=$(echo -e "$SUMMARY" | head -c 1024)
           curl -s -f -X POST https://api.pushover.net/1/messages.json \
-            -d token="$PUSHOVER_TOKEN" \
-            -d user="$PUSHOVER_USER" \
-            -d priority=1 \
-            -d title="Flux Reconcile Failed" \
-            -d message="$(echo -e "${{ steps.health.outputs.summary }}" | head -c 1024)" \
-            -d url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            -d url_title="View workflow run"
+            --form-string "token=$PUSHOVER_TOKEN" \
+            --form-string "user=$PUSHOVER_USER" \
+            --form-string "priority=1" \
+            --form-string "title=Flux Reconcile Failed" \
+            --form-string "message=$msg" \
+            --form-string "url=$RUN_URL" \
+            --form-string "url_title=View workflow run"
 
       - name: Fail if unhealthy
         if: ${{ steps.health.outputs.failed == '1' }}
