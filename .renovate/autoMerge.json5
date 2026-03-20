@@ -26,6 +26,15 @@
       ignoreTests: false,
     },
     {
+      description: "Auto-merge non-critical container major updates after 14-day soak",
+      matchDatasources: ["docker"],
+      automerge: true,
+      automergeType: "pr",
+      matchUpdateTypes: ["major"],
+      minimumReleaseAge: "14 days",
+      ignoreTests: false,
+    },
+    {
       description: "Disable auto-merge for critical infrastructure",
       matchDatasources: ["docker"],
       automerge: false,
