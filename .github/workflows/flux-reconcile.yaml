@@ -36,38 +36,63 @@ jobs:
     runs-on: home-ops-runner
     timeout-minutes: 10
     steps:
-      - name: Trigger Flux reconciliation
+      - name: Trigger and wait for Flux reconciliation
         run: |
           flux reconcile source git flux-system --timeout=5m
           flux reconcile kustomization cluster-apps --timeout=5m
 
-      - name: Wait for reconciliation
+      - name: Wait for all Kustomizations to reconcile
         run: |
-          echo "Waiting 60s for controllers to settle..."
-          sleep 60
+          echo "Waiting for all Kustomizations to become ready..."
+          kubectl wait kustomization --for=condition=Ready --all -A --timeout=5m 2>&1 || true
+
+      - name: Wait for all HelmReleases to reconcile
+        run: |
+          echo "Waiting for all HelmReleases to become ready..."
+          kubectl wait helmrelease --for=condition=Ready --all -A --timeout=5m 2>&1 || true
 
       - name: Verify Flux health
-        id: health
         run: |-
+          failed=0
+
           echo "## Kustomization Status" >> $GITHUB_STEP_SUMMARY
-          failed_ks=$(kubectl get ks -A --no-headers | grep -v 'True' | wc -l | tr -d ' ')
-          if [ "$failed_ks" -gt 0 ]; then
-            echo "::error::$failed_ks Kustomization(s) not ready"
-            kubectl get ks -A --no-headers | grep -v 'True'
-            kubectl get ks -A --no-headers | grep -v 'True' >> $GITHUB_STEP_SUMMARY
+          not_ready_ks=$(kubectl get ks -A --no-headers | grep -v 'True')
+          if [ -n "$not_ready_ks" ]; then
+            count=$(echo "$not_ready_ks" | wc -l | tr -d ' ')
+            echo "::error::$count Kustomization(s) not ready after reconciliation"
+            echo "$not_ready_ks"
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$not_ready_ks" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            failed=1
+          else
+            echo "All Kustomizations ready" >> $GITHUB_STEP_SUMMARY
           fi
 
           echo "## HelmRelease Status" >> $GITHUB_STEP_SUMMARY
-          failed_hr=$(kubectl get hr -A --no-headers | grep -v 'True' | wc -l | tr -d ' ')
-          if [ "$failed_hr" -gt 0 ]; then
-            echo "::error::$failed_hr HelmRelease(s) not ready"
-            kubectl get hr -A --no-headers | grep -v 'True'
-            kubectl get hr -A --no-headers | grep -v 'True' >> $GITHUB_STEP_SUMMARY
+          not_ready_hr=$(kubectl get hr -A --no-headers | grep -v 'True')
+          if [ -n "$not_ready_hr" ]; then
+            count=$(echo "$not_ready_hr" | wc -l | tr -d ' ')
+            echo "::error::$count HelmRelease(s) not ready after reconciliation"
+            echo "$not_ready_hr"
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$not_ready_hr" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            failed=1
+          else
+            echo "All HelmReleases ready" >> $GITHUB_STEP_SUMMARY
           fi
 
-          echo "Kustomizations not ready: $failed_ks"
-          echo "HelmReleases not ready: $failed_hr"
-
-          if [ "$failed_ks" -gt 0 ] || [ "$failed_hr" -gt 0 ]; then
-            exit 1
+          echo "## Pod Health" >> $GITHUB_STEP_SUMMARY
+          crash_pods=$(kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded --no-headers 2>/dev/null | grep -v 'Completed')
+          if [ -n "$crash_pods" ]; then
+            count=$(echo "$crash_pods" | wc -l | tr -d ' ')
+            echo "::warning::$count pod(s) not running"
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$crash_pods" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "All pods healthy" >> $GITHUB_STEP_SUMMARY
           fi
+
+          exit $failed
