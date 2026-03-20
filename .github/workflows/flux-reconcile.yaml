@@ -1,0 +1,73 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Flux Reconcile
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - kubernetes/**/*
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  filter:
+    name: Flux Reconcile - Filter
+    runs-on: ubuntu-latest
+    outputs:
+      changed-files: ${{ steps.changed-files.outputs.changed_files }}
+    steps:
+      - name: Get Changed Files
+        id: changed-files
+        uses: bjw-s-labs/action-changed-files@015416e33c709af88f84a4496f4030c1f0ef212e # v0.5.0
+        with:
+          patterns: kubernetes/**/*
+
+  reconcile:
+    if: ${{ needs.filter.outputs.changed-files != '[]' }}
+    needs: filter
+    name: Flux Reconcile - Wait
+    runs-on: home-ops-runner
+    timeout-minutes: 10
+    steps:
+      - name: Trigger Flux reconciliation
+        run: |
+          flux reconcile source git flux-system --timeout=5m
+          flux reconcile kustomization cluster-apps --timeout=5m
+
+      - name: Wait for reconciliation
+        run: |
+          echo "Waiting 60s for controllers to settle..."
+          sleep 60
+
+      - name: Verify Flux health
+        id: health
+        run: |-
+          echo "## Kustomization Status" >> $GITHUB_STEP_SUMMARY
+          failed_ks=$(kubectl get ks -A --no-headers | grep -v 'True' | wc -l | tr -d ' ')
+          if [ "$failed_ks" -gt 0 ]; then
+            echo "::error::$failed_ks Kustomization(s) not ready"
+            kubectl get ks -A --no-headers | grep -v 'True'
+            kubectl get ks -A --no-headers | grep -v 'True' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "## HelmRelease Status" >> $GITHUB_STEP_SUMMARY
+          failed_hr=$(kubectl get hr -A --no-headers | grep -v 'True' | wc -l | tr -d ' ')
+          if [ "$failed_hr" -gt 0 ]; then
+            echo "::error::$failed_hr HelmRelease(s) not ready"
+            kubectl get hr -A --no-headers | grep -v 'True'
+            kubectl get hr -A --no-headers | grep -v 'True' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "Kustomizations not ready: $failed_ks"
+          echo "HelmReleases not ready: $failed_hr"
+
+          if [ "$failed_ks" -gt 0 ] || [ "$failed_hr" -gt 0 ]; then
+            exit 1
+          fi
