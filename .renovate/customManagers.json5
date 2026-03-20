@@ -7,7 +7,8 @@
       managerFilePatterns: [
         "/\\.env(?:\\.j2)?$/",
         "/\\.sh(?:\\.j2)?$/",
-        "kubernetes/**/*.yaml",
+        "kubernetes/**/upgrades/*.yaml",
+        "kubernetes/**/gateway-api-crds/*.yaml",
         "cmd/**/helmfile.d/**/*.yaml",
       ],
       matchStrings: [
