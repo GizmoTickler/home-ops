@@ -26,12 +26,11 @@
       ignoreTests: false,
     },
     {
-      description: "Auto-merge non-critical container major updates after 14-day soak",
+      description: "Auto-merge non-critical container major updates",
       matchDatasources: ["docker"],
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["major"],
-      minimumReleaseAge: "3 days",
       ignoreTests: false,
     },
     {
