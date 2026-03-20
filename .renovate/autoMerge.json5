@@ -31,7 +31,7 @@
       automerge: true,
       automergeType: "pr",
       matchUpdateTypes: ["major"],
-      minimumReleaseAge: "7 days",
+      minimumReleaseAge: "3 days",
       ignoreTests: false,
     },
     {
