@@ -1,0 +1,34 @@
+---
+# Headless service for vmagent to discover collector pods
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-logs-collector
+  labels:
+    app.kubernetes.io/name: victoria-logs-collector
+    app.kubernetes.io/instance: victoria-logs-collector
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: victoria-logs-collector
+    app.kubernetes.io/instance: victoria-logs-collector
+  ports:
+    - name: http
+      port: 9429
+      targetPort: http
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: victoria-logs-collector
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoria-logs-collector
+      app.kubernetes.io/instance: victoria-logs-collector
+  namespaceSelector:
+    matchNames:
+      - observability
