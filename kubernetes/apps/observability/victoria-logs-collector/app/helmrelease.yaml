@@ -10,15 +10,13 @@ spec:
     name: victoria-logs-collector
   interval: 1h
   values:
-    # vlagent runs as DaemonSet, collecting logs from all pods on each node
-    vlogs:
-      # VictoriaLogs destination for collected logs
-      url: http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline
-      # Stream fields for efficient VictoriaLogs querying
-      streamFields:
-        - k8s_namespace
-        - k8s_pod
-        - k8s_container
+    # vlagent DaemonSet — collects logs from all pods on each node
+    remoteWrite:
+      - url: http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline
+    collector:
+      # Include pod labels for app identification in queries
+      includePodLabels: true
+      includePodAnnotations: false
     # Disk buffer for reliability during VictoriaLogs unavailability
     persistence:
       enabled: true
