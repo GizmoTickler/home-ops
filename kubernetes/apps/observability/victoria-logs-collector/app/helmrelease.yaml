@@ -12,7 +12,7 @@ spec:
   values:
     # vlagent DaemonSet — collects logs from all pods on each node
     remoteWrite:
-      - url: http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline
+      - url: http://victoria-logs-server.observability.svc.cluster.local:9428
     collector:
       # Include pod labels for app identification in queries
       includePodLabels: true
