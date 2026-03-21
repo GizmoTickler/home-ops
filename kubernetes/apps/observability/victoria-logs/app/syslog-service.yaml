@@ -19,15 +19,15 @@ spec:
       port: 514
       targetPort: 514
       protocol: UDP
-    # VyOS routers syslog
+    # VyOS routers syslog — mapped to single container listener on 514
     - name: syslog-udp-5514
       port: 5514
-      targetPort: 5514
+      targetPort: 514
       protocol: UDP
-    # UniFi device syslog
+    # UniFi device syslog — mapped to single container listener on 514
     - name: syslog-udp-5515
       port: 5515
-      targetPort: 5515
+      targetPort: 514
       protocol: UDP
     # TCP syslog (all devices)
     - name: syslog-tcp-514

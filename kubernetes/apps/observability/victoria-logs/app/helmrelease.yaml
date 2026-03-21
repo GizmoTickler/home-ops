@@ -24,7 +24,8 @@ spec:
         search.maxQueueDuration: "30s"
         search.maxQueryDuration: "60s"
         # Native syslog ingestion — replaces vector-syslog
-        syslog.listenAddr.udp: ":514,:5514,:5515"
+        # Single UDP/TCP listener; K8s service maps external 514/5514/5515 → container 514
+        syslog.listenAddr.udp: ":514"
         syslog.listenAddr.tcp: ":514"
         # Stream fields for syslog — auto-extracted from RFC3164/5424 headers
         syslog.streamFields.udp: "hostname,app_name"
