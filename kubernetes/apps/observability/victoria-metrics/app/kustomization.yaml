@@ -7,13 +7,12 @@ resources:
   - ./ocirepository.yaml
   - ./helmrelease.yaml
   - ./externalsecret.yaml
-  - ./externalsecret-oidc.yaml
-  - ./securitypolicy.yaml
+  # OIDC and HTTPRoutes moved to vmauth
   - ./vmstaticscrape.yaml
   - ./vmservicescrape-stack.yaml
   - ./vmrule-stack.yaml
   - ./vmrule-infrastructure.yaml
   - ./vmrule-network-infra.yaml
   - ./vmrule-recording.yaml
-  - ./httproute.yaml
   - ./grafanadashboards.yaml
+  - ./stream-aggr-config.yaml

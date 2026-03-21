@@ -1,0 +1,60 @@
+---
+# All observability UIs route through vmauth
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vmauth-metrics
+spec:
+  hostnames:
+    - "metrics.${SECRET_DOMAIN}"
+  parentRefs:
+    - name: kgateway-internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        - name: vmauth-vmauth
+          port: 8427
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vmauth-alertmanager
+spec:
+  hostnames:
+    - "alertmanager.${SECRET_DOMAIN}"
+  parentRefs:
+    - name: kgateway-internal
+      namespace: network
+      sectionName: https
+  rules:
+    - backendRefs:
+        - name: vmauth-vmauth
+          port: 8427
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: vmauth-logs
+spec:
+  hostnames:
+    - "logs.${SECRET_DOMAIN}"
+  parentRefs:
+    - name: kgateway-internal
+      namespace: network
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            path:
+              type: ReplaceFullPath
+              replaceFullPath: /select/vmui/
+            statusCode: 302
+    - backendRefs:
+        - name: vmauth-vmauth
+          port: 8427

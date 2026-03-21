@@ -1,0 +1,75 @@
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: Backend
+metadata:
+  name: pocket-id-oidc-vmauth
+spec:
+  type: Static
+  static:
+    hosts:
+      - host: pocket-id.auth.svc.cluster.local
+        port: 1411
+---
+# Single OIDC extension for all observability UIs via vmauth
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayExtension
+metadata:
+  name: vmauth-oidc
+spec:
+  oauth2:
+    backendRef:
+      kind: Backend
+      group: gateway.kgateway.dev
+      name: pocket-id-oidc-vmauth
+    authorizationEndpoint: https://id.${SECRET_DOMAIN}/authorize
+    tokenEndpoint: https://id.${SECRET_DOMAIN}/api/oidc/token
+    endSessionEndpoint: https://id.${SECRET_DOMAIN}/api/oidc/end-session
+    credentials:
+      clientID: vmauth
+      clientSecretRef:
+        name: vmauth-oidc-secret
+    redirectURI: https://metrics.${SECRET_DOMAIN}/oauth2/callback
+    logoutPath: /oauth2/logout
+    scopes:
+      - openid
+      - email
+      - profile
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: vmauth-metrics-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vmauth-metrics
+  oauth2:
+    extensionRef:
+      name: vmauth-oidc
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: vmauth-logs-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vmauth-logs
+  oauth2:
+    extensionRef:
+      name: vmauth-oidc
+---
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: TrafficPolicy
+metadata:
+  name: vmauth-alertmanager-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vmauth-alertmanager
+  oauth2:
+    extensionRef:
+      name: vmauth-oidc

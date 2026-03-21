@@ -1,0 +1,58 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmauth_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMAuth
+metadata:
+  name: vmauth
+spec:
+  port: "8427"
+  replicas: 1
+  # Select all VMUser CRDs in any namespace
+  selectAllByDefault: true
+  # Unauthorized access config — routes traffic by Host header
+  # kgateway handles OIDC authentication; vmauth handles routing
+  unauthorizedAccessConfig:
+    # VMSingle — metrics UI and API
+    - src_headers:
+        - "Host: metrics.${SECRET_DOMAIN}"
+      url_prefix:
+        - "http://vmsingle-stack.observability.svc.cluster.local:8429"
+    # VictoriaLogs — logs UI and API
+    - src_headers:
+        - "Host: logs.${SECRET_DOMAIN}"
+      url_prefix:
+        - "http://victoria-logs-server.observability.svc.cluster.local:9428"
+    # Alertmanager UI
+    - src_headers:
+        - "Host: alertmanager.${SECRET_DOMAIN}"
+      url_prefix:
+        - "http://vmalertmanager-stack.observability.svc.cluster.local:9093"
+    # Internal Grafana access — path-based routing (no Host header match)
+    - src_paths:
+        - "/vmsingle/.*"
+      url_prefix:
+        - "http://vmsingle-stack.observability.svc.cluster.local:8429"
+      headers:
+        - "X-Scope-OrgID: grafana"
+    - src_paths:
+        - "/vlogs/.*"
+      url_prefix:
+        - "http://victoria-logs-server.observability.svc.cluster.local:9428"
+      headers:
+        - "X-Scope-OrgID: grafana"
+    - src_paths:
+        - "/vmalertmanager/.*"
+      url_prefix:
+        - "http://vmalertmanager-stack.observability.svc.cluster.local:9093"
+      headers:
+        - "X-Scope-OrgID: grafana"
+  extraArgs:
+    maxConcurrentRequests: "32"
+    maxConcurrentPerUserRequests: "16"
+    maxIdleConnsPerBackend: "32"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
