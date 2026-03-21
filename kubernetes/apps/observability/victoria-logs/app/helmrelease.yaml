@@ -28,8 +28,9 @@ spec:
         syslog.listenAddr.udp: ":514"
         syslog.listenAddr.tcp: ":514"
         # Stream fields for syslog — auto-extracted from RFC3164/5424 headers
-        syslog.streamFields.udp: "hostname,app_name"
-        syslog.streamFields.tcp: "hostname,app_name"
+        # Each value must be a JSON array (VictoriaLogs parses as JSON)
+        syslog.streamFields.udp: '["hostname","app_name"]'
+        syslog.streamFields.tcp: '["hostname","app_name"]'
       resources:
         requests:
           cpu: 175m
