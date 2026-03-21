@@ -284,6 +284,8 @@ spec:
           remoteWrite.maxHourlySeries: "1000000"
           # Streaming aggregation — pre-aggregate high-cardinality metrics
           remoteWrite.streamAggr.config: /etc/vm/configs/vmagent-stream-aggr/config.yaml
+          # Keep raw metrics alongside aggregates for recording rule compatibility
+          remoteWrite.streamAggr.keepInput: "true"
         configMaps:
           - vmagent-stream-aggr
         resources:
