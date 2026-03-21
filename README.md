@@ -365,19 +365,24 @@ Automation workloads run in the `automation` namespace so VolSync restores and K
 
 ### Observability Stack (observability namespace)
 
+Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single vendor, native protocols, no translation layers.
+
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [Grafana](https://github.com/grafana/grafana) | Metrics visualization and dashboards | `grafana.${SECRET_DOMAIN}` |
-| [Victoria-Metrics](https://github.com/VictoriaMetrics/VictoriaMetrics) | Metrics collection and alerting | `metrics.${SECRET_DOMAIN}` |
-| [Victoria-Metrics-Logs](https://github.com/VictoriaMetrics/VictoriaLogs) | Log aggregation and querying | `logs.${SECRET_DOMAIN}` |
-| [Fluent-Bit](https://github.com/fluent/fluent-bit) | Telemetry data collection | Internal only |
-| [Alertmanager](https://github.com/prometheus/alertmanager) | Alert routing and management | `alertmanager.${SECRET_DOMAIN}` |
-| [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | Endpoint monitoring | Internal only |
-| [Node Exporter](https://github.com/prometheus/node_exporter) | System metrics collection | Internal only |
-| [Kube State Metrics](https://github.com/kubernetes/kube-state-metrics) | Kubernetes metrics | Internal only |
-| [KEDA](https://github.com/kedacore/keda) | Kubernetes event-driven autoscaling | Internal only |
-| [Kromgo](https://github.com/kashalls/kromgo) | Kubernetes resource metrics API | Internal only |
-| [Silence Operator](https://github.com/giantswarm/silence-operator) | Automated alert silencing | Internal only |
+| [VMSingle](https://github.com/VictoriaMetrics/VictoriaMetrics) | Metrics storage (300Gi, 14d retention) | `metrics.${SECRET_DOMAIN}` |
+| [VMAgent](https://github.com/VictoriaMetrics/VictoriaMetrics) | Metrics scraping with streaming aggregation | Internal only |
+| [VMAuth](https://github.com/VictoriaMetrics/VictoriaMetrics) | Unified auth proxy (host + path routing) | Routes all external/Grafana traffic |
+| [VMAlert](https://github.com/VictoriaMetrics/VictoriaMetrics) | Metrics + log alerting (2 instances) | Internal only |
+| [VMAlertManager](https://github.com/VictoriaMetrics/VictoriaMetrics) | Alert routing to Pushover | `alertmanager.${SECRET_DOMAIN}` |
+| [VictoriaLogs](https://github.com/VictoriaMetrics/VictoriaMetrics) | Log storage with native syslog ingestion (500Gi, 14d) | `logs.${SECRET_DOMAIN}` |
+| [vlagent](https://github.com/VictoriaMetrics/VictoriaMetrics) | K8s pod log collection (DaemonSet) | Internal only |
+| [vmbackup](https://github.com/VictoriaMetrics/VictoriaMetrics) | Daily incremental metrics backup to CephFS | Internal only |
+| [Grafana](https://github.com/grafana/grafana) | Dashboards via grafana-operator | `grafana.${SECRET_DOMAIN}` |
+| [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | ICMP/HTTP/TCP probing | Internal only |
+| [Gatus](https://github.com/TwiN/gatus) | Uptime monitoring | `status.${SECRET_DOMAIN}` |
+| [KEDA](https://github.com/kedacore/keda) | Event-driven autoscaling | Internal only |
+
+**Log pipeline:** Pod logs → vlagent (native protocol) → VictoriaLogs. Network syslog (Cisco/VyOS/UniFi) → VictoriaLogs native syslog listener (UDP 514/5514/5515 on LB 192.168.255.254). **No fluent-bit, no vector.**
 
 ### Storage & Infrastructure
 
