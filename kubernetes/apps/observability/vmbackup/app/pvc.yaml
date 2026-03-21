@@ -1,0 +1,13 @@
+---
+# Backup storage for vmbackup on CephFS
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmbackup-storage
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ceph-filesystem
+  resources:
+    requests:
+      storage: 100Gi

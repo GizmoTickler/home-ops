@@ -1,0 +1,28 @@
+---
+# Alert if vmbackup hasn't completed successfully
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: vmbackup
+spec:
+  groups:
+    - name: vmbackup
+      rules:
+        - alert: VMBackupFailed
+          expr: |
+            kube_job_status_failed{job_name=~"vmbackup-.*", namespace="observability"} > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "VMSingle backup job failed"
+            description: "vmbackup CronJob has failed. Check job logs for details."
+        - alert: VMBackupMissing
+          expr: |
+            time() - kube_cronjob_status_last_successful_time{cronjob="vmbackup", namespace="observability"} > 172800
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "VMSingle backup hasn't succeeded in 48 hours"
+            description: "Last successful vmbackup was {{ $value | humanizeDuration }} ago."

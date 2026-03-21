@@ -23,6 +23,9 @@ spec:
         search.maxConcurrentRequests: "8"
         search.maxQueueDuration: "30s"
         search.maxQueryDuration: "60s"
+        # Native syslog ingestion — replaces vector-syslog
+        syslog.listenAddr.udp: ":514,:5514,:5515"
+        syslog.listenAddr.tcp: ":514"
       resources:
         requests:
           cpu: 175m

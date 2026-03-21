@@ -1,0 +1,36 @@
+---
+# LoadBalancer service for native syslog ingestion — replaces vector-syslog
+# Reuses the same LB IP so network devices don't need reconfiguration
+# Devices: Cisco 9300 (UDP 514), VyOS routers (UDP 5514), UniFi APs (UDP 5515)
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-logs-syslog
+  annotations:
+    lbipam.cilium.io/ips: "192.168.255.254"
+spec:
+  type: LoadBalancer
+  selector:
+    app.kubernetes.io/name: victoria-logs-single
+    app.kubernetes.io/instance: victoria-logs
+  ports:
+    # Cisco 9300 switch syslog
+    - name: syslog-udp-514
+      port: 514
+      targetPort: 514
+      protocol: UDP
+    # VyOS routers syslog
+    - name: syslog-udp-5514
+      port: 5514
+      targetPort: 5514
+      protocol: UDP
+    # UniFi device syslog
+    - name: syslog-udp-5515
+      port: 5515
+      targetPort: 5515
+      protocol: UDP
+    # TCP syslog (all devices)
+    - name: syslog-tcp-514
+      port: 514
+      targetPort: 514
+      protocol: TCP

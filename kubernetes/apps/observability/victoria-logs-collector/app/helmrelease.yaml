@@ -1,0 +1,34 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-logs-collector
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: victoria-logs-collector
+  interval: 1h
+  values:
+    # vlagent runs as DaemonSet, collecting logs from all pods on each node
+    vlogs:
+      # VictoriaLogs destination for collected logs
+      url: http://victoria-logs-server.observability.svc.cluster.local:9428/insert/jsonline
+      # Stream fields for efficient VictoriaLogs querying
+      streamFields:
+        - k8s_namespace
+        - k8s_pod
+        - k8s_container
+    # Disk buffer for reliability during VictoriaLogs unavailability
+    persistence:
+      enabled: true
+      storageClassName: openebs-hostpath
+      size: 2Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+    serviceMonitor:
+      enabled: true
