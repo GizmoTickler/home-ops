@@ -17,7 +17,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: vmbackup
-              image: victoriametrics/vmbackup:v1.114.0
+              image: victoriametrics/vmbackup:v1.138.0
               args:
                 - -snapshotCreateURL=http://vmsingle-stack.observability.svc.cluster.local:8429/snapshot/create
                 - -snapshotDeleteURL=http://vmsingle-stack.observability.svc.cluster.local:8429/snapshot/delete
