@@ -46,7 +46,7 @@ spec:
             summary: >-
               VictoriaLogs log ingestion has stalled
             description: >-
-              VictoriaLogs has not ingested any logs in the last 15 minutes. Check log shippers (Fluent-Bit, Vector).
+              VictoriaLogs has not ingested any logs in the last 15 minutes. Check vlagent collector and syslog listeners.
             runbook_url: https://docs.victoriametrics.com/victorialogs/
           labels:
             severity: warning
@@ -180,75 +180,32 @@ spec:
           labels:
             severity: warning
 
-    # Log Shipper Health Rules
-    - name: log-shippers.rules
+    # Log Collector Health Rules (vlagent + native syslog)
+    - name: log-collectors.rules
       rules:
-        - alert: FluentBitDown
+        - alert: VLAgentCollectorDown
           expr: |-
-            absent(up{job="fluent-bit"}) or up{job="fluent-bit"} == 0
+            absent(up{job=~".*victoria-logs-collector.*"}) or up{job=~".*victoria-logs-collector.*"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
             summary: >-
-              Fluent-Bit is down
+              vlagent log collector is down
             description: >-
-              Fluent-Bit has been unavailable for more than 5 minutes. Kubernetes container logs are not being collected.
-            runbook_url: https://docs.fluentbit.io/manual/administration/troubleshooting
+              vlagent (victoria-logs-collector) has been unavailable for more than 5 minutes. Kubernetes container logs are not being collected.
+            runbook_url: https://docs.victoriametrics.com/victorialogs/vlagent/
           labels:
             severity: critical
 
-        - alert: FluentBitHighRetryRate
+        - alert: SyslogIngestionStalled
           expr: |-
-            rate(fluentbit_output_retries_total[5m]) > 10
-          for: 10m
+            rate(vl_rows_ingested_total{job="victoria-logs-server",type="syslog_udp"}[10m]) == 0
+          for: 15m
           keep_firing_for: 5m
           annotations:
             summary: >-
-              Fluent-Bit has high retry rate
+              Syslog ingestion has stalled
             description: >-
-              Fluent-Bit has {{ $value }} retries per second. Check output connectivity.
-            runbook_url: https://docs.fluentbit.io/manual/administration/troubleshooting
-          labels:
-            severity: warning
-
-        - alert: FluentBitHighDroppedRecords
-          expr: |-
-            rate(fluentbit_output_dropped_records_total[5m]) > 100
-          for: 10m
-          keep_firing_for: 5m
-          annotations:
-            summary: >-
-              Fluent-Bit is dropping records
-            description: >-
-              Fluent-Bit is dropping {{ $value }} records per second. Check buffer configuration and output health.
-            runbook_url: https://docs.fluentbit.io/manual/administration/troubleshooting
-          labels:
-            severity: warning
-
-        - alert: VectorSyslogDown
-          expr: |-
-            absent(up{job="vector-syslog"}) or up{job="vector-syslog"} == 0
-          for: 5m
-          keep_firing_for: 5m
-          annotations:
-            summary: >-
-              Vector syslog is down
-            description: >-
-              Vector syslog aggregator has been unavailable for more than 5 minutes. Network device logs are not being collected.
-            runbook_url: https://vector.dev/docs/administration/troubleshooting/
-          labels:
-            severity: critical
-
-        - alert: VectorSyslogHighErrorRate
-          expr: |-
-            rate(vector_component_errors_total{component_kind="sink",component_id="victoria_logs"}[5m]) > 10
-          for: 10m
-          keep_firing_for: 5m
-          annotations:
-            summary: >-
-              Vector syslog has high error rate
-            description: >-
-              Vector syslog has {{ $value }} errors per second on VictoriaLogs sink. Check connectivity and log format.
-            runbook_url: https://vector.dev/docs/administration/troubleshooting/
+              VictoriaLogs has not received any syslog messages in the last 15 minutes. Check network device syslog config and firewall rules.
           labels:
             severity: warning

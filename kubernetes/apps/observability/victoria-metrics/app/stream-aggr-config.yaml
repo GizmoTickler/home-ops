@@ -1,9 +1,7 @@
 ---
 # Streaming aggregation config for vmagent
-# Pre-aggregates high-cardinality metrics at collection time to reduce storage
-# Note: matched metrics still pass through unless drop_input_labels is set;
-# the aggregated outputs are written alongside raw samples by default.
-# Use input_relabel_configs to drop raw high-cardinality series after aggregation.
+# Pre-aggregates high-cardinality metrics at collection time
+# Raw metrics are KEPT alongside aggregates for recording rule compatibility
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -20,11 +18,6 @@ data:
       outputs:
         - total
         - count_samples
-      # Drop raw 10s cadvisor samples after aggregation (keep only 1m rollups)
-      input_relabel_configs:
-        - action: drop
-          source_labels: [__name__]
-          regex: "container_cpu_usage_seconds_total"
 
     # cadvisor memory — keep 1m last/max per pod
     - match: '{__name__="container_memory_working_set_bytes"}'
@@ -36,10 +29,6 @@ data:
       outputs:
         - last
         - max
-      input_relabel_configs:
-        - action: drop
-          source_labels: [__name__]
-          regex: "container_memory_working_set_bytes"
 
     # cadvisor network — aggregate to 1m totals
     - match: '{__name__=~"container_network_(receive|transmit)_bytes_total"}'
@@ -50,12 +39,8 @@ data:
         - pod_uid
       outputs:
         - total
-      input_relabel_configs:
-        - action: drop
-          source_labels: [__name__]
-          regex: "container_network_(receive|transmit)_bytes_total"
 
-    # cadvisor filesystem — sample every 1m instead of 10s
+    # cadvisor filesystem — aggregate to 1m totals
     - match: '{__name__=~"container_fs_(reads|writes)_bytes_total"}'
       interval: 1m
       without:
@@ -64,17 +49,9 @@ data:
         - pod_uid
       outputs:
         - total
-      input_relabel_configs:
-        - action: drop
-          source_labels: [__name__]
-          regex: "container_fs_(reads|writes)_bytes_total"
 
     # node_exporter network interface counters — 1m rollup
     - match: '{__name__=~"node_network_(receive|transmit)_(bytes|packets|errs|drop)_total"}'
       interval: 1m
       outputs:
         - total
-      input_relabel_configs:
-        - action: drop
-          source_labels: [__name__]
-          regex: "node_network_(receive|transmit)_(bytes|packets|errs|drop)_total"
