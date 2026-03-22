@@ -36,7 +36,7 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "facility:23 _msg:IPACCESSLOG | extract_regexp \"list (?P<acl>\\S+) (?P<action>\\w+) (?P<proto>\\w+) (?P<src_ip>[\\d.]+)\\((?P<src_port>\\d+)\\) -> (?P<dst_ip>[\\d.]+)\\((?P<dst_port>\\d+)\\)\" | fields _time, acl, action, proto, src_ip, src_port, dst_ip, dst_port",
+              "expr": "facility:23 _msg:IPACCESSLOG | extract_regexp `list (?P<acl>\\S+) (?P<action>\\w+) (?P<proto>\\w+) (?P<src_ip>[\\d.]+)\\((?P<src_port>\\d+)\\) -> (?P<dst_ip>[\\d.]+)\\((?P<dst_port>\\d+)\\)` | fields _time, acl, action, proto, src_ip, src_port, dst_ip, dst_port",
               "refId": "A"
             }
           ],
