@@ -1,0 +1,143 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: network-syslog-dashboard
+data:
+  network-syslog.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "links": [],
+      "panels": [
+        {
+          "title": "Syslog Volume by Device",
+          "type": "barchart",
+          "gridPos": { "h": 6, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "NOT kubernetes.namespace_name:* | stats by (hostname) count() logs",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "color": { "mode": "palette-classic" } },
+            "overrides": []
+          }
+        },
+        {
+          "title": "Cisco SC01 — ACL Denies",
+          "description": "Cisco 9300 ACL deny logs with parsed src/dst/port fields",
+          "type": "table",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 6 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "facility:23 _msg:IPACCESSLOG | extract_regexp \"list (?P<acl>\\S+) (?P<action>\\w+) (?P<proto>\\w+) (?P<src_ip>[\\d.]+)\\((?P<src_port>\\d+)\\) -> (?P<dst_ip>[\\d.]+)\\((?P<dst_port>\\d+)\\)\" | fields _time, acl, action, proto, src_ip, src_port, dst_ip, dst_port",
+              "refId": "A"
+            }
+          ],
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "_time", "desc": true }] }
+        },
+        {
+          "title": "VyOS — Firewall Drops",
+          "description": "VyOS kernel firewall drop logs with parsed network fields via unpack_logfmt",
+          "type": "table",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "app_name:kernel _msg:SRC | unpack_logfmt | fields _time, hostname, SRC, DST, PROTO, SPT, DPT, LEN",
+              "refId": "A"
+            }
+          ],
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "_time", "desc": true }] }
+        },
+        {
+          "title": "UniFi — Client Events (CEF)",
+          "description": "UniFi Network CEF events — roaming, connect/disconnect, firmware updates",
+          "type": "table",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "app_name:CEF | fields _time, cef.name, cef.extension.msg, cef.extension.UNIFIclientIp, cef.extension.UNIFIwifiName, cef.extension.UNIFIwifiBand, cef.severity",
+              "refId": "A"
+            }
+          ],
+          "options": { "showHeader": true, "sortBy": [{ "displayName": "_time", "desc": true }] }
+        },
+        {
+          "title": "UniFi — AP Logs",
+          "description": "UniFi AP kernel and system logs (DHCP, roaming, wireless)",
+          "type": "logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "hostname:in(LivingRoomAP, LoftAP, FlexAP) NOT app_name:CEF",
+              "refId": "A"
+            }
+          ],
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+        },
+        {
+          "title": "VyOS — System Logs (excluding firewall)",
+          "description": "VyOS daemon, service, and routing logs",
+          "type": "logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 46 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "hostname:in(gateway0, cell-gateway0, cell-gateway1) NOT app_name:kernel NOT app_name:blackbox_exporter",
+              "refId": "A"
+            }
+          ],
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+        },
+        {
+          "title": "All Cisco SC01 Logs",
+          "description": "Raw Cisco syslog — ACL logs, interface events, spanning-tree, SSH",
+          "type": "logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 56 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "victoria-logs" },
+          "targets": [
+            {
+              "expr": "facility:23",
+              "refId": "A"
+            }
+          ],
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+        }
+      ],
+      "schemaVersion": 39,
+      "tags": ["network", "syslog", "victorialogs"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Network Device Syslog",
+      "uid": "network-syslog",
+      "version": 1
+    }
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: network-syslog
+spec:
+  allowCrossNamespaceImport: true
+  folder: observability
+  instanceSelector:
+    matchLabels:
+      grafana.internal/instance: grafana
+  datasources:
+    - datasourceName: VictoriaLogs
+      inputName: victoria-logs
+  configMapRef:
+    name: network-syslog-dashboard
+    key: network-syslog.json
