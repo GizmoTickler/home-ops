@@ -13,73 +13,165 @@ data:
       "links": [],
       "panels": [
         {
-          "title": "Cisco SC01 — All Logs",
-          "description": "Cisco 9300 syslog — ACL denies, SSH, STP, interface events (facility=local7)",
-          "type": "logs",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+          "title": "Syslog Rate by Device",
+          "description": "Log ingestion rate per device over time",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 16, "x": 0, "y": 0 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "facility:23",
+              "expr": "hostname:gateway0 | stats by (_time:5m) count() as gateway0",
+              "refId": "A"
+            },
+            {
+              "expr": "hostname:cell-gateway0 | stats by (_time:5m) count() as cell-gateway0",
+              "refId": "B"
+            },
+            {
+              "expr": "hostname:cell-gateway1 | stats by (_time:5m) count() as cell-gateway1",
+              "refId": "C"
+            },
+            {
+              "expr": "facility:23 | stats by (_time:5m) count() as cisco-sc01",
+              "refId": "D"
+            },
+            {
+              "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP | stats by (_time:5m) count() as unifi-aps",
+              "refId": "E"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "lineWidth": 1, "fillOpacity": 20, "spanNulls": true, "stacking": { "mode": "none" } },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "title": "Syslog by Severity",
+          "description": "Log volume by severity level",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
+          "targets": [
+            {
+              "expr": "NOT kubernetes.namespace_name:* severity:4 OR severity:3 OR severity:2 | stats by (_time:5m) count() as warn_err_crit",
+              "refId": "A"
+            },
+            {
+              "expr": "NOT kubernetes.namespace_name:* severity:6 OR severity:5 | stats by (_time:5m) count() as info_notice",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "lineWidth": 1, "fillOpacity": 30, "spanNulls": true, "stacking": { "mode": "normal" } },
+              "unit": "short"
+            },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "warn_err_crit" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "info_notice" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+            ]
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "title": "VyOS Firewall Drops Over Time",
+          "description": "Firewall deny/drop events across all VyOS routers",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
+          "targets": [
+            {
+              "expr": "app_name:kernel _msg:SRC hostname:gateway0 | stats by (_time:5m) count() as gateway0",
+              "refId": "A"
+            },
+            {
+              "expr": "app_name:kernel _msg:SRC hostname:cell-gateway0 | stats by (_time:5m) count() as cell-gateway0",
+              "refId": "B"
+            },
+            {
+              "expr": "app_name:kernel _msg:SRC hostname:cell-gateway1 | stats by (_time:5m) count() as cell-gateway1",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "lineWidth": 1, "fillOpacity": 20, "spanNulls": true },
+              "unit": "short",
+              "color": { "mode": "palette-classic" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "title": "Cisco ACL Denies Over Time",
+          "description": "SC01 ACL deny events by ACL name",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
+          "targets": [
+            {
+              "expr": "facility:23 _msg:IPACCESSLOG | stats by (_time:5m) count() as acl_denies",
               "refId": "A"
             }
           ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": { "lineWidth": 1, "fillOpacity": 30, "spanNulls": true },
+              "unit": "short",
+              "color": { "mode": "fixed", "fixedColor": "orange" }
+            },
+            "overrides": []
+          },
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+        },
+        {
+          "title": "Cisco SC01 — Logs",
+          "description": "Cisco 9300 syslog — ACL denies, SSH, STP, interface events. Expand rows for details.",
+          "type": "logs",
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+          "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
+          "targets": [{ "expr": "facility:23", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
           "title": "VyOS — Firewall Drops",
-          "description": "VyOS kernel firewall drop/reject logs from all routers",
+          "description": "Kernel firewall drop logs. Expand rows to see SRC, DST, PROTO, SPT, DPT fields.",
           "type": "logs",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 12 },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [
-            {
-              "expr": "app_name:kernel _msg:SRC",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "expr": "app_name:kernel _msg:SRC", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
           "title": "VyOS — System Logs",
-          "description": "VyOS service, routing, DHCP, and auth logs (excluding firewall and blackbox)",
+          "description": "VyOS service, routing, DHCP, and auth logs",
           "type": "logs",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 24 },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [
-            {
-              "expr": "hostname:gateway0 OR hostname:cell-gateway0 OR hostname:cell-gateway1 NOT app_name:kernel NOT app_name:blackbox_exporter",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "expr": "hostname:gateway0 OR hostname:cell-gateway0 OR hostname:cell-gateway1 NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
           "title": "UniFi — Client Events (CEF)",
-          "description": "UniFi Network CEF events — roaming, connect/disconnect, firmware. Expand rows to see cef.* fields",
+          "description": "Roaming, connect/disconnect, firmware. Expand rows to see cef.* fields.",
           "type": "logs",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 36 },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 46 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [
-            {
-              "expr": "app_name:CEF",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "expr": "app_name:CEF", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
           "title": "UniFi — AP Logs",
-          "description": "UniFi AP kernel and system logs (DHCP, roaming, wireless)",
+          "description": "AP kernel and system logs (DHCP, roaming, wireless)",
           "type": "logs",
-          "gridPos": { "h": 12, "w": 24, "x": 0, "y": 48 },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 56 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [
-            {
-              "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP",
-              "refId": "A"
-            }
-          ],
+          "targets": [{ "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         }
       ],
@@ -91,7 +183,7 @@ data:
       "timezone": "browser",
       "title": "Network Device Syslog",
       "uid": "network-syslog",
-      "version": 2
+      "version": 3
     }
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
