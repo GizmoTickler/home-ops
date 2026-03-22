@@ -48,6 +48,6 @@ spec:
     type: victoriametrics-logs-datasource
     name: VictoriaLogs
     access: proxy
-    url: http://vmauth-vmauth.observability.svc.cluster.local:8427/vlogs/select/logsql
+    url: http://vmauth-vmauth.observability.svc.cluster.local:8427/vlogs
     jsonData:
       maxLines: 1000
