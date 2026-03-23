@@ -20,27 +20,27 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "hostname:exact(gateway0) | stats by (_time:5m) count() as gateway0",
+              "expr": "hostname:exact(gateway0) | stats count() as gateway0",
               "queryType": "range",
               "refId": "A"
             },
             {
-              "expr": "hostname:exact(cell-gateway0) | stats by (_time:5m) count() as cell-gateway0",
+              "expr": "hostname:exact(cell-gateway0) | stats count() as cell-gateway0",
               "queryType": "range",
               "refId": "B"
             },
             {
-              "expr": "hostname:exact(cell-gateway1) | stats by (_time:5m) count() as cell-gateway1",
+              "expr": "hostname:exact(cell-gateway1) | stats count() as cell-gateway1",
               "queryType": "range",
               "refId": "C"
             },
             {
-              "expr": "facility:23 | stats by (_time:5m) count() as cisco-sc01",
+              "expr": "facility:23 | stats count() as cisco-sc01",
               "queryType": "range",
               "refId": "D"
             },
             {
-              "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP | stats by (_time:5m) count() as unifi-aps",
+              "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP | stats count() as unifi-aps",
               "queryType": "range",
               "refId": "E"
             }
@@ -62,12 +62,12 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2) | stats by (_time:5m) count() as warn_err_crit",
+              "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2) | stats count() as warn_err_crit",
               "queryType": "range",
               "refId": "A"
             },
             {
-              "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5) | stats by (_time:5m) count() as info_notice",
+              "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5) | stats count() as info_notice",
               "queryType": "range",
               "refId": "B"
             }
@@ -92,17 +92,17 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(gateway0) | stats by (_time:5m) count() as gateway0",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(gateway0) | stats count() as gateway0",
               "queryType": "range",
               "refId": "A"
             },
             {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway0) | stats by (_time:5m) count() as cell-gateway0",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway0) | stats count() as cell-gateway0",
               "queryType": "range",
               "refId": "B"
             },
             {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway1) | stats by (_time:5m) count() as cell-gateway1",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway1) | stats count() as cell-gateway1",
               "queryType": "range",
               "refId": "C"
             }
@@ -125,7 +125,7 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "facility:23 _msg:IPACCESSLOG | stats by (_time:5m) count() as acl_denies",
+              "expr": "facility:23 _msg:IPACCESSLOG | stats count() as acl_denies",
               "queryType": "range",
               "refId": "A"
             }
