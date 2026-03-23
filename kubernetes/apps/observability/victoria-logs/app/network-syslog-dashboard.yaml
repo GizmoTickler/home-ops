@@ -19,31 +19,11 @@ data:
           "gridPos": { "h": 8, "w": 16, "x": 0, "y": 0 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            {
-              "expr": "hostname:exact(gateway0) | stats count() as gateway0",
-              "queryType": "range",
-              "refId": "A"
-            },
-            {
-              "expr": "hostname:exact(cell-gateway0) | stats count() as cell-gateway0",
-              "queryType": "range",
-              "refId": "B"
-            },
-            {
-              "expr": "hostname:exact(cell-gateway1) | stats count() as cell-gateway1",
-              "queryType": "range",
-              "refId": "C"
-            },
-            {
-              "expr": "facility:23 | stats count() as cisco-sc01",
-              "queryType": "range",
-              "refId": "D"
-            },
-            {
-              "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP | stats count() as unifi-aps",
-              "queryType": "range",
-              "refId": "E"
-            }
+            { "expr": "hostname:exact(gateway0)", "legendFormat": "gateway0", "queryType": "hits", "refId": "A" },
+            { "expr": "hostname:exact(cell-gateway0)", "legendFormat": "cell-gateway0", "queryType": "hits", "refId": "B" },
+            { "expr": "hostname:exact(cell-gateway1)", "legendFormat": "cell-gateway1", "queryType": "hits", "refId": "C" },
+            { "expr": "facility:23", "legendFormat": "cisco-sc01", "queryType": "hits", "refId": "D" },
+            { "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP", "legendFormat": "unifi-aps", "queryType": "hits", "refId": "E" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -56,21 +36,13 @@ data:
         },
         {
           "title": "Syslog by Severity",
-          "description": "Log volume by severity level",
+          "description": "Warning/Error/Critical vs Info/Notice",
           "type": "timeseries",
           "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            {
-              "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2) | stats count() as warn_err_crit",
-              "queryType": "range",
-              "refId": "A"
-            },
-            {
-              "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5) | stats count() as info_notice",
-              "queryType": "range",
-              "refId": "B"
-            }
+            { "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2)", "legendFormat": "warn/err/crit", "queryType": "hits", "refId": "A" },
+            { "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5)", "legendFormat": "info/notice", "queryType": "hits", "refId": "B" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -78,8 +50,8 @@ data:
               "unit": "short"
             },
             "overrides": [
-              { "matcher": { "id": "byName", "options": "warn_err_crit" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
-              { "matcher": { "id": "byName", "options": "info_notice" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+              { "matcher": { "id": "byName", "options": "warn/err/crit" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "info/notice" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
             ]
           },
           "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
@@ -91,21 +63,9 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(gateway0) | stats count() as gateway0",
-              "queryType": "range",
-              "refId": "A"
-            },
-            {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway0) | stats count() as cell-gateway0",
-              "queryType": "range",
-              "refId": "B"
-            },
-            {
-              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway1) | stats count() as cell-gateway1",
-              "queryType": "range",
-              "refId": "C"
-            }
+            { "expr": "app_name:kernel _msg:SRC hostname:exact(gateway0)", "legendFormat": "gateway0", "queryType": "hits", "refId": "A" },
+            { "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway0)", "legendFormat": "cell-gateway0", "queryType": "hits", "refId": "B" },
+            { "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway1)", "legendFormat": "cell-gateway1", "queryType": "hits", "refId": "C" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -124,11 +84,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            {
-              "expr": "facility:23 _msg:IPACCESSLOG | stats count() as acl_denies",
-              "queryType": "range",
-              "refId": "A"
-            }
+            { "expr": "facility:23 _msg:IPACCESSLOG", "legendFormat": "acl_denies", "queryType": "hits", "refId": "A" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -194,7 +150,7 @@ data:
       "timezone": "browser",
       "title": "Network Device Syslog",
       "uid": "network-syslog",
-      "version": 4
+      "version": 5
     }
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
