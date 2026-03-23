@@ -120,7 +120,7 @@ data:
           "type": "logs",
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [{ "expr": "hostname:exact(gateway0) OR hostname:exact(cell-gateway0) OR hostname:exact(cell-gateway1) NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
+          "targets": [{ "expr": "(hostname:exact(gateway0) OR hostname:exact(cell-gateway0) OR hostname:exact(cell-gateway1)) NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
