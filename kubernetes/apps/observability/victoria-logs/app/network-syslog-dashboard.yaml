@@ -129,7 +129,7 @@ data:
           "type": "logs",
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 46 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [{ "expr": "app_name:CEF", "refId": "A" }],
+          "targets": [{ "expr": "app_name:CEF | copy cef.extension.msg _msg", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
