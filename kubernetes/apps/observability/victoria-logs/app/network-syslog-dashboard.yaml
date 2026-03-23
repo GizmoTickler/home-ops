@@ -103,7 +103,7 @@ data:
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [{ "expr": "facility:23", "refId": "A" }],
-          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "enableInfiniteScrolling": true, "sortOrder": "Descending" }
         },
         {
           "title": "VyOS — Firewall Drops",
@@ -112,7 +112,7 @@ data:
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 26 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [{ "expr": "app_name:kernel _msg:SRC", "refId": "A" }],
-          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "enableInfiniteScrolling": true, "sortOrder": "Descending" }
         },
         {
           "title": "VyOS — System Logs",
@@ -121,7 +121,7 @@ data:
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [{ "expr": "(hostname:exact(gateway0) OR hostname:exact(cell-gateway0) OR hostname:exact(cell-gateway1)) NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
-          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "enableInfiniteScrolling": true, "sortOrder": "Descending" }
         },
         {
           "title": "UniFi — Client Events (CEF)",
@@ -130,7 +130,7 @@ data:
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 46 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [{ "expr": "app_name:CEF | copy cef.extension.msg _msg", "refId": "A" }],
-          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "enableInfiniteScrolling": true, "sortOrder": "Descending" }
         },
         {
           "title": "UniFi — AP Logs",
@@ -139,7 +139,7 @@ data:
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 56 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [{ "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP", "refId": "A" }],
-          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
+          "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "enableInfiniteScrolling": true, "sortOrder": "Descending" }
         }
       ],
       "schemaVersion": 39,
