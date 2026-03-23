@@ -20,23 +20,28 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "hostname:gateway0 | stats by (_time:5m) count() as gateway0",
+              "expr": "hostname:exact(gateway0) | stats by (_time:5m) count() as gateway0",
+              "queryType": "stats",
               "refId": "A"
             },
             {
-              "expr": "hostname:cell-gateway0 | stats by (_time:5m) count() as cell-gateway0",
+              "expr": "hostname:exact(cell-gateway0) | stats by (_time:5m) count() as cell-gateway0",
+              "queryType": "stats",
               "refId": "B"
             },
             {
-              "expr": "hostname:cell-gateway1 | stats by (_time:5m) count() as cell-gateway1",
+              "expr": "hostname:exact(cell-gateway1) | stats by (_time:5m) count() as cell-gateway1",
+              "queryType": "stats",
               "refId": "C"
             },
             {
               "expr": "facility:23 | stats by (_time:5m) count() as cisco-sc01",
+              "queryType": "stats",
               "refId": "D"
             },
             {
               "expr": "hostname:LivingRoomAP OR hostname:LoftAP OR hostname:FlexAP | stats by (_time:5m) count() as unifi-aps",
+              "queryType": "stats",
               "refId": "E"
             }
           ],
@@ -57,11 +62,13 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "NOT kubernetes.namespace_name:* severity:4 OR severity:3 OR severity:2 | stats by (_time:5m) count() as warn_err_crit",
+              "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2) | stats by (_time:5m) count() as warn_err_crit",
+              "queryType": "stats",
               "refId": "A"
             },
             {
-              "expr": "NOT kubernetes.namespace_name:* severity:6 OR severity:5 | stats by (_time:5m) count() as info_notice",
+              "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5) | stats by (_time:5m) count() as info_notice",
+              "queryType": "stats",
               "refId": "B"
             }
           ],
@@ -85,15 +92,18 @@ data:
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
-              "expr": "app_name:kernel _msg:SRC hostname:gateway0 | stats by (_time:5m) count() as gateway0",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(gateway0) | stats by (_time:5m) count() as gateway0",
+              "queryType": "stats",
               "refId": "A"
             },
             {
-              "expr": "app_name:kernel _msg:SRC hostname:cell-gateway0 | stats by (_time:5m) count() as cell-gateway0",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway0) | stats by (_time:5m) count() as cell-gateway0",
+              "queryType": "stats",
               "refId": "B"
             },
             {
-              "expr": "app_name:kernel _msg:SRC hostname:cell-gateway1 | stats by (_time:5m) count() as cell-gateway1",
+              "expr": "app_name:kernel _msg:SRC hostname:exact(cell-gateway1) | stats by (_time:5m) count() as cell-gateway1",
+              "queryType": "stats",
               "refId": "C"
             }
           ],
@@ -109,13 +119,14 @@ data:
         },
         {
           "title": "Cisco ACL Denies Over Time",
-          "description": "SC01 ACL deny events by ACL name",
+          "description": "SC01 ACL deny events",
           "type": "timeseries",
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
             {
               "expr": "facility:23 _msg:IPACCESSLOG | stats by (_time:5m) count() as acl_denies",
+              "queryType": "stats",
               "refId": "A"
             }
           ],
@@ -153,7 +164,7 @@ data:
           "type": "logs",
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 36 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
-          "targets": [{ "expr": "hostname:gateway0 OR hostname:cell-gateway0 OR hostname:cell-gateway1 NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
+          "targets": [{ "expr": "hostname:exact(gateway0) OR hostname:exact(cell-gateway0) OR hostname:exact(cell-gateway1) NOT app_name:kernel NOT app_name:blackbox_exporter", "refId": "A" }],
           "options": { "showTime": true, "showLabels": true, "showCommonLabels": false, "wrapLogMessage": true, "enableLogDetails": true, "sortOrder": "Descending" }
         },
         {
@@ -183,7 +194,7 @@ data:
       "timezone": "browser",
       "title": "Network Device Syslog",
       "uid": "network-syslog",
-      "version": 3
+      "version": 4
     }
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/grafana.integreatly.org/grafanadashboard_v1beta1.json
