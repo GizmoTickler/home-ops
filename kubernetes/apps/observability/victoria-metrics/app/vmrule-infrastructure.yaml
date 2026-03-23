@@ -348,3 +348,88 @@ spec:
           labels:
             severity: warning
             component: network
+
+    # External Host Alerts (non-K8s VMs scraped via VMStaticScrape)
+    - name: external-hosts.rules
+      interval: 30s
+      rules:
+        - alert: ExternalHostDown
+          expr: |-
+            up{job="node-exporter", instance!~".*talos.*|.*k8s.*"} == 0
+          for: 3m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Host {{ $labels.instance }} is down"
+            description: |-
+              node_exporter on {{ $labels.instance }} has been unreachable for 3 minutes.
+              Check host connectivity and service status.
+          labels:
+            severity: critical
+            component: infrastructure
+
+        - alert: ExternalHostHighCPU
+          expr: |-
+            (1 - avg without(cpu, mode) (rate(node_cpu_seconds_total{mode="idle", job="node-exporter"}[5m]))) * 100 > 90
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Host {{ $labels.instance }} CPU usage is {{ $value | humanize }}%"
+            description: |-
+              CPU on {{ $labels.instance }} has been above 90% for 15 minutes.
+          labels:
+            severity: warning
+            component: infrastructure
+
+        - alert: ExternalHostHighMemory
+          expr: |-
+            (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 90
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Host {{ $labels.instance }} memory usage is {{ $value | humanize }}%"
+            description: |-
+              Memory on {{ $labels.instance }} has been above 90% for 15 minutes.
+              Risk of OOM kills.
+          labels:
+            severity: warning
+            component: infrastructure
+
+        - alert: ExternalHostFilesystemFull
+          expr: |-
+            (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 85
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "{{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full"
+            description: |-
+              Filesystem {{ $labels.mountpoint }} ({{ $labels.device }}) on {{ $labels.instance }} is above 85%.
+              Free up space or expand the volume.
+          labels:
+            severity: warning
+            component: infrastructure
+
+        - alert: ExternalHostFilesystemCritical
+          expr: |-
+            (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 95
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "CRITICAL: {{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full"
+            description: |-
+              Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is critically full.
+              Immediate action required to prevent service disruption.
+          labels:
+            severity: critical
+            component: infrastructure
+
+        - alert: ExternalHostRebootRequired
+          expr: |-
+            node_reboot_required{job="node-exporter"} == 1
+          for: 24h
+          annotations:
+            summary: "Host {{ $labels.instance }} requires a reboot"
+            description: |-
+              {{ $labels.instance }} has required a reboot for over 24 hours (likely pending kernel update).
+          labels:
+            severity: warning
+            component: infrastructure

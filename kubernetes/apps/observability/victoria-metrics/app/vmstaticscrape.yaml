@@ -31,6 +31,25 @@ spec:
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
 metadata:
+  name: rhel-node-exporter
+spec:
+  jobName: node-exporter
+  targetEndpoints:
+    - targets:
+        - dns-0.${SECRET_DOMAIN}:9100
+        - dns-1.${SECRET_DOMAIN}:9100
+        - aap-0.${SECRET_DOMAIN}:9100
+        - unifi-0.${SECRET_DOMAIN}:9100
+        - netflow.${SECRET_DOMAIN}:9100
+        - 192.168.120.14:9100
+      scrapeTimeout: 10s
+      labels:
+        job: node-exporter
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
   name: nas-smartctl-exporter
 spec:
   jobName: smartctl-exporter
