@@ -84,7 +84,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            { "expr": "facility:23 _msg:IPACCESSLOG", "legendFormat": "acl_denies", "queryType": "hits", "refId": "A" }
+            { "expr": "facility:23 _msg:~\"IPACCESSLOG\"", "legendFormat": "acl_denies", "queryType": "hits", "refId": "A" }
           ],
           "fieldConfig": {
             "defaults": {
