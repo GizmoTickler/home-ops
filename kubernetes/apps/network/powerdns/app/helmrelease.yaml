@@ -23,8 +23,7 @@ spec:
             key: PDNS_API_KEY
       - name: EXTERNAL_DNS_PDNS_SERVER_ID
         value: "localhost"
-    extraArgs:
-      - --interval=1h
+    interval: "1h"
     triggerLoopOnEvent: true
     policy: sync
     sources:
