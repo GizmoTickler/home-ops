@@ -462,7 +462,7 @@ var index_default = {
         headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET", "Access-Control-Max-Age": "86400" },
       });
     }
-    if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+    if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
     if (isRateLimited(clientIp)) {
