@@ -32,7 +32,7 @@ spec:
           annotations:
             summary: "All DNS servers are down"
             description: |-
-              Both dns-0 (192.168.123.250) and dns-1 (192.168.123.251) are unreachable on port 53.
+              Both dns0 (192.168.123.250) and dns1 (192.168.123.251) are unreachable on port 53.
               All DNS resolution for the network is offline. Immediate action required.
           labels:
             severity: critical
@@ -40,15 +40,15 @@ spec:
 
         - alert: DHCPPrimaryDown
           expr: |-
-            probe_success{job="probe/observability/devices",instance=~"dns-0.*"} == 0
+            probe_success{job="probe/observability/devices",instance=~"dns0.*"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
-            summary: "Primary DHCP server (dns-0) is down"
+            summary: "Primary DHCP server (dns0) is down"
             description: |-
-              ICMP probe to dns-0 has been failing for over 5 minutes.
-              Kea HA standby (dns-1) should take over DHCP serving.
-              Investigate dns-0 VM on TrueNAS.
+              ICMP probe to dns0 has been failing for over 5 minutes.
+              Kea HA standby (dns1) should take over DHCP serving.
+              Investigate dns0 VM on TrueNAS.
           labels:
             severity: warning
             component: dhcp
@@ -61,7 +61,7 @@ spec:
           annotations:
             summary: "All DHCP servers are down"
             description: |-
-              Both dns-0 and dns-1 are unreachable via ICMP.
+              Both dns0 and dns1 are unreachable via ICMP.
               No DHCP leases can be issued or renewed. Existing clients retain leases until expiry.
               Immediate action required.
           labels:

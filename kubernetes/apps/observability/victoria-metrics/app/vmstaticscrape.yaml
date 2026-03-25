@@ -36,8 +36,8 @@ spec:
   jobName: node-exporter
   targetEndpoints:
     - targets:
-        - dns-0.${SECRET_DOMAIN}:9100
-        - dns-1.${SECRET_DOMAIN}:9100
+        - dns0.${SECRET_DOMAIN}:9100
+        - dns1.${SECRET_DOMAIN}:9100
         - aap-0.${SECRET_DOMAIN}:9100
         - unifi-0.${SECRET_DOMAIN}:9100
         - netflow.${SECRET_DOMAIN}:9100
