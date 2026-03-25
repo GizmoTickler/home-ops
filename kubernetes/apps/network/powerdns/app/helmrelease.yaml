@@ -12,29 +12,25 @@ spec:
   values:
     fullnameOverride: external-dns-powerdns
     provider:
-      name: rfc2136
+      name: pdns
     env:
-      - name: EXTERNAL_DNS_RFC2136_HOST
-        value: "192.168.123.249"
-      - name: EXTERNAL_DNS_RFC2136_PORT
-        value: "5300"
-      - name: EXTERNAL_DNS_RFC2136_ZONE
-        value: "${SECRET_DOMAIN}"
-      - name: EXTERNAL_DNS_RFC2136_TSIG_KEYNAME
-        value: "external-dns"
-      - name: EXTERNAL_DNS_RFC2136_TSIG_SECRET_ALG
-        value: "hmac-sha512"
-      - name: EXTERNAL_DNS_RFC2136_TSIG_SECRET
+      - name: EXTERNAL_DNS_PDNS_SERVER
+        value: "http://192.168.123.249:8081"
+      - name: EXTERNAL_DNS_PDNS_API_KEY
         valueFrom:
           secretKeyRef:
             name: &secret powerdns-secret
-            key: EXTERNAL_DNS_RFC2136_TSIG_SECRET
+            key: PDNS_API_KEY
+      - name: EXTERNAL_DNS_PDNS_SERVER_ID
+        value: "localhost"
+    extraArgs:
+      - --interval=1h
     triggerLoopOnEvent: true
     policy: sync
     sources:
       - gateway-httproute
       - service
-    txtOwnerId: technitium
+    txtOwnerId: powerdns
     txtPrefix: "k8s."
     domainFilters:
       - ${SECRET_DOMAIN}
