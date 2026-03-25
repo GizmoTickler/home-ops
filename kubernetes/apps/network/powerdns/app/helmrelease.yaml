@@ -29,6 +29,8 @@ spec:
     sources:
       - gateway-httproute
       - service
+    extraArgs:
+      - --txt-owner-old=technitium
     txtOwnerId: powerdns
     txtPrefix: "k8s."
     domainFilters:
