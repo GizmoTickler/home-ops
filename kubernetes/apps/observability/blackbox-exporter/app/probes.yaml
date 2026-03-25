@@ -19,8 +19,8 @@ spec:
         - s3.${SECRET_DOMAIN}
         - twingate0.${SECRET_DOMAIN}
         - twingate1.${SECRET_DOMAIN}
-        - dns-0.${SECRET_DOMAIN}
-        - dns-1.${SECRET_DOMAIN}
+        - dns0.${SECRET_DOMAIN}
+        - dns1.${SECRET_DOMAIN}
         - gateway0.${SECRET_DOMAIN}
         - gateway1.${SECRET_DOMAIN}
         - mgateway0.${SECRET_DOMAIN}
