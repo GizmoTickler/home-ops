@@ -315,7 +315,7 @@ const ALLOWED_METRICS = new Set([
 // --- Response helpers ---
 const SECURITY_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Cache-Control": "public, max-age=120, s-maxage=300",
+  "Cache-Control": "no-cache, max-age=0",
   "X-Robots-Tag": "noindex",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
