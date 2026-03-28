@@ -160,7 +160,7 @@ metadata:
   name: network-syslog
 spec:
   allowCrossNamespaceImport: true
-  folder: observability
+  folder: infrastructure
   instanceSelector:
     matchLabels:
       grafana.internal/instance: grafana
