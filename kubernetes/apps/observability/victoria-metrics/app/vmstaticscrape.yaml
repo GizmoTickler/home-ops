@@ -337,3 +337,35 @@ spec:
           targetLabel: instance
         - targetLabel: __address__
           replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: dnsdist
+spec:
+  jobName: dnsdist
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:8083
+        - dns1.${SECRET_DOMAIN}:8083
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: dnsdist
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: pdns-auth
+spec:
+  jobName: pdns-auth
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:8081
+        - dns1.${SECRET_DOMAIN}:8081
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: pdns-auth

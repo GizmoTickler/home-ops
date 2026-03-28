@@ -15,4 +15,5 @@ resources:
   - ./vmrule-network-infra.yaml
   - ./vmrule-recording.yaml
   - ./grafanadashboards.yaml
+  - ./dnsdist-dashboard.yaml
   - ./stream-aggr-config.yaml
