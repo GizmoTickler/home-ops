@@ -16,4 +16,7 @@ resources:
   - ./vmrule-recording.yaml
   - ./grafanadashboards.yaml
   - ./dnsdist-dashboard.yaml
+  - ./pdns-recursor-dashboard.yaml
+  - ./pdns-auth-dashboard.yaml
+  - ./kea-dhcp4-dashboard.yaml
   - ./stream-aggr-config.yaml
