@@ -369,3 +369,35 @@ spec:
       scrapeTimeout: 10s
       labels:
         job: pdns-auth
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: pdns-recursor
+spec:
+  jobName: pdns-recursor
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:8092
+        - dns1.${SECRET_DOMAIN}:8092
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: pdns-recursor
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: kea-dhcp4
+spec:
+  jobName: kea-dhcp4
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:9548
+        - dns1.${SECRET_DOMAIN}:9548
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: kea-dhcp4
