@@ -16,7 +16,7 @@ metrics:
     title: Kubernetes
 
   - name: flux_version
-    query: label_replace(flux_instance_info, "revision", "$1", "revision", "v(.+)@sha256:.+")
+    query: label_replace(flux_instance_info, "revision", "$1", "revision", "v(.+)@sha256:.+") or label_replace(flux_instance_info, "revision", "unknown", "", "")
     label: revision
     title: Flux
 
