@@ -30,10 +30,10 @@ function isRateLimited(ip) {
 }
 
 // --- Edge cache with stale-while-revalidate ---
-// Fresh for 30s, serve stale up to 5min while revalidating in the background.
+// Fresh for 60s, serve stale up to 15min while revalidating in the background.
 // On origin failure, always serve stale rather than error badges.
-const CACHE_FRESH_S = 30;
-const CACHE_STALE_S = 300;
+const CACHE_FRESH_S = 60;
+const CACHE_STALE_S = 900;
 
 async function withEdgeCache(request, renderFn, ctx) {
   const cache = caches.default;
@@ -80,7 +80,7 @@ async function putInCache(cache, req, resp) {
   const h = new Headers();
   h.set("Content-Type", resp.headers.get("Content-Type") || "image/svg+xml");
   h.set("x-fetch-time", Date.now().toString());
-  h.set("Cache-Control", "public, s-maxage=300");
+  h.set("Cache-Control", "public, s-maxage=900");
   await cache.put(req, new Response(body, { status: 200, headers: h }));
 }
 
@@ -340,7 +340,7 @@ function jsonResponse(data, status) {
 async function fetchKromgoMetric(metric, env) {
   const resp = await fetch(`https://kromgo.${env.SECRET_DOMAIN}/${metric}`, {
     headers: { "CF-Access-Client-Id": env.CF_CLIENT_ID, "CF-Access-Client-Secret": env.CF_CLIENT_SECRET },
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(10000),
   });
   const ct = resp.headers.get("content-type") || "";
   if (ct.includes("text/html")) return { ok: false, error: "auth" };
@@ -388,7 +388,7 @@ async function renderMetric(metricName, url, env) {
             Accept: "application/vnd.github+json",
             "User-Agent": "kromgo-proxy-worker",
           },
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(10000),
         },
       );
       if (!ghResp.ok) {
