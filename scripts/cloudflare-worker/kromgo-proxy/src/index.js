@@ -1,11 +1,13 @@
 // src/index.js — Kromgo badge proxy
-// Generates pixel-perfect SVG badges with edge caching, stale-while-revalidate,
+// Generates pixel-perfect SVG badges with stale fallback caching,
 // textLength-pinned text, viewBox scaling, and integer-coordinate rendering.
 
 // --- Rate limiter (per-isolate, sliding window) ---
-const RATE_LIMIT = 30;
+// README renders can burst dozens of image requests at once through GitHub's proxy.
+// Keep lightweight abuse protection, but don't block normal badge loads.
+const RATE_LIMIT = 120;
 const RATE_WINDOW_MS = 60_000;
-const DAILY_LIMIT = 50_000;
+const DAILY_LIMIT = 250_000;
 const rateMap = new Map();
 let dailyCount = 0;
 let dailyResetAt = 0;
@@ -29,31 +31,34 @@ function isRateLimited(ip) {
   return entry.count > RATE_LIMIT;
 }
 
-// --- Edge cache with stale-while-revalidate ---
-// Fresh for 60s, serve stale up to 15min while revalidating in the background.
-// On origin failure, always serve stale rather than error badges.
-const CACHE_FRESH_S = 60;
+// --- Edge cache for stale fallback ---
+// Always try to fetch fresh data for GET requests so README refreshes stay current.
+// Keep the last good response for up to 15 minutes and serve it only when the
+// origin fails. HEAD requests are handled locally to avoid double-fetching
+// through Cloudflare Access on cache misses.
 const CACHE_STALE_S = 900;
+const CLIENT_CACHE_CONTROL = "no-cache, max-age=0";
+const ERROR_CACHE_CONTROL = "no-store, max-age=0";
 
 async function withEdgeCache(request, renderFn, ctx) {
   const cache = caches.default;
   const cacheReq = new Request(request.url, { method: "GET" });
 
   const cached = await cache.match(cacheReq);
-  if (cached) {
-    const ts = parseInt(cached.headers.get("x-fetch-time") || "0");
-    const age = (Date.now() - ts) / 1000;
+  const cachedAt = parseInt(cached?.headers.get("x-fetch-time") || "0");
+  const cachedAge = cachedAt ? (Date.now() - cachedAt) / 1000 : Number.POSITIVE_INFINITY;
 
-    if (age < CACHE_STALE_S) {
-      if (age > CACHE_FRESH_S) {
-        // Stale — return immediately, revalidate in background
-        ctx.waitUntil(revalidateCache(cache, cacheReq, renderFn));
-      }
+  // README/image proxies often probe with HEAD before GET. Never forward HEAD
+  // to origin; serve the last good response when possible, otherwise return a
+  // cheap synthetic 200 so the subsequent GET can fetch fresh data.
+  if (request.method === "HEAD") {
+    if (cached && cachedAge < CACHE_STALE_S) {
       return toClientResponse(cached);
     }
+    return headProbeResponse(request);
   }
 
-  // Cache miss or expired — fetch synchronously
+  // Fetch synchronously so normal refreshes return the latest metric value.
   try {
     const resp = await renderFn();
     if (resp.status === 200) {
@@ -61,18 +66,38 @@ async function withEdgeCache(request, renderFn, ctx) {
       ctx.waitUntil(putInCache(cache, cacheReq, resp));
       return toReturn;
     }
-    // Non-200: prefer stale cache over error badge
-    if (cached) return toClientResponse(cached);
+    // Non-200: prefer the last known-good badge over an error badge.
+    if (cached && cachedAge < CACHE_STALE_S) return toClientResponse(cached);
     return resp;
   } catch (e) {
-    if (cached) return toClientResponse(cached);
+    if (cached && cachedAge < CACHE_STALE_S) return toClientResponse(cached);
     return svgResponse(makeBadge("error", "timeout", "lightgrey"), 503);
   }
 }
 
 function toClientResponse(cached) {
   const ct = cached.headers.get("Content-Type") || "image/svg+xml";
-  return new Response(cached.body, { status: 200, headers: { ...SECURITY_HEADERS, "Content-Type": ct } });
+  return new Response(cached.body, {
+    status: 200,
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": ct,
+      "Cache-Control": CLIENT_CACHE_CONTROL,
+    },
+  });
+}
+
+function headProbeResponse(request) {
+  const url = new URL(request.url);
+  const contentType = url.searchParams.has("json") ? "application/json" : "image/svg+xml";
+  return new Response(null, {
+    status: 200,
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": contentType,
+      "Cache-Control": CLIENT_CACHE_CONTROL,
+    },
+  });
 }
 
 async function putInCache(cache, req, resp) {
@@ -82,13 +107,6 @@ async function putInCache(cache, req, resp) {
   h.set("x-fetch-time", Date.now().toString());
   h.set("Cache-Control", "public, s-maxage=900");
   await cache.put(req, new Response(body, { status: 200, headers: h }));
-}
-
-async function revalidateCache(cache, cacheReq, renderFn) {
-  try {
-    const resp = await renderFn();
-    if (resp.status === 200) await putInCache(cache, cacheReq, resp);
-  } catch { /* stale cache continues serving */ }
 }
 
 // --- Colors (GitHub Primer dark-mode palette) ---
@@ -315,24 +333,32 @@ const ALLOWED_METRICS = new Set([
 // --- Response helpers ---
 const SECURITY_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Cache-Control": "no-cache, max-age=0",
+  "Cache-Control": CLIENT_CACHE_CONTROL,
   "X-Robots-Tag": "noindex",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
 };
 
-function svgResponse(svg, status) {
+function svgResponse(svg, status, cacheControl = status === 200 ? CLIENT_CACHE_CONTROL : ERROR_CACHE_CONTROL) {
   return new Response(svg, {
     status,
-    headers: { ...SECURITY_HEADERS, "Content-Type": "image/svg+xml" },
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": cacheControl,
+    },
   });
 }
 
-function jsonResponse(data, status) {
+function jsonResponse(data, status, cacheControl = status === 200 ? CLIENT_CACHE_CONTROL : ERROR_CACHE_CONTROL) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { ...SECURITY_HEADERS, "Content-Type": "application/json" },
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": "application/json",
+      "Cache-Control": cacheControl,
+    },
   });
 }
 
@@ -465,10 +491,14 @@ var index_default = {
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
 
     const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
-    if (isRateLimited(clientIp)) {
+    if (request.method !== "HEAD" && isRateLimited(clientIp)) {
       return new Response("Too many requests", {
         status: 429,
-        headers: { "Retry-After": "60", "Content-Type": "text/plain" },
+        headers: {
+          "Retry-After": "60",
+          "Content-Type": "text/plain",
+          "Cache-Control": ERROR_CACHE_CONTROL,
+        },
       });
     }
 
