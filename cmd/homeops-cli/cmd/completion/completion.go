@@ -2,11 +2,10 @@ package completion
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-
+	"homeops-cli/internal/common"
 	"homeops-cli/internal/constants"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,13 +19,13 @@ func NewCommand() *cobra.Command {
 
 Bash:
 
-  $ source <(homeops completion bash)
+  $ source <(homeops-cli completion bash)
 
   # To load completions for each session, execute once:
   # Linux:
-  $ homeops completion bash > /etc/bash_completion.d/homeops
+  $ homeops-cli completion bash > /etc/bash_completion.d/homeops-cli
   # macOS:
-  $ homeops completion bash > $(brew --prefix)/etc/bash_completion.d/homeops
+  $ homeops-cli completion bash > $(brew --prefix)/etc/bash_completion.d/homeops-cli
 
 Zsh:
 
@@ -36,23 +35,23 @@ Zsh:
   $ echo "autoload -U compinit; compinit" >> ~/.zshrc
 
   # To load completions for each session, execute once:
-  $ homeops completion zsh > "${fpath[1]}/_homeops"
+  $ homeops-cli completion zsh > "${fpath[1]}/_homeops-cli"
 
   # You will need to start a new shell for this setup to take effect.
 
 fish:
 
-  $ homeops completion fish | source
+  $ homeops-cli completion fish | source
 
   # To load completions for each session, execute once:
-  $ homeops completion fish > ~/.config/fish/completions/homeops.fish
+  $ homeops-cli completion fish > ~/.config/fish/completions/homeops-cli.fish
 
 PowerShell:
 
-  PS> homeops completion powershell | Out-String | Invoke-Expression
+  PS> homeops-cli completion powershell | Out-String | Invoke-Expression
 
   # To load completions for every new session, run:
-  PS> homeops completion powershell > homeops.ps1
+  PS> homeops-cli completion powershell > homeops-cli.ps1
   # and source this file from your PowerShell profile.
 `,
 		DisableFlagsInUseLine: true,
@@ -95,7 +94,7 @@ func ValidTalosconfigs(cmd *cobra.Command, args []string, toComplete string) ([]
 
 // getKubernetesNamespaces fetches namespaces from the cluster
 func getKubernetesNamespaces() ([]string, error) {
-	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	cmd := common.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -106,13 +105,13 @@ func getKubernetesNamespaces() ([]string, error) {
 
 // getKubernetesApplications fetches applications from volsync-enabled namespaces
 func getKubernetesApplications(namespace string) ([]string, error) {
-	var cmd *exec.Cmd
+	var output []byte
+	var err error
 	if namespace != "" {
-		cmd = exec.Command("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+		output, err = common.Output("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
 	} else {
-		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+		output, err = common.Output("kubectl", "get", "replicationsources", "--all-namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 	}
-	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +121,7 @@ func getKubernetesApplications(namespace string) ([]string, error) {
 
 // getKubernetesNodes fetches node IPs from the cluster
 func getKubernetesNodes() ([]string, error) {
-	cmd := exec.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[*].status.addresses[?(@.type=='InternalIP')].address}")
+	cmd := common.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[*].status.addresses[?(@.type=='InternalIP')].address}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -133,7 +132,7 @@ func getKubernetesNodes() ([]string, error) {
 
 // getKubernetesNodeNames fetches node names from the cluster
 func getKubernetesNodeNames() ([]string, error) {
-	cmd := exec.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[*].metadata.name}")
+	cmd := common.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[*].metadata.name}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err

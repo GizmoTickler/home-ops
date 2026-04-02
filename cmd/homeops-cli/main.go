@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,28 +23,46 @@ import (
 )
 
 var (
-	version  = "dev"
-	commit   = "none"
-	date     = "unknown"
-	logLevel string
+	version          = "dev"
+	commit           = "none"
+	date             = "unknown"
+	logLevel         string
+	chooseFn                   = ui.Choose
+	signalNotifyFn             = signal.Notify
+	executeRootCmdFn           = func(cmd *cobra.Command) error { return cmd.Execute() }
+	stderrWriter     io.Writer = os.Stderr
 )
 
 func main() {
-	// Set up context with signal handling for graceful cancellation
+	sigChan := make(chan os.Signal, 1)
+	if code := runApp(sigChan); code != 0 {
+		os.Exit(code)
+	}
+}
+
+func runApp(sigChan chan os.Signal) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle interrupt signals (Ctrl+C, SIGTERM)
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signalNotifyFn(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		fmt.Fprintln(os.Stderr, "\nReceived interrupt signal, shutting down...")
+		_, _ = fmt.Fprintln(stderrWriter, "\nReceived interrupt signal, shutting down...")
 		cancel()
 	}()
 
+	rootCmd := newRootCommand(ctx)
+	if err := executeRootCmdFn(rootCmd); err != nil {
+		_, _ = fmt.Fprintf(stderrWriter, "Error: %v\n", err)
+		return 1
+	}
+
+	return 0
+}
+
+func newRootCommand(ctx context.Context) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "homeops",
+		Use:   "homeops-cli",
 		Short: "HomeOps Infrastructure Management CLI",
 		Long: `A comprehensive CLI tool for managing home infrastructure including
 Talos clusters, Kubernetes applications, VolSync backups, and more.`,
@@ -82,11 +101,7 @@ Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 	// Set context on root command - subcommands can access via cmd.Context()
 	rootCmd.SetContext(ctx)
 
-	// Execute
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	return rootCmd
 }
 
 func showInteractiveMenu(rootCmd *cobra.Command) error {
@@ -101,7 +116,7 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 			"Exit - Exit the application",
 		}
 
-		selected, err := ui.Choose("Select a command to run:", commands)
+		selected, err := chooseFn("Select a command to run:", commands)
 		if err != nil {
 			// User cancelled (Ctrl+C) - exit cleanly
 			return nil
@@ -175,7 +190,7 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 		// Add Back option
 		subcommands = append(subcommands, "Back - Return to main menu")
 
-		selected, err := ui.Choose(fmt.Sprintf("Select a %s subcommand:", cmd.Name()), subcommands)
+		selected, err := chooseFn(fmt.Sprintf("Select a %s subcommand:", cmd.Name()), subcommands)
 		if err != nil {
 			// User cancelled (Ctrl+C) - exit cleanly
 			return nil

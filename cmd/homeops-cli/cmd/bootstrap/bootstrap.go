@@ -6,6 +6,7 @@ import (
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	neturl "net/url"
@@ -47,13 +48,205 @@ type PreflightResult struct {
 	Error   error
 }
 
-// buildTalosctlCmd builds a talosctl command with optional talosconfig
+var (
+	bootstrapNow              = time.Now
+	bootstrapSleep            = time.Sleep
+	bootstrapChoose           = ui.Choose
+	bootstrapChooseMulti      = ui.ChooseMulti
+	bootstrapRunWithSpinner   = ui.RunWithSpinner
+	bootstrapResetTerminal    = ui.ResetTerminal
+	bootstrapWorkingDirectory = common.GetWorkingDirectory
+	bootstrapGetVersions      = versionconfig.GetVersions
+	bootstrapLookPath         = exec.LookPath
+	bootstrapEnsureOPAuth     = common.Ensure1PasswordAuth
+	bootstrapHTTPDo           = func(req *http.Request) (*http.Response, error) {
+		client := &http.Client{Timeout: 10 * time.Second}
+		return client.Do(req)
+	}
+	bootstrapLookupHost = func(ctx context.Context, host string) ([]string, error) {
+		return (&net.Resolver{}).LookupHost(ctx, host)
+	}
+	bootstrapKubectlRun        = kubectlRun
+	bootstrapKubectlOutput     = kubectlOutput
+	bootstrapKubectlCombined   = kubectlCombinedOutput
+	bootstrapKubectlCombinedIn = kubectlCombinedOutputWithInput
+	bootstrapTalosctlOutput    = func(talosConfig string, args ...string) ([]byte, error) {
+		return buildTalosctlCmd(talosConfig, args...).Output()
+	}
+	bootstrapTalosctlCombined = func(talosConfig string, args ...string) ([]byte, error) {
+		return buildTalosctlCmd(talosConfig, args...).CombinedOutput()
+	}
+	bootstrapGetBootstrapFile       = templates.GetBootstrapFile
+	bootstrapGetBootstrapTemplate   = templates.GetBootstrapTemplate
+	bootstrapGetTalosTemplate       = templates.GetTalosTemplate
+	bootstrapInjectSecrets          = common.InjectSecrets
+	bootstrapResolveSecrets         = resolve1PasswordReferences
+	bootstrapRenderMachineConfig    = renderMachineConfigFromEmbedded
+	bootstrapGetMachineType         = getMachineTypeFromEmbedded
+	bootstrapMergeTalosConfigs      = mergeConfigsWithTalosctl
+	bootstrapGetTalosNodes          = getTalosNodes
+	bootstrapApplyNodeConfig        = applyNodeConfig
+	bootstrapApplyNodeConfigTry     = applyNodeConfigWithRetry
+	bootstrapValidateEtcd           = validateEtcdRunning
+	bootstrapSaveKubeconfig         = common.SaveKubeconfigTo1Password
+	bootstrapPatchKubeconfig        = patchKubeconfigForBootstrap
+	bootstrapGetRandomController    = getRandomController
+	bootstrapRunPreflightChecks     = runPreflightChecks
+	bootstrapValidatePrereqs        = validatePrerequisites
+	bootstrapApplyTalosConfig       = applyTalosConfig
+	bootstrapBootstrapTalos         = bootstrapTalos
+	bootstrapFetchKubeconfig        = fetchKubeconfig
+	bootstrapValidateKubeconfig     = validateKubeconfig
+	bootstrapWaitForNodes           = waitForNodes
+	bootstrapWaitNodesAvailable     = waitForNodesAvailable
+	bootstrapCheckNodesReady        = checkIfNodesReady
+	bootstrapWaitNodesReadyFalse    = waitForNodesReadyFalse
+	bootstrapApplyNamespaces        = applyNamespaces
+	bootstrapApplyResources         = applyResources
+	bootstrapApplyCRDs              = applyCRDs
+	bootstrapApplyGatewayCRDs       = applyGatewayAPICRDs
+	bootstrapApplyCRDsHelmfile      = applyCRDsFromHelmfile
+	bootstrapSyncHelmReleases       = syncHelmReleases
+	bootstrapWaitForFlux            = waitForFluxReconciliation
+	bootstrapWaitFluxController     = waitForFluxController
+	bootstrapWaitGitRepository      = waitForGitRepositoryReady
+	bootstrapWaitFluxKS             = waitForFluxKustomizationReady
+	bootstrapWaitCRDs               = waitForCRDsEstablished
+	bootstrapApplySecretStore       = applyClusterSecretStore
+	bootstrapValidateSecretStore    = validateClusterSecretStoreTemplate
+	bootstrapTestDynamicValues      = testDynamicValuesTemplate
+	bootstrapFixCRDMetadata         = fixExistingCRDMetadata
+	bootstrapExecuteHelmfileSync    = executeHelmfileSync
+	bootstrapHelmfileTemplateOutput = func(tempDir string, config *BootstrapConfig, helmfilePath string) ([]byte, error) {
+		cmd := buildHelmfileCmd(tempDir, config, "--file", helmfilePath, "template")
+		return cmd.Output()
+	}
+	bootstrapRunHelmfileSyncCmd = func(tempDir, helmfilePath string, config *BootstrapConfig) error {
+		cmd := buildHelmfileCmd(tempDir, config, "--file", helmfilePath, "sync", "--hide-notes")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Env = append(cmd.Env, fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir))
+		return cmd.Run()
+	}
+	bootstrapExternalSecretsUp   = isExternalSecretsInstalled
+	bootstrapWaitExternalSecrets = waitForExternalSecretsWebhook
+	bootstrapTestAPIConnectivity = testAPIServerConnectivity
+	bootstrapRenderHelmValues    = templates.RenderHelmfileValues
+	bootstrapCheckIntervalNormal = time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	bootstrapCheckIntervalFast   = time.Duration(constants.BootstrapCheckIntervalFast) * time.Second
+	bootstrapCheckIntervalSlow   = time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
+	bootstrapStallTimeout        = time.Duration(constants.BootstrapStallTimeout) * time.Second
+	bootstrapExtSecMaxWait       = time.Duration(constants.BootstrapExtSecMaxWait) * time.Second
+	bootstrapFluxMaxWait         = time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+	bootstrapNodeMaxWait         = time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+	bootstrapKubeconfigMaxWait   = time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+	bootstrapCRDMaxWait          = time.Duration(constants.BootstrapCRDMaxWait) * time.Second
+	bootstrapTalosTempDir        string
+	bootstrapPreflightChecks     = []func(*BootstrapConfig, *common.ColorLogger) *PreflightResult{
+		checkToolAvailability,
+		checkEnvironmentFiles,
+		checkNetworkConnectivity,
+		checkDNSResolution,
+		check1PasswordAuthPreflight,
+		checkMachineConfigRendering,
+		checkTalosNodes,
+	}
+)
+
+func parseReplicaCount(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("replica count is empty")
+	}
+	var count int
+	if _, err := fmt.Sscanf(value, "%d", &count); err != nil {
+		return 0, fmt.Errorf("invalid replica count %q: %w", value, err)
+	}
+	return count, nil
+}
+
+func deploymentReadyFromState(state string) bool {
+	parts := strings.Split(strings.TrimSpace(state), "/")
+	if len(parts) != 2 {
+		return false
+	}
+
+	readyReplicas, err := parseReplicaCount(parts[0])
+	if err != nil {
+		return false
+	}
+	totalReplicas, err := parseReplicaCount(parts[1])
+	if err != nil {
+		return false
+	}
+
+	return totalReplicas > 0 && readyReplicas == totalReplicas
+}
+
+func deploymentAndEndpointsReadyFromState(state, endpoints string) bool {
+	parts := strings.Split(strings.TrimSpace(state), ":")
+	if len(parts) < 2 {
+		return false
+	}
+	if strings.TrimSpace(parts[1]) != "True" {
+		return false
+	}
+	if !deploymentReadyFromState(parts[0]) {
+		return false
+	}
+	return strings.TrimSpace(endpoints) != ""
+}
+
+// buildTalosctlCmd builds a talosctl command with optional talosconfig.
 func buildTalosctlCmd(talosConfig string, args ...string) *exec.Cmd {
 	if talosConfig != "" {
 		cmdArgs := append([]string{"--talosconfig", talosConfig}, args...)
-		return exec.Command("talosctl", cmdArgs...)
+		return common.Command("talosctl", cmdArgs...)
 	}
-	return exec.Command("talosctl", args...)
+	return common.Command("talosctl", args...)
+}
+
+func buildTalosctlCmdContext(ctx context.Context, talosConfig string, args ...string) *exec.Cmd {
+	if talosConfig != "" {
+		cmdArgs := append([]string{"--talosconfig", talosConfig}, args...)
+		return exec.CommandContext(ctx, "talosctl", cmdArgs...)
+	}
+	return exec.CommandContext(ctx, "talosctl", args...)
+}
+
+func buildKubectlCmd(config *BootstrapConfig, args ...string) *exec.Cmd {
+	cmdArgs := append(append([]string{}, args...), "--kubeconfig", config.KubeConfig)
+	return common.Command("kubectl", cmdArgs...)
+}
+
+func buildKubectlCmdContext(ctx context.Context, config *BootstrapConfig, args ...string) *exec.Cmd {
+	cmdArgs := append(append([]string{}, args...), "--kubeconfig", config.KubeConfig)
+	return exec.CommandContext(ctx, "kubectl", cmdArgs...)
+}
+
+func kubectlOutput(config *BootstrapConfig, args ...string) ([]byte, error) {
+	return buildKubectlCmd(config, args...).Output()
+}
+
+func kubectlRun(config *BootstrapConfig, args ...string) error {
+	return buildKubectlCmd(config, args...).Run()
+}
+
+func kubectlCombinedOutput(config *BootstrapConfig, args ...string) ([]byte, error) {
+	return buildKubectlCmd(config, args...).CombinedOutput()
+}
+
+func kubectlCombinedOutputWithInput(config *BootstrapConfig, input io.Reader, args ...string) ([]byte, error) {
+	cmd := buildKubectlCmd(config, args...)
+	cmd.Stdin = input
+	return cmd.CombinedOutput()
+}
+
+func buildHelmfileCmd(tempDir string, config *BootstrapConfig, args ...string) *exec.Cmd {
+	cmd := common.Command("helmfile", args...)
+	cmd.Dir = tempDir
+	cmd.Env = append(os.Environ(), fmt.Sprintf("ROOT_DIR=%s", config.RootDir))
+	return cmd
 }
 
 func NewCommand() *cobra.Command {
@@ -73,7 +266,7 @@ func NewCommand() *cobra.Command {
 	}
 
 	// Add flags - default root-dir to git repository root
-	defaultRootDir := common.GetWorkingDirectory()
+	defaultRootDir := bootstrapWorkingDirectory()
 	cmd.Flags().StringVar(&config.RootDir, "root-dir", defaultRootDir, "Root directory of the project")
 	cmd.Flags().StringVar(&config.KubeConfig, "kubeconfig", os.Getenv(constants.EnvKubeconfig), "Path to kubeconfig file")
 	cmd.Flags().StringVar(&config.TalosConfig, "talosconfig", os.Getenv(constants.EnvTalosconfig), "Path to talosconfig file")
@@ -96,7 +289,7 @@ func promptBootstrapOptions(config *BootstrapConfig, logger *common.ColorLogger)
 		"Dry-Run - Preview what would be done without making changes",
 	}
 
-	selectedMode, err := ui.Choose("Select bootstrap mode:", dryRunOptions)
+	selectedMode, err := bootstrapChoose("Select bootstrap mode:", dryRunOptions)
 	if err != nil {
 		// User cancelled
 		return fmt.Errorf("bootstrap cancelled")
@@ -117,7 +310,7 @@ func promptBootstrapOptions(config *BootstrapConfig, logger *common.ColorLogger)
 		"Enable Verbose Mode",
 	}
 
-	selectedOptions, err := ui.ChooseMulti("Select options to customize (use 'x' to toggle, Enter to confirm - or just press Enter for full bootstrap):", skipOptions, 0)
+	selectedOptions, err := bootstrapChooseMulti("Select options to customize (use 'x' to toggle, Enter to confirm - or just press Enter for full bootstrap):", skipOptions, 0)
 	if err != nil {
 		// User cancelled or error
 		return fmt.Errorf("options selection cancelled")
@@ -185,7 +378,7 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Load versions from system-upgrade plans if not provided via flags/env
 	if config.K8sVersion == "" || config.TalosVersion == "" {
-		versionConfig := versionconfig.GetVersions(config.RootDir)
+		versionConfig := bootstrapGetVersions(config.RootDir)
 		if config.K8sVersion == "" {
 			config.K8sVersion = versionConfig.KubernetesVersion
 		}
@@ -197,45 +390,45 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Run comprehensive preflight checks
 	if !config.SkipPreflight {
-		if err := ui.RunWithSpinner("🔍 Running preflight checks", config.Verbose, logger, func() error {
-			return runPreflightChecks(config, logger)
+		if err := bootstrapRunWithSpinner("🔍 Running preflight checks", config.Verbose, logger, func() error {
+			return bootstrapRunPreflightChecks(config, logger)
 		}); err != nil {
 			return fmt.Errorf("preflight checks failed: %w", err)
 		}
 	} else {
 		logger.Warn("⚠️  Skipping preflight checks - this may cause failures during bootstrap")
 		// Still run basic prerequisite validation
-		if err := validatePrerequisites(config); err != nil {
+		if err := bootstrapValidatePrereqs(config); err != nil {
 			return fmt.Errorf("prerequisite validation failed: %w", err)
 		}
 	}
 
 	// Step 1: Apply Talos configuration
 	logger.Info("📋 Step 1: Applying Talos configuration to nodes")
-	if err := applyTalosConfig(config, logger); err != nil {
+	if err := bootstrapApplyTalosConfig(config, logger); err != nil {
 		return fmt.Errorf("failed to apply Talos config: %w", err)
 	}
 
 	// Reset terminal after Step 1 completes (multiple spinners)
-	ui.ResetTerminal()
+	bootstrapResetTerminal()
 
 	// Step 2: Bootstrap Talos
-	if err := ui.RunWithSpinner("🎯 Step 2: Bootstrapping Talos cluster", config.Verbose, logger, func() error {
+	if err := bootstrapRunWithSpinner("🎯 Step 2: Bootstrapping Talos cluster", config.Verbose, logger, func() error {
 		// Wait a moment for configurations to be fully processed (following onedr0p's pattern)
 		logger.Debug("Waiting for configurations to be processed...")
-		time.Sleep(5 * time.Second)
-		return bootstrapTalos(config, logger)
+		bootstrapSleep(5 * time.Second)
+		return bootstrapBootstrapTalos(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed to bootstrap Talos: %w", err)
 	}
 
 	// Step 3: Fetch kubeconfig
-	if err := ui.RunWithSpinner("🔑 Step 3: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
-		if err := fetchKubeconfig(config, logger); err != nil {
+	if err := bootstrapRunWithSpinner("🔑 Step 3: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
+		if err := bootstrapFetchKubeconfig(config, logger); err != nil {
 			return fmt.Errorf("failed to fetch kubeconfig: %w", err)
 		}
 		// Validate kubeconfig is working
-		if err := validateKubeconfig(config, logger); err != nil {
+		if err := bootstrapValidateKubeconfig(config, logger); err != nil {
 			return fmt.Errorf("kubeconfig validation failed: %w", err)
 		}
 		return nil
@@ -244,23 +437,23 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 
 	// Step 4: Wait for nodes to be ready
-	if err := ui.RunWithSpinner("⏳ Step 4: Waiting for nodes to be ready", config.Verbose, logger, func() error {
-		return waitForNodes(config, logger)
+	if err := bootstrapRunWithSpinner("⏳ Step 4: Waiting for nodes to be ready", config.Verbose, logger, func() error {
+		return bootstrapWaitForNodes(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed waiting for nodes: %w", err)
 	}
 
 	// Step 5: Apply namespaces first (following onedr0p pattern)
-	if err := ui.RunWithSpinner("📦 Step 5: Creating initial namespaces", config.Verbose, logger, func() error {
-		return applyNamespaces(config, logger)
+	if err := bootstrapRunWithSpinner("📦 Step 5: Creating initial namespaces", config.Verbose, logger, func() error {
+		return bootstrapApplyNamespaces(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed to apply namespaces: %w", err)
 	}
 
 	// Step 6: Apply initial resources
 	if !config.SkipResources {
-		if err := ui.RunWithSpinner("🔧 Step 6: Applying initial resources", config.Verbose, logger, func() error {
-			return applyResources(config, logger)
+		if err := bootstrapRunWithSpinner("🔧 Step 6: Applying initial resources", config.Verbose, logger, func() error {
+			return bootstrapApplyResources(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply resources: %w", err)
 		}
@@ -268,8 +461,8 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Step 7: Apply CRDs
 	if !config.SkipCRDs {
-		if err := ui.RunWithSpinner("📜 Step 7: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
-			return applyCRDs(config, logger)
+		if err := bootstrapRunWithSpinner("📜 Step 7: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
+			return bootstrapApplyCRDs(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply CRDs: %w", err)
 		}
@@ -277,8 +470,8 @@ func runBootstrap(config *BootstrapConfig) error {
 
 	// Step 8: Sync Helm releases
 	if !config.SkipHelmfile {
-		if err := ui.RunWithSpinner("⚙️  Step 8: Syncing Helm releases", config.Verbose, logger, func() error {
-			return syncHelmReleases(config, logger)
+		if err := bootstrapRunWithSpinner("⚙️  Step 8: Syncing Helm releases", config.Verbose, logger, func() error {
+			return bootstrapSyncHelmReleases(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to sync Helm releases: %w", err)
 		}
@@ -287,8 +480,8 @@ func runBootstrap(config *BootstrapConfig) error {
 	// Step 9: Wait for Flux initial reconciliation
 	// This is critical - without it, bootstrap declares success before Flux has actually reconciled
 	if !config.SkipHelmfile {
-		if err := ui.RunWithSpinner("🔄 Step 9: Waiting for Flux initial reconciliation", config.Verbose, logger, func() error {
-			return waitForFluxReconciliation(config, logger)
+		if err := bootstrapRunWithSpinner("🔄 Step 9: Waiting for Flux initial reconciliation", config.Verbose, logger, func() error {
+			return bootstrapWaitForFlux(config, logger)
 		}); err != nil {
 			// Not fatal - cluster is functional, just not fully reconciled yet
 			logger.Warn("Flux reconciliation wait completed with warnings: %v", err)
@@ -324,16 +517,16 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 
 	logger.Info("Waiting for cluster API server to be ready...")
 
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapKubeconfigMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("cluster did not become ready after %v (max wait exceeded)", elapsed.Round(time.Second))
@@ -341,11 +534,9 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 
 		// Test cluster connectivity with timeout
 		currentState := "no-connection"
-		cmd := exec.Command("kubectl", "cluster-info", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
-		if err := cmd.Run(); err == nil {
+		if err := bootstrapKubectlRun(config, "cluster-info", "--request-timeout=10s"); err == nil {
 			// If cluster-info succeeds, test node accessibility
-			cmd = exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig, "--request-timeout=10s")
-			if err := cmd.Run(); err == nil {
+			if err := bootstrapKubectlRun(config, "get", "nodes", "--request-timeout=10s"); err == nil {
 				logger.Debug("Kubeconfig validation passed - cluster is accessible (took %v)", elapsed.Round(time.Second))
 				return nil
 			}
@@ -355,12 +546,12 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 		// Check for progress
 		if currentState != lastState {
 			logger.Debug("Cluster state: %s", currentState)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			return fmt.Errorf("cluster connectivity stalled: no progress for %v (state: %s)", stallDuration.Round(time.Second), currentState)
 		}
@@ -369,7 +560,7 @@ func validateKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) err
 			logger.Info("Waiting for API server: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
@@ -406,18 +597,12 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 	for _, ns := range namespaces {
 		logger.Debug("Creating namespace: %s", ns)
 
-		cmd := exec.Command("kubectl", "create", "namespace", ns,
-			"--kubeconfig", config.KubeConfig, "--dry-run=client", "-o", "yaml")
-		manifestOutput, err := cmd.Output()
+		manifestOutput, err := bootstrapKubectlOutput(config, "create", "namespace", ns, "--dry-run=client", "-o", "yaml")
 		if err != nil {
 			return fmt.Errorf("failed to generate namespace manifest for %s: %w", ns, err)
 		}
 
-		applyCmd := exec.Command("kubectl", "apply", "--kubeconfig", config.KubeConfig,
-			"--filename", "-")
-		applyCmd.Stdin = bytes.NewReader(manifestOutput)
-
-		if output, err := applyCmd.CombinedOutput(); err != nil {
+		if output, err := bootstrapKubectlCombinedIn(config, bytes.NewReader(manifestOutput), "apply", "--filename", "-"); err != nil {
 			// Check if namespace already exists - that's okay
 			if strings.Contains(string(output), "AlreadyExists") || strings.Contains(string(output), "unchanged") {
 				logger.Debug("Namespace %s already exists", ns)
@@ -437,7 +622,7 @@ func validateClusterSecretStoreTemplate(logger *common.ColorLogger) error {
 	logger.Info("Validating clustersecretstore.yaml file")
 
 	// Get the YAML file content
-	yamlContent, err := templates.GetBootstrapFile("clustersecretstore.yaml")
+	yamlContent, err := bootstrapGetBootstrapFile("clustersecretstore.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get clustersecretstore YAML: %w", err)
 	}
@@ -609,7 +794,7 @@ func validatePrerequisites(config *BootstrapConfig) error {
 	// Check for required binaries
 	requiredBins := []string{"talosctl", "kubectl", "kustomize", "op", "helmfile"}
 	for _, bin := range requiredBins {
-		if _, err := exec.LookPath(bin); err != nil {
+		if _, err := bootstrapLookPath(bin); err != nil {
 			return fmt.Errorf("required binary '%s' not found in PATH", bin)
 		}
 	}
@@ -634,18 +819,8 @@ func validatePrerequisites(config *BootstrapConfig) error {
 }
 
 func runPreflightChecks(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checks := []func(*BootstrapConfig, *common.ColorLogger) *PreflightResult{
-		checkToolAvailability,
-		checkEnvironmentFiles,
-		checkNetworkConnectivity,
-		checkDNSResolution,
-		check1PasswordAuthPreflight,
-		checkMachineConfigRendering,
-		checkTalosNodes,
-	}
-
 	var failures []string
-	for _, check := range checks {
+	for _, check := range bootstrapPreflightChecks {
 		result := check(config, logger)
 		switch result.Status {
 		case "PASS":
@@ -669,7 +844,7 @@ func checkToolAvailability(config *BootstrapConfig, logger *common.ColorLogger) 
 	var missing []string
 
 	for _, bin := range requiredBins {
-		if _, err := exec.LookPath(bin); err != nil {
+		if _, err := bootstrapLookPath(bin); err != nil {
 			missing = append(missing, bin)
 		}
 	}
@@ -730,9 +905,8 @@ func checkNetworkConnectivity(config *BootstrapConfig, logger *common.ColorLogge
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	req, _ := http.NewRequestWithContext(ctx, "HEAD", "https://github.com", nil)
-	resp, err := client.Do(req)
+	resp, err := bootstrapHTTPDo(req)
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Network Connectivity",
@@ -758,8 +932,7 @@ func checkDNSResolution(config *BootstrapConfig, logger *common.ColorLogger) *Pr
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	resolver := &net.Resolver{}
-	_, err := resolver.LookupHost(ctx, "github.com")
+	_, err := bootstrapLookupHost(ctx, "github.com")
 	if err != nil {
 		return &PreflightResult{
 			Name:    "DNS Resolution",
@@ -776,7 +949,7 @@ func checkDNSResolution(config *BootstrapConfig, logger *common.ColorLogger) *Pr
 }
 
 func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
-	if err := common.Ensure1PasswordAuth(); err != nil {
+	if err := bootstrapEnsureOPAuth(); err != nil {
 		return &PreflightResult{
 			Name:    "1Password Authentication",
 			Status:  "FAIL",
@@ -795,7 +968,7 @@ func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLo
 	// Use a sample node template for patch testing
 	patchTemplate := "nodes/192.168.122.10.yaml"
 
-	_, err := renderMachineConfigFromEmbedded("controlplane.yaml", patchTemplate, "controlplane", logger)
+	_, err := bootstrapRenderMachineConfig("controlplane.yaml", patchTemplate, "controlplane", logger)
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Machine Config Rendering",
@@ -813,7 +986,7 @@ func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLo
 
 func checkTalosNodes(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
 	// Check if we can get Talos nodes
-	nodes, err := getTalosNodes(config.TalosConfig)
+	nodes, err := bootstrapGetTalosNodes(config.TalosConfig)
 	if err != nil {
 		return &PreflightResult{
 			Name:    "Talos Nodes",
@@ -854,7 +1027,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 		nodeTemplate := fmt.Sprintf("nodes/%s.yaml", node)
 
 		// Get machine type from embedded node template - do this outside spinner for better error messages
-		machineType, err := getMachineTypeFromEmbedded(nodeTemplate)
+		machineType, err := bootstrapGetMachineType(nodeTemplate)
 		if err != nil {
 			logger.Error("Failed to determine machine type for %s: %v", node, err)
 			failures = append(failures, node)
@@ -876,21 +1049,21 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 
 		// Apply config with spinner showing the node being configured
 		spinnerTitle := fmt.Sprintf("  Applying config to %s (%s)", node, machineType)
-		err = ui.RunWithSpinner(spinnerTitle, config.Verbose, logger, func() error {
+		err = bootstrapRunWithSpinner(spinnerTitle, config.Verbose, logger, func() error {
 			// Render machine config using embedded templates
-			renderedConfig, err := renderMachineConfigFromEmbedded(baseTemplate, nodeTemplate, machineType, logger)
+			renderedConfig, err := bootstrapRenderMachineConfig(baseTemplate, nodeTemplate, machineType, logger)
 			if err != nil {
 				return fmt.Errorf("failed to render config: %w", err)
 			}
 
 			if config.DryRun {
 				// For dry-run, just simulate a brief delay so spinner is visible
-				time.Sleep(500 * time.Millisecond)
+				bootstrapSleep(500 * time.Millisecond)
 				return nil
 			}
 
 			// Apply the config with retry
-			if err := applyNodeConfigWithRetry(node, renderedConfig, logger, 3); err != nil {
+			if err := bootstrapApplyNodeConfigTry(node, renderedConfig, logger, 3); err != nil {
 				// Check if node is already configured
 				if strings.Contains(err.Error(), "certificate required") || strings.Contains(err.Error(), "already configured") {
 					return nil // Silent skip for already configured nodes
@@ -922,8 +1095,7 @@ func applyTalosConfig(config *BootstrapConfig, logger *common.ColorLogger) error
 }
 
 func getTalosNodes(talosConfig string) ([]string, error) {
-	cmd := buildTalosctlCmd(talosConfig, "config", "info", "--output", "json")
-	output, err := cmd.Output()
+	output, err := bootstrapTalosctlOutput(talosConfig, "config", "info", "--output", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Talos nodes: %w", err)
 	}
@@ -945,7 +1117,7 @@ func getTalosNodes(talosConfig string) ([]string, error) {
 func getTalosNodesWithRetry(talosConfig string, logger *common.ColorLogger, maxRetries int) ([]string, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		nodes, err := getTalosNodes(talosConfig)
+		nodes, err := bootstrapGetTalosNodes(talosConfig)
 		if err == nil {
 			return nodes, nil
 		}
@@ -954,7 +1126,7 @@ func getTalosNodesWithRetry(talosConfig string, logger *common.ColorLogger, maxR
 		logger.Warn("Attempt %d/%d to get Talos nodes failed: %v", attempt, maxRetries, err)
 
 		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt) * 2 * time.Second)
+			bootstrapSleep(time.Duration(attempt) * 2 * time.Second)
 		}
 	}
 
@@ -964,7 +1136,7 @@ func getTalosNodesWithRetry(talosConfig string, logger *common.ColorLogger, maxR
 func applyNodeConfigWithRetry(node string, config []byte, logger *common.ColorLogger, maxRetries int) error {
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := applyNodeConfig(node, config)
+		err := bootstrapApplyNodeConfig(node, config)
 		if err == nil {
 			return nil
 		}
@@ -978,7 +1150,7 @@ func applyNodeConfigWithRetry(node string, config []byte, logger *common.ColorLo
 		logger.Warn("Attempt %d/%d to apply config to %s failed: %v", attempt, maxRetries, node, err)
 
 		if attempt < maxRetries {
-			time.Sleep(time.Duration(attempt) * 3 * time.Second)
+			bootstrapSleep(time.Duration(attempt) * 3 * time.Second)
 		}
 	}
 
@@ -988,7 +1160,7 @@ func applyNodeConfigWithRetry(node string, config []byte, logger *common.ColorLo
 // applyTalosPatch function removed - now using Go YAML processor in renderMachineConfig
 
 func applyNodeConfig(node string, config []byte) error {
-	cmd := exec.Command("talosctl", "--nodes", node, "apply-config", "--insecure", "--file", "/dev/stdin")
+	cmd := common.Command("talosctl", "--nodes", node, "apply-config", "--insecure", "--file", "/dev/stdin")
 	cmd.Stdin = bytes.NewReader(config)
 
 	output, err := cmd.CombinedOutput()
@@ -1026,14 +1198,14 @@ func getMachineTypeFromEmbedded(nodeTemplate string) (string, error) {
 func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logger *common.ColorLogger) ([]byte, error) {
 	// Get base config from embedded YAML file with proper talos/ prefix
 	fullBaseTemplatePath := fmt.Sprintf("talos/%s", baseTemplate)
-	baseConfig, err := templates.GetTalosTemplate(fullBaseTemplatePath)
+	baseConfig, err := bootstrapGetTalosTemplate(fullBaseTemplatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get base config: %w", err)
 	}
 
 	// Get patch config from embedded YAML file with proper talos/ prefix
 	fullPatchTemplatePath := fmt.Sprintf("talos/%s", patchTemplate)
-	patchConfig, err := templates.GetTalosTemplate(fullPatchTemplatePath)
+	patchConfig, err := bootstrapGetTalosTemplate(fullPatchTemplatePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get patch config: %w", err)
 	}
@@ -1068,18 +1240,18 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logg
 	// Resolve 1Password references in both configs BEFORE merging
 	// Use the logger passed in (which can be in quiet mode during spinners)
 
-	resolvedBaseConfig, err := resolve1PasswordReferences(baseConfig, logger)
+	resolvedBaseConfig, err := bootstrapResolveSecrets(baseConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve 1Password references in base config: %w", err)
 	}
 
-	resolvedPatchConfig, err := resolve1PasswordReferences(machineConfigPatch, logger)
+	resolvedPatchConfig, err := bootstrapResolveSecrets(machineConfigPatch, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve 1Password references in patch config: %w", err)
 	}
 
 	// Use talosctl for merging resolved configs (following proven patterns)
-	mergedConfig, err := mergeConfigsWithTalosctl([]byte(resolvedBaseConfig), []byte(resolvedPatchConfig))
+	mergedConfig, err := bootstrapMergeTalosConfigs([]byte(resolvedBaseConfig), []byte(resolvedPatchConfig))
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge configs with talosctl: %w", err)
 	}
@@ -1092,7 +1264,7 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logg
 		additionalParts := strings.Join(additionalDocs, "\n---\n")
 
 		// Resolve 1Password references in additional parts too
-		resolvedAdditionalParts, err := resolve1PasswordReferences(additionalParts, logger)
+		resolvedAdditionalParts, err := bootstrapResolveSecrets(additionalParts, logger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve 1Password references in additional config parts: %w", err)
 		}
@@ -1117,7 +1289,7 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logg
 // mergeConfigsWithTalosctl merges base and patch configs using talosctl (onedr0p approach)
 func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 	// Create temporary files for talosctl processing
-	baseFile, err := os.CreateTemp("", "talos-base-*.yaml")
+	baseFile, err := os.CreateTemp(bootstrapTalosTempDir, "talos-base-*.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base config temp file: %w", err)
 	}
@@ -1128,7 +1300,7 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 		_ = baseFile.Close() // Ignore cleanup errors
 	}()
 
-	patchFile, err := os.CreateTemp("", "talos-patch-*.yaml")
+	patchFile, err := os.CreateTemp(bootstrapTalosTempDir, "talos-patch-*.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create patch config temp file: %w", err)
 	}
@@ -1156,7 +1328,7 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 	}
 
 	// Use talosctl to merge configurations
-	cmd := exec.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
+	cmd := common.Command("talosctl", "machineconfig", "patch", baseFile.Name(), "--patch", "@"+patchFile.Name())
 
 	mergedConfig, err := cmd.Output()
 	if err != nil {
@@ -1173,15 +1345,15 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 // validateEtcdRunning validates that etcd is actually running after bootstrap
 // Uses progress-based detection: continues as long as progress is being made
 func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLogger) error {
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapExtSecMaxWait) * time.Second // 5 minutes max for etcd
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapExtSecMaxWait // 5 minutes max for etcd
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		// Check if we've exceeded maximum wait time (safety net)
 		if elapsed > maxWait {
@@ -1189,23 +1361,18 @@ func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLog
 		}
 
 		// Check for stall - no progress for stall timeout period
-		if time.Since(lastProgressTime) > stallTimeout {
+		if bootstrapNow().Sub(lastProgressTime) > stallTimeout {
 			return fmt.Errorf("etcd startup stalled - no progress for %v (last state: %s)", stallTimeout, lastState)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		cmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", talosConfig, "--nodes", controller, "etcd", "status")
-		_, err := cmd.CombinedOutput()
-		cancel()
-
+		_, err := bootstrapTalosctlCombined(talosConfig, "--nodes", controller, "etcd", "status")
 		if err == nil {
 			logger.Debug("Etcd is running and responding")
 			return nil
 		}
 
 		// Check if etcd service is actually running (not just waiting)
-		serviceCmd := exec.Command("talosctl", "--talosconfig", talosConfig, "--nodes", controller, "service", "etcd")
-		serviceOutput, serviceErr := serviceCmd.Output()
+		serviceOutput, serviceErr := bootstrapTalosctlOutput(talosConfig, "--nodes", controller, "service", "etcd")
 		if serviceErr == nil && strings.Contains(string(serviceOutput), "STATE    Running") {
 			logger.Debug("Etcd service is running")
 			return nil
@@ -1228,18 +1395,18 @@ func validateEtcdRunning(talosConfig, controller string, logger *common.ColorLog
 		// Update progress if state changed
 		if currentState != lastState {
 			logger.Debug("Etcd state: %s -> %s (elapsed: %v)", lastState, currentState, elapsed.Round(time.Second))
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		logger.Debug("Waiting for etcd to start (state: %s, elapsed: %v)", currentState, elapsed.Round(time.Second))
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
 func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get a random controller node
-	controller, err := getRandomController(config.TalosConfig)
+	controller, err := bootstrapGetRandomController(config.TalosConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get controller node for bootstrap: %w", err)
 	}
@@ -1253,10 +1420,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	// Check if cluster is already bootstrapped first with timeout
 	logger.Debug("Checking if cluster is already bootstrapped...")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	checkCmd := exec.CommandContext(ctx, "talosctl", "--talosconfig", config.TalosConfig, "--nodes", controller, "etcd", "status")
-	if checkOutput, checkErr := checkCmd.CombinedOutput(); checkErr == nil {
+	if checkOutput, checkErr := bootstrapTalosctlCombined(config.TalosConfig, "--nodes", controller, "etcd", "status"); checkErr == nil {
 		logger.Info("Talos cluster is already bootstrapped (etcd is running)")
 		return nil
 	} else {
@@ -1270,19 +1434,18 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 	for attempts := range maxAttempts {
 		logger.Debug("Bootstrap attempt %d/%d on controller %s", attempts+1, maxAttempts, controller)
 
-		cmd := buildTalosctlCmd(config.TalosConfig, "--nodes", controller, "bootstrap")
-		output, err := cmd.CombinedOutput()
+		output, err := bootstrapTalosctlCombined(config.TalosConfig, "--nodes", controller, "bootstrap")
 		outputStr := string(output)
 
 		// Success cases (following onedr0p's logic)
 		if err == nil {
 			// Validate that etcd actually started after bootstrap
 			logger.Debug("Bootstrap command succeeded, validating etcd started...")
-			if err := validateEtcdRunning(config.TalosConfig, controller, logger); err != nil {
+			if err := bootstrapValidateEtcd(config.TalosConfig, controller, logger); err != nil {
 				logger.Debug("Bootstrap succeeded but etcd validation failed: %v", err)
 				if attempts < maxAttempts-1 {
 					logger.Debug("Waiting 10 seconds before next bootstrap attempt")
-					time.Sleep(10 * time.Second)
+					bootstrapSleep(10 * time.Second)
 					continue
 				}
 				return fmt.Errorf("bootstrap command succeeded but etcd failed to start: %w", err)
@@ -1309,7 +1472,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 		// Wait 5 seconds between attempts (matching onedr0p's timing)
 		if attempts < maxAttempts-1 {
 			logger.Debug("Waiting 5 seconds before next bootstrap attempt")
-			time.Sleep(5 * time.Second)
+			bootstrapSleep(5 * time.Second)
 		}
 
 	}
@@ -1322,8 +1485,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 }
 
 func getRandomController(talosConfig string) (string, error) {
-	cmd := buildTalosctlCmd(talosConfig, "config", "info", "--output", "json")
-	output, err := cmd.Output()
+	output, err := bootstrapTalosctlOutput(talosConfig, "config", "info", "--output", "json")
 	if err != nil {
 		return "", err
 	}
@@ -1346,7 +1508,7 @@ func getRandomController(talosConfig string) (string, error) {
 // fetchKubeconfig fetches the kubeconfig from the cluster
 // Uses progress-based detection: continues as long as progress is being made
 func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error {
-	controller, err := getRandomController(config.TalosConfig)
+	controller, err := bootstrapGetRandomController(config.TalosConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get controller node for kubeconfig: %w", err)
 	}
@@ -1365,15 +1527,15 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 	}
 
 	// Progress-based waiting
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastErrorType := ""
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapKubeconfigMaxWait
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		// Check if we've exceeded maximum wait time (safety net)
 		if elapsed > maxWait {
@@ -1381,16 +1543,14 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		}
 
 		// Check for stall - no progress for stall timeout period
-		if time.Since(lastProgressTime) > stallTimeout {
+		if bootstrapNow().Sub(lastProgressTime) > stallTimeout {
 			return fmt.Errorf("kubeconfig fetch stalled - no progress for %v (last error: %s)", stallTimeout, lastErrorType)
 		}
 
 		logger.Debug("Kubeconfig fetch attempt (elapsed: %v)", elapsed.Round(time.Second))
 
-		cmd := exec.Command("talosctl", "--talosconfig", config.TalosConfig, "kubeconfig", "--nodes", controller,
+		output, err := bootstrapTalosctlCombined(config.TalosConfig, "kubeconfig", "--nodes", controller,
 			"--force", "--force-context-name", "home-ops-cluster", config.KubeConfig)
-
-		output, err := cmd.CombinedOutput()
 		if err == nil {
 			logger.Debug("Kubeconfig fetched successfully")
 
@@ -1411,7 +1571,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 			}
 
 			// Save kubeconfig to 1Password for chezmoi
-			if err := common.SaveKubeconfigTo1Password(kubeconfigContent, logger); err != nil {
+			if err := bootstrapSaveKubeconfig(kubeconfigContent, logger); err != nil {
 				logger.Warn("Failed to save kubeconfig to 1Password: %v", err)
 				logger.Warn("Continuing with bootstrap - kubeconfig is available locally")
 			} else {
@@ -1420,7 +1580,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 
 			// Patch kubeconfig to use direct node IP for bootstrap
 			// The VIP won't work until Cilium BGP is up
-			if err := patchKubeconfigForBootstrap(config.KubeConfig, controller, logger); err != nil {
+			if err := bootstrapPatchKubeconfig(config.KubeConfig, controller, logger); err != nil {
 				logger.Warn("Failed to patch kubeconfig for bootstrap: %v", err)
 				logger.Warn("Bootstrap may fail if VIP is not accessible")
 			}
@@ -1448,11 +1608,11 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		// Update progress if error type changed (indicates different stage)
 		if currentErrorType != lastErrorType {
 			logger.Debug("Kubeconfig fetch error type changed: %s -> %s", lastErrorType, currentErrorType)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastErrorType = currentErrorType
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
@@ -1525,12 +1685,12 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	// First, wait for nodes to appear
 	logger.Info("Waiting for nodes to become available...")
-	if err := waitForNodesAvailable(config, logger); err != nil {
+	if err := bootstrapWaitNodesAvailable(config, logger); err != nil {
 		return err
 	}
 
 	// Check if nodes are already ready (re-bootstrap scenario)
-	if ready, err := checkIfNodesReady(config, logger); err != nil {
+	if ready, err := bootstrapCheckNodesReady(config, logger); err != nil {
 		return fmt.Errorf("failed to check node readiness: %w", err)
 	} else if ready {
 		logger.Success("Nodes are already ready (CNI likely already installed)")
@@ -1539,7 +1699,7 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	// Wait for nodes to be in Ready=False state (fresh bootstrap sequence)
 	logger.Info("Waiting for nodes to be in 'Ready=False' state...")
-	if err := waitForNodesReadyFalse(config, logger); err != nil {
+	if err := bootstrapWaitNodesReadyFalse(config, logger); err != nil {
 		return err
 	}
 
@@ -1548,10 +1708,8 @@ func waitForNodes(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 // checkIfNodesReady checks if nodes are already in Ready=True state
 func checkIfNodesReady(config *BootstrapConfig, logger *common.ColorLogger) (bool, error) {
-	cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
+	output, err := bootstrapKubectlOutput(config, "get", "nodes",
 		"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Ready')].status}{\"\\n\"}{end}")
-
-	output, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("failed to check node ready status: %w", err)
 	}
@@ -1590,28 +1748,30 @@ func checkIfNodesReady(config *BootstrapConfig, logger *common.ColorLogger) (boo
 }
 
 func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalSlow
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapNodeMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastNodeCount := 0
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("nodes not available after %v (max wait exceeded)", elapsed.Round(time.Second))
 		}
 
-		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
+		output, err := bootstrapKubectlOutput(config, "get", "nodes",
 			"--output=jsonpath={.items[*].metadata.name}", "--no-headers")
-
-		output, err := cmd.Output()
 		if err != nil {
-			// API not ready yet, keep waiting
-			time.Sleep(checkInterval)
+			stallDuration := bootstrapNow().Sub(lastProgressTime)
+			if stallDuration > stallTimeout {
+				return fmt.Errorf("node discovery stalled: kubectl get nodes failed for %v: %w",
+					stallDuration.Round(time.Second), err)
+			}
+			bootstrapSleep(checkInterval)
 			continue
 		}
 
@@ -1625,12 +1785,12 @@ func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) 
 
 		// Check for progress (node count change)
 		if nodeCount != lastNodeCount {
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastNodeCount = nodeCount
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			return fmt.Errorf("node discovery stalled: no progress for %v", stallDuration.Round(time.Second))
 		}
@@ -1639,32 +1799,35 @@ func waitForNodesAvailable(config *BootstrapConfig, logger *common.ColorLogger) 
 			logger.Info("Waiting for nodes to appear: %v elapsed", elapsed.Round(time.Second))
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
 func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalSlow
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapNodeMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastReadyFalseCount := 0
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("nodes did not reach Ready=False state after %v (max wait exceeded)", elapsed.Round(time.Second))
 		}
 
-		cmd := exec.Command("kubectl", "get", "nodes", "--kubeconfig", config.KubeConfig,
+		output, err := bootstrapKubectlOutput(config, "get", "nodes",
 			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type==\"Ready\")].status}{\"\\n\"}{end}")
-
-		output, err := cmd.Output()
 		if err != nil {
-			time.Sleep(checkInterval)
+			stallDuration := bootstrapNow().Sub(lastProgressTime)
+			if stallDuration > stallTimeout {
+				return fmt.Errorf("node readiness stalled: kubectl get nodes failed for %v: %w",
+					stallDuration.Round(time.Second), err)
+			}
+			bootstrapSleep(checkInterval)
 			continue
 		}
 
@@ -1698,12 +1861,12 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 		// Check for progress
 		if readyFalseCount > lastReadyFalseCount {
 			logger.Debug("Progress: %d/%d nodes Ready=False (+%d)", readyFalseCount, totalNodes, readyFalseCount-lastReadyFalseCount)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastReadyFalseCount = readyFalseCount
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			return fmt.Errorf("node readiness stalled: no progress for %v (stuck at %d/%d Ready=False)",
 				stallDuration.Round(time.Second), readyFalseCount, totalNodes)
@@ -1713,7 +1876,7 @@ func waitForNodesReadyFalse(config *BootstrapConfig, logger *common.ColorLogger)
 			logger.Info("Waiting for nodes: %d/%d Ready=False, %v elapsed", readyFalseCount, totalNodes, elapsed.Round(time.Second))
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
@@ -1725,12 +1888,12 @@ const gatewayAPICRDsKustomizationPath = "kubernetes/apps/network/kgateway/gatewa
 func applyCRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Apply Gateway API CRDs from official kubernetes-sigs release
 	// These are not in a Helm chart so they must be applied separately
-	if err := applyGatewayAPICRDs(config, logger); err != nil {
+	if err := bootstrapApplyGatewayCRDs(config, logger); err != nil {
 		return fmt.Errorf("failed to apply Gateway API CRDs: %w", err)
 	}
 
 	// Apply remaining CRDs from Helm charts via helmfile
-	return applyCRDsFromHelmfile(config, logger)
+	return bootstrapApplyCRDsHelmfile(config, logger)
 }
 
 // expectedGatewayAPICRDsHost is the only allowed host for Gateway API CRD URLs.
@@ -1819,8 +1982,7 @@ func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) er
 		return nil
 	}
 
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", url, "--kubeconfig", config.KubeConfig)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := kubectlCombinedOutput(config, "apply", "--server-side", "--filename", url); err != nil {
 		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, string(output))
 	}
 
@@ -1848,7 +2010,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	}()
 
 	// Get embedded CRDs helmfile content
-	crdsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/00-crds.yaml")
+	crdsHelmfileTemplate, err := bootstrapGetBootstrapFile("helmfile.d/00-crds.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get embedded CRDs helmfile: %w", err)
 	}
@@ -1862,14 +2024,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 	logger.Info("Using dedicated CRDs helmfile to extract CRDs only")
 
 	// Use helmfile template to generate CRDs only (the helmfile has --include-crds but we filter to CRDs)
-	cmd := exec.Command("helmfile", "--file", crdsHelmfilePath, "template")
-	cmd.Dir = tempDir
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
-	)
-
-	// Capture the templated output
-	output, err := cmd.Output()
+	output, err := bootstrapHelmfileTemplateOutput(tempDir, config, crdsHelmfilePath)
 	if err != nil {
 		return fmt.Errorf("failed to template CRDs from helmfile: %w", err)
 	}
@@ -1894,17 +2049,14 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 		logger.Info("Applying %d CRDs...", len(crdManifests))
 		crdYaml := strings.Join(crdManifests, "\n---\n")
 
-		applyCmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-", "--kubeconfig", config.KubeConfig)
-		applyCmd.Stdin = bytes.NewReader([]byte(crdYaml))
-
-		if applyOutput, err := applyCmd.CombinedOutput(); err != nil {
+		if applyOutput, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(crdYaml)), "apply", "--server-side", "--filename", "-"); err != nil {
 			return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, string(applyOutput))
 		}
 
 		logger.Info("CRDs applied, waiting for them to be established...")
 
 		// Wait for CRDs to be established
-		if err := waitForCRDsEstablished(config, logger); err != nil {
+		if err := bootstrapWaitCRDs(config, logger); err != nil {
 			return fmt.Errorf("CRDs failed to be established: %w", err)
 		}
 	} else {
@@ -1917,14 +2069,14 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 
 func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get resources from embedded YAML file (no longer a template)
-	resources, err := templates.GetBootstrapFile("resources.yaml")
+	resources, err := bootstrapGetBootstrapFile("resources.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get resources: %w", err)
 	}
 
 	// Resolve 1Password references in the YAML content
 	logger.Info("Resolving 1Password references in bootstrap resources...")
-	resolvedResources, err := resolve1PasswordReferences(resources, logger)
+	resolvedResources, err := bootstrapResolveSecrets(resources, logger)
 	if err != nil {
 		return fmt.Errorf("failed to resolve 1Password references: %w", err)
 	}
@@ -1939,10 +2091,7 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	}
 
 	// Apply resources with force-conflicts to handle cert-manager managed fields
-	cmd := exec.Command("kubectl", "apply", "--server-side", "--force-conflicts", "--filename", "-", "--kubeconfig", config.KubeConfig)
-	cmd.Stdin = bytes.NewReader([]byte(resolvedResources))
-
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(resolvedResources)), "apply", "--server-side", "--force-conflicts", "--filename", "-"); err != nil {
 		return fmt.Errorf("failed to apply resources: %w\n%s", err, output)
 	}
 
@@ -1966,7 +2115,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	logger.Info("Found %d 1Password references to resolve", len(opRefs))
 
 	// Use the shared, collision-safe injector so we don’t corrupt secrets
-	resolved, err := common.InjectSecrets(content)
+	resolved, err := bootstrapInjectSecrets(content)
 	if err != nil {
 		logger.Warn("Secret resolution reported an error: %v", err)
 		// If we still have refs, list them to aid debugging
@@ -1979,11 +2128,11 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 		errStr := strings.ToLower(err.Error())
 		if strings.Contains(errStr, "not authenticated") || strings.Contains(errStr, "not signed in") || strings.Contains(errStr, "please run 'op signin'") {
 			logger.Info("Attempting 1Password CLI signin due to authentication error...")
-			if authErr := common.Ensure1PasswordAuth(); authErr != nil {
+			if authErr := bootstrapEnsureOPAuth(); authErr != nil {
 				return "", fmt.Errorf("1Password signin failed: %w (original: %v)", authErr, err)
 			}
 			// Retry resolution once after successful signin
-			if retryResolved, retryErr := common.InjectSecrets(content); retryErr == nil {
+			if retryResolved, retryErr := bootstrapInjectSecrets(content); retryErr == nil {
 				resolved = retryResolved
 				err = nil
 			} else {
@@ -2040,14 +2189,14 @@ func saveRenderedConfig(config, filename string, logger *common.ColorLogger) err
 
 func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger) error {
 	// Get cluster secret store from embedded YAML file (no longer a template)
-	clusterSecretStore, err := templates.GetBootstrapFile("clustersecretstore.yaml")
+	clusterSecretStore, err := bootstrapGetBootstrapFile("clustersecretstore.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get cluster secret store: %w", err)
 	}
 
 	// Resolve 1Password references in the YAML content
 	logger.Info("Resolving 1Password references in cluster secret store...")
-	resolvedClusterSecretStore, err := resolve1PasswordReferences(clusterSecretStore, logger)
+	resolvedClusterSecretStore, err := bootstrapResolveSecrets(clusterSecretStore, logger)
 	if err != nil {
 		return fmt.Errorf("failed to resolve 1Password references: %w", err)
 	}
@@ -2062,10 +2211,8 @@ func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger
 	}
 
 	// Apply cluster secret store with force-conflicts to handle field management conflicts
-	cmd := exec.Command("kubectl", "apply", "--namespace", constants.NSExternalSecret, "--server-side", "--force-conflicts", "--filename", "-", "--wait=true", "--kubeconfig", config.KubeConfig)
-	cmd.Stdin = bytes.NewReader([]byte(resolvedClusterSecretStore))
-
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(resolvedClusterSecretStore)),
+		"apply", "--namespace", constants.NSExternalSecret, "--server-side", "--force-conflicts", "--filename", "-", "--wait=true"); err != nil {
 		return fmt.Errorf("failed to apply cluster secret store: %w\n%s", err, output)
 	}
 
@@ -2076,14 +2223,14 @@ func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger
 func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error {
 	if config.DryRun {
 		// Validate clustersecretstore template that would be applied after helmfile
-		if err := applyClusterSecretStore(config, logger); err != nil {
+		if err := bootstrapApplySecretStore(config, logger); err != nil {
 			return err
 		}
-		if err := validateClusterSecretStoreTemplate(logger); err != nil {
+		if err := bootstrapValidateSecretStore(logger); err != nil {
 			return fmt.Errorf("clustersecretstore template validation failed: %w", err)
 		}
 		// Test dynamic values template rendering
-		if err := testDynamicValuesTemplate(config, logger); err != nil {
+		if err := bootstrapTestDynamicValues(config, logger); err != nil {
 			return fmt.Errorf("dynamic values template test failed: %w", err)
 		}
 		logger.Info("[DRY RUN] Template validation passed - would sync Helm releases")
@@ -2092,7 +2239,7 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 
 	// Fix any existing CRDs that may lack proper Helm ownership metadata
 	// This prevents Helm from failing when trying to adopt pre-existing CRDs
-	if err := fixExistingCRDMetadata(config, logger); err != nil {
+	if err := bootstrapFixCRDMetadata(config, logger); err != nil {
 		logger.Warn("Failed to fix existing CRD metadata (continuing anyway): %v", err)
 	}
 
@@ -2105,20 +2252,20 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 			logger.Info("Helm sync attempt %d/%d", attempt, maxAttempts)
 		}
 
-		err := executeHelmfileSync(config, logger)
+		err := bootstrapExecuteHelmfileSync(config, logger)
 		if err == nil {
 			logger.Info("Helm releases synced successfully")
 
 			// Check if external-secrets was installed by Helmfile before waiting for it
 			logger.Info("Checking if external-secrets is ready...")
-			if isExternalSecretsInstalled(config, logger) {
+			if bootstrapExternalSecretsUp(config, logger) {
 				logger.Info("External-secrets found, waiting for webhook to be ready...")
-				if err := waitForExternalSecretsWebhook(config, logger); err != nil {
+				if err := bootstrapWaitExternalSecrets(config, logger); err != nil {
 					logger.Warn("External-secrets webhook not ready after waiting: %v", err)
 					logger.Info("ClusterSecretStore will be applied by Flux when external-secrets becomes ready")
 				} else {
 					// Apply cluster secret store only if webhook is ready
-					if err := applyClusterSecretStore(config, logger); err != nil {
+					if err := bootstrapApplySecretStore(config, logger); err != nil {
 						logger.Warn("Failed to apply ClusterSecretStore: %v", err)
 						logger.Info("ClusterSecretStore will be retried by Flux")
 					} else {
@@ -2146,11 +2293,11 @@ func syncHelmReleases(config *BootstrapConfig, logger *common.ColorLogger) error
 		if attempt < maxAttempts {
 			waitTime := time.Duration(attempt*30) * time.Second // 30s, 60s
 			logger.Info("Waiting %v before retry...", waitTime)
-			time.Sleep(waitTime)
+			bootstrapSleep(waitTime)
 
 			// Re-verify API server health before retry
 			logger.Info("Re-checking API server connectivity before retry...")
-			if err := testAPIServerConnectivity(config, logger); err != nil {
+			if err := bootstrapTestAPIConnectivity(config, logger); err != nil {
 				logger.Warn("API server connectivity check failed: %v", err)
 				logger.Info("Continuing with retry anyway...")
 			}
@@ -2188,30 +2335,27 @@ func separateCRDsFromManifests(manifestsYaml string) ([]string, []string, error)
 // waitForCRDsEstablished waits for all CRDs to be established using progress-based detection
 // It keeps waiting as long as progress is being made, only failing if stuck for too long
 func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalFast) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapCRDMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalFast
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapCRDMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastEstablishedCount := 0
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		// Safety net: fail if we've been waiting too long overall
 		if elapsed > maxWait {
 			return fmt.Errorf("CRDs did not become established after %v (max wait exceeded)", elapsed.Round(time.Second))
 		}
 
-		cmd := exec.Command("kubectl", "get", "crd",
-			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Established')].status}{\"\\n\"}{end}",
-			"--kubeconfig", config.KubeConfig)
-
-		output, err := cmd.Output()
+		output, err := bootstrapKubectlOutput(config, "get", "crd",
+			"--output=jsonpath={range .items[*]}{.metadata.name}:{.status.conditions[?(@.type=='Established')].status}{\"\\n\"}{end}")
 		if err != nil {
 			logger.Debug("Failed to check CRD status: %v", err)
-			time.Sleep(checkInterval)
+			bootstrapSleep(checkInterval)
 			continue
 		}
 
@@ -2248,12 +2392,12 @@ func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger)
 		// Check for progress
 		if establishedCount > lastEstablishedCount {
 			logger.Debug("Progress: %d/%d CRDs established (+%d)", establishedCount, totalCRDs, establishedCount-lastEstablishedCount)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastEstablishedCount = establishedCount
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			return fmt.Errorf("CRD establishment stalled: no progress for %v (stuck at %d/%d). Pending: %v",
 				stallDuration.Round(time.Second), establishedCount, totalCRDs, pendingCRDs)
@@ -2267,7 +2411,7 @@ func waitForCRDsEstablished(config *BootstrapConfig, logger *common.ColorLogger)
 			}
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
@@ -2291,7 +2435,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 	}
 
 	// Create values.yaml.gotmpl in templates subdirectory
-	valuesTemplate, err := templates.GetBootstrapTemplate("values.yaml.gotmpl")
+	valuesTemplate, err := bootstrapGetBootstrapTemplate("values.yaml.gotmpl")
 	if err != nil {
 		return fmt.Errorf("failed to get values template: %w", err)
 	}
@@ -2302,7 +2446,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 	}
 
 	// Get embedded apps helmfile content
-	appsHelmfileTemplate, err := templates.GetBootstrapFile("helmfile.d/01-apps.yaml")
+	appsHelmfileTemplate, err := bootstrapGetBootstrapFile("helmfile.d/01-apps.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to get embedded apps helmfile: %w", err)
 	}
@@ -2316,18 +2460,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 	logger.Debug("Created dynamic helmfile with Go template support")
 	logger.Debug("Setting working directory to: %s", config.RootDir)
 
-	cmd := exec.Command("helmfile", "--file", helmfilePath, "sync", "--hide-notes")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Dir = tempDir // Set working directory to temp directory with templates
-
-	// Set additional environment variables for helmfile
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir),
-		fmt.Sprintf("ROOT_DIR=%s", config.RootDir),
-	)
-
-	if err := cmd.Run(); err != nil {
+	if err := bootstrapRunHelmfileSyncCmd(tempDir, helmfilePath, config); err != nil {
 		return fmt.Errorf("helmfile sync failed: %w", err)
 	}
 
@@ -2383,8 +2516,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 	}
 
 	// Get all CRDs
-	cmd := exec.Command("kubectl", "get", "crds", "-o", "json", "--kubeconfig", config.KubeConfig)
-	output, err := cmd.Output()
+	output, err := bootstrapKubectlOutput(config, "get", "crds", "-o", "json")
 	if err != nil {
 		return fmt.Errorf("failed to get CRDs: %w", err)
 	}
@@ -2434,24 +2566,18 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 			crd.Metadata.Name, owner.releaseNamespace, owner.releaseName)
 
 		// Patch the CRD with Helm ownership metadata
-		patchCmd := exec.Command("kubectl", "annotate", "crd", crd.Metadata.Name,
+		if output, err := bootstrapKubectlCombined(config, "annotate", "crd", crd.Metadata.Name,
 			fmt.Sprintf("meta.helm.sh/release-name=%s", owner.releaseName),
 			fmt.Sprintf("meta.helm.sh/release-namespace=%s", owner.releaseNamespace),
-			"--overwrite",
-			"--kubeconfig", config.KubeConfig)
-
-		if output, err := patchCmd.CombinedOutput(); err != nil {
+			"--overwrite"); err != nil {
 			logger.Warn("Failed to add annotations to CRD %s: %v\nOutput: %s",
 				crd.Metadata.Name, err, string(output))
 			continue
 		}
 
-		labelCmd := exec.Command("kubectl", "label", "crd", crd.Metadata.Name,
+		if output, err := bootstrapKubectlCombined(config, "label", "crd", crd.Metadata.Name,
 			"app.kubernetes.io/managed-by=Helm",
-			"--overwrite",
-			"--kubeconfig", config.KubeConfig)
-
-		if output, err := labelCmd.CombinedOutput(); err != nil {
+			"--overwrite"); err != nil {
 			logger.Warn("Failed to add labels to CRD %s: %v\nOutput: %s",
 				crd.Metadata.Name, err, string(output))
 			continue
@@ -2471,11 +2597,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 
 // testAPIServerConnectivity is a simpler version for retry checks
 func testAPIServerConnectivity(config *BootstrapConfig, logger *common.ColorLogger) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "kubectl", "cluster-info", "--kubeconfig", config.KubeConfig)
-	output, err := cmd.CombinedOutput()
+	output, err := bootstrapKubectlCombined(config, "cluster-info", "--request-timeout=10s")
 	if err != nil {
 		logger.Debug("API server connectivity check output: %s", string(output))
 		return fmt.Errorf("cluster-info failed: %w", err)
@@ -2487,14 +2609,11 @@ func testAPIServerConnectivity(config *BootstrapConfig, logger *common.ColorLogg
 // Uses retry logic since the deployment may still be creating after helmfile sync
 func isExternalSecretsInstalled(config *BootstrapConfig, logger *common.ColorLogger) bool {
 	maxAttempts := constants.BootstrapExtSecInstallAttempts // 1 minute total with 5-second intervals
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		cmd := exec.CommandContext(ctx, "kubectl", "get", "deployment", "external-secrets-webhook",
-			"-n", constants.NSExternalSecret, "--kubeconfig", config.KubeConfig)
-		err := cmd.Run()
-		cancel()
+		err := bootstrapKubectlRun(config, "get", "deployment", "external-secrets-webhook",
+			"-n", constants.NSExternalSecret, "--request-timeout=5s")
 
 		if err == nil {
 			logger.Debug("External-secrets deployment found on attempt %d", attempt)
@@ -2503,7 +2622,7 @@ func isExternalSecretsInstalled(config *BootstrapConfig, logger *common.ColorLog
 
 		if attempt < maxAttempts {
 			logger.Debug("External-secrets check attempt %d/%d: not found yet, retrying...", attempt, maxAttempts)
-			time.Sleep(checkInterval)
+			bootstrapSleep(checkInterval)
 		}
 	}
 
@@ -2513,16 +2632,16 @@ func isExternalSecretsInstalled(config *BootstrapConfig, logger *common.ColorLog
 
 // waitForExternalSecretsWebhook waits for the external-secrets webhook to be ready using progress-based detection
 func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapExtSecMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapExtSecMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		// Safety net: fail if we've been waiting too long overall
 		if elapsed > maxWait {
@@ -2530,58 +2649,45 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 		}
 
 		// Check deployment status
-		cmd := exec.Command("kubectl", "get", "deployment", "external-secrets-webhook",
+		output, err := bootstrapKubectlOutput(config, "get", "deployment", "external-secrets-webhook",
 			"-n", constants.NSExternalSecret,
-			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}:{.status.conditions[?(@.type=='Available')].status}",
-			"--kubeconfig", config.KubeConfig)
+			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}:{.status.conditions[?(@.type=='Available')].status}")
+		var currentState string
 
-		output, err := cmd.Output()
-		currentState := "not-found"
-
-		if err == nil {
-			currentState = strings.TrimSpace(string(output))
-
-			// Parse ready/total replicas
-			parts := strings.Split(currentState, ":")
-			if len(parts) >= 1 {
-				replicaInfo := parts[0]
-				replicaParts := strings.Split(replicaInfo, "/")
-				if len(replicaParts) == 2 {
-					readyReplicas := replicaParts[0]
-					if readyReplicas != "" && readyReplicas != "0" {
-						// Also check if the webhook service has endpoints
-						endpointsCmd := exec.Command("kubectl", "get", "endpoints", "external-secrets-webhook",
-							"-n", constants.NSExternalSecret,
-							"--output=jsonpath={.subsets[*].addresses[*].ip}",
-							"--kubeconfig", config.KubeConfig)
-
-						endpointsOutput, endpointsErr := endpointsCmd.Output()
-						if endpointsErr == nil {
-							endpoints := strings.TrimSpace(string(endpointsOutput))
-							if endpoints != "" {
-								logger.Success("External-secrets webhook is ready (took %v)", elapsed.Round(time.Second))
-								return nil
-							}
-						}
-						logger.Debug("Webhook deployment ready but no endpoints available yet")
-					}
-				}
+		if err != nil {
+			stallDuration := bootstrapNow().Sub(lastProgressTime)
+			if stallDuration > stallTimeout {
+				return fmt.Errorf("external-secrets webhook stalled: kubectl get deployment failed for %v: %w",
+					stallDuration.Round(time.Second), err)
 			}
+			bootstrapSleep(checkInterval)
+			continue
 		}
+
+		currentState = strings.TrimSpace(string(output))
+
+		// Also check if the webhook service has endpoints.
+		endpointsOutput, endpointsErr := bootstrapKubectlOutput(config, "get", "endpoints", "external-secrets-webhook",
+			"-n", constants.NSExternalSecret,
+			"--output=jsonpath={.subsets[*].addresses[*].ip}")
+		if endpointsErr == nil && deploymentAndEndpointsReadyFromState(currentState, string(endpointsOutput)) {
+			logger.Success("External-secrets webhook is ready (took %v)", elapsed.Round(time.Second))
+			return nil
+		}
+		logger.Debug("Webhook deployment not fully ready yet: %s", currentState)
 
 		// Check for progress (state change)
 		if currentState != lastState {
 			logger.Debug("External-secrets state change: %s -> %s", lastState, currentState)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			// Get detailed pod info for debugging
-			podOutput, _ := exec.Command("kubectl", "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide",
-				"--kubeconfig", config.KubeConfig).Output()
+			podOutput, _ := bootstrapKubectlOutput(config, "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide")
 			return fmt.Errorf("external-secrets webhook stalled: no progress for %v (state: %s)\nPods:\n%s",
 				stallDuration.Round(time.Second), currentState, string(podOutput))
 		}
@@ -2590,13 +2696,12 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
 			logger.Info("Waiting for external-secrets webhook: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
 			// Show pod status for debugging
-			if podOutput, podErr := exec.Command("kubectl", "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide",
-				"--kubeconfig", config.KubeConfig).Output(); podErr == nil {
+			if podOutput, podErr := bootstrapKubectlOutput(config, "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide"); podErr == nil {
 				logger.Debug("External-secrets pods:\n%s", string(podOutput))
 			}
 		}
 
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
@@ -2613,7 +2718,7 @@ func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogg
 	for _, release := range testReleases {
 		logger.Debug("Testing values rendering for release: %s", release)
 
-		values, err := templates.RenderHelmfileValues(release, config.RootDir, metricsCollector)
+		values, err := bootstrapRenderHelmValues(release, config.RootDir, metricsCollector)
 		if err != nil {
 			return fmt.Errorf("failed to render values for %s: %w", release, err)
 		}
@@ -2641,24 +2746,24 @@ func waitForFluxReconciliation(config *BootstrapConfig, logger *common.ColorLogg
 	logger.Info("Waiting for Flux controllers to be ready...")
 
 	// Step 1: Wait for Flux source-controller to be running
-	if err := waitForFluxController(config, logger, "source-controller"); err != nil {
+	if err := bootstrapWaitFluxController(config, logger, "source-controller"); err != nil {
 		return fmt.Errorf("source-controller not ready: %w", err)
 	}
 
 	// Step 2: Wait for Flux kustomize-controller to be running
-	if err := waitForFluxController(config, logger, "kustomize-controller"); err != nil {
+	if err := bootstrapWaitFluxController(config, logger, "kustomize-controller"); err != nil {
 		return fmt.Errorf("kustomize-controller not ready: %w", err)
 	}
 
 	// Step 3: Wait for Flux helm-controller to be running
-	if err := waitForFluxController(config, logger, "helm-controller"); err != nil {
+	if err := bootstrapWaitFluxController(config, logger, "helm-controller"); err != nil {
 		return fmt.Errorf("helm-controller not ready: %w", err)
 	}
 
 	logger.Info("Flux controllers are ready, waiting for initial reconciliation...")
 
 	// Step 4: Wait for the GitRepository to be ready
-	if err := waitForGitRepositoryReady(config, logger); err != nil {
+	if err := bootstrapWaitGitRepository(config, logger); err != nil {
 		// Not fatal - Flux may still be cloning
 		logger.Warn("GitRepository not ready yet: %v", err)
 		logger.Info("Flux is still syncing - cluster is functional but reconciliation is in progress")
@@ -2666,7 +2771,7 @@ func waitForFluxReconciliation(config *BootstrapConfig, logger *common.ColorLogg
 	}
 
 	// Step 5: Wait for the flux-system Kustomization to reconcile
-	if err := waitForFluxKustomizationReady(config, logger, "cluster"); err != nil {
+	if err := bootstrapWaitFluxKS(config, logger, "cluster"); err != nil {
 		// Not fatal - initial reconcile can take time
 		logger.Warn("Flux Kustomization 'cluster' not ready yet: %v", err)
 		logger.Info("Flux is still reconciling - cluster is functional")
@@ -2679,50 +2784,51 @@ func waitForFluxReconciliation(config *BootstrapConfig, logger *common.ColorLogg
 
 // waitForFluxController waits for a specific Flux controller deployment to be ready using progress-based detection
 func waitForFluxController(config *BootstrapConfig, logger *common.ColorLogger, controllerName string) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapFluxMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("%s did not become ready after %v (max wait exceeded)", controllerName, elapsed.Round(time.Second))
 		}
 
-		cmd := exec.Command("kubectl", "get", "deployment", controllerName,
+		output, err := bootstrapKubectlOutput(config, "get", "deployment", controllerName,
 			"-n", constants.NSFluxSystem,
-			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}",
-			"--kubeconfig", config.KubeConfig)
+			"--output=jsonpath={.status.readyReplicas}/{.status.replicas}")
+		var currentState string
 
-		output, err := cmd.Output()
-		currentState := "not-found"
-
-		if err == nil {
-			currentState = strings.TrimSpace(string(output))
-			parts := strings.Split(currentState, "/")
-			if len(parts) == 2 {
-				readyReplicas := parts[0]
-				if readyReplicas != "" && readyReplicas != "0" {
-					logger.Debug("Flux %s is ready (took %v)", controllerName, elapsed.Round(time.Second))
-					return nil
-				}
+		if err != nil {
+			stallDuration := bootstrapNow().Sub(lastProgressTime)
+			if stallDuration > stallTimeout {
+				return fmt.Errorf("%s stalled: kubectl get deployment failed for %v: %w",
+					controllerName, stallDuration.Round(time.Second), err)
 			}
+			bootstrapSleep(checkInterval)
+			continue
+		}
+
+		currentState = strings.TrimSpace(string(output))
+		if deploymentReadyFromState(currentState) {
+			logger.Debug("Flux %s is ready (took %v)", controllerName, elapsed.Round(time.Second))
+			return nil
 		}
 
 		// Check for progress
 		if currentState != lastState {
 			logger.Debug("Flux %s state: %s", controllerName, currentState)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			return fmt.Errorf("%s stalled: no progress for %v (state: %s)", controllerName, stallDuration.Round(time.Second), currentState)
 		}
@@ -2730,34 +2836,31 @@ func waitForFluxController(config *BootstrapConfig, logger *common.ColorLogger, 
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
 			logger.Debug("Waiting for Flux %s: state=%s, %v elapsed", controllerName, currentState, elapsed.Round(time.Second))
 		}
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
 // waitForGitRepositoryReady waits for the flux-system GitRepository to be ready using progress-based detection
 func waitForGitRepositoryReady(config *BootstrapConfig, logger *common.ColorLogger) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapFluxMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("GitRepository did not become ready after %v (max wait exceeded)", elapsed.Round(time.Second))
 		}
 
 		// Check GitRepository status with more detail
-		cmd := exec.Command("kubectl", "get", "gitrepository", "flux-system",
+		output, err := bootstrapKubectlOutput(config, "get", "gitrepository", "flux-system",
 			"-n", constants.NSFluxSystem,
-			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.artifact.revision}",
-			"--kubeconfig", config.KubeConfig)
-
-		output, err := cmd.Output()
+			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.artifact.revision}")
 		currentState := "not-found"
 
 		if err == nil {
@@ -2772,17 +2875,15 @@ func waitForGitRepositoryReady(config *BootstrapConfig, logger *common.ColorLogg
 		// Check for progress (state change means something is happening)
 		if currentState != lastState {
 			logger.Debug("GitRepository state: %s", currentState)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			// Get diagnostic info
-			diagCmd := exec.Command("kubectl", "get", "gitrepository", "-n", constants.NSFluxSystem, "-o", "wide",
-				"--kubeconfig", config.KubeConfig)
-			diagOutput, _ := diagCmd.Output()
+			diagOutput, _ := bootstrapKubectlOutput(config, "get", "gitrepository", "-n", constants.NSFluxSystem, "-o", "wide")
 			return fmt.Errorf("GitRepository stalled: no progress for %v (state: %s)\n%s",
 				stallDuration.Round(time.Second), currentState, string(diagOutput))
 		}
@@ -2790,34 +2891,31 @@ func waitForGitRepositoryReady(config *BootstrapConfig, logger *common.ColorLogg
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
 			logger.Info("Waiting for GitRepository: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
 		}
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }
 
 // waitForFluxKustomizationReady waits for a specific Flux Kustomization to be ready using progress-based detection
 func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.ColorLogger, ksName string) error {
-	checkInterval := time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	stallTimeout := time.Duration(constants.BootstrapStallTimeout) * time.Second
-	maxWait := time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+	checkInterval := bootstrapCheckIntervalNormal
+	stallTimeout := bootstrapStallTimeout
+	maxWait := bootstrapFluxMaxWait
 
-	startTime := time.Now()
-	lastProgressTime := time.Now()
+	startTime := bootstrapNow()
+	lastProgressTime := bootstrapNow()
 	lastState := ""
 
 	for {
-		elapsed := time.Since(startTime)
+		elapsed := bootstrapNow().Sub(startTime)
 
 		if elapsed > maxWait {
 			return fmt.Errorf("kustomization %s did not become ready after %v (max wait exceeded)", ksName, elapsed.Round(time.Second))
 		}
 
 		// Check Kustomization status with more detail
-		cmd := exec.Command("kubectl", "get", "kustomization", ksName,
+		output, err := bootstrapKubectlOutput(config, "get", "kustomization", ksName,
 			"-n", constants.NSFluxSystem,
-			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.lastAppliedRevision}",
-			"--kubeconfig", config.KubeConfig)
-
-		output, err := cmd.Output()
+			"--output=jsonpath={.status.conditions[?(@.type=='Ready')].status}:{.status.conditions[?(@.type=='Ready')].reason}:{.status.lastAppliedRevision}")
 		currentState := "not-found"
 
 		if err == nil {
@@ -2832,17 +2930,15 @@ func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.Color
 		// Check for progress
 		if currentState != lastState {
 			logger.Debug("Kustomization %s state: %s", ksName, currentState)
-			lastProgressTime = time.Now()
+			lastProgressTime = bootstrapNow()
 			lastState = currentState
 		}
 
 		// Check for stall
-		stallDuration := time.Since(lastProgressTime)
+		stallDuration := bootstrapNow().Sub(lastProgressTime)
 		if stallDuration > stallTimeout {
 			// Get diagnostic info
-			diagCmd := exec.Command("kubectl", "get", "kustomization", "-n", constants.NSFluxSystem, "-o", "wide",
-				"--kubeconfig", config.KubeConfig)
-			diagOutput, _ := diagCmd.Output()
+			diagOutput, _ := bootstrapKubectlOutput(config, "get", "kustomization", "-n", constants.NSFluxSystem, "-o", "wide")
 			return fmt.Errorf("kustomization %s stalled: no progress for %v (state: %s)\n%s",
 				ksName, stallDuration.Round(time.Second), currentState, string(diagOutput))
 		}
@@ -2850,6 +2946,6 @@ func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.Color
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
 			logger.Info("Waiting for Kustomization '%s': state=%s, %v elapsed", ksName, currentState, elapsed.Round(time.Second))
 		}
-		time.Sleep(checkInterval)
+		bootstrapSleep(checkInterval)
 	}
 }

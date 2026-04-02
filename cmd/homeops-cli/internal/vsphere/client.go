@@ -18,6 +18,7 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25"
 	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/soap"
 	"github.com/vmware/govmomi/vim25/types"
 )
 
@@ -30,6 +31,102 @@ type Client struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	datacenter *object.Datacenter
+}
+
+type lifecycleTask interface {
+	Wait(context.Context) error
+}
+
+type vmLifecycle interface {
+	PowerOn(context.Context) (lifecycleTask, error)
+	PowerOff(context.Context) (lifecycleTask, error)
+	Destroy(context.Context) (lifecycleTask, error)
+	Properties(context.Context, types.ManagedObjectReference, []string, interface{}) error
+	Reference() types.ManagedObjectReference
+}
+
+type datastoreUploader interface {
+	UploadFile(context.Context, string, string, *soap.Upload) error
+}
+
+var (
+	vsphereSleep             = time.Sleep
+	get1PasswordSecretsBatch = common.Get1PasswordSecretsBatch
+	newClientWithConnectFn   = NewClientWithConnect
+	listVMNamesFn            = listVMNames
+	listVMObjectsFn          = func(client *Client) ([]*object.VirtualMachine, error) { return client.ListVMs() }
+	sshCombinedOutputFn      = func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() }
+	newGovmomiClientFn       = govmomi.NewClient
+	newFinderFn              = func(client *vim25.Client) *find.Finder { return find.NewFinder(client, true) }
+	defaultDatacenterFn      = func(ctx context.Context, finder *find.Finder) (*object.Datacenter, error) {
+		return finder.DefaultDatacenter(ctx)
+	}
+	setFinderDatacenterFn = func(finder *find.Finder, datacenter *object.Datacenter) { finder.SetDatacenter(datacenter) }
+	logoutVSphereClientFn = func(ctx context.Context, client *govmomi.Client) error { return client.Logout(ctx) }
+	findVirtualMachineFn  = func(finder *find.Finder, ctx context.Context, name string) (*object.VirtualMachine, error) {
+		return finder.VirtualMachine(ctx, name)
+	}
+	listVirtualMachinesFn = func(finder *find.Finder, ctx context.Context) ([]*object.VirtualMachine, error) {
+		return finder.VirtualMachineList(ctx, "*")
+	}
+	getVMPropertiesFn = func(vm *object.VirtualMachine, ctx context.Context, ref types.ManagedObjectReference, props []string, dst interface{}) error {
+		return vm.Properties(ctx, ref, props, dst)
+	}
+	findDatastoreFn = func(finder *find.Finder, ctx context.Context, name string) (datastoreUploader, error) {
+		return finder.Datastore(ctx, name)
+	}
+	statFileFn            = os.Stat
+	uploadDatastoreFileFn = func(datastore datastoreUploader, ctx context.Context, localFilePath, remoteFileName string) error {
+		return datastore.UploadFile(ctx, localFilePath, remoteFileName, nil)
+	}
+	createVMForDeployFn = func(client *Client, config VMConfig) (*object.VirtualMachine, error) {
+		return client.CreateVM(config)
+	}
+)
+
+type objectTaskLifecycle struct {
+	task *object.Task
+}
+
+func (t objectTaskLifecycle) Wait(ctx context.Context) error {
+	_, err := t.task.WaitForResult(ctx, nil)
+	return err
+}
+
+type objectVMLifecycle struct {
+	vm *object.VirtualMachine
+}
+
+func (v objectVMLifecycle) PowerOn(ctx context.Context) (lifecycleTask, error) {
+	task, err := v.vm.PowerOn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return objectTaskLifecycle{task: task}, nil
+}
+
+func (v objectVMLifecycle) PowerOff(ctx context.Context) (lifecycleTask, error) {
+	task, err := v.vm.PowerOff(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return objectTaskLifecycle{task: task}, nil
+}
+
+func (v objectVMLifecycle) Destroy(ctx context.Context) (lifecycleTask, error) {
+	task, err := v.vm.Destroy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return objectTaskLifecycle{task: task}, nil
+}
+
+func (v objectVMLifecycle) Properties(ctx context.Context, ref types.ManagedObjectReference, props []string, dst interface{}) error {
+	return v.vm.Properties(ctx, ref, props, dst)
+}
+
+func (v objectVMLifecycle) Reference() types.ManagedObjectReference {
+	return v.vm.Reference()
 }
 
 // NewClient creates a new vSphere client (deprecated - use NewClientWithConnect instead)
@@ -63,22 +160,22 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 	u.User = url.UserPassword(username, password)
 
 	// Create client
-	client, err := govmomi.NewClient(c.ctx, u, insecure)
+	client, err := newGovmomiClientFn(c.ctx, u, insecure)
 	if err != nil {
 		return fmt.Errorf("failed to create vSphere client: %w", err)
 	}
 
 	c.client = client
 	c.vim = client.Client
-	c.finder = find.NewFinder(c.vim, true)
+	c.finder = newFinderFn(c.vim)
 
 	// Find datacenter (use default for standalone ESXi)
-	datacenter, err := c.finder.DefaultDatacenter(c.ctx)
+	datacenter, err := defaultDatacenterFn(c.ctx, c.finder)
 	if err != nil {
 		return fmt.Errorf("failed to find datacenter: %w", err)
 	}
 	c.datacenter = datacenter
-	c.finder.SetDatacenter(datacenter)
+	setFinderDatacenterFn(c.finder, datacenter)
 
 	c.logger.Success("Connected to vSphere/ESXi: %s", host)
 	return nil
@@ -88,7 +185,7 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 func (c *Client) Close() error {
 	// Logout first before canceling context
 	if c.client != nil {
-		if err := c.client.Logout(c.ctx); err != nil {
+		if err := logoutVSphereClientFn(c.ctx, c.client); err != nil {
 			// Cancel context even if logout fails
 			if c.cancel != nil {
 				c.cancel()
@@ -129,179 +226,21 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to get folders: %w", err)
 	}
 
-	// Create extra config for specific requirements
-	extraConfig := []types.BaseOptionValue{
-		&types.OptionValue{Key: "disk.EnableUUID", Value: "TRUE"},
-	}
-
-	// Add CPU counter exposure if requested
-	if config.ExposeCounters {
-		extraConfig = append(extraConfig, &types.OptionValue{Key: "monitor.phys_bits_used", Value: "45"})
-	}
-
-	// Create VM spec with basic configuration
-	spec := types.VirtualMachineConfigSpec{
-		Name:     config.Name,
-		GuestId:  "other6xLinux64Guest", // Other 6.x or later Linux (64-bit)
-		NumCPUs:  int32(config.VCPUs),   // Default: 16 vCPUs
-		MemoryMB: int64(config.Memory),  // Default: 48GB (49152 MB)
-		Files: &types.VirtualMachineFileInfo{
-			VmPathName: fmt.Sprintf("[%s] %s", config.Datastore, config.Name),
-		},
-		Firmware: "efi", // Use EFI boot
-		BootOptions: &types.VirtualMachineBootOptions{
-			EfiSecureBootEnabled: types.NewBool(false), // Disable UEFI secure boot
-		},
-		Flags: &types.VirtualMachineFlagInfo{
-			VirtualMmuUsage:  "automatic",
-			VirtualExecUsage: "hvAuto",
-			VvtdEnabled:      types.NewBool(config.EnableIOMMU), // Enable IOMMU
-		},
-		VPMCEnabled: types.NewBool(config.ExposeCounters), // Enable virtualized CPU performance counters
-		ExtraConfig: extraConfig,
-		// VMware Tools configuration - sync time with host
-		Tools: &types.ToolsConfigInfo{
-			SyncTimeWithHost: types.NewBool(true),
-		},
-	}
+	spec := buildInitialVMSpec(config)
 
 	// Log IOMMU status
 	if config.EnableIOMMU {
 		c.logger.Debug("IOMMU/VT-d enabled for VM %s", config.Name)
 	}
 
-	// PHASE 1: Create devices for initial VM creation (controllers only, NO disks yet)
-	var devices []types.BaseVirtualDevice
 	datastoreRef := datastore.Reference()
-
-	// Create NVME controller 0 for boot disk
-	nvmeController0 := &types.VirtualNVMEController{
-		VirtualController: types.VirtualController{
-			VirtualDevice: types.VirtualDevice{
-				Key: -100, // Use negative key for automatic assignment
-			},
-			BusNumber: 0,
-		},
-	}
-	devices = append(devices, nvmeController0)
-
-	// Create NVME controller 1 for Longhorn disk
-	nvmeController1 := &types.VirtualNVMEController{
-		VirtualController: types.VirtualController{
-			VirtualDevice: types.VirtualDevice{
-				Key: -101, // Use negative key for automatic assignment
-			},
-			BusNumber: 1,
-		},
-	}
-	devices = append(devices, nvmeController1)
 
 	// Create vmxnet3 network adapter and set to vl999 portgroup
 	backing, err := network.EthernetCardBackingInfo(c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network backing: %w", err)
 	}
-
-	netDevice := &types.VirtualVmxnet3{
-		VirtualVmxnet: types.VirtualVmxnet{
-			VirtualEthernetCard: types.VirtualEthernetCard{
-				VirtualDevice: types.VirtualDevice{
-					Key:     -104, // Use negative key for automatic assignment
-					Backing: backing,
-					Connectable: &types.VirtualDeviceConnectInfo{
-						Connected:         true,
-						StartConnected:    true,
-						AllowGuestControl: true,
-					},
-				},
-				AddressType: "generated",
-			},
-		},
-	}
-
-	// Set MAC address if provided
-	if config.MacAddress != "" {
-		netDevice.AddressType = "manual"
-		netDevice.MacAddress = config.MacAddress
-	}
-
-	devices = append(devices, netDevice)
-
-	// Add CD-ROM with ISO if specified - use SATA controller for CD-ROM
-	if config.ISO != "" {
-		// Create SATA controller for CD-ROM
-		sataController := &types.VirtualAHCIController{
-			VirtualSATAController: types.VirtualSATAController{
-				VirtualController: types.VirtualController{
-					VirtualDevice: types.VirtualDevice{
-						Key: -105, // Use negative key for automatic assignment
-					},
-					BusNumber: 0,
-				},
-			},
-		}
-		devices = append(devices, sataController)
-
-		// Create CD-ROM on SATA controller
-		cdrom := &types.VirtualCdrom{
-			VirtualDevice: types.VirtualDevice{
-				Key:           -106, // Use negative key for automatic assignment
-				ControllerKey: -105, // SATA controller
-				UnitNumber:    types.NewInt32(0),
-				Backing: &types.VirtualCdromIsoBackingInfo{
-					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
-						FileName:  config.ISO,
-						Datastore: &datastoreRef,
-					},
-				},
-				Connectable: &types.VirtualDeviceConnectInfo{
-					Connected:         true,
-					StartConnected:    true,
-					AllowGuestControl: true,
-				},
-			},
-		}
-		devices = append(devices, cdrom)
-	}
-
-	// Add precision clock device with NTP protocol
-	if config.EnablePrecisionClock {
-		precisionClock := &types.VirtualPrecisionClock{
-			VirtualDevice: types.VirtualDevice{
-				Key: -107, // Use negative key for automatic assignment
-				Backing: &types.VirtualPrecisionClockSystemClockBackingInfo{
-					Protocol: "ntp", // Set protocol to NTP as requested
-				},
-			},
-		}
-		devices = append(devices, precisionClock)
-	}
-
-	// Add watchdog timer device (set to start with BIOS/UEFI)
-	if config.EnableWatchdog {
-		watchdog := &types.VirtualWDT{
-			VirtualDevice: types.VirtualDevice{
-				Key: -108, // Use negative key for automatic assignment
-			},
-			RunOnBoot: true, // Start with BIOS/UEFI
-		}
-		devices = append(devices, watchdog)
-	}
-
-	// Add devices to spec
-	var deviceChanges []types.BaseVirtualDeviceConfigSpec
-	for _, device := range devices {
-		deviceSpec := &types.VirtualDeviceConfigSpec{
-			Operation: types.VirtualDeviceConfigSpecOperationAdd,
-			Device:    device,
-		}
-		// For VirtualDisk devices, specify file operation to create new disk
-		if _, isDisk := device.(*types.VirtualDisk); isDisk {
-			deviceSpec.FileOperation = types.VirtualDeviceConfigSpecFileOperationCreate
-		}
-		deviceChanges = append(deviceChanges, deviceSpec)
-	}
-	spec.DeviceChange = deviceChanges
+	spec.DeviceChange = buildInitialDeviceChanges(config, datastoreRef, backing)
 
 	// Create VM
 	task, err := folders.VmFolder.CreateVM(c.ctx, spec, pool, nil)
@@ -327,81 +266,16 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to get VM properties: %w", err)
 	}
 
-	// Find the NVME controller keys
-	var nvme0Key, nvme1Key int32
-	for _, device := range vmInfo.Config.Hardware.Device {
-		if ctrl, ok := device.(*types.VirtualNVMEController); ok {
-			switch ctrl.BusNumber {
-			case 0:
-				nvme0Key = ctrl.Key
-			case 1:
-				nvme1Key = ctrl.Key
-			}
-		}
-	}
-
-	if nvme0Key == 0 || nvme1Key == 0 {
-		return nil, fmt.Errorf("failed to find NVME controllers (nvme0: %d, nvme1: %d)", nvme0Key, nvme1Key)
+	nvme0Key, nvme1Key, err := findNVMEControllerKeys(vmInfo.Config.Hardware.Device)
+	if err != nil {
+		return nil, err
 	}
 
 	c.logger.Debug("Found NVME controllers: nvme0=%d, nvme1=%d", nvme0Key, nvme1Key)
 
-	// Build disk device changes
-	var diskChanges []types.BaseVirtualDeviceConfigSpec
-
-	// Create boot disk (250GB) on NVME controller 0
-	bootDisk := &types.VirtualDisk{
-		VirtualDevice: types.VirtualDevice{
-			Key:           -1, // Use negative key for automatic assignment
-			ControllerKey: nvme0Key,
-			UnitNumber:    types.NewInt32(0),
-			Backing: &types.VirtualDiskFlatVer2BackingInfo{
-				VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
-					FileName:  "", // Auto-generate in VM folder (follows govmomi pattern)
-					Datastore: &datastoreRef,
-				},
-				DiskMode:        "persistent",
-				ThinProvisioned: types.NewBool(true),
-				EagerlyScrub:    types.NewBool(false),
-			},
-		},
-		CapacityInKB: int64(config.DiskSize) * 1024 * 1024,
-	}
-	diskChanges = append(diskChanges, &types.VirtualDeviceConfigSpec{
-		Operation:     types.VirtualDeviceConfigSpecOperationAdd,
-		FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
-		Device:        bootDisk,
-	})
-
-	// Create OpenEBS disk (1TB) on NVME controller 1 - for local storage
-	if config.OpenEBSSize > 0 {
-		openebsDisk := &types.VirtualDisk{
-			VirtualDevice: types.VirtualDevice{
-				Key:           -2,
-				ControllerKey: nvme1Key,
-				UnitNumber:    types.NewInt32(0),
-				Backing: &types.VirtualDiskFlatVer2BackingInfo{
-					VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
-						FileName:  "", // Auto-generate in VM folder (follows govmomi pattern)
-						Datastore: &datastoreRef,
-					},
-					DiskMode:        "persistent",
-					ThinProvisioned: types.NewBool(true),
-					EagerlyScrub:    types.NewBool(false),
-				},
-			},
-			CapacityInKB: int64(config.OpenEBSSize) * 1024 * 1024,
-		}
-		diskChanges = append(diskChanges, &types.VirtualDeviceConfigSpec{
-			Operation:     types.VirtualDeviceConfigSpecOperationAdd,
-			FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
-			Device:        openebsDisk,
-		})
-	}
-
 	// Reconfigure VM to add disks
 	configSpec := types.VirtualMachineConfigSpec{
-		DeviceChange: diskChanges,
+		DeviceChange: buildDiskDeviceChanges(config, datastoreRef, nvme0Key, nvme1Key),
 	}
 
 	task, err = vm.Reconfigure(c.ctx, configSpec)
@@ -420,7 +294,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	// vSphere needs time to complete background operations on newly created VMDK files
 	// before they can be used for booting. This typically takes a few seconds.
 	c.logger.Debug("Waiting for vSphere to process VMDK files...")
-	time.Sleep(10 * time.Second)
+	vsphereSleep(10 * time.Second)
 	c.logger.Debug("Wait complete, proceeding with VM registration...")
 
 	// PHASE 2.5: Unregister and re-register VM to fix VMDK descriptor adapter types
@@ -476,43 +350,8 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 		// Retry power-on with exponential backoff if vSphere needs more time to process VMDK files
 		// Observed behavior: VMs may need 5+ minutes after VMDK creation before successful power-on
-		maxRetries := 3
-		retryDelays := []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}
-
-		var lastErr error
-		var powerSuccess bool
-
-		for attempt := 0; attempt <= maxRetries; attempt++ {
-			if attempt > 0 {
-				c.logger.Warn("Power-on attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
-				c.logger.Info("Waiting %v before retry (vSphere may need time to process VMDK files)...", retryDelays[attempt-1])
-				time.Sleep(retryDelays[attempt-1])
-				c.logger.Info("Retrying power-on (attempt %d/%d)...", attempt+1, maxRetries+1)
-			}
-
-			powerTask, err := vm.PowerOn(c.ctx)
-			if err != nil {
-				lastErr = fmt.Errorf("failed to start power-on: %w", err)
-				continue
-			}
-
-			err = powerTask.Wait(c.ctx)
-			if err != nil {
-				lastErr = fmt.Errorf("power-on task failed: %w", err)
-				continue
-			}
-
-			// Success!
-			powerSuccess = true
-			c.logger.Success("VM %s powered on successfully", config.Name)
-			break
-		}
-
-		if !powerSuccess {
-			return nil, fmt.Errorf("failed to power on VM after %d attempts (total wait time: ~%v): %w",
-				maxRetries+1,
-				10*time.Second+retryDelays[0]+retryDelays[1]+retryDelays[2],
-				lastErr)
+		if err := powerOnWithRetry(c.ctx, c.logger, objectVMLifecycle{vm: vm}, 3, []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}, config.Name); err != nil {
+			return nil, err
 		}
 	}
 
@@ -521,13 +360,16 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 // PowerOnVM powers on a VM
 func (c *Client) PowerOnVM(vm *object.VirtualMachine) error {
+	return c.powerOnVM(objectVMLifecycle{vm: vm})
+}
+
+func (c *Client) powerOnVM(vm vmLifecycle) error {
 	task, err := vm.PowerOn(c.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to power on VM: %w", err)
 	}
 
-	_, err = task.WaitForResult(c.ctx, nil)
-	if err != nil {
+	if err := task.Wait(c.ctx); err != nil {
 		return fmt.Errorf("failed to power on VM: %w", err)
 	}
 
@@ -537,12 +379,16 @@ func (c *Client) PowerOnVM(vm *object.VirtualMachine) error {
 
 // PowerOffVM powers off a VM
 func (c *Client) PowerOffVM(vm *object.VirtualMachine) error {
+	return c.powerOffVM(objectVMLifecycle{vm: vm})
+}
+
+func (c *Client) powerOffVM(vm vmLifecycle) error {
 	task, err := vm.PowerOff(c.ctx)
 	if err != nil {
 		return fmt.Errorf("failed to power off VM: %w", err)
 	}
 
-	if _, err := task.WaitForResult(c.ctx, nil); err != nil {
+	if err := task.Wait(c.ctx); err != nil {
 		return fmt.Errorf("failed to power off VM: %w", err)
 	}
 
@@ -552,13 +398,17 @@ func (c *Client) PowerOffVM(vm *object.VirtualMachine) error {
 
 // DeleteVM deletes a VM
 func (c *Client) DeleteVM(vm *object.VirtualMachine) error {
+	return c.deleteVM(objectVMLifecycle{vm: vm})
+}
+
+func (c *Client) deleteVM(vm vmLifecycle) error {
 	// Power off if running
 	var mvm mo.VirtualMachine
 	propErr := vm.Properties(c.ctx, vm.Reference(), []string{"runtime.powerState"}, &mvm)
 	if propErr == nil && mvm.Runtime.PowerState == types.VirtualMachinePowerStatePoweredOn {
 		c.logger.Info("Powering off VM before deletion...")
-		if err := c.PowerOffVM(vm); err != nil {
-			c.logger.Warn("Failed to power off VM: %v", err)
+		if err := c.powerOffVM(vm); err != nil {
+			return fmt.Errorf("failed to power off running VM before deletion: %w", err)
 		}
 	}
 
@@ -568,7 +418,7 @@ func (c *Client) DeleteVM(vm *object.VirtualMachine) error {
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
 
-	if _, err := task.WaitForResult(c.ctx, nil); err != nil {
+	if err := task.Wait(c.ctx); err != nil {
 		return fmt.Errorf("failed to delete VM: %w", err)
 	}
 
@@ -578,7 +428,7 @@ func (c *Client) DeleteVM(vm *object.VirtualMachine) error {
 
 // FindVM finds a VM by name
 func (c *Client) FindVM(name string) (*object.VirtualMachine, error) {
-	vm, err := c.finder.VirtualMachine(c.ctx, name)
+	vm, err := findVirtualMachineFn(c.finder, c.ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find VM %s: %w", name, err)
 	}
@@ -587,7 +437,7 @@ func (c *Client) FindVM(name string) (*object.VirtualMachine, error) {
 
 // ListVMs lists all VMs
 func (c *Client) ListVMs() ([]*object.VirtualMachine, error) {
-	vms, err := c.finder.VirtualMachineList(c.ctx, "*")
+	vms, err := listVirtualMachinesFn(c.finder, c.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}
@@ -597,7 +447,7 @@ func (c *Client) ListVMs() ([]*object.VirtualMachine, error) {
 // GetVMInfo gets detailed VM information
 func (c *Client) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error) {
 	var mvm mo.VirtualMachine
-	err := vm.Properties(c.ctx, vm.Reference(), nil, &mvm)
+	err := getVMPropertiesFn(vm, c.ctx, vm.Reference(), nil, &mvm)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM properties: %w", err)
 	}
@@ -609,13 +459,13 @@ func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileNa
 	c.logger.Debug("Uploading ISO %s to datastore %s as %s", localFilePath, datastoreName, remoteFileName)
 
 	// Find the datastore
-	datastore, err := c.finder.Datastore(c.ctx, datastoreName)
+	datastore, err := findDatastoreFn(c.finder, c.ctx, datastoreName)
 	if err != nil {
 		return fmt.Errorf("failed to find datastore %s: %w", datastoreName, err)
 	}
 
 	// Get file info for size logging
-	fileInfo, err := os.Stat(localFilePath)
+	fileInfo, err := statFileFn(localFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to get file info: %w", err)
 	}
@@ -623,7 +473,7 @@ func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileNa
 	c.logger.Info("Uploading %s (%d MB) to datastore...", remoteFileName, fileInfo.Size()/(1024*1024))
 
 	// Upload file using datastore UploadFile method
-	if err := datastore.UploadFile(c.ctx, localFilePath, remoteFileName, nil); err != nil {
+	if err := uploadDatastoreFileFn(datastore, c.ctx, localFilePath, remoteFileName); err != nil {
 		return fmt.Errorf("failed to upload file to datastore: %w", err)
 	}
 
@@ -633,6 +483,13 @@ func (c *Client) UploadISOToDatastore(localFilePath, datastoreName, remoteFileNa
 
 // DeployVMsConcurrently deploys multiple VMs in parallel
 func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
+	return deployVMsConcurrently(configs, c.logger, func(cfg VMConfig) error {
+		_, err := createVMForDeployFn(c, cfg)
+		return err
+	})
+}
+
+func deployVMsConcurrently(configs []VMConfig, logger *common.ColorLogger, deployFn func(VMConfig) error) error {
 	var wg sync.WaitGroup
 	errors := make(chan error, len(configs))
 
@@ -648,18 +505,15 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			c.logger.Info("Starting deployment of VM: %s", cfg.Name)
+			logger.Info("Starting deployment of VM: %s", cfg.Name)
 			startTime := time.Now()
 
-			// Create VM - note: CreateVM already handles power-on with retry logic
-			// when cfg.PowerOn is true, so we don't need to call PowerOnVM separately
-			_, err := c.CreateVM(cfg)
-			if err != nil {
+			if err := deployFn(cfg); err != nil {
 				errors <- fmt.Errorf("failed to create VM %s: %w", cfg.Name, err)
 				return
 			}
 
-			c.logger.Success("VM %s deployed in %v", cfg.Name, time.Since(startTime))
+			logger.Success("VM %s deployed in %v", cfg.Name, time.Since(startTime))
 		}(config)
 	}
 
@@ -685,37 +539,7 @@ func (c *Client) DeployVMsConcurrently(configs []VMConfig) error {
 // GetVMNames retrieves the list of VM names from ESXi/vSphere
 func GetVMNames() ([]string, error) {
 	logger := common.NewColorLogger()
-	usedEnvFallback := false
-
-	// Get vSphere credentials - batch lookup from 1Password for better performance
-	secrets := common.Get1PasswordSecretsBatch([]string{
-		constants.OpESXiHost,
-		constants.OpESXiUsername,
-		constants.OpESXiPassword,
-	})
-	host := secrets[constants.OpESXiHost]
-	username := secrets[constants.OpESXiUsername]
-	password := secrets[constants.OpESXiPassword]
-
-	// Fall back to environment variables if 1Password fails
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
-	}
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-		if username != "" {
-			usedEnvFallback = true
-		}
-	}
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-		if password != "" {
-			usedEnvFallback = true
-		}
-	}
+	host, username, password, usedEnvFallback := resolveVSphereCredentials()
 
 	if host == "" || username == "" || password == "" {
 		return nil, fmt.Errorf("vSphere credentials not found")
@@ -727,31 +551,16 @@ func GetVMNames() ([]string, error) {
 	}
 
 	// Create vSphere client and connect
-	client, err := NewClientWithConnect(host, username, password, true)
+	client, err := newClientWithConnectFn(host, username, password, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() { _ = client.Close() }()
 
 	// List VMs
-	vmObjects, err := client.ListVMs()
+	vmNames, err := listVMNamesFn(client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list VMs: %w", err)
-	}
-
-	if len(vmObjects) == 0 {
-		return nil, fmt.Errorf("no VMs found on vSphere/ESXi")
-	}
-
-	// Extract VM names from VM objects
-	vmNames := make([]string, 0, len(vmObjects))
-	for _, vm := range vmObjects {
-		// VM objects have a Name() method that returns the VM name
-		vmNames = append(vmNames, vm.Name())
-	}
-
-	if len(vmNames) == 0 {
-		return nil, fmt.Errorf("failed to extract VM names from vSphere/ESXi")
+		return nil, err
 	}
 
 	return vmNames, nil
@@ -817,15 +626,16 @@ func (c *ESXiSSHClient) Close() {
 func (c *ESXiSSHClient) ExecuteCommand(command string) (string, error) {
 	c.logger.Debug("Executing ESXi command: %s", command)
 
-	cmd := exec.Command("ssh",
+	args := []string{
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "IdentitiesOnly=yes",
 		"-i", c.keyFile,
 		fmt.Sprintf("%s@%s", c.username, c.host),
-		command)
+		command,
+	}
 
-	output, err := cmd.CombinedOutput()
+	output, err := sshCombinedOutputFn("ssh", args...)
 	if err != nil {
 		return string(output), fmt.Errorf("SSH command failed: %w\nOutput: %s", err, string(output))
 	}
@@ -855,21 +665,21 @@ func (c *ESXiSSHClient) CreateK8sVM(config VMConfig) error {
 	// Step 1: Create VM directory on boot datastore
 	vmDir := fmt.Sprintf("/vmfs/volumes/%s/%s", config.BootDatastore, config.Name)
 	c.logger.Info("Creating VM directory: %s", vmDir)
-	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", vmDir)); err != nil {
+	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", shellQuote(vmDir))); err != nil {
 		return fmt.Errorf("failed to create VM directory: %w", err)
 	}
 
 	// Step 2: Create OpenEBS directory on truenas-iscsi
 	openebsDir := fmt.Sprintf("/vmfs/volumes/%s/%s", config.OpenEBSDatastore, config.Name)
 	c.logger.Info("Creating OpenEBS directory: %s", openebsDir)
-	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", openebsDir)); err != nil {
+	if _, err := c.ExecuteCommand(fmt.Sprintf("mkdir -p %s", shellQuote(openebsDir))); err != nil {
 		return fmt.Errorf("failed to create OpenEBS directory: %w", err)
 	}
 
 	// Step 3: Create boot disk VMDK
 	bootVMDK := fmt.Sprintf("%s/%s.vmdk", vmDir, config.Name)
 	c.logger.Info("Creating boot disk: %s (%dGB)", bootVMDK, config.DiskSize)
-	createBootDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.DiskSize, bootVMDK)
+	createBootDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.DiskSize, shellQuote(bootVMDK))
 	if _, err := c.ExecuteCommand(createBootDisk); err != nil {
 		return fmt.Errorf("failed to create boot disk: %w", err)
 	}
@@ -877,7 +687,7 @@ func (c *ESXiSSHClient) CreateK8sVM(config VMConfig) error {
 	// Step 4: Create OpenEBS disk VMDK
 	openebsVMDK := fmt.Sprintf("%s/%s.vmdk", openebsDir, config.Name)
 	c.logger.Info("Creating OpenEBS disk: %s (%dGB)", openebsVMDK, config.OpenEBSSize)
-	createOpenEBSDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.OpenEBSSize, openebsVMDK)
+	createOpenEBSDisk := fmt.Sprintf("vmkfstools -c %dG -d thin %s", config.OpenEBSSize, shellQuote(openebsVMDK))
 	if _, err := c.ExecuteCommand(createOpenEBSDisk); err != nil {
 		return fmt.Errorf("failed to create OpenEBS disk: %w", err)
 	}
@@ -888,19 +698,22 @@ func (c *ESXiSSHClient) CreateK8sVM(config VMConfig) error {
 	c.logger.Info("Writing VMX file: %s", vmxPath)
 
 	// Write VMX file via SSH using heredoc
-	writeVMXCmd := fmt.Sprintf("cat > %s << 'VMXEOF'\n%s\nVMXEOF", vmxPath, vmxContent)
+	writeVMXCmd := fmt.Sprintf("cat > %s << 'VMXEOF'\n%s\nVMXEOF", shellQuote(vmxPath), vmxContent)
 	if _, err := c.ExecuteCommand(writeVMXCmd); err != nil {
 		return fmt.Errorf("failed to write VMX file: %w", err)
 	}
 
 	// Step 6: Register VM
 	c.logger.Info("Registering VM...")
-	registerCmd := fmt.Sprintf("vim-cmd solo/registervm %s", vmxPath)
+	registerCmd := fmt.Sprintf("vim-cmd solo/registervm %s", shellQuote(vmxPath))
 	output, err := c.ExecuteCommand(registerCmd)
 	if err != nil {
 		return fmt.Errorf("failed to register VM: %w", err)
 	}
-	vmID := strings.TrimSpace(output)
+	vmID, err := parseRegisteredVMID(output)
+	if err != nil {
+		return fmt.Errorf("failed to parse registered VM ID: %w", err)
+	}
 	c.logger.Info("VM registered with ID: %s", vmID)
 
 	// Step 7: Power on VM if requested
@@ -1046,4 +859,340 @@ usb:0.parent = "-1"
 	)
 
 	return vmx
+}
+
+func buildInitialVMSpec(config VMConfig) types.VirtualMachineConfigSpec {
+	return types.VirtualMachineConfigSpec{
+		Name:     config.Name,
+		GuestId:  "other6xLinux64Guest",
+		NumCPUs:  int32(config.VCPUs),
+		MemoryMB: int64(config.Memory),
+		Files: &types.VirtualMachineFileInfo{
+			VmPathName: fmt.Sprintf("[%s] %s", config.Datastore, config.Name),
+		},
+		Firmware: "efi",
+		BootOptions: &types.VirtualMachineBootOptions{
+			EfiSecureBootEnabled: types.NewBool(false),
+		},
+		Flags: &types.VirtualMachineFlagInfo{
+			VirtualMmuUsage:  "automatic",
+			VirtualExecUsage: "hvAuto",
+			VvtdEnabled:      types.NewBool(config.EnableIOMMU),
+		},
+		VPMCEnabled: types.NewBool(config.ExposeCounters),
+		ExtraConfig: buildExtraConfig(config),
+		Tools: &types.ToolsConfigInfo{
+			SyncTimeWithHost: types.NewBool(true),
+		},
+	}
+}
+
+func buildExtraConfig(config VMConfig) []types.BaseOptionValue {
+	extraConfig := []types.BaseOptionValue{
+		&types.OptionValue{Key: "disk.EnableUUID", Value: "TRUE"},
+	}
+	if config.ExposeCounters {
+		extraConfig = append(extraConfig, &types.OptionValue{Key: "monitor.phys_bits_used", Value: "45"})
+	}
+	return extraConfig
+}
+
+func buildInitialDeviceChanges(config VMConfig, datastoreRef types.ManagedObjectReference, backing types.BaseVirtualDeviceBackingInfo) []types.BaseVirtualDeviceConfigSpec {
+	return buildDeviceChangeSpecs(buildInitialDevices(config, datastoreRef, backing))
+}
+
+func buildInitialDevices(config VMConfig, datastoreRef types.ManagedObjectReference, backing types.BaseVirtualDeviceBackingInfo) []types.BaseVirtualDevice {
+	devices := []types.BaseVirtualDevice{
+		&types.VirtualNVMEController{
+			VirtualController: types.VirtualController{
+				VirtualDevice: types.VirtualDevice{Key: -100},
+				BusNumber:     0,
+			},
+		},
+		&types.VirtualNVMEController{
+			VirtualController: types.VirtualController{
+				VirtualDevice: types.VirtualDevice{Key: -101},
+				BusNumber:     1,
+			},
+		},
+		buildVmxnet3Device(config, backing),
+	}
+
+	if config.ISO != "" {
+		devices = append(devices,
+			&types.VirtualAHCIController{
+				VirtualSATAController: types.VirtualSATAController{
+					VirtualController: types.VirtualController{
+						VirtualDevice: types.VirtualDevice{Key: -105},
+						BusNumber:     0,
+					},
+				},
+			},
+			&types.VirtualCdrom{
+				VirtualDevice: types.VirtualDevice{
+					Key:           -106,
+					ControllerKey: -105,
+					UnitNumber:    types.NewInt32(0),
+					Backing: &types.VirtualCdromIsoBackingInfo{
+						VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+							FileName:  config.ISO,
+							Datastore: &datastoreRef,
+						},
+					},
+					Connectable: connectedDeviceInfo(),
+				},
+			},
+		)
+	}
+
+	if config.EnablePrecisionClock {
+		devices = append(devices, &types.VirtualPrecisionClock{
+			VirtualDevice: types.VirtualDevice{
+				Key: -107,
+				Backing: &types.VirtualPrecisionClockSystemClockBackingInfo{
+					Protocol: "ntp",
+				},
+			},
+		})
+	}
+
+	if config.EnableWatchdog {
+		devices = append(devices, &types.VirtualWDT{
+			VirtualDevice: types.VirtualDevice{Key: -108},
+			RunOnBoot:     true,
+		})
+	}
+
+	return devices
+}
+
+func buildVmxnet3Device(config VMConfig, backing types.BaseVirtualDeviceBackingInfo) *types.VirtualVmxnet3 {
+	netDevice := &types.VirtualVmxnet3{
+		VirtualVmxnet: types.VirtualVmxnet{
+			VirtualEthernetCard: types.VirtualEthernetCard{
+				VirtualDevice: types.VirtualDevice{
+					Key:         -104,
+					Backing:     backing,
+					Connectable: connectedDeviceInfo(),
+				},
+				AddressType: "generated",
+			},
+		},
+	}
+	if config.MacAddress != "" {
+		netDevice.AddressType = "manual"
+		netDevice.MacAddress = config.MacAddress
+	}
+	return netDevice
+}
+
+func connectedDeviceInfo() *types.VirtualDeviceConnectInfo {
+	return &types.VirtualDeviceConnectInfo{
+		Connected:         true,
+		StartConnected:    true,
+		AllowGuestControl: true,
+	}
+}
+
+func buildDeviceChangeSpecs(devices []types.BaseVirtualDevice) []types.BaseVirtualDeviceConfigSpec {
+	deviceChanges := make([]types.BaseVirtualDeviceConfigSpec, 0, len(devices))
+	for _, device := range devices {
+		deviceSpec := &types.VirtualDeviceConfigSpec{
+			Operation: types.VirtualDeviceConfigSpecOperationAdd,
+			Device:    device,
+		}
+		if _, isDisk := device.(*types.VirtualDisk); isDisk {
+			deviceSpec.FileOperation = types.VirtualDeviceConfigSpecFileOperationCreate
+		}
+		deviceChanges = append(deviceChanges, deviceSpec)
+	}
+	return deviceChanges
+}
+
+func findNVMEControllerKeys(devices []types.BaseVirtualDevice) (int32, int32, error) {
+	var nvme0Key, nvme1Key int32
+	for _, device := range devices {
+		if ctrl, ok := device.(*types.VirtualNVMEController); ok {
+			switch ctrl.BusNumber {
+			case 0:
+				nvme0Key = ctrl.Key
+			case 1:
+				nvme1Key = ctrl.Key
+			}
+		}
+	}
+	if nvme0Key == 0 || nvme1Key == 0 {
+		return 0, 0, fmt.Errorf("failed to find NVME controllers (nvme0: %d, nvme1: %d)", nvme0Key, nvme1Key)
+	}
+	return nvme0Key, nvme1Key, nil
+}
+
+func buildDiskDeviceChanges(config VMConfig, datastoreRef types.ManagedObjectReference, nvme0Key, nvme1Key int32) []types.BaseVirtualDeviceConfigSpec {
+	diskChanges := []types.BaseVirtualDeviceConfigSpec{
+		&types.VirtualDeviceConfigSpec{
+			Operation:     types.VirtualDeviceConfigSpecOperationAdd,
+			FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
+			Device: &types.VirtualDisk{
+				VirtualDevice: types.VirtualDevice{
+					Key:           -1,
+					ControllerKey: nvme0Key,
+					UnitNumber:    types.NewInt32(0),
+					Backing: &types.VirtualDiskFlatVer2BackingInfo{
+						VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+							FileName:  "",
+							Datastore: &datastoreRef,
+						},
+						DiskMode:        "persistent",
+						ThinProvisioned: types.NewBool(true),
+						EagerlyScrub:    types.NewBool(false),
+					},
+				},
+				CapacityInKB: int64(config.DiskSize) * 1024 * 1024,
+			},
+		},
+	}
+
+	if config.OpenEBSSize > 0 {
+		diskChanges = append(diskChanges, &types.VirtualDeviceConfigSpec{
+			Operation:     types.VirtualDeviceConfigSpecOperationAdd,
+			FileOperation: types.VirtualDeviceConfigSpecFileOperationCreate,
+			Device: &types.VirtualDisk{
+				VirtualDevice: types.VirtualDevice{
+					Key:           -2,
+					ControllerKey: nvme1Key,
+					UnitNumber:    types.NewInt32(0),
+					Backing: &types.VirtualDiskFlatVer2BackingInfo{
+						VirtualDeviceFileBackingInfo: types.VirtualDeviceFileBackingInfo{
+							FileName:  "",
+							Datastore: &datastoreRef,
+						},
+						DiskMode:        "persistent",
+						ThinProvisioned: types.NewBool(true),
+						EagerlyScrub:    types.NewBool(false),
+					},
+				},
+				CapacityInKB: int64(config.OpenEBSSize) * 1024 * 1024,
+			},
+		})
+	}
+
+	return diskChanges
+}
+
+func powerOnWithRetry(ctx context.Context, logger *common.ColorLogger, vm vmLifecycle, maxRetries int, retryDelays []time.Duration, vmName string) error {
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			logger.Warn("Power-on attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
+			logger.Info("Waiting %v before retry (vSphere may need time to process VMDK files)...", retryDelays[attempt-1])
+			vsphereSleep(retryDelays[attempt-1])
+			logger.Info("Retrying power-on (attempt %d/%d)...", attempt+1, maxRetries+1)
+		}
+
+		task, err := vm.PowerOn(ctx)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to start power-on: %w", err)
+			continue
+		}
+
+		if err := task.Wait(ctx); err != nil {
+			lastErr = fmt.Errorf("power-on task failed: %w", err)
+			continue
+		}
+
+		logger.Success("VM %s powered on successfully", vmName)
+		return nil
+	}
+
+	return fmt.Errorf("failed to power on VM after %d attempts (total wait time: ~%v): %w",
+		maxRetries+1,
+		10*time.Second+totalRetryDelay(retryDelays),
+		lastErr,
+	)
+}
+
+func totalRetryDelay(delays []time.Duration) time.Duration {
+	var total time.Duration
+	for _, delay := range delays {
+		total += delay
+	}
+	return total
+}
+
+func listVMNames(client *Client) ([]string, error) {
+	vmObjects, err := listVMObjectsFn(client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list VMs: %w", err)
+	}
+	if len(vmObjects) == 0 {
+		return nil, fmt.Errorf("no VMs found on vSphere/ESXi")
+	}
+
+	vmNames := make([]string, 0, len(vmObjects))
+	for _, vm := range vmObjects {
+		vmNames = append(vmNames, vm.Name())
+	}
+	if len(vmNames) == 0 {
+		return nil, fmt.Errorf("failed to extract VM names from vSphere/ESXi")
+	}
+
+	return vmNames, nil
+}
+
+func resolveVSphereCredentials() (host, username, password string, usedEnvFallback bool) {
+	secrets := get1PasswordSecretsBatch([]string{
+		constants.OpESXiHost,
+		constants.OpESXiUsername,
+		constants.OpESXiPassword,
+	})
+	host = secrets[constants.OpESXiHost]
+	username = secrets[constants.OpESXiUsername]
+	password = secrets[constants.OpESXiPassword]
+
+	if host == "" {
+		host = os.Getenv(constants.EnvVSphereHost)
+		usedEnvFallback = usedEnvFallback || host != ""
+	}
+	if username == "" {
+		username = os.Getenv(constants.EnvVSphereUsername)
+		usedEnvFallback = usedEnvFallback || username != ""
+	}
+	if password == "" {
+		password = os.Getenv(constants.EnvVSpherePassword)
+		usedEnvFallback = usedEnvFallback || password != ""
+	}
+
+	return host, username, password, usedEnvFallback
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+}
+
+func parseRegisteredVMID(output string) (string, error) {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return "", fmt.Errorf("empty VM registration output")
+	}
+	for _, line := range strings.Split(trimmed, "\n") {
+		for _, field := range strings.Fields(line) {
+			candidate := strings.Trim(field, ":")
+			if isDigits(candidate) {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("unable to find numeric VM ID in output: %s", trimmed)
+}
+
+func isDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

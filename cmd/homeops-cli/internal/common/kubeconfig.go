@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -52,14 +51,14 @@ func SaveKubeconfigTo1Password(kubeconfigContent []byte, logger *ColorLogger) er
 
 	// First, delete any existing kubeconfig file attachments to avoid duplicates
 	// We use "delete" to remove the field, then re-add it with the new file
-	deleteCmd := exec.Command("op", "item", "edit", KubeconfigItem, "--vault", KubeconfigVault,
+	deleteCmd := Command("op", "item", "edit", KubeconfigItem, "--vault", KubeconfigVault,
 		fmt.Sprintf("%s[delete]", KubeconfigField))
 	deleteCmd.Env = filteredEnv
 	// Ignore errors - field might not exist
 	_ = deleteCmd.Run()
 
 	// Add the new kubeconfig file attachment
-	cmd := exec.Command("op", "item", "edit", KubeconfigItem, "--vault", KubeconfigVault,
+	cmd := Command("op", "item", "edit", KubeconfigItem, "--vault", KubeconfigVault,
 		fmt.Sprintf("%s[file]=%s", KubeconfigField, tmpFile.Name()))
 	cmd.Env = filteredEnv
 	output, err := cmd.CombinedOutput()
@@ -90,7 +89,7 @@ func PullKubeconfigFrom1Password(destPath string, logger *ColorLogger) error {
 
 	// Use op read with the file ID to avoid ambiguity
 	ref := fmt.Sprintf("op://%s/%s/%s", KubeconfigVault, KubeconfigItem, fileID)
-	cmd := exec.Command("op", "read", ref, "--out-file", destPath)
+	cmd := Command("op", "read", ref, "--out-file", destPath)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -108,7 +107,7 @@ func PullKubeconfigFrom1Password(destPath string, logger *ColorLogger) error {
 
 // getKubeconfigFileID retrieves the file ID for the kubeconfig attachment
 func getKubeconfigFileID() (string, error) {
-	cmd := exec.Command("op", "item", "get", KubeconfigItem, "--vault", KubeconfigVault, "--format=json")
+	cmd := Command("op", "item", "get", KubeconfigItem, "--vault", KubeconfigVault, "--format=json")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get item: %w", err)

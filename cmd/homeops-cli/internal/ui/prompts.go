@@ -2,17 +2,18 @@ package ui
 
 import (
 	"fmt"
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
-
-	"homeops-cli/internal/constants"
 )
 
 // isGumAvailable checks if the gum binary is installed and available in PATH
 func isGumAvailable() bool {
-	_, err := exec.LookPath("gum")
+	_, err := common.LookPath("gum")
 	return err == nil
 }
 
@@ -54,7 +55,7 @@ func Confirm(message string, defaultYes bool) (bool, error) {
 		args = append(args, "--default")
 	}
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -112,7 +113,7 @@ func Choose(prompt string, options []string) (string, error) {
 	args := []string{"choose", "--header", prompt}
 	args = append(args, options...)
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 
@@ -155,13 +156,15 @@ func ChooseMulti(prompt string, options []string, limit int) ([]string, error) {
 		return chooseMultiBasic(prompt, options)
 	}
 
-	args := []string{"choose", "--header", prompt, "--no-limit"}
+	args := []string{"choose", "--header", prompt}
 	if limit > 0 {
 		args = append(args, "--limit", fmt.Sprintf("%d", limit))
+	} else {
+		args = append(args, "--no-limit")
 	}
 	args = append(args, options...)
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 
@@ -218,7 +221,7 @@ func Filter(prompt string, options []string) (string, error) {
 
 	args := []string{"filter", "--placeholder", prompt}
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	cmd.Stdin = strings.NewReader(strings.Join(options, "\n"))
 	cmd.Stderr = os.Stderr
 
@@ -245,7 +248,7 @@ func Input(prompt, placeholder string) (string, error) {
 		args = append(args, "--placeholder", placeholder)
 	}
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stderr = os.Stderr
 
@@ -271,41 +274,25 @@ func inputBasic(prompt string) (string, error) {
 // Spin displays a spinner while executing a command
 // The spinner automatically stops when the command completes
 func Spin(title, command string, args ...string) error {
-	if !isGumAvailable() || isInteractiveDisabled() {
-		// Fallback: just run the command without spinner
-		cmd := exec.Command(command, args...)
+	return SpinWithFunc(title, func() error {
+		cmd := common.Command(command, args...)
+		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		return cmd.Run()
-	}
-
-	spinArgs := []string{"spin", "--spinner", "dot", "--title", title, "--"}
-	spinArgs = append(spinArgs, command)
-	spinArgs = append(spinArgs, args...)
-
-	cmd := exec.Command("gum", spinArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	})
 }
 
 // SpinWithOutput displays a spinner and captures command output
 // Returns the output and any error
 func SpinWithOutput(title, command string, args ...string) (string, error) {
-	if !isGumAvailable() || isInteractiveDisabled() {
-		// Fallback: just run the command without spinner
-		cmd := exec.Command(command, args...)
-		output, err := cmd.CombinedOutput()
-		return string(output), err
-	}
-
-	spinArgs := []string{"spin", "--spinner", "dot", "--title", title, "--"}
-	spinArgs = append(spinArgs, command)
-	spinArgs = append(spinArgs, args...)
-
-	cmd := exec.Command("gum", spinArgs...)
-	output, err := cmd.CombinedOutput()
+	var output []byte
+	err := SpinWithFunc(title, func() error {
+		cmd := common.Command(command, args...)
+		var err error
+		output, err = cmd.CombinedOutput()
+		return err
+	})
 	return string(output), err
 }
 
@@ -316,89 +303,106 @@ func SpinWithFunc(title string, fn func() error) error {
 		return fn()
 	}
 
-	// Create a wrapper script that runs indefinitely until killed
-	// We'll run the actual function in parallel and kill the spinner when done
+	spinCmd, tty, scriptPath, err := startGumSpinner(title)
+	if err != nil {
+		// If spinner fails to start, just run the function
+		return fn()
+	}
+
+	defer func() {
+		stopGumSpinner(spinCmd, tty, scriptPath)
+		if r := recover(); r != nil {
+			panic(r)
+		}
+	}()
+
+	return fn()
+}
+
+func startGumSpinner(title string) (*exec.Cmd, *os.File, string, error) {
+	tmpFile, err := os.CreateTemp("", "spinner-*.sh")
+	if err != nil {
+		return nil, nil, "", err
+	}
+
 	tmpScript := `#!/bin/sh
 while true; do
     sleep 1
 done
 `
-
-	// Write temporary script
-	tmpFile, err := os.CreateTemp("", "spinner-*.sh")
-	if err != nil {
-		// Fallback if we can't create temp file
-		return fn()
-	}
-	defer func() { _ = os.Remove(tmpFile.Name()) }()
-
 	if _, err := tmpFile.WriteString(tmpScript); err != nil {
 		_ = tmpFile.Close()
-		return fn()
+		_ = os.Remove(tmpFile.Name())
+		return nil, nil, "", err
 	}
+
+	scriptPath := tmpFile.Name()
 	_ = tmpFile.Close()
-
-	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
-		return fn()
+	if err := os.Chmod(scriptPath, 0o755); err != nil {
+		_ = os.Remove(scriptPath)
+		return nil, nil, "", err
 	}
 
-	// Start spinner in background - output directly to TTY to avoid mixing with stdout
-	spinCmd := exec.Command("gum", "spin", "--spinner", "dot", "--title", title, "--", tmpFile.Name())
+	spinCmd := common.Command("gum", "spin", "--spinner", "dot", "--title", title, "--", scriptPath)
 
-	// Open /dev/tty for direct terminal I/O to prevent escape codes in stdout
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err == nil {
-		spinCmd.Stdin = tty // Prevent terminal queries from going to stdout
+	tty, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if ttyErr == nil {
+		spinCmd.Stdin = tty
 		spinCmd.Stdout = tty
 		spinCmd.Stderr = tty
-		defer func() { _ = tty.Close() }()
+	} else {
+		spinCmd.Stdin = os.Stdin
+		spinCmd.Stdout = os.Stderr
+		spinCmd.Stderr = os.Stderr
 	}
 
 	if err := spinCmd.Start(); err != nil {
-		// If spinner fails to start, just run the function
-		return fn()
+		if tty != nil {
+			_ = tty.Close()
+		}
+		_ = os.Remove(scriptPath)
+		return nil, nil, "", err
 	}
 
-	// Run the actual function
-	fnErr := fn()
+	return spinCmd, tty, scriptPath, nil
+}
 
-	// Terminate the spinner gracefully and wait for cleanup
-	if spinCmd.Process != nil {
-		// First try SIGTERM for graceful shutdown
-		_ = spinCmd.Process.Signal(os.Interrupt)
+func stopGumSpinner(spinCmd *exec.Cmd, tty *os.File, scriptPath string) {
+	defer func() {
+		if tty != nil {
+			_ = tty.Close()
+		}
+		if scriptPath != "" {
+			_ = os.Remove(scriptPath)
+		}
+	}()
 
-		// Give it a moment to clean up terminal state
-		time.Sleep(100 * time.Millisecond)
+	if spinCmd == nil || spinCmd.Process == nil {
+		return
+	}
 
-		// Force kill if still running
+	_ = spinCmd.Process.Signal(os.Interrupt)
+
+	waitDone := make(chan struct{})
+	go func() {
+		_ = spinCmd.Wait()
+		close(waitDone)
+	}()
+
+	select {
+	case <-waitDone:
+	case <-time.After(150 * time.Millisecond):
+		_ = spinCmd.Process.Signal(syscall.SIGTERM)
+	}
+
+	select {
+	case <-waitDone:
+	case <-time.After(150 * time.Millisecond):
 		_ = spinCmd.Process.Kill()
-		_ = spinCmd.Wait() // Clean up zombie process
-
-		// Use stty to fully reset terminal state - this is more reliable than ANSI codes
-		// Run stty sane to restore terminal to sane state
-		resetCmd := exec.Command("stty", "sane")
-		if tty != nil {
-			resetCmd.Stdin = tty
-			resetCmd.Stdout = tty
-			resetCmd.Stderr = tty
-		}
-		_ = resetCmd.Run()
-
-		// Also send ANSI reset as backup
-		if tty != nil {
-			// Send comprehensive ANSI reset sequences directly to TTY
-			// \033[0m - Reset all attributes
-			// \033[?25h - Show cursor
-			// \r - Carriage return to start of line
-			_, _ = tty.WriteString("\033[0m\033[?25h\r")
-			_ = tty.Sync()
-		}
-
-		// Small delay to ensure terminal state is fully restored
-		time.Sleep(50 * time.Millisecond)
+		<-waitDone
 	}
 
-	return fnErr
+	resetTerminal(tty)
 }
 
 // Style applies styling to text using gum
@@ -427,7 +431,7 @@ func Style(text string, opts StyleOptions) string {
 
 	args = append(args, text)
 
-	cmd := exec.Command("gum", args...)
+	cmd := common.Command("gum", args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return text // Fallback to unstyled text
@@ -473,7 +477,7 @@ func CheckGumInstallation() error {
 // Returns empty string if "(all namespaces)" is selected
 func SelectNamespace(prompt string, includeAllOption bool) (string, error) {
 	// Get list of namespaces from kubectl
-	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	cmd := common.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get namespaces: %w", err)
@@ -508,7 +512,7 @@ func SelectNamespace(prompt string, includeAllOption bool) (string, error) {
 
 // GetNamespaces returns the list of Kubernetes namespaces
 func GetNamespaces() ([]string, error) {
-	cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+	cmd := common.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get namespaces: %w", err)
@@ -543,21 +547,27 @@ func RunWithSpinner(title string, verbose bool, logger interface {
 
 // ResetTerminal resets terminal state to prevent escape code leakage
 func ResetTerminal() {
-	// Run stty sane to fully restore terminal
-	resetCmd := exec.Command("stty", "sane")
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err == nil {
+	if err != nil {
+		time.Sleep(50 * time.Millisecond)
+		return
+	}
+	defer func() { _ = tty.Close() }()
+
+	resetTerminal(tty)
+}
+
+func resetTerminal(tty *os.File) {
+	if tty != nil {
+		resetCmd := common.Command("stty", "sane")
 		resetCmd.Stdin = tty
 		resetCmd.Stdout = tty
 		resetCmd.Stderr = tty
 		_ = resetCmd.Run()
 
-		// Also send ANSI reset codes
 		_, _ = tty.WriteString("\033[0m\033[?25h\r")
 		_ = tty.Sync()
-		_ = tty.Close()
 	}
 
-	// Small delay to let terminal settle
 	time.Sleep(50 * time.Millisecond)
 }

@@ -19,6 +19,47 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	kubectlOutputFn = func(args ...string) ([]byte, error) {
+		return common.Output("kubectl", args...)
+	}
+	kubectlRunFn = func(args ...string) error {
+		return common.Command("kubectl", args...).Run()
+	}
+	kubectlCombinedOutputFn = func(args ...string) ([]byte, error) {
+		return common.Command("kubectl", args...).CombinedOutput()
+	}
+	fluxCombinedOutputFn = func(args ...string) ([]byte, error) {
+		return common.Command("flux", args...).CombinedOutput()
+	}
+	fluxRunFn = func(args ...string) error {
+		return common.Command("flux", args...).Run()
+	}
+	commandOutputFn = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).Output()
+	}
+	commandRunFn = func(name string, args ...string) error {
+		return exec.Command(name, args...).Run()
+	}
+	commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}
+	kubectlApplyYAMLFn = func(yaml string) ([]byte, error) {
+		cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
+		cmd.Stdin = bytes.NewReader([]byte(yaml))
+		return cmd.CombinedOutput()
+	}
+	selectNamespaceFn       = ui.SelectNamespace
+	chooseOptionFn          = ui.Choose
+	filterOptionFn          = ui.Filter
+	confirmActionFn         = ui.Confirm
+	renderVolsyncTemplateFn = templates.RenderVolsyncTemplate
+	volsyncSleep            = time.Sleep
+	volsyncNow              = time.Now
+	snapshotAppFn           = snapshotApp
+	restoreAppFn            = restoreApp
+)
+
 // VolsyncConfig holds configuration for volsync operations
 type VolsyncConfig struct {
 	NFSServer string
@@ -73,14 +114,12 @@ func changeVolsyncState(state string) error {
 	logger.Info("Setting VolSync state to: %s", state)
 
 	// Suspend/resume kustomization
-	cmd := exec.Command("flux", "--namespace", constants.NSVolsyncSystem, state, "kustomization", "volsync")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := fluxCombinedOutputFn("--namespace", constants.NSVolsyncSystem, state, "kustomization", "volsync"); err != nil {
 		return fmt.Errorf("failed to %s kustomization: %w\n%s", state, err, output)
 	}
 
 	// Suspend/resume helmrelease
-	cmd = exec.Command("flux", "--namespace", constants.NSVolsyncSystem, state, "helmrelease", "volsync")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := fluxCombinedOutputFn("--namespace", constants.NSVolsyncSystem, state, "helmrelease", "volsync"); err != nil {
 		return fmt.Errorf("failed to %s helmrelease: %w\n%s", state, err, output)
 	}
 
@@ -90,8 +129,7 @@ func changeVolsyncState(state string) error {
 		replicas = "0"
 	}
 
-	cmd = exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "scale", "deployment", "volsync", "--replicas", replicas)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := kubectlCombinedOutputFn("--namespace", constants.NSVolsyncSystem, "scale", "deployment", "volsync", "--replicas", replicas); err != nil {
 		return fmt.Errorf("failed to scale deployment: %w\n%s", err, output)
 	}
 
@@ -129,97 +167,20 @@ func newSuspendCommand() *cobra.Command {
 }
 
 func suspendVolsyncResource(namespace, name string, all bool) error {
-	logger := common.NewColorLogger()
-
-	// If namespace is not provided, prompt for selection
-	if namespace == "" {
-		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return err
-		}
-		namespace = selectedNS
+	namespace, err := resolveNamespace(namespace)
+	if err != nil {
+		return err
 	}
 
 	if all {
-		return suspendAllVolsyncResources(namespace)
+		return setAllVolsyncResourcesSuspended(namespace, true)
 	}
 
-	// Try ReplicationSource first
-	cmd := exec.Command("kubectl", "patch", "replicationsource", name,
-		"-n", namespace,
-		"--type=merge",
-		"-p", `{"spec":{"suspend":true}}`)
-
-	if err := cmd.Run(); err != nil {
-		// Try ReplicationDestination
-		cmd = exec.Command("kubectl", "patch", "replicationdestination", name,
-			"-n", namespace,
-			"--type=merge",
-			"-p", `{"spec":{"suspend":true}}`)
-
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s", name, namespace)
-		}
-		logger.Success("Suspended ReplicationDestination %s/%s", namespace, name)
-	} else {
-		logger.Success("Suspended ReplicationSource %s/%s", namespace, name)
-	}
-
-	return nil
+	return setVolsyncResourceSuspended(namespace, name, true)
 }
 
 func suspendAllVolsyncResources(namespace string) error {
-	logger := common.NewColorLogger()
-
-	// Suspend all ReplicationSources
-	cmd := exec.Command("kubectl", "get", "replicationsource",
-		"-n", namespace,
-		"-o", "jsonpath={.items[*].metadata.name}")
-	output, err := cmd.Output()
-	if err != nil {
-		logger.Warn("Failed to list ReplicationSources: %v", err)
-	} else {
-		sources := strings.Fields(string(output))
-		for _, source := range sources {
-			patchCmd := exec.Command("kubectl", "patch", "replicationsource", source,
-				"-n", namespace,
-				"--type=merge",
-				"-p", `{"spec":{"suspend":true}}`)
-			if err := patchCmd.Run(); err != nil {
-				logger.Error("Failed to suspend ReplicationSource %s: %v", source, err)
-			} else {
-				logger.Info("Suspended ReplicationSource %s", source)
-			}
-		}
-	}
-
-	// Suspend all ReplicationDestinations
-	cmd = exec.Command("kubectl", "get", "replicationdestination",
-		"-n", namespace,
-		"-o", "jsonpath={.items[*].metadata.name}")
-	output, err = cmd.Output()
-	if err != nil {
-		logger.Warn("Failed to list ReplicationDestinations: %v", err)
-	} else {
-		destinations := strings.Fields(string(output))
-		for _, dest := range destinations {
-			patchCmd := exec.Command("kubectl", "patch", "replicationdestination", dest,
-				"-n", namespace,
-				"--type=merge",
-				"-p", `{"spec":{"suspend":true}}`)
-			if err := patchCmd.Run(); err != nil {
-				logger.Error("Failed to suspend ReplicationDestination %s: %v", dest, err)
-			} else {
-				logger.Info("Suspended ReplicationDestination %s", dest)
-			}
-		}
-	}
-
-	logger.Success("Suspended all VolSync resources in namespace %s", namespace)
-	return nil
+	return setAllVolsyncResourcesSuspended(namespace, true)
 }
 
 func newResumeCommand() *cobra.Command {
@@ -252,97 +213,128 @@ func newResumeCommand() *cobra.Command {
 }
 
 func resumeVolsyncResource(namespace, name string, all bool) error {
-	logger := common.NewColorLogger()
-
-	// If namespace is not provided, prompt for selection
-	if namespace == "" {
-		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return err
-		}
-		namespace = selectedNS
+	namespace, err := resolveNamespace(namespace)
+	if err != nil {
+		return err
 	}
 
 	if all {
-		return resumeAllVolsyncResources(namespace)
+		return setAllVolsyncResourcesSuspended(namespace, false)
 	}
 
-	// Try ReplicationSource first
-	cmd := exec.Command("kubectl", "patch", "replicationsource", name,
-		"-n", namespace,
-		"--type=merge",
-		"-p", `{"spec":{"suspend":false}}`)
-
-	if err := cmd.Run(); err != nil {
-		// Try ReplicationDestination
-		cmd = exec.Command("kubectl", "patch", "replicationdestination", name,
-			"-n", namespace,
-			"--type=merge",
-			"-p", `{"spec":{"suspend":false}}`)
-
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s", name, namespace)
-		}
-		logger.Success("Resumed ReplicationDestination %s/%s", namespace, name)
-	} else {
-		logger.Success("Resumed ReplicationSource %s/%s", namespace, name)
-	}
-
-	return nil
+	return setVolsyncResourceSuspended(namespace, name, false)
 }
 
 func resumeAllVolsyncResources(namespace string) error {
+	return setAllVolsyncResourcesSuspended(namespace, false)
+}
+
+func resolveNamespace(namespace string) (string, error) {
+	if namespace != "" {
+		return namespace, nil
+	}
+
+	selectedNS, err := selectNamespaceFn("Select namespace:", false)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return selectedNS, nil
+}
+
+func setVolsyncResourceSuspended(namespace, name string, suspend bool) error {
 	logger := common.NewColorLogger()
+	if namespace == "" {
+		return nil
+	}
 
-	// Resume all ReplicationSources
-	cmd := exec.Command("kubectl", "get", "replicationsource",
-		"-n", namespace,
-		"-o", "jsonpath={.items[*].metadata.name}")
-	output, err := cmd.Output()
-	if err != nil {
-		logger.Warn("Failed to list ReplicationSources: %v", err)
-	} else {
-		sources := strings.Fields(string(output))
-		for _, source := range sources {
-			patchCmd := exec.Command("kubectl", "patch", "replicationsource", source,
-				"-n", namespace,
-				"--type=merge",
-				"-p", `{"spec":{"suspend":false}}`)
-			if err := patchCmd.Run(); err != nil {
-				logger.Error("Failed to resume ReplicationSource %s: %v", source, err)
+	desiredState := boolWord(suspend, "suspended", "resumed")
+	resourceKinds := []string{"replicationsource", "replicationdestination"}
+	var lastErr error
+
+	for _, kind := range resourceKinds {
+		if err := patchVolsyncResource(namespace, kind, name, suspend); err == nil {
+			logger.Success("%s %s %s/%s", capitalize(desiredState), resourceDisplayName(kind), namespace, name)
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	if lastErr != nil {
+		return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s: %w", name, namespace, lastErr)
+	}
+	return fmt.Errorf("resource %s not found as ReplicationSource or ReplicationDestination in namespace %s", name, namespace)
+}
+
+func setAllVolsyncResourcesSuspended(namespace string, suspend bool) error {
+	logger := common.NewColorLogger()
+	if namespace == "" {
+		return nil
+	}
+
+	desiredState := boolWord(suspend, "suspend", "resume")
+	completedState := boolWord(suspend, "suspended", "resumed")
+	resourceKinds := []string{"replicationsource", "replicationdestination"}
+
+	for _, kind := range resourceKinds {
+		names, err := listVolsyncResources(namespace, kind)
+		if err != nil {
+			logger.Warn("Failed to list %ss: %v", resourceDisplayName(kind), err)
+			continue
+		}
+
+		for _, name := range names {
+			if err := patchVolsyncResource(namespace, kind, name, suspend); err != nil {
+				logger.Error("Failed to %s %s %s: %v", desiredState, resourceDisplayName(kind), name, err)
 			} else {
-				logger.Info("Resumed ReplicationSource %s", source)
+				logger.Info("%s %s %s", capitalize(completedState), resourceDisplayName(kind), name)
 			}
 		}
 	}
 
-	// Resume all ReplicationDestinations
-	cmd = exec.Command("kubectl", "get", "replicationdestination",
-		"-n", namespace,
-		"-o", "jsonpath={.items[*].metadata.name}")
-	output, err = cmd.Output()
-	if err != nil {
-		logger.Warn("Failed to list ReplicationDestinations: %v", err)
-	} else {
-		destinations := strings.Fields(string(output))
-		for _, dest := range destinations {
-			patchCmd := exec.Command("kubectl", "patch", "replicationdestination", dest,
-				"-n", namespace,
-				"--type=merge",
-				"-p", `{"spec":{"suspend":false}}`)
-			if err := patchCmd.Run(); err != nil {
-				logger.Error("Failed to resume ReplicationDestination %s: %v", dest, err)
-			} else {
-				logger.Info("Resumed ReplicationDestination %s", dest)
-			}
-		}
-	}
-
-	logger.Success("Resumed all VolSync resources in namespace %s", namespace)
+	logger.Success("%s all VolSync resources in namespace %s", capitalize(completedState), namespace)
 	return nil
+}
+
+func listVolsyncResources(namespace, kind string) ([]string, error) {
+	output, err := kubectlOutputFn("get", kind, "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(string(output)), nil
+}
+
+func patchVolsyncResource(namespace, kind, name string, suspend bool) error {
+	patchPayload := fmt.Sprintf(`{"spec":{"suspend":%t}}`, suspend)
+	return kubectlRunFn("patch", kind, name, "-n", namespace, "--type=merge", "-p", patchPayload)
+}
+
+func resourceDisplayName(kind string) string {
+	switch kind {
+	case "replicationsource":
+		return "ReplicationSource"
+	case "replicationdestination":
+		return "ReplicationDestination"
+	default:
+		return kind
+	}
+}
+
+func boolWord(condition bool, whenTrue, whenFalse string) string {
+	if condition {
+		return whenTrue
+	}
+	return whenFalse
+}
+
+func capitalize(value string) string {
+	if value == "" {
+		return value
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
 }
 
 func newSnapshotCommand() *cobra.Command {
@@ -379,7 +371,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+		selectedNS, err := selectNamespaceFn("Select namespace:", false)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -391,9 +383,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 	// If app is not provided, prompt for selection
 	if app == "" {
-		// Get list of ReplicationSources in namespace
-		getAppsCmd := exec.Command("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getAppsCmd.Output()
+		output, err := commandOutputFn("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
 		if err != nil {
 			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
 		}
@@ -404,7 +394,7 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 		}
 
 		// Use interactive selector
-		selectedApp, err := ui.Choose(fmt.Sprintf("Select application to snapshot in %s:", namespace), apps)
+		selectedApp, err := chooseOptionFn(fmt.Sprintf("Select application to snapshot in %s:", namespace), apps)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -415,21 +405,18 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 	}
 
 	// Check if ReplicationSource exists
-	checkCmd := exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources", app)
-	if err := checkCmd.Run(); err != nil {
+	if err := commandRunFn("kubectl", "--namespace", namespace, "get", "replicationsources", app); err != nil {
 		return fmt.Errorf("ReplicationSource %s not found in namespace %s", app, namespace)
 	}
 
 	logger.Info("Triggering snapshot for %s/%s", namespace, app)
 
 	// Trigger manual snapshot
-	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	timestamp := fmt.Sprintf("%d", volsyncNow().Unix())
 	patchJSON := fmt.Sprintf(`{"spec":{"trigger":{"manual":"%s"}}}`, timestamp)
 
-	cmd := exec.Command("kubectl", "--namespace", namespace, "patch", "replicationsources", app,
-		"--type", "merge", "-p", patchJSON)
-
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := commandCombinedOutputFn("kubectl", "--namespace", namespace, "patch", "replicationsources", app,
+		"--type", "merge", "-p", patchJSON); err != nil {
 		return fmt.Errorf("failed to trigger snapshot: %w\n%s", err, output)
 	}
 
@@ -448,23 +435,20 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 			return fmt.Errorf("timeout waiting for job to start")
 		}
 
-		checkJob := exec.Command("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName))
-		if err := checkJob.Run(); err == nil {
+		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
 			break
 		}
 
-		time.Sleep(5 * time.Second)
+		volsyncSleep(5 * time.Second)
 	}
 
 	// Wait for job to complete
 	logger.Info("Waiting for snapshot to complete (timeout: %s)...", timeout)
 
-	waitCmd := exec.Command("kubectl", "--namespace", namespace, "wait",
+	if err := commandRunFn("kubectl", "--namespace", namespace, "wait",
 		fmt.Sprintf("job/%s", jobName),
 		"--for=condition=complete",
-		fmt.Sprintf("--timeout=%ds", int(timeout.Seconds())))
-
-	if err := waitCmd.Run(); err != nil {
+		fmt.Sprintf("--timeout=%ds", int(timeout.Seconds()))); err != nil {
 		return fmt.Errorf("snapshot job failed or timed out: %w", err)
 	}
 
@@ -553,7 +537,7 @@ func snapshotAllApps(namespace string, wait bool, timeout time.Duration, dryRun 
 
 			logger.Info("Processing %s/%s...", rs.Namespace, rs.Name)
 
-			err := snapshotApp(rs.Namespace, rs.Name, wait, timeout)
+			err := snapshotAppFn(rs.Namespace, rs.Name, wait, timeout)
 
 			// Thread-safe result tracking
 			mutex.Lock()
@@ -597,24 +581,23 @@ type ReplicationSource struct {
 }
 
 func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
-	var cmd *exec.Cmd
+	var output []byte
+	var err error
 	if namespace == "" {
 		// Search all namespaces
-		cmd = exec.Command("kubectl", "get", "replicationsources", "--all-namespaces",
+		output, err = kubectlCombinedOutputFn("get", "replicationsources", "--all-namespaces",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
 	} else {
 		// Validate namespace exists first
-		checkNsCmd := exec.Command("kubectl", "get", "namespace", namespace)
-		if err := checkNsCmd.Run(); err != nil {
+		if err := kubectlRunFn("get", "namespace", namespace); err != nil {
 			return nil, fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
 		}
 
 		// Search specific namespace
-		cmd = exec.Command("kubectl", "--namespace", namespace, "get", "replicationsources",
+		output, err = kubectlCombinedOutputFn("--namespace", namespace, "get", "replicationsources",
 			"--output=custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name", "--no-headers")
 	}
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// If no ReplicationSources found, kubectl returns an error
 		outputStr := string(output)
@@ -626,8 +609,12 @@ func discoverReplicationSources(namespace string) ([]ReplicationSource, error) {
 		return nil, fmt.Errorf("failed to get ReplicationSources in namespace '%s': %w\nOutput: %s", namespace, err, outputStr)
 	}
 
+	return parseReplicationSourcesOutput(string(output))
+}
+
+func parseReplicationSourcesOutput(output string) ([]ReplicationSource, error) {
 	var replicationSources []ReplicationSource
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	lines := strings.Split(strings.TrimSpace(output), "\n")
 
 	for lineNum, line := range lines {
 		if line == "" {
@@ -665,8 +652,7 @@ func detectController(namespace, app string) (string, error) {
 	}
 
 	// Validate namespace exists
-	checkNsCmd := exec.Command("kubectl", "get", "namespace", namespace)
-	if err := checkNsCmd.Run(); err != nil {
+	if err := kubectlRunFn("get", "namespace", namespace); err != nil {
 		return "", fmt.Errorf("namespace '%s' does not exist or is not accessible", namespace)
 	}
 
@@ -675,8 +661,7 @@ func detectController(namespace, app string) (string, error) {
 
 	var lastError error
 	for _, controller := range controllers {
-		cmd := exec.Command("kubectl", "--namespace", namespace, "get", controller, app)
-		if err := cmd.Run(); err == nil {
+		if err := kubectlRunFn("--namespace", namespace, "get", controller, app); err == nil {
 			return controller, nil
 		} else {
 			lastError = err
@@ -724,7 +709,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+		selectedNS, err := selectNamespaceFn("Select namespace:", false)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -736,9 +721,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 
 	// If app is not provided, prompt for selection
 	if app == "" {
-		// Get list of ReplicationSources in namespace
-		getAppsCmd := exec.Command("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getAppsCmd.Output()
+		output, err := commandOutputFn("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
 		if err != nil {
 			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
 		}
@@ -749,7 +732,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		}
 
 		// Use interactive selector
-		selectedApp, err := ui.Choose(fmt.Sprintf("Select application to restore in %s:", namespace), apps)
+		selectedApp, err := chooseOptionFn(fmt.Sprintf("Select application to restore in %s:", namespace), apps)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -762,10 +745,9 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	// If previous snapshot is not provided, list and prompt for selection
 	if previous == "" {
 		// Try to get snapshots via Snapshot CRs first
-		getSnapshotsCmd := exec.Command("kubectl", "get", "snapshots", "-n", namespace,
+		output, err := commandOutputFn("kubectl", "get", "snapshots", "-n", namespace,
 			"-l", fmt.Sprintf("app=%s", app),
 			"-o", "jsonpath={.items[*].spec.snapshotNum}")
-		output, err := getSnapshotsCmd.Output()
 
 		var snapshots []string
 		if err == nil {
@@ -783,8 +765,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 			}
 
 			// Get all snapshots from kopia
-			cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
-			output, err := cmd.CombinedOutput()
+			output, err := commandCombinedOutputFn("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
 			if err != nil {
 				return fmt.Errorf("failed to get snapshots from kopia: %w", err)
 			}
@@ -808,7 +789,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		}
 
 		// Use Filter for better search experience
-		selectedSnapshot, err := ui.Filter("Search for snapshot:", snapshots)
+		selectedSnapshot, err := filterOptionFn("Search for snapshot:", snapshots)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -816,23 +797,12 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 			return fmt.Errorf("snapshot selection failed: %w", err)
 		}
 
-		// Extract snapshot ID if it's in "Timestamp (ID)" format
-		if strings.Contains(selectedSnapshot, "(") && strings.HasSuffix(selectedSnapshot, ")") {
-			start := strings.LastIndex(selectedSnapshot, "(")
-			end := strings.LastIndex(selectedSnapshot, ")")
-			if start != -1 && end != -1 && end > start {
-				previous = selectedSnapshot[start+1 : end]
-			} else {
-				previous = selectedSnapshot
-			}
-		} else {
-			previous = selectedSnapshot
-		}
+		previous = snapshotIDFromSelection(selectedSnapshot)
 	}
 
 	// Add confirmation for restore
 	if !force {
-		confirmed, err := ui.Confirm(fmt.Sprintf("Restore %s from snapshot %s? Data will be overwritten!", app, previous), false)
+		confirmed, err := confirmActionFn(fmt.Sprintf("Restore %s from snapshot %s? Data will be overwritten!", app, previous), false)
 		if err != nil {
 			return fmt.Errorf("confirmation failed: %w", err)
 		}
@@ -855,13 +825,11 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	// Step 1: Suspend Flux resources
 	logger.Info("Suspending Flux resources...")
 
-	cmd := exec.Command("flux", "--namespace", namespace, "suspend", "kustomization", app)
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "suspend", "kustomization", app); err != nil {
 		logger.Warn("Failed to suspend kustomization: %v", err)
 	}
 
-	cmd = exec.Command("flux", "--namespace", namespace, "suspend", "helmrelease", app)
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "suspend", "helmrelease", app); err != nil {
 		logger.Warn("Failed to suspend helmrelease: %v", err)
 	}
 
@@ -869,17 +837,15 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	if controllerFound {
 		logger.Info("Scaling down %s/%s...", controller, app)
 
-		cmd = exec.Command("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0")
-		if output, err := cmd.CombinedOutput(); err != nil {
+		if output, err := commandCombinedOutputFn("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0"); err != nil {
 			return fmt.Errorf("failed to scale down: %w\n%s", err, output)
 		}
 
 		// Wait for pods to be deleted
 		logger.Info("Waiting for pods to terminate...")
-		cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
+		if err := commandRunFn("kubectl", "--namespace", namespace, "wait", "pod",
 			"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
-			"--timeout=5m")
-		if err := cmd.Run(); err != nil {
+			"--timeout=5m"); err != nil {
 			logger.Warn("Some pods may still be terminating: %v", err)
 		}
 	} else {
@@ -890,14 +856,13 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	logger.Info("Getting restore configuration...")
 
 	// Get claim name
-	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+	output, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.sourcePVC}")
-	claimOutput, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get PVC name: %w", err)
 	}
-	claim := strings.TrimSpace(string(claimOutput))
+	claim := strings.TrimSpace(string(output))
 
 	// Get other required fields for Snapshot copyMethod
 	fields := map[string]string{
@@ -918,10 +883,9 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	}
 
 	for envKey, jsonPath := range fields {
-		cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+		output, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
 			fmt.Sprintf("replicationsources/%s", app),
 			fmt.Sprintf("--output=jsonpath=%s", jsonPath))
-		output, err := cmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to get %s: %w", envKey, err)
 		}
@@ -929,10 +893,9 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	}
 
 	// Handle ACCESS_MODES separately to convert from JSON to YAML format
-	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+	accessModesOutput, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.kopia.accessModes}")
-	accessModesOutput, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get ACCESS_MODES: %w", err)
 	}
@@ -946,10 +909,9 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	}
 
 	// Handle CACHE_ACCESS_MODES separately
-	cmd = exec.Command("kubectl", "--namespace", namespace, "get",
+	cacheAccessModesOutput, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.kopia.cacheAccessModes}")
-	cacheAccessModesOutput, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get CACHE_ACCESS_MODES: %w", err)
 	}
@@ -965,14 +927,12 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	logger.Info("Creating ReplicationDestination...")
 
 	// Create the ReplicationDestination YAML using embedded template
-	rdYAML, err := templates.RenderVolsyncTemplate("replicationdestination.yaml.j2", env)
+	rdYAML, err := renderVolsyncTemplateFn("replicationdestination.yaml.j2", env)
 	if err != nil {
 		return fmt.Errorf("failed to render ReplicationDestination template: %w", err)
 	}
 
-	cmd = exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
-	cmd.Stdin = bytes.NewReader([]byte(rdYAML))
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := kubectlApplyYAMLFn(rdYAML); err != nil {
 		return fmt.Errorf("failed to create ReplicationDestination: %w\n%s", err, output)
 	}
 
@@ -988,63 +948,54 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	jobAppearStart := time.Now()
 	jobAppeared := false
 	for time.Since(jobAppearStart) < jobAppearTimeout {
-		checkJob := exec.Command("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName))
-		if err := checkJob.Run(); err == nil {
+		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
 			jobAppeared = true
 			break
 		}
-		time.Sleep(5 * time.Second)
+		volsyncSleep(5 * time.Second)
 	}
 	if !jobAppeared {
 		return fmt.Errorf("restore job %s did not appear within %v", jobName, jobAppearTimeout)
 	}
 
 	// Wait for completion
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait",
+	if err := commandRunFn("kubectl", "--namespace", namespace, "wait",
 		fmt.Sprintf("job/%s", jobName),
 		"--for=condition=complete",
-		fmt.Sprintf("--timeout=%ds", int(restoreTimeout.Seconds())))
-
-	if err := cmd.Run(); err != nil {
+		fmt.Sprintf("--timeout=%ds", int(restoreTimeout.Seconds()))); err != nil {
 		return fmt.Errorf("restore job failed: %w", err)
 	}
 
 	// Step 6: Clean up ReplicationDestination
 	logger.Info("Cleaning up...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "delete", "replicationdestination", fmt.Sprintf("%s-manual", app))
-	if err := cmd.Run(); err != nil {
+	if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", fmt.Sprintf("%s-manual", app)); err != nil {
 		logger.Warn("Failed to delete ReplicationDestination: %v", err)
 	}
 
 	// Step 7: Resume Flux resources
 	logger.Info("Resuming application...")
 
-	cmd = exec.Command("flux", "--namespace", namespace, "resume", "kustomization", app)
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "resume", "kustomization", app); err != nil {
 		logger.Warn("Failed to resume kustomization: %v", err)
 	}
 
-	cmd = exec.Command("flux", "--namespace", namespace, "resume", "helmrelease", app)
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "resume", "helmrelease", app); err != nil {
 		logger.Warn("Failed to resume helmrelease: %v", err)
 	}
 
-	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "kustomization", app, "--with-source")
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "reconcile", "kustomization", app, "--with-source"); err != nil {
 		logger.Warn("Failed to reconcile kustomization: %v", err)
 	}
 
-	cmd = exec.Command("flux", "--namespace", namespace, "reconcile", "helmrelease", app, "--force")
-	if err := cmd.Run(); err != nil {
+	if err := fluxRunFn("--namespace", namespace, "reconcile", "helmrelease", app, "--force"); err != nil {
 		logger.Warn("Failed to reconcile helmrelease: %v", err)
 	}
 
 	// Wait for pods to be ready
 	logger.Info("Waiting for application to be ready...")
-	cmd = exec.Command("kubectl", "--namespace", namespace, "wait", "pod",
+	if err := commandRunFn("kubectl", "--namespace", namespace, "wait", "pod",
 		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
-		"--timeout=5m")
-	if err := cmd.Run(); err != nil {
+		"--timeout=5m"); err != nil {
 		logger.Warn("Application may still be starting: %v", err)
 	}
 
@@ -1069,7 +1020,7 @@ func newRestoreAllCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// If namespace is not provided, prompt for selection
 			if namespace == "" {
-				selectedNS, err := ui.SelectNamespace("Select namespace:", false)
+				selectedNS, err := selectNamespaceFn("Select namespace:", false)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil // User cancelled - exit cleanly
@@ -1081,7 +1032,7 @@ func newRestoreAllCommand() *cobra.Command {
 
 			if !force && !dryRun {
 				message := fmt.Sprintf("This will restore ALL applications in namespace '%s' from snapshot %s. Data will be overwritten. Continue?", namespace, previous)
-				confirmed, err := ui.Confirm(message, false)
+				confirmed, err := confirmActionFn(message, false)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil
@@ -1139,7 +1090,7 @@ func restoreAllApps(namespace, previous string, dryRun bool) error {
 	for _, rs := range replicationSources {
 		logger.Info("Processing restore for %s/%s...", rs.Namespace, rs.Name)
 
-		err := restoreApp(rs.Namespace, rs.Name, previous, false, 120*time.Minute)
+		err := restoreAppFn(rs.Namespace, rs.Name, previous, false, 120*time.Minute)
 		if err != nil {
 			logger.Error("Failed to restore %s/%s: %v", rs.Namespace, rs.Name, err)
 			failed = append(failed, fmt.Sprintf("%s/%s", rs.Namespace, rs.Name))
@@ -1202,8 +1153,7 @@ func listSnapshots(appFilter, format string) error {
 	}
 
 	// Get all snapshots from kopia
-	cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
-	output, err := cmd.CombinedOutput()
+	output, err := commandCombinedOutputFn("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
 	if err != nil {
 		return fmt.Errorf("failed to get snapshots: %w\nOutput: %s", err, output)
 	}
@@ -1248,8 +1198,7 @@ type AppSnapshot struct {
 }
 
 func findKopiaPod() (string, error) {
-	cmd := exec.Command("kubectl", "--namespace", constants.NSVolsyncSystem, "get", "pods", "-l", "app.kubernetes.io/name=kopia", "-o", "jsonpath={.items[0].metadata.name}")
-	output, err := cmd.Output()
+	output, err := kubectlOutputFn("--namespace", constants.NSVolsyncSystem, "get", "pods", "-l", "app.kubernetes.io/name=kopia", "-o", "jsonpath={.items[0].metadata.name}")
 	if err != nil {
 		return "", err
 	}
@@ -1258,6 +1207,31 @@ func findKopiaPod() (string, error) {
 		return "", fmt.Errorf("no kopia pod found")
 	}
 	return podName, nil
+}
+
+func isKopiaSnapshotLine(fields []string) bool {
+	if len(fields) < 6 {
+		return false
+	}
+	if _, err := time.Parse("2006-01-02", fields[0]); err != nil {
+		return false
+	}
+	if _, err := time.Parse("15:04:05", fields[1]); err != nil {
+		return false
+	}
+	return true
+}
+
+func snapshotIDFromSelection(selected string) string {
+	selected = strings.TrimSpace(selected)
+	if strings.Contains(selected, "(") && strings.HasSuffix(selected, ")") {
+		start := strings.LastIndex(selected, "(")
+		end := strings.LastIndex(selected, ")")
+		if start != -1 && end != -1 && end > start {
+			return selected[start+1 : end]
+		}
+	}
+	return selected
 }
 
 func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
@@ -1302,15 +1276,26 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 					inSnapshotBlock = true
 				}
 			}
-		} else if inSnapshotBlock && strings.Contains(line, "EDT") && strings.Contains(line, "k") {
+		} else if inSnapshotBlock && strings.HasPrefix(line, "+ ") {
+			// This indicates additional identical snapshots
+			// Parse the count from "+ X identical snapshots until..."
+			if strings.Contains(line, "identical snapshots") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					if additionalCount, err := strconv.Atoi(fields[1]); err == nil {
+						currentApp.Count += additionalCount
+					}
+				}
+			}
+		} else if inSnapshotBlock {
 			// This is a snapshot line
 			fields := strings.Fields(line)
-			if len(fields) >= 4 {
-				// Extract timestamp, snapshot ID, size
-				timestamp := strings.Join(fields[0:4], " ") // "2025-08-20 11:44:44 EDT"
-				snapshotID := fields[4]                     // "k5b070ce6951b490d1641ea00ecc2fb0b"
-				size := fields[5]                           // "190.3"
-				sizeUnit := fields[6]                       // "MB"
+			if isKopiaSnapshotLine(fields) {
+				// Format: DATE TIME TZ SNAPSHOT_ID SIZE SIZE_UNIT (tags...)
+				timestamp := strings.Join(fields[0:3], " ")
+				snapshotID := fields[3]
+				size := fields[4]
+				sizeUnit := fields[5]
 
 				fullSize := size + " " + sizeUnit
 
@@ -1332,17 +1317,6 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 
 				currentApp.Count++
 				currentApp.AllSnapshots = append(currentApp.AllSnapshots, fmt.Sprintf("%s (%s)", timestamp, snapshotID))
-			}
-		} else if inSnapshotBlock && strings.HasPrefix(line, "+ ") {
-			// This indicates additional identical snapshots
-			// Parse the count from "+ X identical snapshots until..."
-			if strings.Contains(line, "identical snapshots") {
-				fields := strings.Fields(line)
-				if len(fields) >= 2 {
-					if additionalCount, err := strconv.Atoi(fields[1]); err == nil {
-						currentApp.Count += additionalCount
-					}
-				}
 			}
 		}
 	}

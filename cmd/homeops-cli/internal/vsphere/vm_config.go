@@ -2,6 +2,11 @@ package vsphere
 
 import "fmt"
 
+const (
+	DefaultISODatastore = "datastore1"
+	DefaultISOFilename  = "vmware-amd64.iso"
+)
+
 // VMConfig represents the configuration for a vSphere VM
 type VMConfig struct {
 	// Basic VM configuration
@@ -139,7 +144,7 @@ func GetDefaultVMConfig(name string) VMConfig {
 		OpenEBSSize:          800,             // 800GB OpenEBS (matches actual VMs)
 		BootDatastore:        "local-nvme1",   // Boot disk on local NVMe
 		OpenEBSDatastore:     "truenas-iscsi", // OpenEBS disk on TrueNAS iSCSI
-		ISODatastore:         "datastore1",    // ISO stored on datastore1
+		ISODatastore:         DefaultISODatastore,
 		Network:              "vl999",
 		PowerOn:              true, // Power on by default
 		EnableIOMMU:          true, // Enable IOMMU/VT-d
@@ -169,9 +174,14 @@ func GetK8sVMConfig(name string) VMConfig {
 	}
 
 	// Set ISO path
-	config.ISO = fmt.Sprintf("[%s] vmware-amd64.iso", config.ISODatastore)
+	config.ISO = BuildISOPath(config.ISODatastore, DefaultISOFilename)
 
 	return config
+}
+
+// DefaultISOPath returns the standard Talos ISO path used for vSphere deployments.
+func DefaultISOPath() string {
+	return BuildISOPath(DefaultISODatastore, DefaultISOFilename)
 }
 
 // BuildISOPath constructs the full ISO path for vSphere

@@ -66,6 +66,7 @@ type WorkingClient struct {
 	host   string
 	port   int
 	useSSL bool
+	callFn func(method string, params interface{}, timeoutSeconds int64) (json.RawMessage, error)
 }
 
 // NewWorkingClient creates a new working TrueNAS client using the official API client
@@ -118,6 +119,9 @@ func (c *WorkingClient) Close() error {
 
 // Call makes a raw API call to TrueNAS
 func (c *WorkingClient) Call(method string, params interface{}, timeoutSeconds int64) (json.RawMessage, error) {
+	if c.callFn != nil {
+		return c.callFn(method, params, timeoutSeconds)
+	}
 	return c.client.Call(method, timeoutSeconds, params)
 }
 
@@ -221,6 +225,12 @@ func (c *WorkingClient) StartVM(vmID int) error {
 // StopVM stops a VM
 func (c *WorkingClient) StopVM(vmID int) error {
 	_, err := c.Call("vm.stop", []interface{}{vmID}, 60)
+	return err
+}
+
+// PowerOffVM force powers off a VM.
+func (c *WorkingClient) PowerOffVM(vmID int) error {
+	_, err := c.Call("vm.poweroff", []interface{}{vmID}, 60)
 	return err
 }
 

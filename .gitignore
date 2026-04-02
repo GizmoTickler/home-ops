@@ -3,6 +3,9 @@
 /.venv/
 *.crt
 *.key
+*.pem
+*.p12
+*.pfx
 *.pub
 .decrypted~*
 *.decrypted~*.yaml

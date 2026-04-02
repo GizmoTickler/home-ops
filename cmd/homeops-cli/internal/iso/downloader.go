@@ -29,6 +29,18 @@ type Downloader struct {
 	logger *common.ColorLogger
 }
 
+type sshClient interface {
+	Connect() error
+	Close() error
+	VerifyFile(string) (bool, int64, error)
+	RemoveFile(string) error
+	DownloadISO(string, string) error
+}
+
+var newSSHClient = func(config ssh.SSHConfig) sshClient {
+	return ssh.NewSSHClient(config)
+}
+
 // NewDownloader creates a new ISO downloader
 func NewDownloader() *Downloader {
 	return &Downloader{
@@ -56,7 +68,7 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 		SSHItemRef: config.SSHItemRef,
 	}
 
-	sshClient := ssh.NewSSHClient(sshConfig)
+	sshClient := newSSHClient(sshConfig)
 
 	// Connect to TrueNAS
 	d.logger.Debug("Connecting to TrueNAS via op SSH")

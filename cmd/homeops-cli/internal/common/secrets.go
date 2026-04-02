@@ -2,7 +2,6 @@ package common
 
 import (
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -17,7 +16,7 @@ var OpRefRegex = regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
 func Get1PasswordSecret(reference string) (string, error) {
 	maxAttempts := 3
 	for attempts := 0; attempts < maxAttempts; attempts++ {
-		cmd := exec.Command("op", "read", reference)
+		cmd := Command("op", "read", reference)
 		output, err := cmd.CombinedOutput()
 		if err == nil {
 			secretValue := strings.TrimSpace(string(output))
@@ -49,7 +48,7 @@ func Get1PasswordSecret(reference string) (string, error) {
 // Get1PasswordSecretSilent retrieves a secret from 1Password, returns empty string on failure
 // This matches the existing pattern in talos.go for fallback scenarios
 func Get1PasswordSecretSilent(reference string) string {
-	cmd := exec.Command("op", "read", reference)
+	cmd := Command("op", "read", reference)
 	output, err := cmd.Output()
 	if err != nil {
 		// Silently fail and return empty string to allow fallback to env vars

@@ -32,14 +32,6 @@ func NewTemplateRenderer(rootDir string, logger *common.ColorLogger, metrics *me
 func (r *TemplateRenderer) RenderTemplate(templateName, content string, env map[string]string, data map[string]interface{}) (string, error) {
 	// Determine template type based on content or filename
 	switch {
-	case strings.Contains(templateName, ".gotmpl") || strings.Contains(content, "{{"):
-		// Use Go template renderer
-		templateData := template.TemplateData{
-			RootDir: r.rootDir,
-			Values:  data,
-		}
-		return r.goRenderer.RenderTemplate(content, templateData)
-
 	case strings.Contains(templateName, ".j2") || strings.Contains(content, "{%") || strings.Contains(content, "{{ ENV."):
 		// Use Jinja2 renderer for Talos templates
 		if strings.HasPrefix(templateName, "talos/") {
@@ -49,6 +41,14 @@ func (r *TemplateRenderer) RenderTemplate(templateName, content string, env map[
 		}
 		// Fallback to bootstrap template for other Jinja2 templates
 		return RenderBootstrapTemplate(templateName, env)
+
+	case strings.Contains(templateName, ".gotmpl") || strings.Contains(content, "{{"):
+		// Use Go template renderer
+		templateData := template.TemplateData{
+			RootDir: r.rootDir,
+			Values:  data,
+		}
+		return r.goRenderer.RenderTemplate(content, templateData)
 
 	default:
 		// Simple variable replacement for basic templates

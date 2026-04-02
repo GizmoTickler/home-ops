@@ -1,14 +1,21 @@
 package kubernetes
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/ui"
@@ -24,123 +31,294 @@ type KustomizationInfo struct {
 	GitRoot   string
 }
 
-// parseKustomizationFile parses a ks.yaml file and extracts name, namespace, and path information
-// ksPath can be either a path to a ks.yaml file or a directory containing one
-func parseKustomizationFile(ksPath string) (*KustomizationInfo, error) {
-	// Check if ksPath is a file or directory
+var (
+	chooseOptionFn      = ui.Choose
+	selectNamespaceFn   = ui.SelectNamespace
+	chooseMultiOptionFn = ui.ChooseMulti
+	filterOptionFn      = ui.Filter
+	confirmActionFn     = ui.Confirm
+	spinWithOutputFn    = ui.SpinWithOutput
+	spinWithFuncFn      = ui.SpinWithFunc
+	lookPathFn          = common.LookPath
+	kubectlOutputFn     = func(args ...string) ([]byte, error) {
+		return common.Output("kubectl", args...)
+	}
+	kubectlRunFn = func(args ...string) error {
+		return common.Command("kubectl", args...).Run()
+	}
+	kubectlRunInteractiveFn = func(args ...string) error {
+		return common.RunInteractive(os.Stdin, os.Stdout, os.Stderr, "kubectl", args...)
+	}
+	installKubectlPluginFn = func(plugin string) error {
+		return common.Command("kubectl", "krew", "install", plugin).Run()
+	}
+	commandOutputFn = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).Output()
+	}
+	commandRunFn = func(name string, args ...string) error {
+		return exec.Command(name, args...).Run()
+	}
+	commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}
+	decodeBase64Fn = func(value string) ([]byte, error) {
+		decodeCmd := exec.Command("base64", "-d")
+		decodeCmd.Stdin = strings.NewReader(value)
+		return decodeCmd.Output()
+	}
+	fluxBuildKustomizationFn = func(name, namespace, path, ksFile string) ([]byte, error) {
+		return common.Command("flux", "build", "kustomization", name,
+			"--namespace", namespace,
+			"--path", path,
+			"--kustomization-file", ksFile,
+			"--dry-run").Output()
+	}
+	kubectlApplyManifestFn = func(manifest string) error {
+		applyCmd := common.Command("kubectl", "apply", "-f", "-")
+		applyCmd.Stdin = strings.NewReader(manifest)
+		applyCmd.Stdout = os.Stdout
+		applyCmd.Stderr = os.Stderr
+		return applyCmd.Run()
+	}
+	kubectlDeleteManifestFn = func(manifest string) error {
+		deleteCmd := common.Command("kubectl", "delete", "-f", "-")
+		deleteCmd.Stdin = strings.NewReader(manifest)
+		deleteCmd.Stdout = os.Stdout
+		deleteCmd.Stderr = os.Stderr
+		return deleteCmd.Run()
+	}
+	nowFn   = time.Now
+	sleepFn = time.Sleep
+)
+
+func resolveKustomizationFilePath(ksPath string) (string, error) {
 	info, err := os.Stat(ksPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to access path %s: %w", ksPath, err)
+		return "", fmt.Errorf("failed to access path %s: %w", ksPath, err)
 	}
 
-	var ksFile string
 	if info.IsDir() {
-		// If directory, look for ks.yaml
-		ksFile = fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
+		ksFile := fmt.Sprintf("%s/ks.yaml", strings.TrimSuffix(ksPath, "/"))
 		if _, err := os.Stat(ksFile); err != nil {
-			return nil, fmt.Errorf("no ks.yaml found in directory %s", ksPath)
+			return "", fmt.Errorf("no ks.yaml found in directory %s", ksPath)
 		}
-	} else {
-		// If file, use it directly
-		ksFile = ksPath
+		return ksFile, nil
+	}
+	return ksPath, nil
+}
+
+func findGitRoot() (string, error) {
+	if gitRoot, err := common.FindGitRoot("."); err == nil {
+		return gitRoot, nil
 	}
 
-	// Read the file content for parsing
+	gitRootOutput, err := common.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
+	}
+	return strings.TrimSpace(string(gitRootOutput)), nil
+}
+
+func findKustomizationFiles(appsDir string) ([]string, error) {
+	var ksFiles []string
+
+	err := filepath.WalkDir(appsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if d.Name() == "ks.yaml" {
+			ksFiles = append(ksFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find ks.yaml files: %w", err)
+	}
+
+	sort.Strings(ksFiles)
+	return ksFiles, nil
+}
+
+func parseKustomizationDocuments(ksPath string) ([]KustomizationInfo, error) {
+	ksFile, err := resolveKustomizationFilePath(ksPath)
+	if err != nil {
+		return nil, err
+	}
+
 	content, err := os.ReadFile(ksFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read ks.yaml: %w", err)
 	}
-	contentStr := string(content)
 
-	// Extract name (first occurrence in metadata block)
-	var name string
-	lines := strings.Split(contentStr, "\n")
-	inMetadata := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "metadata:" {
-			inMetadata = true
-			continue
-		}
-		if inMetadata && strings.HasPrefix(trimmed, "name:") {
-			name = strings.TrimSpace(strings.TrimPrefix(trimmed, "name:"))
-			break
-		}
-		// Exit metadata block if we hit another top-level key
-		if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
-			break
-		}
+	type kustomizationDocument struct {
+		Kind     string `yaml:"kind"`
+		Metadata struct {
+			Name      string `yaml:"name"`
+			Namespace string `yaml:"namespace"`
+		} `yaml:"metadata"`
+		Spec struct {
+			TargetNamespace string `yaml:"targetNamespace"`
+			Path            string `yaml:"path"`
+		} `yaml:"spec"`
 	}
 
-	// Extract namespace and path from spec block
-	var namespace, path string
-	inSpec := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "spec:" {
-			inSpec = true
-			continue
-		}
-		if inSpec {
-			if rest, ok := strings.CutPrefix(trimmed, "targetNamespace:"); ok {
-				namespace = strings.TrimSpace(rest)
-			}
-			if rest, ok := strings.CutPrefix(trimmed, "path:"); ok {
-				path = strings.TrimSpace(rest)
-			}
-		}
-	}
-
-	// Fallback: try metadata namespace if targetNamespace not found
-	if namespace == "" {
-		inMetadata = false
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "metadata:" {
-				inMetadata = true
-				continue
-			}
-			if inMetadata && strings.HasPrefix(trimmed, "namespace:") {
-				namespace = strings.TrimSpace(strings.TrimPrefix(trimmed, "namespace:"))
-				break
-			}
-			if inMetadata && !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") && trimmed != "" {
-				break
-			}
-		}
-	}
-
-	if name == "" || path == "" || namespace == "" {
-		return nil, fmt.Errorf("failed to extract name, namespace, and path from %s (name=%q, namespace=%q, path=%q)", ksFile, name, namespace, path)
-	}
-
-	// Find git repository root to resolve relative paths
-	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRootOutput, err := gitRootCmd.Output()
+	gitRoot, err := findGitRoot()
 	if err != nil {
-		return nil, fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
-	}
-	gitRoot := strings.TrimSpace(string(gitRootOutput))
-
-	// If path starts with ./, remove it and make it relative to git root
-	path = strings.TrimPrefix(path, "./")
-
-	// Construct full path relative to git root
-	fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
-
-	// Verify the path exists
-	if _, err := os.Stat(fullPath); err != nil {
-		return nil, fmt.Errorf("kustomization path does not exist: %s", fullPath)
+		return nil, err
 	}
 
-	return &KustomizationInfo{
-		Name:      name,
-		Namespace: namespace,
-		Path:      path,
-		FullPath:  fullPath,
-		KsFile:    ksFile,
-		GitRoot:   gitRoot,
-	}, nil
+	var infos []KustomizationInfo
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	for {
+		var doc kustomizationDocument
+		if err := decoder.Decode(&doc); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("failed to parse ks.yaml: %w", err)
+		}
+		if doc.Kind != "Kustomization" {
+			continue
+		}
+		name := strings.TrimSpace(doc.Metadata.Name)
+		namespace := strings.TrimSpace(doc.Spec.TargetNamespace)
+		if namespace == "" {
+			namespace = strings.TrimSpace(doc.Metadata.Namespace)
+		}
+		path := strings.TrimSpace(doc.Spec.Path)
+		if name == "" || namespace == "" || path == "" {
+			continue
+		}
+
+		path = strings.TrimPrefix(path, "./")
+		fullPath := fmt.Sprintf("%s/%s", gitRoot, path)
+		if _, err := os.Stat(fullPath); err != nil {
+			return nil, fmt.Errorf("kustomization path does not exist: %s", fullPath)
+		}
+
+		infos = append(infos, KustomizationInfo{
+			Name:      name,
+			Namespace: namespace,
+			Path:      path,
+			FullPath:  fullPath,
+			KsFile:    ksFile,
+			GitRoot:   gitRoot,
+		})
+	}
+
+	if len(infos) == 0 {
+		return nil, fmt.Errorf("failed to extract any complete Kustomization documents from %s", ksFile)
+	}
+
+	return infos, nil
+}
+
+// parseKustomizationFile parses a ks.yaml file and extracts a single kustomization target.
+// ksPath can be either a path to a ks.yaml file or a directory containing one.
+func parseKustomizationFile(ksPath string) (*KustomizationInfo, error) {
+	return parseKustomizationFileWithSelector(ksPath, "")
+}
+
+func parseKustomizationFileWithSelector(ksPath, targetName string) (*KustomizationInfo, error) {
+	infos, err := parseKustomizationDocuments(ksPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if targetName != "" {
+		for _, info := range infos {
+			if info.Name == targetName {
+				infoCopy := info
+				return &infoCopy, nil
+			}
+		}
+		return nil, fmt.Errorf("kustomization %q not found in %s", targetName, infos[0].KsFile)
+	}
+
+	if len(infos) > 1 {
+		var names []string
+		for _, info := range infos {
+			names = append(names, info.Name)
+		}
+		return nil, fmt.Errorf("multiple kustomizations found in %s: %s (use --name to select one)", infos[0].KsFile, strings.Join(names, ", "))
+	}
+
+	info := infos[0]
+	return &info, nil
+}
+
+func selectKubectlResource(namespace, resourceType, prompt string) (string, error) {
+	output, err := kubectlOutputFn("get", resourceType, "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s in namespace %s: %w", resourceType, namespace, err)
+	}
+
+	resources := strings.Fields(string(output))
+	if len(resources) == 0 {
+		return "", fmt.Errorf("no %s found in namespace %s", strings.ToUpper(resourceType), namespace)
+	}
+
+	selected, err := chooseOptionFn(prompt, resources)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", nil
+		}
+		return "", err
+	}
+
+	return selected, nil
+}
+
+func ensureKubectlPlugin(binaryName, pluginName string) error {
+	if _, err := lookPathFn(binaryName); err == nil {
+		return nil
+	}
+
+	if err := installKubectlPluginFn(pluginName); err != nil {
+		return fmt.Errorf("failed to install %s plugin: %w", pluginName, err)
+	}
+
+	return nil
+}
+
+func forceDeletePodsWithPrefix(namespace, prefix string, logger *common.ColorLogger) error {
+	output, err := kubectlOutputFn("get", "pods", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return nil
+	}
+
+	pods := strings.Fields(string(output))
+	var matched []string
+	for _, pod := range pods {
+		if strings.HasPrefix(pod, prefix) {
+			matched = append(matched, pod)
+		}
+	}
+
+	if len(matched) == 0 {
+		logger.Info("Temporary browse pod cleaned up successfully")
+		return nil
+	}
+
+	var failed []string
+	for _, pod := range matched {
+		logger.Warn("Browse pod %s still exists, forcing deletion...", pod)
+		if err := kubectlRunFn("delete", "pod", pod, "-n", namespace, "--force", "--grace-period=0"); err != nil {
+			logger.Error("Failed to delete pod %s: %v", pod, err)
+			failed = append(failed, pod)
+			continue
+		}
+		logger.Info("Successfully deleted pod %s", pod)
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to delete browse pod(s): %s", strings.Join(failed, ", "))
+	}
+
+	return nil
 }
 
 func NewCommand() *cobra.Command {
@@ -198,82 +376,42 @@ func browsePVC(namespace, claim, image string) error {
 
 	// If claim is not provided, prompt for selection
 	if claim == "" {
-		// Get list of PVCs in namespace
-		getPVCsCmd := exec.Command("kubectl", "get", "pvc", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getPVCsCmd.Output()
+		selectedPVC, err := selectKubectlResource(namespace, "pvc", fmt.Sprintf("Select a PVC from namespace %s:", namespace))
 		if err != nil {
-			return fmt.Errorf("failed to get PVCs in namespace %s: %w", namespace, err)
-		}
-
-		pvcs := strings.Fields(string(output))
-		if len(pvcs) == 0 {
-			return fmt.Errorf("no PVCs found in namespace %s", namespace)
-		}
-
-		// Use interactive selector
-		selectedPVC, err := ui.Choose(fmt.Sprintf("Select a PVC from namespace %s:", namespace), pvcs)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
 			return fmt.Errorf("PVC selection failed: %w", err)
+		}
+		if selectedPVC == "" {
+			return nil
 		}
 		claim = selectedPVC
 	}
 
 	// Check if PVC exists
-	checkCmd := exec.Command("kubectl", "--namespace", namespace, "get", "persistentvolumeclaims", claim)
-	if err := checkCmd.Run(); err != nil {
+	if err := kubectlRunFn("--namespace", namespace, "get", "persistentvolumeclaims", claim); err != nil {
 		return fmt.Errorf("PVC %s not found in namespace %s", claim, namespace)
 	}
 
 	// Check if kubectl browse-pvc plugin is installed
-	if _, err := exec.LookPath("kubectl-browse-pvc"); err != nil {
+	if _, err := lookPathFn("kubectl-browse-pvc"); err != nil {
 		logger.Warn("kubectl browse-pvc plugin not installed, installing via krew...")
-		installCmd := exec.Command("kubectl", "krew", "install", "browse-pvc")
-		if err := installCmd.Run(); err != nil {
-			return fmt.Errorf("failed to install browse-pvc plugin: %w", err)
+		if err := ensureKubectlPlugin("kubectl-browse-pvc", "browse-pvc"); err != nil {
+			return err
 		}
 	}
 
 	logger.Info("Mounting PVC %s/%s to temporary container", namespace, claim)
 
 	// Execute browse-pvc
-	cmd := exec.Command("kubectl", "browse-pvc",
+	if err := kubectlRunInteractiveFn("browse-pvc",
 		"--namespace", namespace,
 		"--image", image,
-		claim)
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+		claim); err != nil {
 		return err
 	}
 
 	// Verify cleanup - check if any browse pods still exist and force delete them
-	time.Sleep(500 * time.Millisecond) // Brief delay to let k8s finalize deletion
-	checkPodsCmd := exec.Command("kubectl", "get", "pods", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-	output, err := checkPodsCmd.Output()
-	if err == nil && len(output) > 0 {
-		pods := strings.Fields(string(output))
-		for _, pod := range pods {
-			if strings.HasPrefix(pod, "browse-") {
-				logger.Warn("Browse pod %s still exists, forcing deletion...", pod)
-				deleteCmd := exec.Command("kubectl", "delete", "pod", pod, "-n", namespace, "--force", "--grace-period=0")
-				if err := deleteCmd.Run(); err != nil {
-					logger.Error("Failed to delete pod %s: %v", pod, err)
-				} else {
-					logger.Info("Successfully deleted pod %s", pod)
-				}
-				return nil
-			}
-		}
-	}
-
-	logger.Info("Temporary browse pod cleaned up successfully")
-	return nil
+	sleepFn(500 * time.Millisecond) // Brief delay to let k8s finalize deletion
+	return forceDeletePodsWithPrefix(namespace, "browse-", logger)
 }
 
 func newNodeShellCommand() *cobra.Command {
@@ -301,9 +439,7 @@ func nodeShell(node string) error {
 
 	// If node is not provided, prompt for selection
 	if node == "" {
-		// Get list of nodes
-		getNodesCmd := exec.Command("kubectl", "get", "nodes", "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getNodesCmd.Output()
+		output, err := kubectlOutputFn("get", "nodes", "-o", "jsonpath={.items[*].metadata.name}")
 		if err != nil {
 			return fmt.Errorf("failed to get nodes: %w", err)
 		}
@@ -314,7 +450,7 @@ func nodeShell(node string) error {
 		}
 
 		// Use interactive selector
-		selectedNode, err := ui.Choose("Select a node:", nodes)
+		selectedNode, err := chooseOptionFn("Select a node:", nodes)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -325,29 +461,22 @@ func nodeShell(node string) error {
 	}
 
 	// Check if node exists
-	checkCmd := exec.Command("kubectl", "get", "nodes", node)
-	if err := checkCmd.Run(); err != nil {
+	if err := kubectlRunFn("get", "nodes", node); err != nil {
 		return fmt.Errorf("node %s not found", node)
 	}
 
 	// Check if kubectl node-shell plugin is installed
-	if _, err := exec.LookPath("kubectl-node-shell"); err != nil {
+	if _, err := lookPathFn("kubectl-node-shell"); err != nil {
 		logger.Warn("kubectl node-shell plugin not installed, installing via krew...")
-		installCmd := exec.Command("kubectl", "krew", "install", "node-shell")
-		if err := installCmd.Run(); err != nil {
-			return fmt.Errorf("failed to install node-shell plugin: %w", err)
+		if err := ensureKubectlPlugin("kubectl-node-shell", "node-shell"); err != nil {
+			return err
 		}
 	}
 
 	logger.Info("Opening shell to node %s", node)
 
 	// Execute node-shell
-	cmd := exec.Command("kubectl", "node-shell", "-n", "kube-system", "-x", node)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	return kubectlRunInteractiveFn("node-shell", "-n", "kube-system", "-x", node)
 }
 
 func newSyncSecretsCommand() *cobra.Command {
@@ -371,10 +500,8 @@ func syncSecrets(dryRun bool) error {
 	logger := common.NewColorLogger()
 
 	// Get all ExternalSecrets
-	cmd := exec.Command("kubectl", "get", "externalsecret", "--all-namespaces",
+	output, err := commandOutputFn("kubectl", "get", "externalsecret", "--all-namespaces",
 		"--no-headers", "--output=jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}")
-
-	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get ExternalSecrets: %w", err)
 	}
@@ -408,12 +535,10 @@ func syncSecrets(dryRun bool) error {
 		}
 
 		// Annotate to force sync
-		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		annotateCmd := exec.Command("kubectl", "--namespace", namespace,
+		timestamp := fmt.Sprintf("%d", nowFn().Unix())
+		if err := commandRunFn("kubectl", "--namespace", namespace,
 			"annotate", "externalsecret", name,
-			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite")
-
-		if err := annotateCmd.Run(); err != nil {
+			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite"); err != nil {
 			logger.Error("Failed to sync %s/%s: %v", namespace, name, err)
 			continue
 		}
@@ -457,7 +582,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 
 	// If namespace is not provided, prompt for selection
 	if namespace == "" {
-		selectedNS, err := ui.SelectNamespace("Select namespace:", true)
+		selectedNS, err := selectNamespaceFn("Select namespace:", true)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -471,7 +596,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 	var phases []string
 	if phasesStr == "" {
 		phaseOptions := []string{"Failed", "Succeeded", "Completed", "Pending"}
-		selectedPhases, err := ui.ChooseMulti("Select pod phases to prune (use 'x' to toggle, Enter to confirm):", phaseOptions, 0)
+		selectedPhases, err := chooseMultiOptionFn("Select pod phases to prune (use 'x' to toggle, Enter to confirm):", phaseOptions, 0)
 		if err != nil {
 			// User cancelled selection
 			return nil
@@ -527,8 +652,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 			}
 			listArgs = append(listArgs, "--field-selector", fmt.Sprintf("status.phase=%s", actualPhase), "-o", "name")
 
-			listCmd := exec.Command("kubectl", listArgs...)
-			output, err := listCmd.Output()
+			output, err := commandOutputFn("kubectl", listArgs...)
 			if err != nil {
 				logger.Warn("Failed to list pods in %s phase: %v", phase, err)
 				continue
@@ -547,8 +671,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 			args = append(args, "--ignore-not-found=true")
 
 			logger.Debug("Running: kubectl %s", strings.Join(args, " "))
-			cmd := exec.Command("kubectl", args...)
-			output, err := cmd.CombinedOutput()
+			output, err := commandCombinedOutputFn("kubectl", args...)
 			if err != nil {
 				logger.Error("Failed to delete pods in %s phase: %v\nOutput: %s", phase, err, string(output))
 				continue
@@ -616,25 +739,52 @@ func newViewSecretCommand() *cobra.Command {
 	return cmd
 }
 
+func listSecretNames(namespace string) ([]string, error) {
+	output, err := commandOutputFn("kubectl", "get", "secrets", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secrets in namespace %s: %w", namespace, err)
+	}
+
+	return strings.Fields(string(output)), nil
+}
+
 func viewSecret(namespace, secretName, format, key string) error {
 	logger := common.NewColorLogger()
 
 	// If secret name is not provided, prompt for selection
 	if secretName == "" {
-		// Get list of secrets in namespace
-		getSecretsCmd := exec.Command("kubectl", "get", "secrets", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		output, err := getSecretsCmd.Output()
+		secrets, err := listSecretNames(namespace)
 		if err != nil {
-			return fmt.Errorf("failed to get secrets in namespace %s: %w", namespace, err)
+			return err
 		}
 
-		secrets := strings.Fields(string(output))
+		if len(secrets) == 0 && namespace == "default" {
+			logger.Info("No secrets found in namespace %s, prompting for another namespace", namespace)
+
+			selectedNamespace, err := selectNamespaceFn("Select namespace:", false)
+			if err != nil {
+				if ui.IsCancellation(err) {
+					return nil
+				}
+				return fmt.Errorf("namespace selection failed: %w", err)
+			}
+			if strings.TrimSpace(selectedNamespace) == "" {
+				return nil
+			}
+
+			namespace = selectedNamespace
+			secrets, err = listSecretNames(namespace)
+			if err != nil {
+				return err
+			}
+		}
+
 		if len(secrets) == 0 {
-			return fmt.Errorf("no secrets found in namespace %s", namespace)
+			return fmt.Errorf("no secrets found in namespace %s; use --namespace to choose a namespace with secrets", namespace)
 		}
 
 		// Use Filter for better search experience with many secrets
-		selectedSecret, err := ui.Filter("Search for secret:", secrets)
+		selectedSecret, err := filterOptionFn("Search for secret:", secrets)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -645,10 +795,9 @@ func viewSecret(namespace, secretName, format, key string) error {
 	}
 
 	// Get list of keys using go template
-	listKeysCmd := exec.Command("kubectl", "get", "secret", secretName,
+	listKeysOutput, err := commandOutputFn("kubectl", "get", "secret", secretName,
 		"-n", namespace,
 		"--template={{range $k, $v := .data}}{{$k}}{{\"\\n\"}}{{end}}")
-	listKeysOutput, err := listKeysCmd.Output()
 	if err != nil {
 		return fmt.Errorf("failed to get secret %s/%s: %w", namespace, secretName, err)
 	}
@@ -670,23 +819,18 @@ func viewSecret(namespace, secretName, format, key string) error {
 		// Get the base64 encoded value for this key using jsonpath for safe key handling
 		// This avoids shell escaping issues with special characters in key names
 		jsonpathExpr := fmt.Sprintf("{.data.%s}", k)
-		valueCmd := exec.Command("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
-		encodedValue, err := valueCmd.Output()
+		encodedValue, err := commandOutputFn("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
 		if err != nil {
 			// Try with bracket notation for keys with special characters
 			jsonpathExpr = fmt.Sprintf("{.data['%s']}", strings.ReplaceAll(k, "'", "\\'"))
-			valueCmd = exec.Command("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
-			encodedValue, err = valueCmd.Output()
+			encodedValue, err = commandOutputFn("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
 			if err != nil {
 				decodedData[k] = "<error reading value>"
 				continue
 			}
 		}
 
-		// Decode the base64 value using base64 command
-		decodeCmd := exec.Command("base64", "-d")
-		decodeCmd.Stdin = strings.NewReader(string(encodedValue))
-		decoded, err := decodeCmd.Output()
+		decoded, err := decodeBase64Fn(string(encodedValue))
 		if err != nil {
 			decodedData[k] = "<error decoding>"
 		} else {
@@ -796,7 +940,7 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 			"kustomization - Kustomizations",
 			"ocirepository - OCI repositories",
 		}
-		selected, err := ui.Choose("Select resource type to sync:", options)
+		selected, err := chooseOptionFn("Select resource type to sync:", options)
 		if err != nil {
 			if ui.IsCancellation(err) {
 				return nil // User cancelled - exit cleanly
@@ -832,8 +976,7 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 		args = append(args, "--all-namespaces")
 	}
 
-	cmd := exec.Command("kubectl", args...)
-	output, err := cmd.Output()
+	output, err := commandOutputFn("kubectl", args...)
 	if err != nil {
 		return fmt.Errorf("failed to list %s resources: %w", fullType, err)
 	}
@@ -865,7 +1008,7 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 	// Ask for confirmation if syncing many resources
 	if len(resources) > 5 {
 		message := fmt.Sprintf("About to sync %d %s resources. Continue?", len(resources), fullType)
-		confirmed, err := ui.Confirm(message, false)
+		confirmed, err := confirmActionFn(message, false)
 		if err != nil {
 			return fmt.Errorf("confirmation failed: %w", err)
 		}
@@ -903,8 +1046,7 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 
 				logger.Info("Syncing %s %s/%s", fullType, ns, name)
 
-				syncCmd := exec.Command("flux", "reconcile", fullType, name, "-n", ns)
-				if err := syncCmd.Run(); err != nil {
+				if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
 					mu.Lock()
 					logger.Error("Failed to sync %s/%s: %v", ns, name, err)
 					failCount++
@@ -936,8 +1078,7 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 
 			logger.Info("Syncing %s %s/%s", fullType, ns, name)
 
-			syncCmd := exec.Command("flux", "reconcile", fullType, name, "-n", ns)
-			if err := syncCmd.Run(); err != nil {
+			if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
 				logger.Error("Failed to sync %s/%s: %v", ns, name, err)
 				failCount++
 				continue
@@ -995,10 +1136,9 @@ func forceSyncExternalSecret(namespace, secretName string, all bool, _timeout in
 
 	if all {
 		// Get all ExternalSecrets in namespace
-		cmd := exec.Command("kubectl", "get", "externalsecret",
+		output, err := commandOutputFn("kubectl", "get", "externalsecret",
 			"--namespace", namespace,
 			"-o", "jsonpath={.items[*].metadata.name}")
-		output, err := cmd.Output()
 		if err != nil {
 			return fmt.Errorf("failed to list ExternalSecrets: %w", err)
 		}
@@ -1014,12 +1154,10 @@ func forceSyncExternalSecret(namespace, secretName string, all bool, _timeout in
 
 	successCount := 0
 	for _, name := range secrets {
-		timestamp := fmt.Sprintf("%d", time.Now().Unix())
-		annotateCmd := exec.Command("kubectl", "--namespace", namespace,
+		timestamp := fmt.Sprintf("%d", nowFn().Unix())
+		if err := commandRunFn("kubectl", "--namespace", namespace,
 			"annotate", "externalsecret", name,
-			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite")
-
-		if err := annotateCmd.Run(); err != nil {
+			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite"); err != nil {
 			logger.Error("Failed to annotate %s/%s: %v", namespace, name, err)
 			continue
 		}
@@ -1041,7 +1179,7 @@ func newUpgradeARCCommand() *cobra.Command {
 		Long:  `Uninstalls and reinstalls the Actions Runner Controller to upgrade it`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				confirmed, err := ui.Confirm("This will uninstall and reinstall ARC. Continue?", false)
+				confirmed, err := confirmActionFn("This will uninstall and reinstall ARC. Continue?", false)
 				if err != nil {
 					return fmt.Errorf("confirmation failed: %w", err)
 				}
@@ -1065,8 +1203,7 @@ func upgradeARC() error {
 
 	// Uninstall runner
 	logger.Info("Uninstalling home-ops-runner...")
-	cmd := exec.Command("helm", "-n", "actions-runner-system", "uninstall", "home-ops-runner")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "home-ops-runner"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
 			return fmt.Errorf("failed to uninstall home-ops-runner: %w\n%s", err, output)
@@ -1075,8 +1212,7 @@ func upgradeARC() error {
 
 	// Uninstall controller
 	logger.Info("Uninstalling actions-runner-controller...")
-	cmd = exec.Command("helm", "-n", "actions-runner-system", "uninstall", "actions-runner-controller")
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "actions-runner-controller"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
 			return fmt.Errorf("failed to uninstall actions-runner-controller: %w\n%s", err, output)
@@ -1085,19 +1221,17 @@ func upgradeARC() error {
 
 	// Wait a bit for cleanup
 	logger.Info("Waiting for cleanup...")
-	time.Sleep(5 * time.Second)
+	sleepFn(5 * time.Second)
 
 	// Reconcile controller
 	logger.Info("Reconciling actions-runner-controller HelmRelease...")
-	cmd = exec.Command("flux", "-n", "actions-runner-system", "reconcile", "hr", "actions-runner-controller")
-	if err := cmd.Run(); err != nil {
+	if err := commandRunFn("flux", "-n", "actions-runner-system", "reconcile", "hr", "actions-runner-controller"); err != nil {
 		return fmt.Errorf("failed to reconcile actions-runner-controller: %w", err)
 	}
 
 	// Reconcile runner
 	logger.Info("Reconciling home-ops-runner HelmRelease...")
-	cmd = exec.Command("flux", "-n", "actions-runner-system", "reconcile", "hr", "home-ops-runner")
-	if err := cmd.Run(); err != nil {
+	if err := commandRunFn("flux", "-n", "actions-runner-system", "reconcile", "hr", "home-ops-runner"); err != nil {
 		return fmt.Errorf("failed to reconcile home-ops-runner: %w", err)
 	}
 
@@ -1108,28 +1242,30 @@ func upgradeARC() error {
 func newRenderKsCommand() *cobra.Command {
 	var (
 		outputFile string
+		ksName     string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "render-ks <ks.yaml>",
 		Short: "Render a Kustomization locally using flux",
-		Long:  `Builds and renders a Kustomization locally without applying to cluster. Provide path to ks.yaml file.`,
+		Long:  `Builds and renders a Kustomization locally without applying to cluster. Provide path to ks.yaml file. Use --name when the file contains multiple Flux Kustomizations.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderKustomization(args[0], outputFile)
+			return renderKustomization(args[0], ksName, outputFile)
 		},
 	}
 
 	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write output to file instead of stdout")
+	cmd.Flags().StringVar(&ksName, "name", "", "Kustomization name within ks.yaml when the file contains multiple documents")
 
 	return cmd
 }
 
-func renderKustomization(ksPath, outputFile string) error {
+func renderKustomization(ksPath, ksName, outputFile string) error {
 	logger := common.NewColorLogger()
 
 	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFile(ksPath)
+	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
 	if err != nil {
 		return err
 	}
@@ -1137,7 +1273,7 @@ func renderKustomization(ksPath, outputFile string) error {
 	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
 
 	// Build the kustomization using flux build with dry-run (with spinner)
-	outputStr, err := ui.SpinWithOutput(
+	outputStr, err := spinWithOutputFn(
 		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
 		"flux", "build", "kustomization", ksInfo.Name,
 		"--namespace", ksInfo.Namespace,
@@ -1166,6 +1302,7 @@ func renderKustomization(ksPath, outputFile string) error {
 func newApplyKsCommand() *cobra.Command {
 	var (
 		dryRun bool
+		ksName string
 	)
 
 	cmd := &cobra.Command{
@@ -1173,11 +1310,14 @@ func newApplyKsCommand() *cobra.Command {
 		Short: "Apply a locally rendered Kustomization",
 		Long:  `Renders a Kustomization locally and applies it to the cluster. If no path is provided, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var ksPath string
+			var (
+				ksPath         string
+				selectedKsName string
+			)
 
 			// If no args provided, show interactive selector
 			if len(args) == 0 {
-				selected, err := selectKustomizationFile()
+				selected, selectedName, err := selectKustomizationFile()
 				if err != nil {
 					return err
 				}
@@ -1186,24 +1326,31 @@ func newApplyKsCommand() *cobra.Command {
 					return nil
 				}
 				ksPath = selected
+				selectedKsName = selectedName
 			} else {
 				ksPath = args[0]
 			}
 
-			return applyKustomization(ksPath, dryRun)
+			targetName := ksName
+			if targetName == "" {
+				targetName = selectedKsName
+			}
+
+			return applyKustomization(ksPath, targetName, dryRun)
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform a dry-run without applying")
+	cmd.Flags().StringVar(&ksName, "name", "", "Kustomization name within ks.yaml when the file contains multiple documents")
 
 	return cmd
 }
 
-func applyKustomization(ksPath string, dryRun bool) error {
+func applyKustomization(ksPath, ksName string, dryRun bool) error {
 	logger := common.NewColorLogger()
 
 	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFile(ksPath)
+	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
 	if err != nil {
 		return err
 	}
@@ -1213,7 +1360,7 @@ func applyKustomization(ksPath string, dryRun bool) error {
 	// Build the kustomization using flux build with dry-run (with spinner)
 	logger.Info("Building Kustomization %s", ksInfo.Name)
 
-	outputStr, err := ui.SpinWithOutput(
+	outputStr, err := spinWithOutputFn(
 		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
 		"flux", "build", "kustomization", ksInfo.Name,
 		"--namespace", ksInfo.Namespace,
@@ -1231,53 +1378,37 @@ func applyKustomization(ksPath string, dryRun bool) error {
 		return nil
 	}
 
-	// Apply the rendered output (with spinner)
-	err = ui.Spin("Applying Kustomization", "bash", "-c",
-		fmt.Sprintf("echo '%s' | kubectl apply -f -", strings.ReplaceAll(outputStr, "'", "'\\''")))
+	err = spinWithFuncFn("Applying Kustomization", func() error { return kubectlApplyManifestFn(outputStr) })
 	if err != nil {
-		// Fallback to direct apply without spinner
-		logger.Info("Applying Kustomization")
-		applyCmd := exec.Command("kubectl", "apply", "-f", "-")
-		applyCmd.Stdin = strings.NewReader(outputStr)
-		applyCmd.Stdout = os.Stdout
-		applyCmd.Stderr = os.Stderr
-
-		if err := applyCmd.Run(); err != nil {
-			return fmt.Errorf("failed to apply kustomization: %w", err)
-		}
+		return fmt.Errorf("failed to apply kustomization: %w", err)
 	}
 
 	logger.Success("Kustomization applied successfully")
 	return nil
 }
 
-func selectKustomizationFile() (string, error) {
+func selectKustomizationFile() (string, string, error) {
 	logger := common.NewColorLogger()
 
 	// Find git repository root
-	gitRootCmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	gitRootOutput, err := gitRootCmd.Output()
+	gitRoot, err := findGitRoot()
 	if err != nil {
-		return "", fmt.Errorf("failed to find git repository root: %w (make sure you're in a git repository)", err)
+		return "", "", err
 	}
-	gitRoot := strings.TrimSpace(string(gitRootOutput))
 
 	// Search for all ks.yaml files in kubernetes/apps
 	appsDir := fmt.Sprintf("%s/kubernetes/apps", gitRoot)
 	if _, err := os.Stat(appsDir); err != nil {
-		return "", fmt.Errorf("kubernetes/apps directory not found at %s", appsDir)
+		return "", "", fmt.Errorf("kubernetes/apps directory not found at %s", appsDir)
 	}
 
-	// Find all ks.yaml files recursively
-	findCmd := exec.Command("find", appsDir, "-name", "ks.yaml", "-type", "f")
-	output, err := findCmd.Output()
+	// Find all ks.yaml files recursively without relying on shell utilities
+	ksFiles, err := findKustomizationFiles(appsDir)
 	if err != nil {
-		return "", fmt.Errorf("failed to find ks.yaml files: %w", err)
+		return "", "", err
 	}
-
-	ksFiles := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(ksFiles) == 0 || (len(ksFiles) == 1 && ksFiles[0] == "") {
-		return "", fmt.Errorf("no ks.yaml files found in %s", appsDir)
+	if len(ksFiles) == 0 {
+		return "", "", fmt.Errorf("no ks.yaml files found in %s", appsDir)
 	}
 
 	// Make paths relative to git root for cleaner display
@@ -1293,29 +1424,49 @@ func selectKustomizationFile() (string, error) {
 	logger.Info("Found %d Kustomization files", len(relativeFiles))
 
 	// Use Filter for better search experience with many files
-	selected, err := ui.Filter("Search for Kustomization:", relativeFiles)
+	selected, err := filterOptionFn("Search for Kustomization:", relativeFiles)
 	if err != nil {
 		// User cancelled - exit gracefully without error
-		return "", nil
+		return "", "", nil
 	}
 
-	// Return full path
-	return fmt.Sprintf("%s/%s", gitRoot, selected), nil
+	fullPath := fmt.Sprintf("%s/%s", gitRoot, selected)
+	infos, err := parseKustomizationDocuments(fullPath)
+	if err != nil {
+		return "", "", err
+	}
+	if len(infos) == 1 {
+		return fullPath, infos[0].Name, nil
+	}
+
+	var choices []string
+	for _, info := range infos {
+		choices = append(choices, fmt.Sprintf("%s (%s)", info.Name, info.Namespace))
+	}
+
+	selectedTarget, err := filterOptionFn("Select Kustomization document:", choices)
+	if err != nil {
+		return "", "", nil
+	}
+
+	selectedName := strings.TrimSpace(strings.SplitN(selectedTarget, " (", 2)[0])
+	return fullPath, selectedName, nil
 }
 
 func newDeleteKsCommand() *cobra.Command {
 	var (
-		force bool
+		force  bool
+		ksName string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "delete-ks <ks.yaml>",
 		Short: "Delete resources from a locally rendered Kustomization",
-		Long:  `Renders a Kustomization locally and deletes its resources from the cluster. Provide path to ks.yaml file.`,
+		Long:  `Renders a Kustomization locally and deletes its resources from the cluster. Provide path to ks.yaml file. Use --name when the file contains multiple Flux Kustomizations.`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				confirmed, err := ui.Confirm("This will delete all resources in the Kustomization. Continue?", false)
+				confirmed, err := confirmActionFn("This will delete all resources in the Kustomization. Continue?", false)
 				if err != nil {
 					return fmt.Errorf("confirmation failed: %w", err)
 				}
@@ -1323,20 +1474,21 @@ func newDeleteKsCommand() *cobra.Command {
 					return fmt.Errorf("deletion cancelled")
 				}
 			}
-			return deleteKustomization(args[0])
+			return deleteKustomization(args[0], ksName)
 		},
 	}
 
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
+	cmd.Flags().StringVar(&ksName, "name", "", "Kustomization name within ks.yaml when the file contains multiple documents")
 
 	return cmd
 }
 
-func deleteKustomization(ksPath string) error {
+func deleteKustomization(ksPath, ksName string) error {
 	logger := common.NewColorLogger()
 
 	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFile(ksPath)
+	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
 	if err != nil {
 		return err
 	}
@@ -1344,25 +1496,16 @@ func deleteKustomization(ksPath string) error {
 	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
 
 	// Build the kustomization using flux build with dry-run
-	buildCmd := exec.Command("flux", "build", "kustomization", ksInfo.Name,
-		"--namespace", ksInfo.Namespace,
-		"--path", ksInfo.FullPath,
-		"--kustomization-file", ksInfo.KsFile,
-		"--dry-run")
-
-	output, err := buildCmd.Output()
+	output, err := fluxBuildKustomizationFn(ksInfo.Name, ksInfo.Namespace, ksInfo.FullPath, ksInfo.KsFile)
 	if err != nil {
 		return fmt.Errorf("failed to render kustomization: %w", err)
 	}
 
 	// Delete the rendered output
 	logger.Info("Deleting resources from Kustomization")
-	deleteCmd := exec.Command("kubectl", "delete", "-f", "-")
-	deleteCmd.Stdin = strings.NewReader(string(output))
-	deleteCmd.Stdout = os.Stdout
-	deleteCmd.Stderr = os.Stderr
-
-	if err := deleteCmd.Run(); err != nil {
+	if err := spinWithFuncFn("Deleting Kustomization resources", func() error {
+		return kubectlDeleteManifestFn(string(output))
+	}); err != nil {
 		return fmt.Errorf("failed to delete kustomization resources: %w", err)
 	}
 

@@ -489,7 +489,7 @@ func (s *IntegrationTestSuite) TestPerformanceBasics() {
 // createTestRootCommand creates a root command for testing
 func createTestRootCommand() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:     "homeops",
+		Use:     "homeops-cli",
 		Short:   "HomeOps Infrastructure Management CLI",
 		Long:    `A comprehensive CLI tool for managing home infrastructure including Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 		Version: "test-version",

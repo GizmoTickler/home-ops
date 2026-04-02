@@ -1,306 +1,372 @@
-# HomeOps CLI Commands Documentation
+# HomeOps CLI Command Reference
 
-## Overview
+This is the canonical command reference for `homeops-cli`.
 
-The HomeOps CLI is a comprehensive tool for managing Talos Linux clusters on vSphere/ESXi and TrueNAS infrastructure. It handles everything from custom ISO generation to VM deployment and cluster management.
+It is intentionally structured around the live Cobra command tree in `main.go` and `cmd/`, not around historical workflows. For the full flag surface of any command, use `homeops-cli <command> --help`.
 
-## Command Structure
+## Command Tree
 
-```bash
-homeops-cli talos <command> [subcommand] [flags]
+```text
+homeops-cli
+├── bootstrap
+├── completion [bash|zsh|fish|powershell]
+├── k8s
+│   ├── browse-pvc
+│   ├── node-shell
+│   ├── sync-secrets
+│   ├── prune-pods
+│   ├── view-secret [secret-name]
+│   ├── sync
+│   ├── force-sync-externalsecret <name>
+│   ├── upgrade-arc
+│   ├── render-ks <ks.yaml>
+│   ├── apply-ks [ks.yaml]
+│   └── delete-ks <ks.yaml>
+├── talos
+│   ├── apply-node
+│   ├── upgrade-node
+│   ├── upgrade-k8s
+│   ├── reboot-node
+│   ├── shutdown-cluster
+│   ├── reset-node
+│   ├── reset-cluster
+│   ├── kubeconfig
+│   ├── prepare-iso
+│   ├── deploy-vm
+│   └── manage-vm
+│       ├── list
+│       ├── start
+│       ├── stop
+│       ├── poweron
+│       ├── poweroff
+│       ├── delete
+│       ├── info
+│       └── cleanup-zvols
+├── volsync
+│   ├── state
+│   ├── suspend [name]
+│   ├── resume [name]
+│   ├── snapshot
+│   ├── snapshot-all
+│   ├── restore
+│   ├── restore-all
+│   └── snapshots
+└── workstation
+    ├── brew
+    └── krew
 ```
 
-## Core Commands
-
-### 1. `prepare-iso` - Custom ISO Generation and Upload
-
-**Purpose**: Generates a custom Talos ISO using schematic configuration and uploads it to storage providers.
+## Root Usage
 
 ```bash
-homeops-cli talos prepare-iso [flags]
+homeops-cli --help
+homeops-cli --version
+homeops-cli --log-level debug
 ```
 
-**What it does**:
-1. Loads schematic configuration from `internal/templates/talos/schematic.yaml`
-2. Generates a new schematic ID via Talos factory API
-3. Creates a custom ISO with the schematic
-4. Updates `controlplane.yaml` template with the new schematic ID
-5. Uploads ISO to specified provider (TrueNAS or vSphere)
+If you run `homeops-cli` with no subcommand, it opens the interactive command menu.
 
-**Flags**:
-- `--provider string`: Storage provider (`truenas` or `vsphere`) (default: `truenas`)
+## Bootstrap
 
-**Examples**:
+Bootstraps the Talos cluster and cluster applications.
+
 ```bash
-# Generate and upload ISO to TrueNAS
-homeops-cli talos prepare-iso
-
-# Generate and upload ISO to vSphere datastore
-homeops-cli talos prepare-iso --provider vsphere
+homeops-cli bootstrap
+homeops-cli bootstrap --dry-run
+homeops-cli bootstrap --skip-preflight --skip-crds
+homeops-cli bootstrap --verbose
 ```
 
-**Output Files**:
-- ISO uploaded to storage (e.g., `vmware-amd64.iso` for vSphere)
-- Updated `internal/templates/talos/controlplane.yaml` with new schematic ID
-- Cached ISO info in `.cache/talos-isos/`
+Key flags:
 
----
+- `--root-dir`
+- `--kubeconfig`
+- `--talosconfig`
+- `--k8s-version`
+- `--talos-version`
+- `--dry-run`
+- `--skip-crds`
+- `--skip-resources`
+- `--skip-helmfile`
+- `--skip-preflight`
+- `--verbose`
 
-### 2. `deploy-vm` - Virtual Machine Deployment
+## Talos
 
-**Purpose**: Deploys one or more Talos VMs on TrueNAS or vSphere/ESXi with proper configuration.
+### Node and Cluster Operations
 
 ```bash
-homeops-cli talos deploy-vm [flags]
-```
-
-**What it does**:
-1. Connects to virtualization platform (TrueNAS or vSphere)
-2. Creates VMs with specified configuration
-3. Configures SR-IOV networking with MAC addresses from templates
-4. Sets up storage disks (boot, OpenEBS, Rook)
-5. Connects prepared ISO for installation
-6. Configures memory reservation and MTU settings
-
-**Flags**:
-- `--provider string`: Virtualization provider (`truenas` or `vsphere`) (default: `truenas`)
-- `--name string`: VM name (required for single VM, base name for multiple VMs)
-- `--node-count int`: Number of VMs to deploy (vSphere only) (default: `1`)
-- `--concurrent int`: Number of concurrent VM deployments (vSphere only) (default: `3`)
-- `--memory int`: Memory in MB (default: `49152` = 48GB)
-- `--vcpus int`: Number of vCPUs (default: `10`)
-- `--disk-size int`: Boot disk size in GB (default: `250`)
-- `--openebs-size int`: OpenEBS disk size in GB (default: `1024`)
-- `--rook-size int`: Rook disk size in GB (default: `800`)
-- `--datastore string`: Datastore name (vSphere only) (default: `truenas-flash`)
-- `--network string`: Network port group name (vSphere only) (default: `vl999`)
-- `--pool string`: Storage pool (TrueNAS only) (default: `flashstor/VM`)
-- `--generate-iso`: Generate custom ISO using schematic.yaml
-- `--mac-address string`: MAC address (optional)
-- `--skip-zvol-create`: Skip ZVol creation (TrueNAS only)
-
-**Examples**:
-```bash
-# Deploy single VM on vSphere
-homeops-cli talos deploy-vm --provider vsphere --name test-node
-
-# Deploy 3 k8s nodes concurrently on vSphere (creates k8s-0, k8s-1, k8s-2)
-homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --concurrent 3
-
-# Deploy VM with custom specifications
-homeops-cli talos deploy-vm --provider vsphere --name worker --memory 32768 --vcpus 16 --disk-size 250
-
-# Deploy VM and generate custom ISO
-homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --generate-iso
-```
-
-**VM Configuration Applied**:
-- **Memory**: Full reservation for SR-IOV (default 48GB)
-- **Network**: SR-IOV with manual MAC addresses from node configs
-- **MTU**: Guest OS MTU change allowed = true
-- **Storage**: 3 disks (boot, OpenEBS, Rook) with proper sizing
-- **ISO**: Connected with prepared Talos ISO
-
----
-
-### 3. `manage-vm` - VM Lifecycle Management
-
-**Purpose**: Manages VM lifecycle operations (list, start, stop, delete, etc.).
-
-#### 3.1 `manage-vm list`
-```bash
-homeops-cli talos manage-vm list
-```
-Lists all VMs on TrueNAS.
-
-#### 3.2 `manage-vm delete`
-```bash
-homeops-cli talos manage-vm delete [flags]
-```
-
-**Flags**:
-- `--provider string`: Virtualization provider (`truenas` or `vsphere`) (default: `truenas`)
-- `--name string`: VM name (required)
-- `--force`: Force deletion without confirmation
-
-**Examples**:
-```bash
-# Delete VM on vSphere
-homeops-cli talos manage-vm delete --provider vsphere --name k8s-0 --force
-
-# Delete VM on TrueNAS
-homeops-cli talos manage-vm delete --name test-vm
-```
-
-#### 3.3 `manage-vm poweroff/poweron`
-```bash
-homeops-cli talos manage-vm poweroff --provider vsphere --name k8s-0
-homeops-cli talos manage-vm poweron --provider vsphere --name k8s-0
-```
-
-#### 3.4 `manage-vm cleanup-zvols`
-```bash
-homeops-cli talos manage-vm cleanup-zvols --name vm-name
-```
-Cleans up orphaned ZVols for deleted TrueNAS VMs.
-
----
-
-### 4. Node Operations
-
-#### 4.1 `apply-node` - Apply Talos Configuration
-```bash
-homeops-cli talos apply-node --ip <node-ip>
-```
-Applies Talos configuration to a specific node.
-
-#### 4.2 `reboot-node` - Reboot Node
-```bash
-homeops-cli talos reboot-node --ip <node-ip> [--mode <mode>]
-```
-
-**Flags**:
-- `--ip string`: Node IP address (required)
-- `--mode string`: Reboot mode (default: `powercycle`)
-
-#### 4.3 `reset-node` - Reset Node
-```bash
-homeops-cli talos reset-node --ip <node-ip>
-```
-
-#### 4.4 `upgrade-node` - Upgrade Talos
-```bash
-homeops-cli talos upgrade-node --ip <node-ip>
-```
-
----
-
-### 5. Cluster Operations
-
-#### 5.1 `upgrade-k8s` - Kubernetes Upgrade
-```bash
+homeops-cli talos apply-node --ip 192.168.122.10
+homeops-cli talos reboot-node --ip 192.168.122.10
+homeops-cli talos upgrade-node --ip 192.168.122.10
 homeops-cli talos upgrade-k8s
-```
-Upgrades Kubernetes across the entire cluster.
-
-#### 5.2 `reset-cluster` - Cluster Reset
-```bash
+homeops-cli talos kubeconfig
+homeops-cli talos shutdown-cluster
+homeops-cli talos reset-node --ip 192.168.122.10
 homeops-cli talos reset-cluster
 ```
-Resets Talos across the whole cluster.
 
-#### 5.3 `shutdown-cluster` - Cluster Shutdown
+### ISO Preparation
+
+`prepare-iso` generates a Talos Factory ISO and uploads it to the selected provider. The provider default is `proxmox`.
+
 ```bash
-homeops-cli talos shutdown-cluster
+homeops-cli talos prepare-iso
+homeops-cli talos prepare-iso --provider proxmox
+homeops-cli talos prepare-iso --provider vsphere
+homeops-cli talos prepare-iso --provider truenas
 ```
-Shuts down Talos across the whole cluster.
 
-#### 5.4 `kubeconfig` - Generate Kubeconfig
+### VM Deployment
+
+`deploy-vm` defaults to `proxmox`. In interactive mode it prompts for provider, naming, batch settings, and resource profile.
+
 ```bash
-homeops-cli talos kubeconfig
+# Interactive deployment
+homeops-cli talos deploy-vm
+
+# Single VM on default provider (proxmox)
+homeops-cli talos deploy-vm --name test --generate-iso
+
+# Batch deployment on Proxmox or vSphere
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+
+# Batch naming with a non-zero start index
+homeops-cli talos deploy-vm --name worker --node-count 2 --start-index 3 --generate-iso
+
+# Explicit provider selection
+homeops-cli talos deploy-vm --provider vsphere --name lab --node-count 3 --generate-iso
+homeops-cli talos deploy-vm --provider truenas --name test --generate-iso
+
+# Dry-run
+homeops-cli talos deploy-vm --name test --dry-run
 ```
-Generates the kubeconfig for the Talos cluster.
 
----
+High-signal flags:
 
-## Typical Workflows
+- `--provider` with `proxmox` default, or `vsphere` / `esxi` / `truenas`
+- `--name`
+- `--node-count`
+- `--concurrent`
+- `--start-index`
+- `--memory`
+- `--vcpus`
+- `--disk-size`
+- `--openebs-size`
+- `--generate-iso`
+- `--dry-run`
+- `--datastore` and `--network` for vSphere
+- `--pool`, `--skip-zvol-create`, and `--mac-address` for TrueNAS-specific flows
 
-### Complete Fresh Deployment
+### VM Lifecycle Management
 
-1. **Prepare custom ISO**:
-   ```bash
-   homeops-cli talos prepare-iso --provider vsphere
-   ```
+```bash
+homeops-cli talos manage-vm list
+homeops-cli talos manage-vm list --provider vsphere
 
-2. **Deploy cluster nodes**:
-   ```bash
-   homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --concurrent 3
-   ```
+homeops-cli talos manage-vm info --name k8s-0
+homeops-cli talos manage-vm start --name k8s-0
+homeops-cli talos manage-vm stop --name k8s-0
+homeops-cli talos manage-vm poweron --name k8s-0
+homeops-cli talos manage-vm poweroff --name k8s-0
+homeops-cli talos manage-vm delete --name k8s-0 --force
 
-3. **Apply configurations** (after VMs are powered on):
-   ```bash
-   homeops-cli talos apply-node --ip 192.168.122.10
-   homeops-cli talos apply-node --ip 192.168.122.11
-   homeops-cli talos apply-node --ip 192.168.122.12
-   ```
+homeops-cli talos manage-vm cleanup-zvols --vm-name old-node --force
+```
 
-4. **Generate kubeconfig**:
-   ```bash
-   homeops-cli talos kubeconfig
-   ```
+Notes:
 
-### Update Existing Cluster
+- `manage-vm` subcommands default to `proxmox`.
+- `start`, `stop`, `poweron`, `poweroff`, `delete`, and `info` support interactive VM selection when `--name` is omitted.
+- `cleanup-zvols` is TrueNAS-specific and requires `--vm-name`.
 
-1. **Update schematic and prepare new ISO**:
-   ```bash
-   homeops-cli talos prepare-iso --provider vsphere
-   ```
+## Kubernetes
 
-2. **Upgrade nodes** (one by one):
-   ```bash
-   homeops-cli talos upgrade-node --ip 192.168.122.10
-   homeops-cli talos upgrade-node --ip 192.168.122.11
-   homeops-cli talos upgrade-node --ip 192.168.122.12
-   ```
+### PVC and Node Access
 
-### Replace/Rebuild Nodes
+```bash
+homeops-cli k8s browse-pvc --namespace default
+homeops-cli k8s browse-pvc --namespace media --claim downloads
 
-1. **Delete old VMs**:
-   ```bash
-   homeops-cli talos manage-vm delete --provider vsphere --name k8s-0 --force
-   homeops-cli talos manage-vm delete --provider vsphere --name k8s-1 --force
-   homeops-cli talos manage-vm delete --provider vsphere --name k8s-2 --force
-   ```
+homeops-cli k8s node-shell
+homeops-cli k8s node-shell --node k8s-0
+```
 
-2. **Deploy new VMs**:
-   ```bash
-   homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3 --concurrent 3
-   ```
+Notes:
 
-## Configuration Files
+- `browse-pvc` installs and uses the `kubectl browse-pvc` plugin if needed.
+- `node-shell` installs and uses the `kubectl node-shell` plugin if needed.
 
-### Node Templates
-- `internal/templates/talos/nodes/192.168.122.10.yaml` - k8s-0 config
-- `internal/templates/talos/nodes/192.168.122.11.yaml` - k8s-1 config  
-- `internal/templates/talos/nodes/192.168.122.12.yaml` - k8s-2 config
+### Secret and ExternalSecret Operations
 
-### Schematic Configuration
-- `internal/templates/talos/schematic.yaml` - Custom Talos build configuration
+```bash
+homeops-cli k8s sync-secrets
+homeops-cli k8s sync-secrets --dry-run
 
-### Main Templates
-- `internal/templates/talos/controlplane.yaml` - Control plane configuration (auto-updated with schematic ID)
+homeops-cli k8s view-secret my-secret -n default
+homeops-cli k8s view-secret my-secret -n default -k password
+homeops-cli k8s view-secret my-secret -n default -o json
+homeops-cli k8s view-secret
 
-## Environment Variables
+homeops-cli k8s force-sync-externalsecret my-secret -n default
+homeops-cli k8s force-sync-externalsecret --all -n default
+```
 
-The CLI uses 1Password for credential management. Required secrets:
-- vSphere credentials stored in 1Password Infrastructure vault
-- Talos certificates and tokens in 1Password Infrastructure vault
+Notes:
 
-## Cache and Artifacts
+- `view-secret` supports `table`, `json`, and `yaml` output.
+- If you omit the secret name and `default` has no secrets, `view-secret` now prompts for another namespace instead of failing immediately.
+- `force-sync-externalsecret` accepts either a secret name or `--all`.
 
-- `.cache/talos-isos/` - Cached ISO information
-- `kubeconfig` - Generated cluster kubeconfig (after `talos kubeconfig`)
-- `talosconfig` - Talos configuration for cluster access
+### Pod and Flux Maintenance
 
-## Tips and Best Practices
+```bash
+homeops-cli k8s prune-pods
+homeops-cli k8s prune-pods --phase Failed --namespace default
+homeops-cli k8s prune-pods --dry-run
 
-1. **Always use `prepare-iso` before deploying new VMs** to ensure latest schematic
-2. **Use consistent naming**: `k8s` base name creates `k8s-0`, `k8s-1`, `k8s-2`
-3. **Leverage concurrent deployment**: Use `--concurrent 3` for faster multi-VM deployment
-4. **Check VM status** with govc or vSphere client after deployment
-5. **Power on VMs manually** after deployment before applying configurations
-6. **Use `--force` flag** for non-interactive VM deletion in scripts
+homeops-cli k8s sync --type helmrelease
+homeops-cli k8s sync --type kustomization --namespace flux-system
+homeops-cli k8s sync --type gitrepo --parallel
 
-## Command Quick Reference
+homeops-cli k8s upgrade-arc --force
+```
 
-| Command | Purpose | Example |
-|---------|---------|---------|
-| `prepare-iso` | Generate custom ISO | `homeops-cli talos prepare-iso --provider vsphere` |
-| `deploy-vm` | Deploy VMs | `homeops-cli talos deploy-vm --provider vsphere --name k8s --node-count 3` |
-| `manage-vm delete` | Delete VM | `homeops-cli talos manage-vm delete --provider vsphere --name k8s-0 --force` |
-| `apply-node` | Apply config to node | `homeops-cli talos apply-node --ip 192.168.122.10` |
-| `upgrade-node` | Upgrade Talos | `homeops-cli talos upgrade-node --ip 192.168.122.10` |
-| `upgrade-k8s` | Upgrade Kubernetes | `homeops-cli talos upgrade-k8s` |
-| `kubeconfig` | Generate kubeconfig | `homeops-cli talos kubeconfig` |
+Notes:
 
-This documentation covers all major commands and workflows for managing your Talos cluster infrastructure with the HomeOps CLI.
+- `sync --type` accepts `gitrepo`, `helmrelease`, `kustomization`, or `ocirepository`.
+- `upgrade-arc` uninstalls and reconciles ARC resources and asks for confirmation unless `--force` is set.
+
+### Local Flux Kustomization Workflows
+
+These commands work against Flux `ks.yaml` files and support multi-document files via `--name`.
+
+```bash
+homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana
+homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana -o rendered.yaml
+
+homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
+homeops-cli k8s apply-ks --dry-run
+
+homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
+homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance --force
+```
+
+Notes:
+
+- `apply-ks` supports interactive `ks.yaml` selection if no path is provided.
+- `render-ks` and `delete-ks` require an explicit `ks.yaml` path.
+- Use `--name` when one `ks.yaml` file contains multiple Flux `Kustomization` documents.
+
+## VolSync
+
+### Controller State
+
+```bash
+homeops-cli volsync state --action suspend
+homeops-cli volsync state --action resume
+```
+
+### Resource Suspension and Resume
+
+```bash
+homeops-cli volsync suspend app-source -n default
+homeops-cli volsync suspend --all -n default
+
+homeops-cli volsync resume app-source -n default
+homeops-cli volsync resume --all -n default
+```
+
+Notes:
+
+- If `--namespace` is omitted, the CLI prompts for a namespace.
+- `suspend` and `resume` target either a named `ReplicationSource` / `ReplicationDestination` or everything in a namespace via `--all`.
+
+### Snapshots
+
+```bash
+homeops-cli volsync snapshot --namespace default --app paperless
+homeops-cli volsync snapshot --namespace default --app paperless --wait=false
+
+homeops-cli volsync snapshot-all
+homeops-cli volsync snapshot-all --namespace default --dry-run
+homeops-cli volsync snapshot-all --concurrency 5
+
+homeops-cli volsync snapshots --namespace default
+```
+
+Notes:
+
+- `snapshot` prompts for namespace and app when omitted.
+- `snapshot-all` discovers `ReplicationSource` resources and can run in parallel.
+- `snapshots` lists available snapshots for a namespace / application flow.
+
+### Restore
+
+```bash
+homeops-cli volsync restore --namespace default --app paperless
+homeops-cli volsync restore --namespace default --app paperless --previous 12
+homeops-cli volsync restore --namespace default --app paperless --previous 12 --force
+
+homeops-cli volsync restore-all --namespace default --force
+```
+
+Notes:
+
+- `restore` prompts for namespace, application, and snapshot when omitted.
+- `restore-all` is the bulk restore workflow for a namespace or broader recovery operation; use `--help` before running it on live workloads.
+
+## Workstation
+
+```bash
+homeops-cli workstation brew
+homeops-cli workstation krew
+```
+
+These install or validate local workstation dependencies used by the rest of the CLI.
+
+## Completion
+
+```bash
+homeops-cli completion bash
+homeops-cli completion zsh
+homeops-cli completion fish
+homeops-cli completion powershell
+```
+
+For shell-specific setup, see [`COMPLETION.md`](./COMPLETION.md).
+
+## Practical Workflows
+
+### Prepare and Deploy Talos VMs on Proxmox
+
+```bash
+homeops-cli talos prepare-iso
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+```
+
+### Inspect a Secret Interactively
+
+```bash
+homeops-cli k8s view-secret
+```
+
+### Render and Apply a Local Flux Kustomization
+
+```bash
+homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
+homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
+```
+
+### Snapshot and Restore an Application
+
+```bash
+homeops-cli volsync snapshot --namespace default --app paperless
+homeops-cli volsync restore --namespace default --app paperless --previous 12
+```
+
+## Maintenance Notes
+
+- This file is the single source of truth for command inventory.
+- If a command changes in `cmd/`, update this file in the same change.
+- Prefer documenting stable command shapes and high-signal flags here. Let `--help` carry the full flag surface.

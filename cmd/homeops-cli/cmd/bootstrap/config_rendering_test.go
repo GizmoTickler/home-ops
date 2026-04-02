@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"homeops-cli/internal/common"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -133,12 +132,18 @@ func TestTempFileCleanup(t *testing.T) {
 		t.Skip("talosctl not found, skipping test")
 	}
 
+	oldTempDir := bootstrapTalosTempDir
+	tempDir := t.TempDir()
+	bootstrapTalosTempDir = tempDir
+	t.Cleanup(func() {
+		bootstrapTalosTempDir = oldTempDir
+	})
+
 	baseConfig := []byte("version: v1alpha1\nmachine:\n  type: controlplane")
 	patchConfig := []byte("machine:\n  install:\n    wipe: true")
 
 	// Get count of temp files before
-	tmpDir := os.TempDir()
-	beforeFiles, err := filepath.Glob(filepath.Join(tmpDir, "talos-*-*.yaml"))
+	beforeFiles, err := filepath.Glob(filepath.Join(tempDir, "talos-*-*.yaml"))
 	if err != nil {
 		t.Fatalf("Failed to glob temp files: %v", err)
 	}
@@ -151,7 +156,7 @@ func TestTempFileCleanup(t *testing.T) {
 	}
 
 	// Check that temp files were cleaned up
-	afterFiles, err := filepath.Glob(filepath.Join(tmpDir, "talos-*-*.yaml"))
+	afterFiles, err := filepath.Glob(filepath.Join(tempDir, "talos-*-*.yaml"))
 	if err != nil {
 		t.Fatalf("Failed to glob temp files: %v", err)
 	}

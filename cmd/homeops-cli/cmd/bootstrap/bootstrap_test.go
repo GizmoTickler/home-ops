@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,148 @@ import (
 
 	"homeops-cli/internal/common"
 )
+
+func configureBootstrapWaitTest(t *testing.T, stub func(*BootstrapConfig, ...string) ([]byte, error)) {
+	t.Helper()
+
+	originalKubectlOutput := bootstrapKubectlOutput
+	originalCheckIntervalNormal := bootstrapCheckIntervalNormal
+	originalCheckIntervalSlow := bootstrapCheckIntervalSlow
+	originalStallTimeout := bootstrapStallTimeout
+	originalExtSecMaxWait := bootstrapExtSecMaxWait
+	originalFluxMaxWait := bootstrapFluxMaxWait
+	originalNodeMaxWait := bootstrapNodeMaxWait
+
+	t.Cleanup(func() {
+		bootstrapKubectlOutput = originalKubectlOutput
+		bootstrapCheckIntervalNormal = originalCheckIntervalNormal
+		bootstrapCheckIntervalSlow = originalCheckIntervalSlow
+		bootstrapStallTimeout = originalStallTimeout
+		bootstrapExtSecMaxWait = originalExtSecMaxWait
+		bootstrapFluxMaxWait = originalFluxMaxWait
+		bootstrapNodeMaxWait = originalNodeMaxWait
+	})
+
+	bootstrapKubectlOutput = stub
+	bootstrapCheckIntervalNormal = time.Millisecond
+	bootstrapCheckIntervalSlow = time.Millisecond
+	bootstrapStallTimeout = 5 * time.Millisecond
+	bootstrapExtSecMaxWait = 20 * time.Millisecond
+	bootstrapFluxMaxWait = 20 * time.Millisecond
+	bootstrapNodeMaxWait = 20 * time.Millisecond
+}
+
+func TestBuildTalosctlCmd(t *testing.T) {
+	t.Run("with talosconfig", func(t *testing.T) {
+		cmd := buildTalosctlCmd("/tmp/talosconfig", "config", "info")
+		want := []string{"talosctl", "--talosconfig", "/tmp/talosconfig", "config", "info"}
+		if strings.Join(cmd.Args, "|") != strings.Join(want, "|") {
+			t.Fatalf("unexpected args: got %v want %v", cmd.Args, want)
+		}
+	})
+
+	t.Run("without talosconfig", func(t *testing.T) {
+		cmd := buildTalosctlCmd("", "config", "info")
+		want := []string{"talosctl", "config", "info"}
+		if strings.Join(cmd.Args, "|") != strings.Join(want, "|") {
+			t.Fatalf("unexpected args: got %v want %v", cmd.Args, want)
+		}
+	})
+}
+
+func TestBuildKubectlCmd(t *testing.T) {
+	config := &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}
+	cmd := buildKubectlCmd(config, "get", "nodes", "-o", "name")
+
+	want := []string{"kubectl", "get", "nodes", "-o", "name", "--kubeconfig", "/tmp/kubeconfig"}
+	if strings.Join(cmd.Args, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected args: got %v want %v", cmd.Args, want)
+	}
+}
+
+func TestBuildHelmfileCmd(t *testing.T) {
+	config := &BootstrapConfig{RootDir: "/repo/root"}
+	cmd := buildHelmfileCmd("/tmp/work", config, "--file", "/tmp/work/01-apps.yaml", "sync")
+
+	want := []string{"helmfile", "--file", "/tmp/work/01-apps.yaml", "sync"}
+	if strings.Join(cmd.Args, "|") != strings.Join(want, "|") {
+		t.Fatalf("unexpected args: got %v want %v", cmd.Args, want)
+	}
+	if cmd.Dir != "/tmp/work" {
+		t.Fatalf("unexpected dir: got %q", cmd.Dir)
+	}
+
+	foundRootDir := false
+	for _, env := range cmd.Env {
+		if env == "ROOT_DIR=/repo/root" {
+			foundRootDir = true
+			break
+		}
+	}
+	if !foundRootDir {
+		t.Fatalf("expected ROOT_DIR to be present in env, got %v", cmd.Env)
+	}
+}
+
+func TestDeploymentReadinessHelpers(t *testing.T) {
+	t.Run("parse replica count", func(t *testing.T) {
+		count, err := parseReplicaCount("2")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if count != 2 {
+			t.Fatalf("unexpected count: got %d want 2", count)
+		}
+
+		if _, err := parseReplicaCount(""); err == nil {
+			t.Fatal("expected error for empty replica count")
+		}
+		if _, err := parseReplicaCount("abc"); err == nil {
+			t.Fatal("expected error for invalid replica count")
+		}
+	})
+
+	t.Run("deployment ready from state", func(t *testing.T) {
+		tests := []struct {
+			state string
+			ready bool
+		}{
+			{state: "1/1", ready: true},
+			{state: "2/2", ready: true},
+			{state: "1/2", ready: false},
+			{state: "0/1", ready: false},
+			{state: "0/0", ready: false},
+			{state: "bad", ready: false},
+		}
+
+		for _, tt := range tests {
+			if got := deploymentReadyFromState(tt.state); got != tt.ready {
+				t.Fatalf("deploymentReadyFromState(%q) = %v, want %v", tt.state, got, tt.ready)
+			}
+		}
+	})
+
+	t.Run("deployment and endpoints ready from state", func(t *testing.T) {
+		tests := []struct {
+			state     string
+			endpoints string
+			ready     bool
+		}{
+			{state: "1/1:True", endpoints: "10.0.0.1", ready: true},
+			{state: "2/2:True", endpoints: "10.0.0.1 10.0.0.2", ready: true},
+			{state: "1/2:True", endpoints: "10.0.0.1", ready: false},
+			{state: "1/1:False", endpoints: "10.0.0.1", ready: false},
+			{state: "1/1:True", endpoints: "", ready: false},
+			{state: "bad", endpoints: "10.0.0.1", ready: false},
+		}
+
+		for _, tt := range tests {
+			if got := deploymentAndEndpointsReadyFromState(tt.state, tt.endpoints); got != tt.ready {
+				t.Fatalf("deploymentAndEndpointsReadyFromState(%q, %q) = %v, want %v", tt.state, tt.endpoints, got, tt.ready)
+			}
+		}
+	})
+}
 
 // TestBootstrapConfig tests the BootstrapConfig structure
 func TestBootstrapConfig(t *testing.T) {
@@ -177,50 +320,95 @@ func TestResolve1PasswordReferences(t *testing.T) {
 
 // TestWaitForNodesAvailable tests node availability waiting
 func TestWaitForNodesAvailable(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
+	configureBootstrapWaitTest(t, func(_ *BootstrapConfig, _ ...string) ([]byte, error) {
+		return nil, errors.New("kubectl unavailable")
+	})
 
-	// Create a temporary kubeconfig that will fail
-	tmpDir := t.TempDir()
-	kubeconfig := filepath.Join(tmpDir, "kubeconfig")
-
-	// Write invalid kubeconfig
-	invalidConfig := `
-apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: https://invalid-server:6443
-  name: invalid
-contexts:
-- context:
-    cluster: invalid
-  name: invalid
-current-context: invalid
-`
-
-	if err := os.WriteFile(kubeconfig, []byte(invalidConfig), 0600); err != nil {
-		t.Fatalf("Failed to write test kubeconfig: %v", err)
-	}
-
-	config := &BootstrapConfig{
-		KubeConfig: kubeconfig,
-	}
+	config := &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}
 	logger := common.NewColorLogger()
 
-	// This should timeout quickly with invalid config
 	start := time.Now()
 	err := waitForNodesAvailable(config, logger)
 	duration := time.Since(start)
 
 	if err == nil {
-		t.Errorf("Expected error with invalid kubeconfig")
+		t.Errorf("Expected kubectl stall error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "node discovery stalled") {
+		t.Errorf("Expected stall error, got: %v", err)
 	}
 
-	// Should fail relatively quickly (within 30 seconds for this test)
-	if duration > 30*time.Second {
+	if duration > time.Second {
 		t.Errorf("Function took too long to fail: %v", duration)
+	}
+}
+
+func TestWaitForNodesReadyFalseStallsOnKubectlErrors(t *testing.T) {
+	configureBootstrapWaitTest(t, func(_ *BootstrapConfig, _ ...string) ([]byte, error) {
+		return nil, errors.New("kubectl unavailable")
+	})
+
+	config := &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}
+	logger := common.NewColorLogger()
+
+	start := time.Now()
+	err := waitForNodesReadyFalse(config, logger)
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Expected error with invalid kubeconfig")
+	}
+	if !strings.Contains(err.Error(), "node readiness stalled") {
+		t.Fatalf("Expected readiness stall error, got: %v", err)
+	}
+	if duration > time.Second {
+		t.Fatalf("Function took too long to fail: %v", duration)
+	}
+}
+
+func TestWaitForExternalSecretsWebhookStallsOnKubectlErrors(t *testing.T) {
+	configureBootstrapWaitTest(t, func(_ *BootstrapConfig, _ ...string) ([]byte, error) {
+		return nil, errors.New("kubectl unavailable")
+	})
+
+	config := &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}
+	logger := common.NewColorLogger()
+
+	start := time.Now()
+	err := waitForExternalSecretsWebhook(config, logger)
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Expected error with kubectl failures")
+	}
+	if !strings.Contains(err.Error(), "external-secrets webhook stalled") {
+		t.Fatalf("Expected external-secrets stall error, got: %v", err)
+	}
+	if duration > time.Second {
+		t.Fatalf("Function took too long to fail: %v", duration)
+	}
+}
+
+func TestWaitForFluxControllerStallsOnKubectlErrors(t *testing.T) {
+	configureBootstrapWaitTest(t, func(_ *BootstrapConfig, _ ...string) ([]byte, error) {
+		return nil, errors.New("kubectl unavailable")
+	})
+
+	config := &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}
+	logger := common.NewColorLogger()
+
+	start := time.Now()
+	err := waitForFluxController(config, logger, "source-controller")
+	duration := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Expected error with kubectl failures")
+	}
+	if !strings.Contains(err.Error(), "source-controller stalled") {
+		t.Fatalf("Expected flux controller stall error, got: %v", err)
+	}
+	if duration > time.Second {
+		t.Fatalf("Function took too long to fail: %v", duration)
 	}
 }
 
