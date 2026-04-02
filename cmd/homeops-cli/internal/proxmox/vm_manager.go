@@ -1,7 +1,10 @@
 package proxmox
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -9,6 +12,83 @@ import (
 
 	"github.com/luthermonson/go-proxmox"
 )
+
+var (
+	sleepForOperation = time.Sleep
+	ErrVMNotFound     = errors.New("VM not found")
+	getCredentialsFn  = GetCredentials
+	newVMManagerFn    = NewVMManager
+)
+
+type taskHandle interface {
+	Wait(context.Context, time.Duration, time.Duration) error
+}
+
+type vmHandle interface {
+	Name() string
+	VMID() int
+	Status() string
+	Start(context.Context) (taskHandle, error)
+	Shutdown(context.Context) (taskHandle, error)
+	Stop(context.Context) (taskHandle, error)
+	Delete(context.Context) (taskHandle, error)
+}
+
+type proxmoxTaskHandle struct {
+	task *proxmox.Task
+}
+
+func (t proxmoxTaskHandle) Wait(ctx context.Context, poll, timeout time.Duration) error {
+	return t.task.Wait(ctx, poll, timeout)
+}
+
+type proxmoxVMHandle struct {
+	vm *proxmox.VirtualMachine
+}
+
+func (h proxmoxVMHandle) Name() string {
+	return h.vm.Name
+}
+
+func (h proxmoxVMHandle) VMID() int {
+	return int(h.vm.VMID)
+}
+
+func (h proxmoxVMHandle) Status() string {
+	return string(h.vm.Status)
+}
+
+func (h proxmoxVMHandle) Start(ctx context.Context) (taskHandle, error) {
+	task, err := h.vm.Start(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (h proxmoxVMHandle) Shutdown(ctx context.Context) (taskHandle, error) {
+	task, err := h.vm.Shutdown(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (h proxmoxVMHandle) Stop(ctx context.Context) (taskHandle, error) {
+	task, err := h.vm.Stop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (h proxmoxVMHandle) Delete(ctx context.Context) (taskHandle, error) {
+	task, err := h.vm.Delete(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
 
 // VMConfig represents the configuration for Proxmox VM deployment
 type VMConfig struct {
@@ -124,6 +204,7 @@ var DefaultVMConfig = VMConfig{
 	CPUType:        "host,flags=+pdpe1gb;-spec-ctrl",
 	NUMAEnabled:    true,
 	BootDiskSize:   200,
+	BootStorage:    "nvme1",
 	OpenEBSSize:    800,
 	OpenEBSStorage: "nvmeof-vmdata",
 	Node:           "pve",
@@ -141,6 +222,39 @@ var DefaultVMConfig = VMConfig{
 	AgentEnabled:   true,
 }
 
+func normalizeStorageConfig(config VMConfig) (VMConfig, error) {
+	if config.BootStorage == "" {
+		switch {
+		case config.EFIDiskStorage != "":
+			config.BootStorage = config.EFIDiskStorage
+		case config.OpenEBSStorage != "":
+			config.BootStorage = config.OpenEBSStorage
+		}
+	}
+
+	if config.EFIDiskStorage == "" {
+		config.EFIDiskStorage = config.BootStorage
+	}
+
+	if config.OpenEBSSize > 0 && config.OpenEBSStorage == "" {
+		config.OpenEBSStorage = config.BootStorage
+	}
+
+	if config.BootDiskSize > 0 && config.BootStorage == "" {
+		return config, fmt.Errorf("boot storage is required when boot disk size is set")
+	}
+
+	if config.BIOS == "ovmf" && config.EFIDiskStorage == "" {
+		return config, fmt.Errorf("efi disk storage is required when BIOS is ovmf")
+	}
+
+	if config.OpenEBSSize > 0 && config.OpenEBSStorage == "" {
+		return config, fmt.Errorf("openebs storage is required when OpenEBS disk size is set")
+	}
+
+	return config, nil
+}
+
 // GetTalosNodeConfig retrieves predefined config for a Talos node
 func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
 	config, exists := TalosNodeConfigs[name]
@@ -149,8 +263,15 @@ func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
 
 // VMManager handles high-level VM operations on Proxmox
 type VMManager struct {
-	client *Client
-	logger *common.ColorLogger
+	client          *Client
+	logger          *common.ColorLogger
+	lookupVMHandle  func(string) (vmHandle, error)
+	listVMsFn       func() (proxmox.VirtualMachines, error)
+	getNextVMIDFn   func() (int, error)
+	createVMTaskFn  func(int, ...proxmox.VirtualMachineOption) (taskHandle, error)
+	getVMHandleFn   func(int) (vmHandle, error)
+	findVMByNameFn  func(string) (*proxmox.VirtualMachine, error)
+	uploadISOTaskFn func(string, string, string) (taskHandle, error)
 }
 
 // NewVMManager creates a new VM manager
@@ -172,6 +293,9 @@ func NewVMManager(host, tokenID, secret, nodeName string, insecure bool) (*VMMan
 
 // Close closes the connection
 func (vm *VMManager) Close() error {
+	if vm.client == nil {
+		return nil
+	}
 	return vm.client.Close()
 }
 
@@ -179,8 +303,14 @@ func (vm *VMManager) Close() error {
 func (vm *VMManager) DeployVM(config VMConfig) error {
 	vm.logger.Info("Starting Proxmox VM deployment: %s", config.Name)
 
+	normalizedConfig, err := normalizeStorageConfig(config)
+	if err != nil {
+		return fmt.Errorf("invalid VM storage configuration: %w", err)
+	}
+	config = normalizedConfig
+
 	// Check if VM with same name already exists
-	existingVMs, err := vm.client.ListVMs()
+	existingVMs, err := vm.listVMs()
 	if err != nil {
 		return fmt.Errorf("failed to list existing VMs: %w", err)
 	}
@@ -197,7 +327,7 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		vmid = nodeConfig.VMID
 		vm.logger.Info("Using predefined VMID: %d for %s", vmid, config.Name)
 	} else {
-		vmid, err = vm.client.GetNextVMID()
+		vmid, err = vm.nextVMID()
 		if err != nil {
 			return fmt.Errorf("failed to get next VMID: %w", err)
 		}
@@ -208,7 +338,7 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	options := vm.buildVMOptions(config)
 
 	// Create the VM
-	task, err := vm.client.CreateVM(vmid, options...)
+	task, err := vm.createVMTask(vmid, options...)
 	if err != nil {
 		return fmt.Errorf("failed to create VM: %w", err)
 	}
@@ -224,7 +354,7 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	// Power on if requested
 	if config.PowerOn {
 		vm.logger.Info("Powering on VM %s...", config.Name)
-		vmObj, err := vm.client.GetVM(vmid)
+		vmObj, err := vm.vmHandleByID(vmid)
 		if err != nil {
 			return fmt.Errorf("failed to get VM for power on: %w", err)
 		}
@@ -371,36 +501,23 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 
 // ListVMs lists all VMs
 func (vm *VMManager) ListVMs() error {
-	vms, err := vm.client.ListVMs()
+	vms, err := vm.listVMs()
 	if err != nil {
 		return fmt.Errorf("failed to list VMs: %w", err)
 	}
 
-	if len(vms) == 0 {
-		fmt.Println("No virtual machines found.")
-		return nil
-	}
-
-	fmt.Printf("%-6s %-20s %-10s %-12s %-6s %-12s\n", "VMID", "Name", "Status", "Memory(MB)", "CPUs", "Uptime(s)")
-	fmt.Println(strings.Repeat("-", 75))
-
-	for _, vmItem := range vms {
-		memMB := vmItem.MaxMem / (1024 * 1024)
-		fmt.Printf("%-6d %-20s %-10s %-12d %-6d %-12d\n",
-			vmItem.VMID, vmItem.Name, vmItem.Status, memMB, vmItem.CPUs, vmItem.Uptime)
-	}
-
+	fmt.Print(formatVMList(vms))
 	return nil
 }
 
 // StartVM starts a VM by name
 func (vm *VMManager) StartVM(name string) error {
-	vmObj, err := vm.findVMByName(name)
+	vmObj, err := vm.getVMHandle(name)
 	if err != nil {
 		return err
 	}
 
-	vm.logger.Info("Starting VM: %s (VMID: %d)", name, vmObj.VMID)
+	vm.logger.Info("Starting VM: %s (VMID: %d)", name, vmObj.VMID())
 
 	task, err := vmObj.Start(vm.client.Context())
 	if err != nil {
@@ -417,7 +534,7 @@ func (vm *VMManager) StartVM(name string) error {
 
 // StopVM stops a VM by name (graceful shutdown or force)
 func (vm *VMManager) StopVM(name string, force bool) error {
-	vmObj, err := vm.findVMByName(name)
+	vmObj, err := vm.getVMHandle(name)
 	if err != nil {
 		return err
 	}
@@ -426,9 +543,9 @@ func (vm *VMManager) StopVM(name string, force bool) error {
 	if force {
 		action = "Force stopping"
 	}
-	vm.logger.Info("%s VM: %s (VMID: %d)", action, name, vmObj.VMID)
+	vm.logger.Info("%s VM: %s (VMID: %d)", action, name, vmObj.VMID())
 
-	var task *proxmox.Task
+	var task taskHandle
 	if force {
 		task, err = vmObj.Stop(vm.client.Context())
 	} else {
@@ -448,21 +565,24 @@ func (vm *VMManager) StopVM(name string, force bool) error {
 
 // DeleteVM deletes a VM by name
 func (vm *VMManager) DeleteVM(name string) error {
-	vmObj, err := vm.findVMByName(name)
+	vmObj, err := vm.getVMHandle(name)
 	if err != nil {
 		return err
 	}
 
-	vm.logger.Info("Deleting VM: %s (VMID: %d)", name, vmObj.VMID)
+	vm.logger.Info("Deleting VM: %s (VMID: %d)", name, vmObj.VMID())
 
 	// Stop VM if running
-	if vmObj.Status == proxmox.StatusVirtualMachineRunning {
+	if vmObj.Status() == string(proxmox.StatusVirtualMachineRunning) {
 		vm.logger.Info("Stopping running VM before deletion...")
 		task, err := vmObj.Stop(vm.client.Context())
-		if err == nil {
-			_ = task.Wait(vm.client.Context(), time.Second, 60*time.Second)
-			time.Sleep(2 * time.Second)
+		if err != nil {
+			return fmt.Errorf("failed to stop running VM before deletion: %w", err)
 		}
+		if err := task.Wait(vm.client.Context(), time.Second, 60*time.Second); err != nil {
+			return fmt.Errorf("stop task failed before deletion: %w", err)
+		}
+		sleepForOperation(2 * time.Second)
 	}
 
 	// Delete VM
@@ -473,6 +593,10 @@ func (vm *VMManager) DeleteVM(name string) error {
 
 	if err := task.Wait(vm.client.Context(), time.Second, 120*time.Second); err != nil {
 		return fmt.Errorf("delete task failed: %w", err)
+	}
+
+	if err := vm.verifyVMDeletion(name); err != nil {
+		return err
 	}
 
 	vm.logger.Success("VM %s deleted successfully", name)
@@ -486,59 +610,159 @@ func (vm *VMManager) GetVMInfo(name string) error {
 		return err
 	}
 
-	fmt.Printf("VM Information for: %s\n", name)
-	fmt.Printf("VMID: %d\n", vmObj.VMID)
-	fmt.Printf("Node: %s\n", vmObj.Node)
-	fmt.Printf("Status: %s\n", vmObj.Status)
-	fmt.Printf("Memory: %d MB (max: %d MB)\n", vmObj.Mem/(1024*1024), vmObj.MaxMem/(1024*1024))
-	fmt.Printf("CPUs: %d\n", vmObj.CPUs)
-	fmt.Printf("Uptime: %d seconds\n", vmObj.Uptime)
-
-	// Get detailed config from the VirtualMachineConfig field
-	if vmObj.VirtualMachineConfig != nil {
-		config := vmObj.VirtualMachineConfig
-		fmt.Printf("\nConfiguration:\n")
-		fmt.Printf("  Name: %s\n", config.Name)
-		fmt.Printf("  Cores: %d\n", config.Cores)
-		fmt.Printf("  Sockets: %d\n", config.Sockets)
-		fmt.Printf("  BIOS: %s\n", config.Bios)
-		fmt.Printf("  SCSI HW: %s\n", config.SCSIHW)
-	}
-
+	fmt.Print(formatVMInfo(name, vmObj))
 	return nil
 }
 
 // findVMByName finds a VM by name
 func (vm *VMManager) findVMByName(name string) (*proxmox.VirtualMachine, error) {
-	vms, err := vm.client.ListVMs()
+	if vm.findVMByNameFn != nil {
+		return vm.findVMByNameFn(name)
+	}
+
+	vms, err := vm.listVMs()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}
 
 	for _, vmItem := range vms {
 		if vmItem.Name == name {
-			// Get full VM object - convert StringOrUint64 to int
 			return vm.client.GetVM(int(vmItem.VMID))
 		}
 	}
 
-	return nil, fmt.Errorf("VM '%s' not found", name)
+	return nil, fmt.Errorf("%w: %s", ErrVMNotFound, name)
+}
+
+func (vm *VMManager) listVMs() (proxmox.VirtualMachines, error) {
+	if vm.listVMsFn != nil {
+		return vm.listVMsFn()
+	}
+	return vm.client.ListVMs()
+}
+
+func (vm *VMManager) nextVMID() (int, error) {
+	if vm.getNextVMIDFn != nil {
+		return vm.getNextVMIDFn()
+	}
+	return vm.client.GetNextVMID()
+}
+
+func (vm *VMManager) createVMTask(vmid int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {
+	if vm.createVMTaskFn != nil {
+		return vm.createVMTaskFn(vmid, options...)
+	}
+	task, err := vm.client.CreateVM(vmid, options...)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (vm *VMManager) vmHandleByID(vmid int) (vmHandle, error) {
+	if vm.getVMHandleFn != nil {
+		return vm.getVMHandleFn(vmid)
+	}
+	vmObj, err := vm.client.GetVM(vmid)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxVMHandle{vm: vmObj}, nil
+}
+
+func formatVMList(vms proxmox.VirtualMachines) string {
+	if len(vms) == 0 {
+		return "No virtual machines found.\n"
+	}
+
+	var b strings.Builder
+	writeVMList(&b, vms)
+	return b.String()
+}
+
+func writeVMList(w io.Writer, vms proxmox.VirtualMachines) {
+	_, _ = fmt.Fprintf(w, "%-6s %-20s %-10s %-12s %-6s %-12s\n", "VMID", "Name", "Status", "Memory(MB)", "CPUs", "Uptime(s)")
+	_, _ = fmt.Fprintln(w, strings.Repeat("-", 75))
+
+	for _, vmItem := range vms {
+		memMB := vmItem.MaxMem / (1024 * 1024)
+		_, _ = fmt.Fprintf(w, "%-6d %-20s %-10s %-12d %-6d %-12d\n",
+			vmItem.VMID, vmItem.Name, vmItem.Status, memMB, vmItem.CPUs, vmItem.Uptime)
+	}
+}
+
+func formatVMInfo(name string, vmObj *proxmox.VirtualMachine) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "VM Information for: %s\n", name)
+	fmt.Fprintf(&b, "VMID: %d\n", vmObj.VMID)
+	fmt.Fprintf(&b, "Node: %s\n", vmObj.Node)
+	fmt.Fprintf(&b, "Status: %s\n", vmObj.Status)
+	fmt.Fprintf(&b, "Memory: %d MB (max: %d MB)\n", vmObj.Mem/(1024*1024), vmObj.MaxMem/(1024*1024))
+	fmt.Fprintf(&b, "CPUs: %d\n", vmObj.CPUs)
+	fmt.Fprintf(&b, "Uptime: %d seconds\n", vmObj.Uptime)
+
+	if vmObj.VirtualMachineConfig != nil {
+		config := vmObj.VirtualMachineConfig
+		fmt.Fprintln(&b, "\nConfiguration:")
+		fmt.Fprintf(&b, "  Name: %s\n", config.Name)
+		fmt.Fprintf(&b, "  Cores: %d\n", config.Cores)
+		fmt.Fprintf(&b, "  Sockets: %d\n", config.Sockets)
+		fmt.Fprintf(&b, "  BIOS: %s\n", config.Bios)
+		fmt.Fprintf(&b, "  SCSI HW: %s\n", config.SCSIHW)
+	}
+
+	return b.String()
+}
+
+func (vm *VMManager) getVMHandle(name string) (vmHandle, error) {
+	if vm.lookupVMHandle != nil {
+		return vm.lookupVMHandle(name)
+	}
+
+	vmObj, err := vm.findVMByName(name)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxVMHandle{vm: vmObj}, nil
+}
+
+func (vm *VMManager) verifyVMDeletion(name string) error {
+	_, err := vm.getVMHandle(name)
+	if err != nil {
+		if errors.Is(err, ErrVMNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to verify VM deletion: %w", err)
+	}
+
+	vm.logger.Warn("VM %s still appears after delete task completion; retrying verification", name)
+	sleepForOperation(2 * time.Second)
+
+	_, err = vm.getVMHandle(name)
+	if err != nil {
+		if errors.Is(err, ErrVMNotFound) {
+			return nil
+		}
+		return fmt.Errorf("failed to verify VM deletion after retry: %w", err)
+	}
+
+	return fmt.Errorf("VM %s still exists after deletion request", name)
 }
 
 // GetVMNames returns a list of VM names (for CLI completion)
 func GetVMNames() ([]string, error) {
-	host, tokenID, secret, nodeName, err := GetCredentials()
+	host, tokenID, secret, nodeName, err := getCredentialsFn()
 	if err != nil {
 		return nil, err
 	}
 
-	manager, err := NewVMManager(host, tokenID, secret, nodeName, true)
+	manager, err := newVMManagerFn(host, tokenID, secret, nodeName, true)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = manager.Close() }()
 
-	vms, err := manager.client.ListVMs()
+	vms, err := manager.listVMs()
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +779,7 @@ func GetVMNames() ([]string, error) {
 func (vm *VMManager) UploadISOFromURL(isoURL, filename, storageName string) error {
 	vm.logger.Info("Downloading ISO to Proxmox storage: %s", filename)
 
-	task, err := vm.client.UploadISO(storageName, isoURL, filename)
+	task, err := vm.uploadISOTask(storageName, isoURL, filename)
 	if err != nil {
 		return fmt.Errorf("failed to initiate ISO download: %w", err)
 	}
@@ -572,4 +796,15 @@ func (vm *VMManager) UploadISOFromURL(isoURL, filename, storageName string) erro
 // GetISOPath returns the Proxmox-format ISO path
 func GetISOPath(storageName, filename string) string {
 	return fmt.Sprintf("%s:iso/%s", storageName, filename)
+}
+
+func (vm *VMManager) uploadISOTask(storageName, isoURL, filename string) (taskHandle, error) {
+	if vm.uploadISOTaskFn != nil {
+		return vm.uploadISOTaskFn(storageName, isoURL, filename)
+	}
+	task, err := vm.client.UploadISO(storageName, isoURL, filename)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
 }

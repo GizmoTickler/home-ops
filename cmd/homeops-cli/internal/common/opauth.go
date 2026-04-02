@@ -4,14 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 )
 
 // Ensure1PasswordAuth verifies 1Password CLI authentication and performs an interactive
 // signin if necessary. It returns an error if authentication cannot be confirmed.
 func Ensure1PasswordAuth() error {
 	// Check if already authenticated
-	cmd := exec.Command("op", "whoami", "--format=json")
+	cmd := Command("op", "whoami", "--format=json")
 	output, err := cmd.Output()
 	if err == nil {
 		// Validate JSON response
@@ -22,7 +21,7 @@ func Ensure1PasswordAuth() error {
 	}
 
 	// Not authenticated, attempt interactive signin
-	signin := exec.Command("op", "signin")
+	signin := Command("op", "signin")
 	signin.Stdin = os.Stdin
 	signin.Stdout = os.Stdout
 	signin.Stderr = os.Stderr
@@ -31,7 +30,7 @@ func Ensure1PasswordAuth() error {
 	}
 
 	// Verify authentication after signin
-	verify := exec.Command("op", "whoami", "--format=json")
+	verify := Command("op", "whoami", "--format=json")
 	verifyOutput, err := verify.Output()
 	if err != nil {
 		return fmt.Errorf("authentication verification failed: %w", err)

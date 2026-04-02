@@ -173,4 +173,4 @@ While the deployment command creates VMs on vSphere, you can manage them using s
 - All disks are thin provisioned to optimize storage usage
 - VMs are automatically powered on after creation
 - The ISO must be present on the NFS datastore before deployment
-- For custom ISOs, run `homeops talos prepare-iso` first to generate and upload the ISO
+- For custom ISOs, run `homeops-cli talos prepare-iso` first to generate and upload the ISO

@@ -7,9 +7,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
@@ -27,8 +27,180 @@ import (
 	localyaml "homeops-cli/internal/yaml"
 
 	"github.com/spf13/cobra"
+	"github.com/vmware/govmomi/object"
+	"github.com/vmware/govmomi/vim25/mo"
 	"gopkg.in/yaml.v3"
 )
+
+var (
+	chooseVMFunc                      = ui.Choose
+	chooseTalosNodeFn                 = ui.Choose
+	chooseOptionFn                    = ui.Choose
+	inputPromptFn                     = ui.Input
+	confirmActionFn                   = ui.Confirm
+	getTrueNASVMNamesFn               = getTrueNASVMNames
+	getProxmoxVMNamesFn               = getProxmoxVMNames
+	getESXiVMNamesFn                  = getESXiVMNames
+	vsphereGetVMNamesFn               = vsphere.GetVMNames
+	proxmoxGetTalosNodeConfigFn       = proxmox.GetTalosNodeConfig
+	proxmoxDefaultVMConfig            = proxmox.DefaultVMConfig
+	getProxmoxCredentialsFn           = proxmox.GetCredentials
+	getTalosNodeIPsFn                 = talos.GetNodeIPs
+	get1PasswordSecretFn              = common.Get1PasswordSecretSilent
+	getTalosTemplateFn                = templates.GetTalosTemplate
+	workingDirectoryFn                = common.GetWorkingDirectory
+	getVSphereCredsFn                 = getVSphereCredentials
+	getVSphereHostFn                  = getVSphereHost
+	getMachineTypeFromNodeFn          = getMachineTypeFromNode
+	renderMachineConfigFromEmbeddedFn = renderMachineConfigFromEmbedded
+	injectSecretsFn                   = common.InjectSecrets
+	ensure1PasswordAuthFn             = common.Ensure1PasswordAuth
+	talosctlOutputFn                  = common.Output
+	talosctlCombinedOutputFn          = common.CombinedOutput
+	talosApplyConfigFn                = func(nodeIP, mode, config string) ([]byte, error) {
+		cmd := common.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
+		cmd.Stdin = bytes.NewReader([]byte(config))
+		return cmd.CombinedOutput()
+	}
+	talosctlNodeOutputFn = func(nodeIP string, args ...string) ([]byte, error) {
+		commandArgs := append([]string{"--nodes", nodeIP}, args...)
+		return common.Output("talosctl", commandArgs...)
+	}
+	generateKubeconfigFn = func(node, rootDir string) ([]byte, error) {
+		cmd := common.Command("talosctl", "kubeconfig", "--nodes", node, "--force", "--force-context-name", "home-ops-cluster", rootDir)
+		return cmd.CombinedOutput()
+	}
+	pushKubeconfigTo1PasswordFn        = common.PushKubeconfigTo1Password
+	pullKubeconfigFrom1PasswordFn      = common.PullKubeconfigFrom1Password
+	startTrueNASVMFn                   = startVM
+	stopTrueNASVMFn                    = stopVM
+	infoTrueNASVMFn                    = infoVM
+	deleteTrueNASVMFn                  = deleteVM
+	startProxmoxVMFn                   = startVMOnProxmox
+	stopProxmoxVMFn                    = stopVMOnProxmox
+	infoProxmoxVMFn                    = infoVMOnProxmox
+	deleteProxmoxVMFn                  = deleteVMOnProxmox
+	powerOnVSphereVMFn                 = powerOnVMOnVSphere
+	powerOffVSphereVMFn                = powerOffVMOnVSphere
+	infoVSphereVMFn                    = infoVMOnVSphere
+	deleteVSphereVMFn                  = deleteVMOnVSphere
+	prepareISOForTrueNASFn             = prepareISOForTrueNAS
+	prepareISOForProxmoxFn             = prepareISOForProxmox
+	prepareISOForVSphereFn             = prepareISOForVSphere
+	prepareISOForTargetFn              = prepareISOForTarget
+	spinWithFuncFn                     = ui.SpinWithFunc
+	spinCommandFn                      = ui.Spin
+	updateNodeTemplatesWithSchematicFn = updateNodeTemplatesWithSchematic
+	uploadISOToVSphereFn               = uploadISOToVSphere
+	httpGetFn                          = http.Get
+	controlplaneTemplatePath           = "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
+	newISODownloaderFn                 = func() isoDownloader {
+		return iso.NewDownloader()
+	}
+	newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
+		return truenas.NewVMManager(host, apiKey, port, useSSL)
+	}
+	newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
+		return proxmox.NewVMManager(host, tokenID, secret, nodeName, insecure)
+	}
+	newVSphereClientFn = func(host, username, password string, insecure bool) vsphereClient {
+		return vsphere.NewClient(host, username, password, insecure)
+	}
+	newTalosFactoryClientFn = func() talosFactoryClient {
+		return talos.NewFactoryClient()
+	}
+	newTrueNASSSHClientFn = func(config ssh.SSHConfig) trueNASSSHClient {
+		return ssh.NewSSHClient(config)
+	}
+	newVSphereDeployerFn = func(host, username, password string) (vsphereVMDeployer, error) {
+		client := vsphere.NewClient(host, username, password, true)
+		if err := client.Connect(host, username, password, true); err != nil {
+			return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
+		}
+		return &defaultVSphereDeployer{client: client}, nil
+	}
+	newESXiK8sVMDeployerFn = func(host, username string) (esxiK8sVMDeployer, error) {
+		return vsphere.NewESXiSSHClient(host, username)
+	}
+)
+
+type talosFactoryClient interface {
+	LoadSchematicFromTemplate() (*talos.SchematicConfig, error)
+	GenerateISOFromSchematic(*talos.SchematicConfig, string, string, string) (*talos.ISOInfo, error)
+}
+
+type isoDownloader interface {
+	DownloadCustomISO(iso.DownloadConfig) error
+}
+
+type trueNASSSHClient interface {
+	Connect() error
+	Close() error
+	VerifyFile(string) (bool, int64, error)
+}
+
+type trueNASVMManager interface {
+	Connect() error
+	Close() error
+	DeployVM(truenas.VMConfig) error
+	ListVMs() error
+	StartVM(string) error
+	StopVM(string, bool) error
+	DeleteVM(string, bool, string) error
+	GetVMInfo(string) error
+	CleanupOrphanedZVols(string, string) error
+}
+
+type proxmoxVMManager interface {
+	Close() error
+	ListVMs() error
+	StartVM(string) error
+	StopVM(string, bool) error
+	DeleteVM(string) error
+	GetVMInfo(string) error
+	UploadISOFromURL(string, string, string) error
+	DeployVM(proxmox.VMConfig) error
+}
+
+type vsphereClient interface {
+	Connect(string, string, string, bool) error
+	Close() error
+	FindVM(string) (*object.VirtualMachine, error)
+	ListVMs() ([]*object.VirtualMachine, error)
+	GetVMInfo(*object.VirtualMachine) (*mo.VirtualMachine, error)
+	UploadISOToDatastore(string, string, string) error
+	PowerOnVM(*object.VirtualMachine) error
+	PowerOffVM(*object.VirtualMachine) error
+	DeleteVM(*object.VirtualMachine) error
+}
+
+type vsphereVMDeployer interface {
+	CreateVM(vsphere.VMConfig) error
+	DeployVMsConcurrently([]vsphere.VMConfig) error
+	Close() error
+}
+
+type defaultVSphereDeployer struct {
+	client *vsphere.Client
+}
+
+func (d *defaultVSphereDeployer) CreateVM(config vsphere.VMConfig) error {
+	_, err := d.client.CreateVM(config)
+	return err
+}
+
+func (d *defaultVSphereDeployer) DeployVMsConcurrently(configs []vsphere.VMConfig) error {
+	return d.client.DeployVMsConcurrently(configs)
+}
+
+func (d *defaultVSphereDeployer) Close() error {
+	return d.client.Close()
+}
+
+type esxiK8sVMDeployer interface {
+	CreateK8sVM(vsphere.VMConfig) error
+	Close()
+}
 
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -106,7 +278,7 @@ func getTrueNASCredentials() (host, apiKey string, err error) {
 
 // get1PasswordSecret retrieves a secret from 1Password using the shared common function
 func get1PasswordSecret(reference string) string {
-	return common.Get1PasswordSecretSilent(reference)
+	return get1PasswordSecretFn(reference)
 }
 
 // getSpicePassword retrieves SPICE password from 1Password or environment variables
@@ -118,6 +290,146 @@ func getSpicePassword() string {
 	}
 	// Fall back to environment variable
 	return os.Getenv(constants.EnvSPICEPassword)
+}
+
+func getVSphereCredentials() (host, username, password string, err error) {
+	logger := common.NewColorLogger()
+	usedEnvFallback := false
+
+	host = get1PasswordSecret(constants.OpESXiHost)
+	if host == "" {
+		// Backward-compatible fallback for older/more direct vault layout.
+		host = get1PasswordSecretFn("op://Infrastructure/esxi/host")
+	}
+	username = get1PasswordSecret(constants.OpESXiUsername)
+	password = get1PasswordSecret(constants.OpESXiPassword)
+
+	if host == "" {
+		host = os.Getenv(constants.EnvVSphereHost)
+		if host != "" {
+			usedEnvFallback = true
+		}
+	}
+	if username == "" {
+		username = os.Getenv(constants.EnvVSphereUsername)
+		if username != "" {
+			usedEnvFallback = true
+		}
+	}
+	if password == "" {
+		password = os.Getenv(constants.EnvVSpherePassword)
+		if password != "" {
+			usedEnvFallback = true
+		}
+	}
+
+	if host == "" || username == "" || password == "" {
+		return "", "", "", fmt.Errorf("vSphere credentials not found. Please set %s, %s, and %s environment variables or configure 1Password",
+			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
+	}
+
+	if usedEnvFallback {
+		logger.Warn("Using environment variables for vSphere credentials. Consider using 1Password for better security.")
+	}
+
+	return host, username, password, nil
+}
+
+func withTrueNASVMManager(logger *common.ColorLogger, fn func(trueNASVMManager) error) error {
+	host, apiKey, err := getTrueNASCredentials()
+	if err != nil {
+		return err
+	}
+
+	vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
+	if err := vmManager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return fn(vmManager)
+}
+
+func withProxmoxVMManager(logger *common.ColorLogger, fn func(proxmoxVMManager) error) error {
+	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
+	if err != nil {
+		return err
+	}
+
+	vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			logger.Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+
+	return fn(vmManager)
+}
+
+func withVSphereClient(logger *common.ColorLogger, fn func(vsphereClient) error) error {
+	host, username, password, err := getVSphereCredsFn()
+	if err != nil {
+		return err
+	}
+
+	client := newVSphereClientFn(host, username, password, true)
+	if err := client.Connect(host, username, password, true); err != nil {
+		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			logger.Warn("Failed to close vSphere connection: %v", closeErr)
+		}
+	}()
+
+	return fn(client)
+}
+
+type talosConfigInfo struct {
+	Endpoints []string `json:"endpoints"`
+	Nodes     []string `json:"nodes"`
+}
+
+func selectTalosNode(prompt string) (string, error) {
+	nodeIPs, err := getTalosNodeIPsFn()
+	if err != nil {
+		return "", err
+	}
+
+	selectedNode, err := chooseTalosNodeFn(prompt, nodeIPs)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("node selection failed: %w", err)
+	}
+
+	return selectedNode, nil
+}
+
+func getTalosConfigInfo() (*talosConfigInfo, error) {
+	output, err := talosctlOutputFn("talosctl", "config", "info", "--output", "json")
+	if err != nil {
+		return nil, err
+	}
+
+	var configInfo talosConfigInfo
+	if err := json.Unmarshal(output, &configInfo); err != nil {
+		return nil, err
+	}
+
+	return &configInfo, nil
+}
+
+func runTalosctlCombinedOutput(args ...string) ([]byte, error) {
+	return talosctlCombinedOutputFn("talosctl", args...)
 }
 
 func newApplyNodeCommand() *cobra.Command {
@@ -151,24 +463,18 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := talos.GetNodeIPs()
+		selectedNode, err := selectTalosNode("Select a Talos node:")
 		if err != nil {
 			return err
 		}
-
-		// Use interactive selector
-		selectedNode, err := ui.Choose("Select a Talos node:", nodeIPs)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("node selection failed: %w", err)
+		if selectedNode == "" {
+			return nil
 		}
 		nodeIP = selectedNode
 	}
 
 	// Get machine type
-	machineType, err := getMachineTypeFromNode(nodeIP)
+	machineType, err := getMachineTypeFromNodeFn(nodeIP)
 	if err != nil {
 		return fmt.Errorf("failed to get machine type: %w", err)
 	}
@@ -180,23 +486,23 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 	nodeConfigTemplate := fmt.Sprintf("talos/nodes/%s.yaml", nodeIP)
 
 	// Render the configuration
-	renderedConfig, err := renderMachineConfigFromEmbedded(machineConfigTemplate, nodeConfigTemplate)
+	renderedConfig, err := renderMachineConfigFromEmbeddedFn(machineConfigTemplate, nodeConfigTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to render config: %w", err)
 	}
 
 	// Resolve 1Password references in the rendered config with signin-once retry
 	logger.Info("Resolving 1Password references in Talos configuration...")
-	resolvedConfig, err := common.InjectSecrets(string(renderedConfig))
+	resolvedConfig, err := injectSecretsFn(string(renderedConfig))
 	if err != nil {
 		errStr := strings.ToLower(err.Error())
 		if strings.Contains(errStr, "not authenticated") || strings.Contains(errStr, "not signed in") || strings.Contains(errStr, "please run 'op signin'") {
 			logger.Info("Attempting 1Password CLI signin due to authentication error...")
-			if err2 := common.Ensure1PasswordAuth(); err2 != nil {
+			if err2 := ensure1PasswordAuthFn(); err2 != nil {
 				return fmt.Errorf("1Password signin failed: %w (original: %v)", err2, err)
 			}
 			// Retry once after successful signin
-			if retryResolved, retryErr := common.InjectSecrets(string(renderedConfig)); retryErr == nil {
+			if retryResolved, retryErr := injectSecretsFn(string(renderedConfig)); retryErr == nil {
 				resolvedConfig = retryResolved
 			} else {
 				return fmt.Errorf("secret resolution failed after signin: %w", retryErr)
@@ -217,10 +523,7 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 	}
 
 	// Apply the configuration
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
-	cmd.Stdin = bytes.NewReader([]byte(resolvedConfig))
-
-	output, err := cmd.CombinedOutput()
+	output, err := talosApplyConfigFn(nodeIP, mode, resolvedConfig)
 	if err != nil {
 		return fmt.Errorf("failed to apply config: %w\n%s", err, output)
 	}
@@ -231,7 +534,59 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 
 // getESXiVMNames retrieves the list of VM names from ESXi/vSphere
 func getESXiVMNames() ([]string, error) {
-	return vsphere.GetVMNames()
+	return vsphereGetVMNamesFn()
+}
+
+func normalizeVMProvider(provider string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "", "proxmox":
+		return "proxmox", nil
+	case "truenas":
+		return "truenas", nil
+	case "vsphere", "esxi":
+		return "vsphere", nil
+	default:
+		return "", fmt.Errorf("unsupported provider: %s. Supported providers: proxmox, truenas, vsphere", provider)
+	}
+}
+
+func getVMNamesForProvider(provider string) ([]string, error) {
+	normalized, err := normalizeVMProvider(provider)
+	if err != nil {
+		return nil, err
+	}
+
+	switch normalized {
+	case "truenas":
+		return getTrueNASVMNamesFn()
+	case "proxmox":
+		return getProxmoxVMNamesFn()
+	case "vsphere":
+		return getESXiVMNamesFn()
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", provider)
+	}
+}
+
+func chooseVMNameForProvider(name, provider, action string) (string, error) {
+	if strings.TrimSpace(name) != "" {
+		return name, nil
+	}
+
+	vmNames, err := getVMNamesForProvider(provider)
+	if err != nil {
+		return "", err
+	}
+
+	selectedVM, err := chooseVMFunc(fmt.Sprintf("Select VM to %s:", action), vmNames)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("VM selection failed: %w", err)
+	}
+
+	return selectedVM, nil
 }
 
 // getTrueNASVMNames retrieves the list of VM names from TrueNAS
@@ -311,8 +666,7 @@ func getProxmoxVMNames() ([]string, error) {
 }
 
 func getMachineTypeFromNode(nodeIP string) (string, error) {
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "get", "machinetypes", "--output=jsonpath={.spec}")
-	output, err := cmd.Output()
+	output, err := talosctlNodeOutputFn(nodeIP, "get", "machinetypes", "--output=jsonpath={.spec}")
 	if err != nil {
 		return "", fmt.Errorf("failed to get machine type: %w", err)
 	}
@@ -372,25 +726,19 @@ func upgradeNode(nodeIP, mode string) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := talos.GetNodeIPs()
+		selectedNode, err := selectTalosNode("Select a Talos node to upgrade:")
 		if err != nil {
 			return err
 		}
-
-		// Use interactive selector
-		selectedNode, err := ui.Choose("Select a Talos node to upgrade:", nodeIPs)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("node selection failed: %w", err)
+		if selectedNode == "" {
+			return nil
 		}
 		nodeIP = selectedNode
 	}
 
 	// Get factory image from controlplane config instead of individual node configs
 	controlplaneTemplate := "talos/controlplane.yaml"
-	configOutput, err := templates.GetTalosTemplate(controlplaneTemplate)
+	configOutput, err := getTalosTemplateFn(controlplaneTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to get controlplane config: %w", err)
 	}
@@ -419,7 +767,7 @@ func upgradeNode(nodeIP, mode string) error {
 	logger.Info("Upgrading node %s to image: %s", nodeIP, factoryImage)
 
 	// Perform upgrade with spinner
-	err = ui.Spin(fmt.Sprintf("Upgrading node %s", nodeIP),
+	err = spinCommandFn(fmt.Sprintf("Upgrading node %s", nodeIP),
 		"talosctl", "--nodes", nodeIP, "upgrade",
 		"--image", factoryImage,
 		"--reboot-mode", mode,
@@ -463,7 +811,7 @@ func upgradeK8s() error {
 	logger.Info("Upgrading Kubernetes to version %s via node %s", k8sVersion, node)
 
 	// Perform Kubernetes upgrade with spinner
-	err = ui.Spin(fmt.Sprintf("Upgrading Kubernetes to %s", k8sVersion),
+	err = spinCommandFn(fmt.Sprintf("Upgrading Kubernetes to %s", k8sVersion),
 		"talosctl", "--nodes", node, "upgrade-k8s", "--to", k8sVersion)
 
 	if err != nil {
@@ -475,16 +823,8 @@ func upgradeK8s() error {
 }
 
 func getRandomNode() (string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
-	output, err := cmd.Output()
+	configInfo, err := getTalosConfigInfo()
 	if err != nil {
-		return "", err
-	}
-
-	var configInfo struct {
-		Endpoints []string `json:"endpoints"`
-	}
-	if err := json.Unmarshal(output, &configInfo); err != nil {
 		return "", err
 	}
 
@@ -524,24 +864,18 @@ func rebootNode(nodeIP, mode string) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := talos.GetNodeIPs()
+		selectedNode, err := selectTalosNode("Select a Talos node to reboot:")
 		if err != nil {
 			return err
 		}
-
-		// Use interactive selector
-		selectedNode, err := ui.Choose("Select a Talos node to reboot:", nodeIPs)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("node selection failed: %w", err)
+		if selectedNode == "" {
+			return nil
 		}
 		nodeIP = selectedNode
 	}
 
 	// Add confirmation for reboot
-	confirmed, err := ui.Confirm(fmt.Sprintf("Are you sure you want to reboot node %s?", nodeIP), false)
+	confirmed, err := confirmActionFn(fmt.Sprintf("Are you sure you want to reboot node %s?", nodeIP), false)
 	if err != nil {
 		return fmt.Errorf("confirmation failed: %w", err)
 	}
@@ -551,8 +885,7 @@ func rebootNode(nodeIP, mode string) error {
 	}
 	logger.Info("Rebooting node %s with mode %s", nodeIP, mode)
 
-	cmd := exec.Command("talosctl", "--nodes", nodeIP, "reboot", "--mode", mode)
-	output, err := cmd.CombinedOutput()
+	output, err := runTalosctlCombinedOutput("--nodes", nodeIP, "reboot", "--mode", mode)
 	if err != nil {
 		return fmt.Errorf("reboot failed: %w\n%s", err, output)
 	}
@@ -569,7 +902,7 @@ func newShutdownClusterCommand() *cobra.Command {
 		Short: "Shutdown Talos across the whole cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				confirmed, err := ui.Confirm("Shutdown the Talos cluster?", false)
+				confirmed, err := confirmActionFn("Shutdown the Talos cluster?", false)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil
@@ -600,8 +933,7 @@ func shutdownCluster() error {
 
 	logger.Info("Shutting down cluster nodes: %s", strings.Join(nodes, ", "))
 
-	cmd := exec.Command("talosctl", "shutdown", "--nodes", strings.Join(nodes, ","), "--force")
-	output, err := cmd.CombinedOutput()
+	output, err := runTalosctlCombinedOutput("shutdown", "--nodes", strings.Join(nodes, ","), "--force")
 	if err != nil {
 		return fmt.Errorf("shutdown failed: %w\n%s", err, output)
 	}
@@ -611,16 +943,8 @@ func shutdownCluster() error {
 }
 
 func getAllNodes() ([]string, error) {
-	cmd := exec.Command("talosctl", "config", "info", "--output", "json")
-	output, err := cmd.Output()
+	configInfo, err := getTalosConfigInfo()
 	if err != nil {
-		return nil, err
-	}
-
-	var configInfo struct {
-		Nodes []string `json:"nodes"`
-	}
-	if err := json.Unmarshal(output, &configInfo); err != nil {
 		return nil, err
 	}
 
@@ -656,25 +980,19 @@ func resetNode(nodeIP string, force bool) error {
 
 	// If node IP is not provided, prompt for selection
 	if nodeIP == "" {
-		nodeIPs, err := talos.GetNodeIPs()
+		selectedNode, err := selectTalosNode("Select a Talos node to reset:")
 		if err != nil {
 			return err
 		}
-
-		// Use interactive selector
-		selectedNode, err := ui.Choose("Select a Talos node to reset:", nodeIPs)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("node selection failed: %w", err)
+		if selectedNode == "" {
+			return nil
 		}
 		nodeIP = selectedNode
 	}
 
 	// Add confirmation for reset
 	if !force {
-		confirmed, err := ui.Confirm(fmt.Sprintf("Reset Talos node '%s'? This is destructive!", nodeIP), false)
+		confirmed, err := confirmActionFn(fmt.Sprintf("Reset Talos node '%s'? This is destructive!", nodeIP), false)
 		if err != nil {
 			return fmt.Errorf("confirmation failed: %w", err)
 		}
@@ -686,8 +1004,7 @@ func resetNode(nodeIP string, force bool) error {
 
 	logger.Info("Resetting node %s", nodeIP)
 
-	cmd := exec.Command("talosctl", "reset", "--nodes", nodeIP, "--graceful=false")
-	output, err := cmd.CombinedOutput()
+	output, err := runTalosctlCombinedOutput("reset", "--nodes", nodeIP, "--graceful=false")
 	if err != nil {
 		return fmt.Errorf("reset failed: %w\n%s", err, output)
 	}
@@ -704,7 +1021,7 @@ func newResetClusterCommand() *cobra.Command {
 		Short: "Reset Talos across the whole cluster",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				confirmed, err := ui.Confirm("Reset the Talos cluster? This is destructive!", false)
+				confirmed, err := confirmActionFn("Reset the Talos cluster? This is destructive!", false)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil
@@ -735,8 +1052,7 @@ func resetCluster() error {
 
 	logger.Info("Resetting cluster nodes: %s", strings.Join(nodes, ", "))
 
-	cmd := exec.Command("talosctl", "reset", "--nodes", strings.Join(nodes, ","), "--graceful=false")
-	output, err := cmd.CombinedOutput()
+	output, err := runTalosctlCombinedOutput("reset", "--nodes", strings.Join(nodes, ","), "--graceful=false")
 	if err != nil {
 		return fmt.Errorf("reset failed: %w\n%s", err, output)
 	}
@@ -788,13 +1104,10 @@ func generateKubeconfig() error {
 		return err
 	}
 
-	rootDir := common.GetWorkingDirectory()
+	rootDir := workingDirectoryFn()
 	logger.Info("Generating kubeconfig from node %s", node)
 
-	cmd := exec.Command("talosctl", "kubeconfig", "--nodes", node,
-		"--force", "--force-context-name", "home-ops-cluster", rootDir)
-
-	output, err := cmd.CombinedOutput()
+	output, err := generateKubeconfigFn(node, rootDir)
 	if err != nil {
 		return fmt.Errorf("failed to generate kubeconfig: %w\n%s", err, output)
 	}
@@ -804,11 +1117,11 @@ func generateKubeconfig() error {
 }
 
 func pushKubeconfigTo1Password(logger *common.ColorLogger) error {
-	rootDir := common.GetWorkingDirectory()
+	rootDir := workingDirectoryFn()
 	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
 
 	logger.Info("Pushing kubeconfig to 1Password...")
-	if err := common.PushKubeconfigTo1Password(kubeconfigPath, logger); err != nil {
+	if err := pushKubeconfigTo1PasswordFn(kubeconfigPath, logger); err != nil {
 		return err
 	}
 
@@ -817,11 +1130,11 @@ func pushKubeconfigTo1Password(logger *common.ColorLogger) error {
 }
 
 func pullKubeconfigFrom1Password(logger *common.ColorLogger) error {
-	rootDir := common.GetWorkingDirectory()
+	rootDir := workingDirectoryFn()
 	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
 
 	logger.Info("Pulling kubeconfig from 1Password...")
-	if err := common.PullKubeconfigFrom1Password(kubeconfigPath, logger); err != nil {
+	if err := pullKubeconfigFrom1PasswordFn(kubeconfigPath, logger); err != nil {
 		return err
 	}
 
@@ -829,7 +1142,7 @@ func pullKubeconfigFrom1Password(logger *common.ColorLogger) error {
 	return nil
 }
 
-func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, openebsSize *int, generateISO, dryRun *bool, datastore, network *string, nodeCount, concurrent *int) error {
+func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, openebsSize *int, generateISO, dryRun *bool, datastore, network *string, nodeCount, concurrent, startIndex *int) error {
 	logger := common.NewColorLogger()
 
 	// Step 1: Select deployment pattern
@@ -838,7 +1151,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 		"Custom - Choose your own configuration",
 	}
 
-	selectedPattern, err := ui.Choose("Select deployment pattern:", patternOptions)
+	selectedPattern, err := chooseOptionFn("Select deployment pattern:", patternOptions)
 	if err != nil {
 		return err
 	}
@@ -846,30 +1159,18 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 	isCustom := strings.HasPrefix(selectedPattern, "Custom")
 
 	// Step 2: Select provider
-	providerOptions := []string{
-		"vSphere/ESXi - Deploy to vSphere or ESXi (default)",
-		"TrueNAS - Deploy to TrueNAS Scale",
-		"Proxmox - Deploy to Proxmox VE",
-	}
+	providerOptions := deployVMProviderOptions()
 
-	selectedProvider, err := ui.Choose("Select virtualization provider:", providerOptions)
+	selectedProvider, err := chooseOptionFn("Select virtualization provider:", providerOptions)
 	if err != nil {
 		return err
 	}
 
-	if strings.HasPrefix(selectedProvider, "TrueNAS") {
-		*provider = "truenas"
-		logger.Info("Selected provider: TrueNAS")
-	} else if strings.HasPrefix(selectedProvider, "Proxmox") {
-		*provider = "proxmox"
-		logger.Info("Selected provider: Proxmox VE")
-	} else {
-		*provider = "vsphere"
-		logger.Info("Selected provider: vSphere/ESXi")
-	}
+	*provider = providerFromDeployOption(selectedProvider)
+	logSelectedDeployProvider(logger, *provider)
 
 	// Step 3: Get VM name
-	vmName, err := ui.Input("Enter VM name (base name for multi-node):", "k8s")
+	vmName, err := inputPromptFn("Enter VM name (base name for multi-node):", "k8s")
 	if err != nil {
 		return err
 	}
@@ -883,78 +1184,11 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 	if isCustom {
 		// Custom configuration
 		logger.Info("Custom configuration mode - enter resource values")
-
-		// Node count (vSphere only)
-		if *provider == "vsphere" {
-			nodeCountInput, err := ui.Input("Enter number of VMs to deploy:", "3")
-			if err != nil {
-				return err
-			}
-			if nodeCountInput != "" {
-				_, _ = fmt.Sscanf(nodeCountInput, "%d", nodeCount)
-			} else {
-				*nodeCount = 3 // Default
-			}
-
-			// Concurrent deployments
-			concurrentInput, err := ui.Input("Enter number of concurrent deployments:", "3")
-			if err != nil {
-				return err
-			}
-			if concurrentInput != "" {
-				_, _ = fmt.Sscanf(concurrentInput, "%d", concurrent)
-			} else {
-				*concurrent = 3 // Default
-			}
-		}
-
-		// vCPUs
-		vcpuInput, err := ui.Input("Enter number of vCPUs:", "16")
-		if err != nil {
+		if err := promptDeployVMResourceOptions(*provider, memory, vcpus, diskSize, openebsSize, nodeCount, concurrent, startIndex); err != nil {
 			return err
 		}
-		if vcpuInput != "" {
-			_, _ = fmt.Sscanf(vcpuInput, "%d", vcpus)
-		} else {
-			*vcpus = 16 // Default
-		}
 
-		// Memory
-		memoryInput, err := ui.Input("Enter memory in GB:", "48")
-		if err != nil {
-			return err
-		}
-		if memoryInput != "" {
-			var memoryGB int
-			_, _ = fmt.Sscanf(memoryInput, "%d", &memoryGB)
-			*memory = memoryGB * 1024 // Convert to MB
-		} else {
-			*memory = 49152 // Default (48GB)
-		}
-
-		// Boot disk
-		bootDiskInput, err := ui.Input("Enter boot/OpenEBS disk size in GB:", "250")
-		if err != nil {
-			return err
-		}
-		if bootDiskInput != "" {
-			_, _ = fmt.Sscanf(bootDiskInput, "%d", diskSize)
-		} else {
-			*diskSize = 250 // Default
-		}
-
-		// OpenEBS disk
-		openebsInput, err := ui.Input("Enter OpenEBS disk size in GB:", "1024")
-		if err != nil {
-			return err
-		}
-		if openebsInput != "" {
-			_, _ = fmt.Sscanf(openebsInput, "%d", openebsSize)
-		} else {
-			*openebsSize = 1024 // Default
-		}
-
-		if *provider == "vsphere" {
+		if providerSupportsBatchDeploy(*provider) {
 			logger.Info("Custom resources: %d VMs with %d vCPUs, %dGB RAM, %dGB boot, %dGB OpenEBS each",
 				*nodeCount, *vcpus, *memory/1024, *diskSize, *openebsSize)
 		} else {
@@ -962,24 +1196,13 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 				*vcpus, *memory/1024, *diskSize, *openebsSize)
 		}
 	} else {
-		// Default pattern - 3-node k8s cluster
-		*vcpus = 16
-		*memory = 49152     // 48GB in MB
-		*diskSize = 250     // 250GB
-		*openebsSize = 1024 // 1TB
-
-		if *provider == "vsphere" {
-			*nodeCount = 3
-			*concurrent = 3
-			logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS each")
-		} else {
-			logger.Info("Default resources: 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS")
-		}
+		applyDefaultDeployVMOptions(*provider, memory, vcpus, diskSize, openebsSize, nodeCount, concurrent, startIndex)
+		logDefaultDeployResources(logger, *provider)
 	}
 
 	// Step 5: vSphere-specific configuration (if applicable)
 	if *provider == "vsphere" {
-		datastoreInput, err := ui.Input("Enter datastore name:", "truenas-iscsi")
+		datastoreInput, err := inputPromptFn("Enter datastore name:", "truenas-iscsi")
 		if err != nil {
 			return err
 		}
@@ -989,7 +1212,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 			*datastore = "truenas-iscsi"
 		}
 
-		networkInput, err := ui.Input("Enter network port group:", "vl999")
+		networkInput, err := inputPromptFn("Enter network port group:", "vl999")
 		if err != nil {
 			return err
 		}
@@ -1006,7 +1229,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 		"Yes - Generate custom ISO using schematic.yaml",
 	}
 
-	selectedGenerate, err := ui.Choose("Generate custom Talos ISO?", generateOptions)
+	selectedGenerate, err := chooseOptionFn("Generate custom Talos ISO?", generateOptions)
 	if err != nil {
 		return err
 	}
@@ -1022,7 +1245,7 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 		"Dry-Run - Preview what would be done without creating the VM",
 	}
 
-	selectedDryRun, err := ui.Choose("Select deployment mode:", dryRunOptions)
+	selectedDryRun, err := chooseOptionFn("Select deployment mode:", dryRunOptions)
 	if err != nil {
 		return err
 	}
@@ -1033,6 +1256,141 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 	}
 
 	return nil
+}
+
+func providerFromDeployOption(selectedProvider string) string {
+	switch {
+	case strings.HasPrefix(selectedProvider, "TrueNAS"):
+		return "truenas"
+	case strings.HasPrefix(selectedProvider, "Proxmox"):
+		return "proxmox"
+	default:
+		return "vsphere"
+	}
+}
+
+func logSelectedDeployProvider(logger *common.ColorLogger, provider string) {
+	switch provider {
+	case "truenas":
+		logger.Info("Selected provider: TrueNAS")
+	case "proxmox":
+		logger.Info("Selected provider: Proxmox VE")
+	default:
+		logger.Info("Selected provider: vSphere/ESXi")
+	}
+}
+
+func providerSupportsBatchDeploy(provider string) bool {
+	return provider == "proxmox" || provider == "vsphere"
+}
+
+func promptIntWithDefault(prompt, placeholder string, defaultValue int) (int, error) {
+	input, err := inputPromptFn(prompt, placeholder)
+	if err != nil {
+		return 0, err
+	}
+	if input == "" {
+		return defaultValue, nil
+	}
+
+	value := defaultValue
+	_, _ = fmt.Sscanf(input, "%d", &value)
+	return value, nil
+}
+
+func promptDeployVMBatchOptions(provider string, nodeCount, concurrent, startIndex *int) error {
+	if !providerSupportsBatchDeploy(provider) {
+		*nodeCount = 1
+		*concurrent = 1
+		*startIndex = 0
+		return nil
+	}
+
+	value, err := promptIntWithDefault("Enter number of VMs to deploy:", "3", 3)
+	if err != nil {
+		return err
+	}
+	*nodeCount = value
+
+	if *nodeCount > 1 {
+		*startIndex, err = promptIntWithDefault("Enter starting index for VM naming:", "0", 0)
+		if err != nil {
+			return err
+		}
+		*concurrent, err = promptIntWithDefault("Enter number of concurrent deployments:", "3", 3)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	*startIndex = 0
+	*concurrent = 1
+	return nil
+}
+
+func promptDeployVMResourceOptions(provider string, memory, vcpus, diskSize, openebsSize, nodeCount, concurrent, startIndex *int) error {
+	if err := promptDeployVMBatchOptions(provider, nodeCount, concurrent, startIndex); err != nil {
+		return err
+	}
+
+	var err error
+	*vcpus, err = promptIntWithDefault("Enter number of vCPUs:", "16", 16)
+	if err != nil {
+		return err
+	}
+
+	memoryGB, err := promptIntWithDefault("Enter memory in GB:", "48", 48)
+	if err != nil {
+		return err
+	}
+	*memory = memoryGB * 1024
+
+	*diskSize, err = promptIntWithDefault("Enter boot disk size in GB:", "250", 250)
+	if err != nil {
+		return err
+	}
+	*openebsSize, err = promptIntWithDefault("Enter OpenEBS disk size in GB:", "1024", 1024)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func applyDefaultDeployVMOptions(provider string, memory, vcpus, diskSize, openebsSize, nodeCount, concurrent, startIndex *int) {
+	*vcpus = 16
+	*memory = 49152
+	*diskSize = 250
+	*openebsSize = 1024
+
+	if providerSupportsBatchDeploy(provider) {
+		*nodeCount = 3
+		*startIndex = 0
+		*concurrent = 3
+		return
+	}
+
+	*nodeCount = 1
+	*startIndex = 0
+	*concurrent = 1
+}
+
+func logDefaultDeployResources(logger *common.ColorLogger, provider string) {
+	if providerSupportsBatchDeploy(provider) {
+		logger.Info("Default resources: 3 VMs with 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS each")
+		return
+	}
+
+	logger.Info("Default resources: 16 vCPUs, 48GB RAM, 250GB boot, 1TB OpenEBS")
+}
+
+func deployVMProviderOptions() []string {
+	return []string{
+		"Proxmox - Deploy to Proxmox VE (default)",
+		"TrueNAS - Deploy to TrueNAS Scale",
+		"vSphere/ESXi - Deploy to vSphere or ESXi",
+	}
 }
 
 func newDeployVMCommand() *cobra.Command {
@@ -1053,6 +1411,7 @@ func newDeployVMCommand() *cobra.Command {
 		network    string
 		concurrent int
 		nodeCount  int
+		startIndex int
 	)
 
 	cmd := &cobra.Command{
@@ -1060,7 +1419,7 @@ func newDeployVMCommand() *cobra.Command {
 		Short: "Deploy Talos VM on TrueNAS, vSphere/ESXi, or Proxmox",
 		Long: `Deploy a new Talos VM on TrueNAS, vSphere/ESXi, or Proxmox VE.
 
-Defaults to vSphere/ESXi deployment. Use --provider truenas for TrueNAS or --provider proxmox for Proxmox VE.
+Defaults to Proxmox VE deployment. Use --provider truenas for TrueNAS or --provider vsphere/esxi for vSphere/ESXi.
 
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
 For vSphere/ESXi: Deploys to specified datastore with enhanced VM configuration.
@@ -1075,7 +1434,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 			// Check if running in interactive mode (no flags set)
 			if name == "" && !cmd.Flags().Changed("provider") && !cmd.Flags().Changed("dry-run") {
 				// Show interactive prompts
-				err := promptDeployVMOptions(&name, &provider, &memory, &vcpus, &diskSize, &openebsSize, &generateISO, &dryRun, &datastore, &network, &nodeCount, &concurrent)
+				err := promptDeployVMOptions(&name, &provider, &memory, &vcpus, &diskSize, &openebsSize, &generateISO, &dryRun, &datastore, &network, &nodeCount, &concurrent, &startIndex)
 				if err != nil {
 					if ui.IsCancellation(err) {
 						return nil
@@ -1083,6 +1442,12 @@ If no flags are provided, presents an interactive menu with default and custom p
 					return err
 				}
 			}
+
+			normalizedProvider, err := normalizeVMProvider(provider)
+			if err != nil {
+				return err
+			}
+			provider = normalizedProvider
 
 			// Validate required name
 			if name == "" {
@@ -1099,9 +1464,9 @@ If no flags are provided, presents an interactive menu with default and custom p
 			case "truenas":
 				return deployVMWithPatternDryRun(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO, dryRun)
 			case "proxmox":
-				return deployVMOnProxmoxDryRun(name, memory, vcpus, diskSize, openebsSize, generateISO, dryRun)
+				return deployVMOnProxmoxDryRun(name, memory, vcpus, diskSize, openebsSize, generateISO, concurrent, nodeCount, startIndex, dryRun)
 			default:
-				return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, dryRun)
+				return deployVMOnVSphereDryRun(name, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, startIndex, dryRun)
 			}
 		},
 	}
@@ -1121,10 +1486,124 @@ If no flags are provided, presents an interactive menu with default and custom p
 	// vSphere specific flags
 	cmd.Flags().StringVar(&datastore, "datastore", "truenas-iscsi", "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (vSphere only)")
-	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (vSphere only)")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (Proxmox and vSphere)")
+	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (Proxmox and vSphere)")
+	cmd.Flags().IntVar(&startIndex, "start-index", 0, "Starting index for generated VM names in batch deployments")
 
 	return cmd
+}
+
+func getVSphereHost() (string, error) {
+	host := get1PasswordSecret(constants.OpESXiHost)
+	if host == "" {
+		// Backward-compatible fallback for older/more direct vault layout.
+		host = get1PasswordSecretFn("op://Infrastructure/esxi/host")
+	}
+	if host == "" {
+		host = os.Getenv(constants.EnvVSphereHost)
+	}
+	if host == "" {
+		return "", fmt.Errorf("ESXi host not found. Please set %s environment variable or configure 1Password", constants.EnvVSphereHost)
+	}
+
+	return host, nil
+}
+
+func buildVSphereVMNames(baseName string, nodeCount, startIndex int) ([]string, error) {
+	return buildDeploymentVMNames(baseName, nodeCount, startIndex)
+}
+
+func buildDeploymentVMNames(baseName string, nodeCount, startIndex int) ([]string, error) {
+	baseName = strings.TrimSpace(baseName)
+	if baseName == "" {
+		return nil, fmt.Errorf("VM name is required")
+	}
+	if nodeCount <= 0 {
+		return nil, fmt.Errorf("node count must be greater than 0")
+	}
+	if startIndex < 0 {
+		return nil, fmt.Errorf("start index must be greater than or equal to 0")
+	}
+	if nodeCount == 1 {
+		return []string{baseName}, nil
+	}
+	if _, exists := vsphere.GetK8sNodeConfig(baseName); exists {
+		return nil, fmt.Errorf("multi-node deployment cannot start from a numbered k8s node name (%s). Use the shared base name 'k8s' with --node-count instead", baseName)
+	}
+	if _, exists := proxmox.GetTalosNodeConfig(baseName); exists {
+		return nil, fmt.Errorf("multi-node deployment cannot start from a numbered k8s node name (%s). Use the shared base name 'k8s' with --node-count instead", baseName)
+	}
+
+	vmNames := make([]string, 0, nodeCount)
+	for i := 0; i < nodeCount; i++ {
+		vmNames = append(vmNames, fmt.Sprintf("%s-%d", baseName, startIndex+i))
+	}
+
+	return vmNames, nil
+}
+
+func buildGenericVSphereVMConfig(name string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network, isoPath string) vsphere.VMConfig {
+	return vsphere.VMConfig{
+		Name:                 name,
+		Memory:               memory,
+		VCPUs:                vcpus,
+		DiskSize:             diskSize,
+		OpenEBSSize:          openebsSize,
+		Datastore:            datastore,
+		Network:              network,
+		ISO:                  isoPath,
+		MacAddress:           macAddress,
+		PowerOn:              true,
+		EnableIOMMU:          true,
+		ExposeCounters:       true,
+		ThinProvisioned:      true,
+		EnablePrecisionClock: true,
+		EnableWatchdog:       true,
+	}
+}
+
+func buildGenericVSphereVMConfigs(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network, isoPath string, nodeCount, startIndex int) ([]vsphere.VMConfig, error) {
+	vmNames, err := buildVSphereVMNames(baseName, nodeCount, startIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	configs := make([]vsphere.VMConfig, 0, len(vmNames))
+	for idx, vmName := range vmNames {
+		configMAC := ""
+		if idx == 0 && nodeCount == 1 {
+			configMAC = macAddress
+		}
+		configs = append(configs, buildGenericVSphereVMConfig(vmName, memory, vcpus, diskSize, openebsSize, configMAC, datastore, network, isoPath))
+	}
+
+	return configs, nil
+}
+
+func buildK8sVSphereVMConfigs(baseName string, memory, vcpus, diskSize, openebsSize int, network string, nodeCount, startIndex int) ([]vsphere.VMConfig, error) {
+	vmNames, err := buildVSphereVMNames(baseName, nodeCount, startIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	configs := make([]vsphere.VMConfig, 0, len(vmNames))
+	for _, vmName := range vmNames {
+		if _, exists := vsphere.GetK8sNodeConfig(vmName); !exists {
+			return nil, fmt.Errorf("no predefined configuration for k8s node: %s (valid nodes: k8s-0, k8s-1, k8s-2, k8s-3)", vmName)
+		}
+
+		config := vsphere.GetK8sVMConfig(vmName)
+		config.Memory = memory
+		config.VCPUs = vcpus
+		config.DiskSize = diskSize
+		config.OpenEBSSize = openebsSize
+		config.Network = network
+		config.ISO = vsphere.DefaultISOPath()
+		config.PowerOn = true
+		configs = append(configs, config)
+	}
+
+	return configs, nil
 }
 
 // validateVMName checks if the VM name contains invalid characters
@@ -1138,292 +1617,778 @@ func validateVMName(name string) error {
 	return nil
 }
 
+type vmDeploymentDryRunSummary struct {
+	Provider string
+	VMNames  []string
+	Lines    []string
+}
+
+type vsphereDeploymentPlan struct {
+	Mode        string
+	VMNames     []string
+	Configs     []vsphere.VMConfig
+	NodeConfigs []vsphere.K8sNodeConfig
+	Concurrent  int
+	ISOPath     string
+}
+
+type trueNASISOSelection struct {
+	ISOPath      string
+	SchematicID  string
+	TalosVersion string
+	CustomISO    bool
+}
+
+func emitVMDeploymentDryRunSummary(logger *common.ColorLogger, summary vmDeploymentDryRunSummary, generateISO bool) {
+	logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
+	logger.Info("  Provider: %s", summary.Provider)
+	if len(summary.VMNames) == 1 {
+		logger.Info("  VM Name: %s", summary.VMNames[0])
+	} else {
+		logger.Info("  VM Names: %s", strings.Join(summary.VMNames, ", "))
+	}
+	for _, line := range summary.Lines {
+		logger.Info("  %s", line)
+	}
+	if generateISO {
+		logger.Info("  Generate Custom ISO: Yes")
+	}
+	logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
+}
+
+func buildTrueNASDryRunSummary(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate bool) vmDeploymentDryRunSummary {
+	lines := []string{
+		fmt.Sprintf("Pool: %s", pool),
+		fmt.Sprintf("Memory: %d MB (%d GB)", memory, memory/1024),
+		fmt.Sprintf("vCPUs: %d", vcpus),
+		fmt.Sprintf("Boot Disk: %d GB", diskSize),
+		fmt.Sprintf("OpenEBS Disk: %d GB", openebsSize),
+	}
+	if macAddress != "" {
+		lines = append(lines, fmt.Sprintf("MAC Address: %s", macAddress))
+	}
+	if skipZVolCreate {
+		lines = append(lines, "Skip ZVol Creation: Yes")
+	}
+
+	return vmDeploymentDryRunSummary{
+		Provider: "TrueNAS",
+		VMNames:  []string{name},
+		Lines:    lines,
+	}
+}
+
+func appendBatchDeploymentLines(lines []string, nodeCount, startIndex, concurrent int) []string {
+	if nodeCount <= 1 {
+		return lines
+	}
+
+	lines = append(lines, fmt.Sprintf("Node Count: %d", nodeCount))
+	lines = append(lines, fmt.Sprintf("Start Index: %d", startIndex))
+	lines = append(lines, fmt.Sprintf("Concurrent Deployments: %d", concurrent))
+	return lines
+}
+
+func buildVSphereDryRunSummary(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, concurrent, nodeCount, startIndex int) (vmDeploymentDryRunSummary, error) {
+	vmNames, err := buildVSphereVMNames(baseName, nodeCount, startIndex)
+	if err != nil {
+		return vmDeploymentDryRunSummary{}, err
+	}
+
+	summary := vmDeploymentDryRunSummary{
+		Provider: "vSphere/ESXi",
+		VMNames:  vmNames,
+	}
+
+	if strings.HasPrefix(baseName, "k8s") {
+		configs, err := buildK8sVSphereVMConfigs(baseName, memory, vcpus, diskSize, openebsSize, network, nodeCount, startIndex)
+		if err != nil {
+			return vmDeploymentDryRunSummary{}, err
+		}
+		if len(configs) > 0 {
+			nodeConfig, _ := vsphere.GetK8sNodeConfig(configs[0].Name)
+			summary.Lines = append(summary.Lines,
+				"Deployment Mode: SSH-based (production k8s node)",
+				fmt.Sprintf("Boot Datastore: %s", nodeConfig.BootDatastore),
+				"OpenEBS Datastore: truenas-iscsi",
+				fmt.Sprintf("RDM (Ceph): %s", nodeConfig.RDMPath),
+				fmt.Sprintf("SR-IOV PCI Device: %s", nodeConfig.PCIDevice),
+			)
+			if len(configs) == 1 {
+				summary.Lines = append(summary.Lines,
+					fmt.Sprintf("MAC Address: %s", nodeConfig.MacAddress),
+					fmt.Sprintf("CPU Affinity: %s", nodeConfig.CPUAffinity),
+				)
+			} else {
+				summary.Lines = append(summary.Lines, fmt.Sprintf("Node Presets: %s", strings.Join(vmNames, ", ")))
+			}
+			summary.Lines = append(summary.Lines,
+				fmt.Sprintf("Memory: %d MB (%d GB) - pinned reservation", memory, memory/1024),
+				fmt.Sprintf("vCPUs: %d", vcpus),
+				fmt.Sprintf("Boot Disk: %d GB", diskSize),
+				fmt.Sprintf("OpenEBS Disk: %d GB", openebsSize),
+				fmt.Sprintf("Network: %s (SR-IOV passthrough)", network),
+			)
+		}
+	} else {
+		configs, err := buildGenericVSphereVMConfigs(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, vsphere.DefaultISOPath(), nodeCount, startIndex)
+		if err != nil {
+			return vmDeploymentDryRunSummary{}, err
+		}
+		summary.Lines = append(summary.Lines,
+			"Deployment Mode: govmomi (generic VM)",
+			fmt.Sprintf("Datastore: %s", datastore),
+			fmt.Sprintf("Network: %s (vmxnet3)", network),
+			fmt.Sprintf("Memory: %d MB (%d GB)", memory, memory/1024),
+			fmt.Sprintf("vCPUs: %d", vcpus),
+			fmt.Sprintf("Boot Disk: %d GB", diskSize),
+			fmt.Sprintf("OpenEBS Disk: %d GB", openebsSize),
+		)
+		if len(configs) == 1 && configs[0].MacAddress != "" {
+			summary.Lines = append(summary.Lines, fmt.Sprintf("MAC Address: %s", configs[0].MacAddress))
+		}
+	}
+
+	summary.Lines = appendBatchDeploymentLines(summary.Lines, len(vmNames), startIndex, concurrent)
+	return summary, nil
+}
+
+func buildProxmoxDryRunSummary(plan *proxmoxDeploymentPlan, memory, vcpus, diskSize, openebsSize int) vmDeploymentDryRunSummary {
+	summary := vmDeploymentDryRunSummary{
+		Provider: "Proxmox VE",
+		VMNames:  plan.VMNames,
+	}
+
+	if plan.AllPredefined {
+		summary.Lines = append(summary.Lines, "Deployment Mode: Predefined Talos node configuration")
+		if len(plan.Presets) == 1 {
+			preset := plan.Presets[0]
+			summary.Lines = append(summary.Lines,
+				fmt.Sprintf("VMID: %d", preset.VMID),
+				fmt.Sprintf("Boot Storage: %s", preset.BootStorage),
+				fmt.Sprintf("OpenEBS Storage: %s", preset.OpenEBSStorage),
+				fmt.Sprintf("Ceph Disk (passthrough): /dev/disk/by-id/%s", preset.CephDiskByID),
+				fmt.Sprintf("CPU Affinity: %s", preset.CPUAffinity),
+				fmt.Sprintf("NUMA Node: %d", preset.NUMANode),
+				fmt.Sprintf("MAC Address: %s", preset.MacAddress),
+			)
+		} else {
+			summary.Lines = append(summary.Lines, fmt.Sprintf("Node Presets: %s", strings.Join(plan.VMNames, ", ")))
+		}
+
+		defaultConfig := proxmox.DefaultVMConfig
+		summary.Lines = append(summary.Lines,
+			fmt.Sprintf("Memory: %d MB (%d GB)", defaultConfig.Memory, defaultConfig.Memory/1024),
+			fmt.Sprintf("vCPUs: %d", defaultConfig.Cores),
+			fmt.Sprintf("CPU Type: %s", defaultConfig.CPUType),
+			fmt.Sprintf("Boot Disk: %d GB", defaultConfig.BootDiskSize),
+			fmt.Sprintf("OpenEBS Disk: %d GB", defaultConfig.OpenEBSSize),
+			fmt.Sprintf("Network: %s (VLAN %d, MTU %d)", defaultConfig.NetworkBridge, defaultConfig.VLANID, defaultConfig.NetworkMTU),
+			fmt.Sprintf("BIOS: %s (UEFI)", defaultConfig.BIOS),
+			"NUMA: Enabled",
+			fmt.Sprintf("SCSI Controller: %s", defaultConfig.SCSIController),
+		)
+	} else {
+		summary.Lines = append(summary.Lines,
+			"Deployment Mode: Custom configuration",
+			fmt.Sprintf("Memory: %d MB (%d GB)", memory, memory/1024),
+			fmt.Sprintf("vCPUs: %d", vcpus),
+			fmt.Sprintf("Boot Disk: %d GB", diskSize),
+			fmt.Sprintf("OpenEBS Disk: %d GB", openebsSize),
+		)
+	}
+
+	summary.Lines = appendBatchDeploymentLines(summary.Lines, len(plan.VMNames), plan.StartIndex, plan.Concurrent)
+	return summary
+}
+
+func buildVSphereDeploymentPlan(mode string, configs []vsphere.VMConfig, nodeConfigs []vsphere.K8sNodeConfig, concurrent int, isoPath string) *vsphereDeploymentPlan {
+	vmNames := make([]string, 0, len(configs))
+	for _, config := range configs {
+		vmNames = append(vmNames, config.Name)
+	}
+
+	return &vsphereDeploymentPlan{
+		Mode:        mode,
+		VMNames:     vmNames,
+		Configs:     configs,
+		NodeConfigs: nodeConfigs,
+		Concurrent:  normalizeDeploymentConcurrency(concurrent, len(configs)),
+		ISOPath:     isoPath,
+	}
+}
+
+func buildGenericVSphereDeploymentPlan(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network, isoPath string, concurrent, nodeCount, startIndex int) (*vsphereDeploymentPlan, error) {
+	configs, err := buildGenericVSphereVMConfigs(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, isoPath, nodeCount, startIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildVSphereDeploymentPlan("generic", configs, nil, concurrent, isoPath), nil
+}
+
+func buildK8sVSphereDeploymentPlan(baseName string, memory, vcpus, diskSize, openebsSize int, network string, concurrent, nodeCount, startIndex int) (*vsphereDeploymentPlan, error) {
+	configs, err := buildK8sVSphereVMConfigs(baseName, memory, vcpus, diskSize, openebsSize, network, nodeCount, startIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	nodeConfigs := make([]vsphere.K8sNodeConfig, 0, len(configs))
+	for _, config := range configs {
+		nodeConfig, exists := vsphere.GetK8sNodeConfig(config.Name)
+		if !exists {
+			return nil, fmt.Errorf("no predefined configuration for k8s node: %s", config.Name)
+		}
+		nodeConfigs = append(nodeConfigs, nodeConfig)
+	}
+
+	return buildVSphereDeploymentPlan("k8s", configs, nodeConfigs, concurrent, vsphere.DefaultISOPath()), nil
+}
+
+func buildTrueNASVMConfig(name string, memory, vcpus, diskSize, openebsSize int, host, apiKey, isoURL, networkBridge, pool, macAddress, spicePassword, schematicID, talosVersion string, skipZVolCreate, customISO bool) truenas.VMConfig {
+	return truenas.VMConfig{
+		Name:           name,
+		Memory:         memory,
+		VCPUs:          vcpus,
+		DiskSize:       diskSize,
+		OpenEBSSize:    openebsSize,
+		TrueNASHost:    host,
+		TrueNASAPIKey:  apiKey,
+		TrueNASPort:    443,
+		NoSSL:          false,
+		TalosISO:       isoURL,
+		NetworkBridge:  networkBridge,
+		StoragePool:    pool,
+		MacAddress:     macAddress,
+		SkipZVolCreate: skipZVolCreate,
+		SpicePassword:  spicePassword,
+		UseSpice:       true,
+		SchematicID:    schematicID,
+		TalosVersion:   talosVersion,
+		CustomISO:      customISO,
+	}
+}
+
+func trueNASPreparedISORequiredError() error {
+	return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops-cli talos prepare-iso' first to prepare the ISO")
+}
+
+func requiredSpicePassword() (string, error) {
+	password := getSpicePassword()
+	if password == "" {
+		return "", fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
+	}
+	return password, nil
+}
+
+func resolveTrueNASDeploymentAccess(logger *common.ColorLogger) (host, apiKey, spicePassword string, err error) {
+	logger.Debug("Retrieving TrueNAS credentials")
+	host, apiKey, err = getTrueNASCredentials()
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to get TrueNAS credentials: %w", err)
+	}
+	logger.Debug("TrueNAS host: %s", host)
+
+	logger.Debug("Retrieving SPICE password")
+	spicePassword, err = requiredSpicePassword()
+	if err != nil {
+		return "", "", "", err
+	}
+	logger.Debug("SPICE password retrieved successfully")
+
+	return host, apiKey, spicePassword, nil
+}
+
+func connectedTrueNASVMManager(logger *common.ColorLogger, host, apiKey string) (trueNASVMManager, error) {
+	logger.Debug("Creating VM manager for TrueNAS host: %s", host)
+	vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
+	if vmManager == nil {
+		return nil, fmt.Errorf("failed to create VM manager")
+	}
+
+	logger.Debug("Connecting to TrueNAS API")
+	if err := vmManager.Connect(); err != nil {
+		return nil, fmt.Errorf("TrueNAS connection failed: %w", err)
+	}
+	logger.Debug("Successfully connected to TrueNAS")
+	return vmManager, nil
+}
+
+func trueNASNetworkBridge() string {
+	return getEnvOrDefault("NETWORK_BRIDGE", "br0")
+}
+
+func executeTrueNASVMDeployment(logger *common.ColorLogger, vmManager trueNASVMManager, config truenas.VMConfig) error {
+	if err := spinWithFuncFn(fmt.Sprintf("Deploying VM %s", config.Name), func() error {
+		logger.Debug("Calling vmManager.DeployVM with configuration")
+		if err := vmManager.DeployVM(config); err != nil {
+			return fmt.Errorf("VM deployment failed: %w", err)
+		}
+		return nil
+	}); err != nil {
+		logger.Error("VM deployment failed: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func logNamedVMDeploymentStart(logger *common.ColorLogger, provider string, vmNames []string) {
+	if len(vmNames) == 1 {
+		logger.Info("Starting %s VM deployment: %s", provider, vmNames[0])
+		return
+	}
+
+	logger.Info("Starting %s deployment for %d VMs: %s", provider, len(vmNames), strings.Join(vmNames, ", "))
+}
+
+func logNamedVMDeploymentSuccess(logger *common.ColorLogger, provider string, vmNames []string) {
+	if len(vmNames) == 1 {
+		logger.Success("VM %s deployed successfully on %s", vmNames[0], provider)
+		return
+	}
+
+	logger.Success("Deployed %d VMs successfully on %s", len(vmNames), provider)
+}
+
+func logTrueNASDeploymentSuccess(logger *common.ColorLogger, config truenas.VMConfig) {
+	logger.Success("VM %s deployed successfully!", config.Name)
+	logger.Info("VM deployment completed with the following configuration:")
+	logger.Info("  VM Name:      %s", config.Name)
+	logger.Info("  Memory:       %d MB", config.Memory)
+	logger.Info("  vCPUs:        %d", config.VCPUs)
+	logger.Info("  Storage Pool: %s", config.StoragePool)
+	logger.Info("  Network:      %s", config.NetworkBridge)
+	if config.MacAddress != "" {
+		logger.Info("  MAC Address:  %s", config.MacAddress)
+	}
+	logger.Info("  ISO Source:   %s", config.TalosISO)
+	if config.CustomISO {
+		logger.Info("  Schematic ID: %s", config.SchematicID)
+		logger.Info("  Talos Ver:    %s", config.TalosVersion)
+	}
+	logger.Info("ZVol naming pattern:")
+	logger.Info("  Boot disk:   %s/%s-boot (%dGB)", config.StoragePool, config.Name, config.DiskSize)
+	if config.OpenEBSSize > 0 {
+		logger.Info("  OpenEBS disk: %s/%s-openebs (%dGB)", config.StoragePool, config.Name, config.OpenEBSSize)
+	}
+}
+
+func prepareGeneratedTrueNASISO(logger *common.ColorLogger) (*trueNASISOSelection, error) {
+	logger.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
+
+	logger.Debug("Creating Talos factory client")
+	factoryClient := newTalosFactoryClientFn()
+	if factoryClient == nil {
+		return nil, fmt.Errorf("failed to create factory client")
+	}
+
+	logger.Debug("Loading schematic from embedded template")
+	schematic, err := factoryClient.LoadSchematicFromTemplate()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load schematic template: %w", err)
+	}
+
+	versionConfig := versionconfig.GetVersions(workingDirectoryFn())
+	logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
+	isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
+	if err != nil {
+		return nil, fmt.Errorf("ISO generation failed: %w", err)
+	}
+	if isoInfo == nil {
+		return nil, fmt.Errorf("ISO generation returned nil result")
+	}
+
+	if err := os.Setenv("SCHEMATIC_ID", isoInfo.SchematicID); err != nil {
+		logger.Warn("Failed to set SCHEMATIC_ID environment variable: %v", err)
+	} else {
+		logger.Debug("Set SCHEMATIC_ID environment variable: %s", isoInfo.SchematicID)
+	}
+
+	logger.Success("Custom ISO generated successfully")
+	logger.Debug("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoInfo.URL, isoInfo.SchematicID, isoInfo.TalosVersion)
+	logger.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
+
+	downloader := newISODownloaderFn()
+	downloadConfig := iso.GetDefaultConfig()
+	downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
+	downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
+	downloadConfig.ISOURL = isoInfo.URL
+	downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", isoInfo.SchematicID[:8])
+
+	if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
+		return nil, fmt.Errorf("CRITICAL: Failed to download custom ISO to TrueNAS - VM deployment cannot proceed: %w", err)
+	}
+
+	logger.Success("Custom ISO downloaded to TrueNAS successfully")
+	selection := &trueNASISOSelection{
+		ISOPath:      filepath.Join(downloadConfig.ISOStoragePath, downloadConfig.ISOFilename),
+		SchematicID:  isoInfo.SchematicID,
+		TalosVersion: isoInfo.TalosVersion,
+		CustomISO:    true,
+	}
+	logger.Debug("Updated ISO path: %s", selection.ISOPath)
+	logger.Info("ISO preparation completed - proceeding with VM deployment...")
+	return selection, nil
+}
+
+func verifyPreparedTrueNASISO(logger *common.ColorLogger, host string) (*trueNASISOSelection, error) {
+	standardISOPath := constants.TrueNASStandardISOPath
+	logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
+
+	sshConfig := ssh.SSHConfig{
+		Host:       host,
+		Username:   get1PasswordSecret(constants.OpTrueNASUsername),
+		Port:       "22",
+		SSHItemRef: constants.OpTrueNASSSHPrivateKey,
+	}
+	sshClient := newTrueNASSSHClientFn(sshConfig)
+
+	if err := sshClient.Connect(); err != nil {
+		logger.Warn("Cannot verify prepared ISO due to SSH connection failure: %v", err)
+		return nil, trueNASPreparedISORequiredError()
+	}
+	defer func() {
+		if closeErr := sshClient.Close(); closeErr != nil {
+			logger.Warn("Failed to close SSH client: %v", closeErr)
+		}
+	}()
+
+	exists, size, err := sshClient.VerifyFile(standardISOPath)
+	if err != nil {
+		logger.Warn("Failed to verify prepared ISO: %v", err)
+		return nil, trueNASPreparedISORequiredError()
+	}
+	if !exists {
+		logger.Info("No prepared ISO found at %s", standardISOPath)
+		return nil, fmt.Errorf("no prepared ISO found. Please run 'homeops-cli talos prepare-iso' first to prepare the ISO, or use the --generate-iso flag to generate a new one")
+	}
+
+	versionConfig := versionconfig.GetVersions(workingDirectoryFn())
+	logger.Success("Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
+	logger.Info("Prepared ISO found - proceeding with VM deployment...")
+
+	return &trueNASISOSelection{
+		ISOPath:      standardISOPath,
+		TalosVersion: versionConfig.TalosVersion,
+		CustomISO:    true,
+	}, nil
+}
+
+func resolveTrueNASISOSelection(logger *common.ColorLogger, host string, generateISO bool) (*trueNASISOSelection, error) {
+	logger.Debug("Determining ISO configuration (generateISO=%t)", generateISO)
+	if generateISO {
+		return prepareGeneratedTrueNASISO(logger)
+	}
+
+	return verifyPreparedTrueNASISO(logger, host)
+}
+
+func executeProxmoxDeploymentPlan(logger *common.ColorLogger, host, tokenID, secret, nodeName string, plan *proxmoxDeploymentPlan) error {
+	if len(plan.Configs) == 1 || plan.Concurrent == 1 {
+		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+		if err != nil {
+			return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+		}
+		defer func() {
+			if closeErr := vmManager.Close(); closeErr != nil {
+				logger.Warn("Failed to close VM manager: %v", closeErr)
+			}
+		}()
+
+		for _, vmConfig := range plan.Configs {
+			if err := vmManager.DeployVM(vmConfig); err != nil {
+				return fmt.Errorf("failed to deploy VM %s: %w", vmConfig.Name, err)
+			}
+		}
+		return nil
+	}
+
+	logger.Info("Deploying %d Proxmox VMs with concurrency %d", len(plan.Configs), plan.Concurrent)
+	return deployProxmoxVMsConcurrently(host, tokenID, secret, nodeName, plan.Configs, plan.Concurrent)
+}
+
+func logVSphereGenericSingleVMConfig(logger *common.ColorLogger, config vsphere.VMConfig) {
+	logger.Info("Deploying VM: %s", config.Name)
+	logger.Info("Enhanced Configuration:")
+	logger.Info("  Memory: %d MB", config.Memory)
+	logger.Info("  vCPUs: %d", config.VCPUs)
+	logger.Info("  Boot Disk: %d GB (thin provisioned: %v)", config.DiskSize, config.ThinProvisioned)
+	logger.Info("  OpenEBS Disk: %d GB (thin provisioned: %v)", config.OpenEBSSize, config.ThinProvisioned)
+	logger.Info("  Datastore: %s", config.Datastore)
+	logger.Info("  Network: %s (vmxnet3)", config.Network)
+	logger.Info("  ISO: %s", config.ISO)
+	if config.MacAddress != "" {
+		logger.Info("  MAC Address: %s", config.MacAddress)
+	}
+	logger.Info("  IOMMU Enabled: %v", config.EnableIOMMU)
+	logger.Info("  CPU Counters Exposed: %v", config.ExposeCounters)
+	logger.Info("  Precision Clock: %v", config.EnablePrecisionClock)
+	logger.Info("  Watchdog Timer: %v", config.EnableWatchdog)
+	logger.Info("  EFI Firmware: enabled")
+	logger.Info("  UEFI Secure Boot: disabled")
+	logger.Info("  NVME Controllers: 2 (separate for each disk)")
+}
+
+func logVSphereGenericParallelPlan(logger *common.ColorLogger, plan *vsphereDeploymentPlan, memory, vcpus, diskSize, openebsSize int, datastore, network string) {
+	logger.Info("Deploying %d VMs in parallel (max concurrent: %d)", len(plan.Configs), plan.Concurrent)
+	logger.Info("Enhanced VM Configuration (for all VMs):")
+	logger.Info("  Memory: %d MB", memory)
+	logger.Info("  vCPUs: %d", vcpus)
+	logger.Info("  Boot Disk: %d GB (thin provisioned)", diskSize)
+	logger.Info("  OpenEBS Disk: %d GB (thin provisioned)", openebsSize)
+	logger.Info("  Datastore: %s", datastore)
+	logger.Info("  Network: %s (vmxnet3)", network)
+	logger.Info("  ISO: %s", plan.ISOPath)
+	logger.Info("  IOMMU Enabled: true")
+	logger.Info("  CPU Counters Exposed: true")
+	logger.Info("  Precision Clock: enabled")
+	logger.Info("  Watchdog Timer: enabled")
+	logger.Info("  EFI Firmware: enabled")
+	logger.Info("  UEFI Secure Boot: disabled")
+	logger.Info("  NVME Controllers: 2 (separate for each disk)")
+	logger.Info("")
+	logger.Info("VMs to deploy:")
+	for _, config := range plan.Configs {
+		if config.MacAddress != "" {
+			logger.Info("  - %s (MAC: %s)", config.Name, config.MacAddress)
+		} else {
+			logger.Info("  - %s", config.Name)
+		}
+	}
+}
+
+func executeVSphereGenericDeploymentPlan(logger *common.ColorLogger, client vsphereVMDeployer, plan *vsphereDeploymentPlan) error {
+	if len(plan.Configs) == 1 {
+		if err := client.CreateVM(plan.Configs[0]); err != nil {
+			return fmt.Errorf("failed to create VM: %w", err)
+		}
+		return nil
+	}
+
+	if err := client.DeployVMsConcurrently(plan.Configs); err != nil {
+		return fmt.Errorf("parallel deployment failed: %w", err)
+	}
+	return nil
+}
+
 func deployVMWithPatternDryRun(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate, generateISO, dryRun bool) error {
 	if dryRun {
 		logger := common.NewColorLogger()
-		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
-		logger.Info("  Provider: TrueNAS")
-		logger.Info("  VM Name: %s", name)
-		logger.Info("  Pool: %s", pool)
-		logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-		if macAddress != "" {
-			logger.Info("  MAC Address: %s", macAddress)
-		}
-		if generateISO {
-			logger.Info("  Generate Custom ISO: Yes")
-		}
-		if skipZVolCreate {
-			logger.Info("  Skip ZVol Creation: Yes")
-		}
-		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
+		summary := buildTrueNASDryRunSummary(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate)
+		emitVMDeploymentDryRunSummary(logger, summary, generateISO)
 		return nil
 	}
 	return deployVMWithPattern(name, pool, memory, vcpus, diskSize, openebsSize, macAddress, skipZVolCreate, generateISO)
 }
 
-func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int, dryRun bool) error {
+func deployVMOnVSphereDryRun(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount, startIndex int, dryRun bool) error {
 	if dryRun {
 		logger := common.NewColorLogger()
-		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
-		logger.Info("  Provider: vSphere/ESXi")
-		logger.Info("  VM Name: %s", baseName)
-
-		// Check if this is a k8s node - show production configuration
-		if strings.HasPrefix(baseName, "k8s-") {
-			if nodeConfig, exists := vsphere.GetK8sNodeConfig(baseName); exists {
-				logger.Info("  Deployment Mode: SSH-based (production k8s node)")
-				logger.Info("  Boot Datastore: %s", nodeConfig.BootDatastore)
-				logger.Info("  OpenEBS Datastore: truenas-iscsi")
-				logger.Info("  RDM (Ceph): %s", nodeConfig.RDMPath)
-				logger.Info("  SR-IOV PCI Device: %s", nodeConfig.PCIDevice)
-				logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
-				logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
-				logger.Info("  Memory: %d MB (%d GB) - pinned reservation", memory, memory/1024)
-				logger.Info("  vCPUs: %d", vcpus)
-				logger.Info("  Boot Disk: %d GB", diskSize)
-				logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-				logger.Info("  Network: %s (SR-IOV passthrough)", network)
-			} else {
-				logger.Warn("  Unknown k8s node: %s (valid: k8s-0, k8s-1, k8s-2, k8s-3)", baseName)
-			}
-		} else {
-			// Generic VM configuration
-			logger.Info("  Deployment Mode: govmomi (generic VM)")
-			logger.Info("  Datastore: %s", datastore)
-			logger.Info("  Network: %s (vmxnet3)", network)
-			logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-			logger.Info("  vCPUs: %d", vcpus)
-			logger.Info("  Boot Disk: %d GB", diskSize)
-			logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-			if macAddress != "" {
-				logger.Info("  MAC Address: %s", macAddress)
-			}
+		summary, err := buildVSphereDryRunSummary(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, concurrent, nodeCount, startIndex)
+		if err != nil {
+			return err
 		}
-
-		if nodeCount > 1 {
-			logger.Info("  Node Count: %d", nodeCount)
-			logger.Info("  Concurrent Deployments: %d", concurrent)
-		}
-		if generateISO {
-			logger.Info("  Generate Custom ISO: Yes")
-		}
-		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
+		emitVMDeploymentDryRunSummary(logger, summary, generateISO)
 		return nil
 	}
-	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+	return deployVMOnVSphere(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, startIndex)
 }
 
 // deployVMOnProxmoxDryRun handles Proxmox VM deployment with dry-run support
-func deployVMOnProxmoxDryRun(name string, memory, vcpus, diskSize, openebsSize int, generateISO, dryRun bool) error {
+func deployVMOnProxmoxDryRun(baseName string, memory, vcpus, diskSize, openebsSize int, generateISO bool, concurrent, nodeCount, startIndex int, dryRun bool) error {
 	logger := common.NewColorLogger()
-
-	// Check if this is a predefined Talos node (k8s-0, k8s-1, k8s-2)
-	nodeConfig, isPredefined := proxmox.GetTalosNodeConfig(name)
-
-	if dryRun {
-		logger.Info("[DRY RUN] Would deploy VM with the following configuration:")
-		logger.Info("  Provider: Proxmox VE")
-		logger.Info("  VM Name: %s", name)
-
-		if isPredefined {
-			logger.Info("  Deployment Mode: Predefined Talos node configuration")
-			logger.Info("  VMID: %d", nodeConfig.VMID)
-			logger.Info("  Boot Storage: %s", nodeConfig.BootStorage)
-			logger.Info("  OpenEBS Storage: %s", nodeConfig.OpenEBSStorage)
-			logger.Info("  Ceph Disk (passthrough): /dev/disk/by-id/%s", nodeConfig.CephDiskByID)
-			logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
-			logger.Info("  NUMA Node: %d", nodeConfig.NUMANode)
-			logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
-			// Show default config values
-			defaultConfig := proxmox.DefaultVMConfig
-			logger.Info("  Memory: %d MB (%d GB)", defaultConfig.Memory, defaultConfig.Memory/1024)
-			logger.Info("  vCPUs: %d", defaultConfig.Cores)
-			logger.Info("  CPU Type: %s", defaultConfig.CPUType)
-			logger.Info("  Boot Disk: %d GB", defaultConfig.BootDiskSize)
-			logger.Info("  OpenEBS Disk: %d GB", defaultConfig.OpenEBSSize)
-			logger.Info("  Network: %s (VLAN %d, MTU %d)", defaultConfig.NetworkBridge, defaultConfig.VLANID, defaultConfig.NetworkMTU)
-			logger.Info("  BIOS: %s (UEFI)", defaultConfig.BIOS)
-			logger.Info("  NUMA: Enabled")
-			logger.Info("  SCSI Controller: %s", defaultConfig.SCSIController)
-		} else {
-			logger.Info("  Deployment Mode: Custom configuration")
-			logger.Info("  Memory: %d MB (%d GB)", memory, memory/1024)
-			logger.Info("  vCPUs: %d", vcpus)
-			logger.Info("  Boot Disk: %d GB", diskSize)
-			logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-		}
-
-		if generateISO {
-			logger.Info("  Generate Custom ISO: Yes")
-		}
-		logger.Success("[DRY RUN] VM deployment preview complete - no changes made")
-		return nil
-	}
-
-	return deployVMOnProxmox(name, memory, vcpus, diskSize, openebsSize, generateISO)
-}
-
-// deployVMOnProxmox deploys a VM on Proxmox VE
-func deployVMOnProxmox(name string, memory, vcpus, diskSize, openebsSize int, generateISO bool) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting Proxmox VE VM deployment: %s", name)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
+	plan, err := buildProxmoxDeploymentPlan(baseName, memory, vcpus, diskSize, openebsSize, concurrent, nodeCount, startIndex)
 	if err != nil {
 		return err
 	}
 
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	if dryRun {
+		summary := buildProxmoxDryRunSummary(plan, memory, vcpus, diskSize, openebsSize)
+		emitVMDeploymentDryRunSummary(logger, summary, generateISO)
+		return nil
 	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
 
-	// Check if this is a predefined Talos node
-	nodeConfig, isPredefined := proxmox.GetTalosNodeConfig(name)
+	return deployVMOnProxmox(baseName, memory, vcpus, diskSize, openebsSize, generateISO, concurrent, nodeCount, startIndex)
+}
 
-	var vmConfig proxmox.VMConfig
-	if isPredefined {
-		// Use predefined configuration
-		logger.Info("Using predefined Talos node configuration for %s", name)
-		vmConfig = proxmox.DefaultVMConfig
-		vmConfig.Name = name
-		vmConfig.BootStorage = nodeConfig.BootStorage
-		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
-		vmConfig.CephDiskByID = nodeConfig.CephDiskByID
-		vmConfig.CPUAffinity = nodeConfig.CPUAffinity
-		vmConfig.NUMANode = nodeConfig.NUMANode
-		vmConfig.MacAddress = nodeConfig.MacAddress
-	} else {
-		// Use custom configuration
-		logger.Info("Using custom configuration for %s", name)
-		vmConfig = proxmox.DefaultVMConfig
-		vmConfig.Name = name
-		vmConfig.Memory = memory
-		vmConfig.Cores = vcpus
-		vmConfig.BootDiskSize = diskSize
-		vmConfig.OpenEBSSize = openebsSize
+// deployVMOnProxmox deploys a VM on Proxmox VE
+func deployVMOnProxmox(baseName string, memory, vcpus, diskSize, openebsSize int, generateISO bool, concurrent, nodeCount, startIndex int) error {
+	logger := common.NewColorLogger()
+	plan, err := buildProxmoxDeploymentPlan(baseName, memory, vcpus, diskSize, openebsSize, concurrent, nodeCount, startIndex)
+	if err != nil {
+		return err
+	}
+	logNamedVMDeploymentStart(logger, "Proxmox VE", plan.VMNames)
+
+	// Get Proxmox credentials
+	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
+	if err != nil {
+		return err
 	}
 
 	// Generate ISO if requested
 	if generateISO {
 		logger.Info("Generating custom Talos ISO...")
-		if err := prepareISOForProxmox(); err != nil {
+		if err := prepareISOForProxmoxFn(); err != nil {
 			return fmt.Errorf("failed to prepare ISO: %w", err)
 		}
 	}
 
-	// Deploy the VM
-	if err := vmManager.DeployVM(vmConfig); err != nil {
-		return fmt.Errorf("failed to deploy VM: %w", err)
+	if err := executeProxmoxDeploymentPlan(logger, host, tokenID, secret, nodeName, plan); err != nil {
+		return err
 	}
 
-	logger.Success("VM %s deployed successfully on Proxmox VE", name)
+	logNamedVMDeploymentSuccess(logger, "Proxmox VE", plan.VMNames)
+	return nil
+}
+
+type proxmoxDeploymentPlan struct {
+	StartIndex    int
+	Concurrent    int
+	VMNames       []string
+	Configs       []proxmox.VMConfig
+	Presets       []proxmox.TalosNodeConfig
+	AllPredefined bool
+}
+
+func buildProxmoxDeploymentPlan(baseName string, memory, vcpus, diskSize, openebsSize int, concurrent, nodeCount, startIndex int) (*proxmoxDeploymentPlan, error) {
+	vmNames, err := buildDeploymentVMNames(baseName, nodeCount, startIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	plan := &proxmoxDeploymentPlan{
+		StartIndex: startIndex,
+		Concurrent: normalizeDeploymentConcurrency(concurrent, len(vmNames)),
+		VMNames:    vmNames,
+	}
+
+	configs, presets := buildProxmoxVMConfigs(vmNames, memory, vcpus, diskSize, openebsSize)
+	plan.Configs = configs
+	plan.Presets = presets
+	plan.AllPredefined = len(presets) == len(vmNames)
+
+	return plan, nil
+}
+
+func buildProxmoxVMConfigs(vmNames []string, memory, vcpus, diskSize, openebsSize int) ([]proxmox.VMConfig, []proxmox.TalosNodeConfig) {
+	configs := make([]proxmox.VMConfig, 0, len(vmNames))
+	presets := make([]proxmox.TalosNodeConfig, 0, len(vmNames))
+	for _, name := range vmNames {
+		nodeConfig, isPredefined := proxmoxGetTalosNodeConfigFn(name)
+
+		var vmConfig proxmox.VMConfig
+		if isPredefined {
+			presets = append(presets, nodeConfig)
+			vmConfig = proxmoxDefaultVMConfig
+			vmConfig.Name = name
+			vmConfig.BootStorage = nodeConfig.BootStorage
+			vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+			vmConfig.CephDiskByID = nodeConfig.CephDiskByID
+			vmConfig.CPUAffinity = nodeConfig.CPUAffinity
+			vmConfig.NUMANode = nodeConfig.NUMANode
+			vmConfig.MacAddress = nodeConfig.MacAddress
+		} else {
+			vmConfig = proxmoxDefaultVMConfig
+			vmConfig.Name = name
+			vmConfig.Memory = memory
+			vmConfig.Cores = vcpus
+			vmConfig.BootDiskSize = diskSize
+			vmConfig.OpenEBSSize = openebsSize
+		}
+
+		configs = append(configs, vmConfig)
+	}
+
+	return configs, presets
+}
+
+func normalizeDeploymentConcurrency(concurrent, total int) int {
+	if total <= 1 {
+		return 1
+	}
+	if concurrent <= 0 {
+		return 1
+	}
+	if concurrent > total {
+		return total
+	}
+	return concurrent
+}
+
+func deployProxmoxVMsConcurrently(host, tokenID, secret, nodeName string, configs []proxmox.VMConfig, concurrent int) error {
+	logger := common.NewColorLogger()
+	concurrent = normalizeDeploymentConcurrency(concurrent, len(configs))
+
+	var (
+		wg       sync.WaitGroup
+		sem      = make(chan struct{}, concurrent)
+		mu       sync.Mutex
+		failures []string
+	)
+
+	for _, cfg := range configs {
+		cfg := cfg
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			logger.Info("Starting Proxmox deployment worker for %s", cfg.Name)
+			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+			if err != nil {
+				mu.Lock()
+				failures = append(failures, fmt.Sprintf("%s: failed to create Proxmox VM manager: %v", cfg.Name, err))
+				mu.Unlock()
+				return
+			}
+			defer func() {
+				if closeErr := vmManager.Close(); closeErr != nil {
+					logger.Warn("Failed to close Proxmox VM manager for %s: %v", cfg.Name, closeErr)
+				}
+			}()
+
+			if err := vmManager.DeployVM(cfg); err != nil {
+				mu.Lock()
+				failures = append(failures, fmt.Sprintf("%s: %v", cfg.Name, err))
+				mu.Unlock()
+			}
+		}()
+	}
+
+	wg.Wait()
+	if len(failures) > 0 {
+		return fmt.Errorf("failed to deploy %d/%d Proxmox VMs: %s", len(failures), len(configs), strings.Join(failures, "; "))
+	}
+
 	return nil
 }
 
 // prepareISOForProxmox handles Proxmox-specific ISO preparation
 func prepareISOForProxmox() error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for Proxmox...")
-
-	// Load version configuration
 	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
-
-	// Create factory client
-	logger.Debug("Creating Talos factory client")
-	factoryClient := talos.NewFactoryClient()
-	if factoryClient == nil {
-		return fmt.Errorf("failed to create factory client")
+	isoFilename := fmt.Sprintf("talos-%s-nocloud-amd64.iso", versionConfig.TalosVersion)
+	target := isoPreparationTarget{
+		providerName:   "Proxmox",
+		platform:       "nocloud",
+		uploadStep:     "Uploading ISO to Proxmox storage...",
+		uploadSpinner:  "Uploading ISO to Proxmox",
+		location:       proxmox.GetISOPath("local", isoFilename),
+		deployCommand:  "homeops-cli talos deploy-vm --provider proxmox --name <vm_name> [other flags]",
+		summaryMessage: "Custom ISO generated and uploaded to Proxmox local storage",
+		uploadISO: func(isoInfo *talos.ISOInfo) error {
+			return withProxmoxVMManager(common.NewColorLogger(), func(vmManager proxmoxVMManager) error {
+				if err := vmManager.UploadISOFromURL(isoInfo.URL, isoFilename, "local"); err != nil {
+					return fmt.Errorf("failed to upload custom ISO to Proxmox: %w", err)
+				}
+				return nil
+			})
+		},
 	}
 
-	// Load schematic from embedded templates
-	logger.Info("STEP 1: Loading schematic configuration...")
-	schematic, err := factoryClient.LoadSchematicFromTemplate()
-	if err != nil {
-		return fmt.Errorf("failed to load schematic template: %w", err)
-	}
-	logger.Success("Schematic configuration loaded successfully")
-
-	// Generate ISO from schematic
-	logger.Info("STEP 2: Generating custom Talos ISO...")
-
-	var isoInfo *talos.ISOInfo
-	err = ui.SpinWithFunc("Generating custom Talos ISO", func() error {
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=nocloud", versionConfig.TalosVersion)
-		var genErr error
-		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "nocloud")
-		if genErr != nil {
-			return fmt.Errorf("ISO generation failed: %w", genErr)
-		}
-		if isoInfo == nil {
-			return fmt.Errorf("ISO generation returned nil result")
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO generated successfully")
-	logger.Info("ISO Details:")
-	logger.Info("  URL: %s", isoInfo.URL)
-	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() { _ = vmManager.Close() }()
-
-	// Upload ISO to Proxmox
-	logger.Info("STEP 3: Uploading ISO to Proxmox storage...")
-	isoFilename := fmt.Sprintf("talos-%s-nocloud-amd64.iso", isoInfo.TalosVersion)
-
-	err = ui.SpinWithFunc("Uploading ISO to Proxmox", func() error {
-		if uploadErr := vmManager.UploadISOFromURL(isoInfo.URL, isoFilename, "local"); uploadErr != nil {
-			return fmt.Errorf("failed to upload custom ISO to Proxmox: %w", uploadErr)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO uploaded to Proxmox successfully")
-	logger.Info("ISO Location: local:iso/%s", isoFilename)
-
-	// Update node templates with schematic ID
-	logger.Info("STEP 4: Updating node configuration templates...")
-	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
-		logger.Warn("Failed to update node templates: %v", err)
-		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
-	} else {
-		logger.Success("Node configuration templates updated successfully")
-	}
-
-	logger.Success("ISO preparation for Proxmox completed successfully!")
-	return nil
+	return prepareISOForTargetFn(target)
 }
 
 func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize int, macAddress string, skipZVolCreate, generateISO bool) error {
@@ -1458,158 +2423,20 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 		return fmt.Errorf("VM name validation failed: %w", err)
 	}
 
-	// Get TrueNAS connection details
-	logger.Debug("Retrieving TrueNAS credentials")
-	host, apiKey, err := getTrueNASCredentials()
+	host, apiKey, spicePassword, err := resolveTrueNASDeploymentAccess(logger)
 	if err != nil {
-		return fmt.Errorf("failed to get TrueNAS credentials: %w", err)
-	}
-	logger.Debug("TrueNAS host: %s", host)
-
-	// FIRST STEP: ISO generation and download to TrueNAS (if requested)
-	var isoURL, schematicID, talosVersion string
-	var customISO bool
-
-	logger.Debug("Determining ISO configuration (generateISO=%t)", generateISO)
-	if generateISO {
-		logger.Info("STEP 1: Generating custom Talos ISO using schematic.yaml...")
-
-		// Create factory client
-		logger.Debug("Creating Talos factory client")
-		factoryClient := talos.NewFactoryClient()
-		if factoryClient == nil {
-			return fmt.Errorf("failed to create factory client")
-		}
-
-		// Load schematic from embedded templates
-		logger.Debug("Loading schematic from embedded template")
-		schematic, err := factoryClient.LoadSchematicFromTemplate()
-		if err != nil {
-			return fmt.Errorf("failed to load schematic template: %w", err)
-		}
-		logger.Debug("Schematic loaded successfully")
-
-		// Generate ISO with default parameters
-		versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
-		isoInfo, err := factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
-		if err != nil {
-			return fmt.Errorf("ISO generation failed: %w", err)
-		}
-
-		if isoInfo == nil {
-			return fmt.Errorf("ISO generation returned nil result")
-		}
-
-		isoURL = isoInfo.URL
-		schematicID = isoInfo.SchematicID
-		talosVersion = isoInfo.TalosVersion
-		customISO = true
-
-		// Set schematic ID as environment variable for template rendering
-		if err := os.Setenv("SCHEMATIC_ID", schematicID); err != nil {
-			logger.Warn("Failed to set SCHEMATIC_ID environment variable: %v", err)
-		} else {
-			logger.Debug("Set SCHEMATIC_ID environment variable: %s", schematicID)
-		}
-
-		logger.Success("Custom ISO generated successfully")
-		logger.Debug("ISO Details: URL=%s, SchematicID=%s, Version=%s", isoURL, schematicID, talosVersion)
-
-		// CRITICAL: Download custom ISO to TrueNAS BEFORE any VM operations
-		logger.Info("STEP 2: Downloading custom ISO to TrueNAS (REQUIRED BEFORE VM CREATION)...")
-		downloader := iso.NewDownloader()
-
-		// Create download configuration
-		downloadConfig := iso.GetDefaultConfig()
-		downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
-		downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
-		downloadConfig.ISOURL = isoURL
-		downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", schematicID[:8]) // Use schematic ID prefix for unique filename
-
-		if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
-			return fmt.Errorf("CRITICAL: Failed to download custom ISO to TrueNAS - VM deployment cannot proceed: %w", err)
-		}
-
-		logger.Success("Custom ISO downloaded to TrueNAS successfully")
-		// Update ISO URL to point to local TrueNAS path
-		isoURL = filepath.Join(downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
-		logger.Debug("Updated ISO path: %s", isoURL)
-		logger.Info("ISO preparation completed - proceeding with VM deployment...")
-	} else {
-		// Check if a prepared ISO exists at the standard location
-		standardISOPath := constants.TrueNASStandardISOPath
-		logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
-
-		// Connect to TrueNAS to check if the prepared ISO exists
-		host, _, err := getTrueNASCredentials()
-		if err != nil {
-			return fmt.Errorf("failed to get TrueNAS credentials to check for prepared ISO: %w", err)
-		}
-
-		// Create SSH client to check if ISO exists
-		sshConfig := ssh.SSHConfig{
-			Host:       host,
-			Username:   get1PasswordSecret(constants.OpTrueNASUsername),
-			Port:       "22",
-			SSHItemRef: constants.OpTrueNASSSHPrivateKey,
-		}
-		sshClient := ssh.NewSSHClient(sshConfig)
-
-		if err := sshClient.Connect(); err != nil {
-			logger.Warn("Cannot verify prepared ISO due to SSH connection failure: %v", err)
-			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
-		}
-		defer func() {
-			if closeErr := sshClient.Close(); closeErr != nil {
-				logger.Warn("Failed to close SSH client: %v", closeErr)
-			}
-		}()
-
-		// Check if the standard ISO exists
-		exists, size, err := sshClient.VerifyFile(standardISOPath)
-		if err != nil {
-			logger.Warn("Failed to verify prepared ISO: %v", err)
-			return fmt.Errorf("schema-based ISO generation is required for VM deployment. Please use the --generate-iso flag to create a custom Talos ISO, or run 'homeops talos prepare-iso' first to prepare the ISO")
-		}
-
-		if !exists {
-			logger.Info("No prepared ISO found at %s", standardISOPath)
-			return fmt.Errorf("no prepared ISO found. Please run 'homeops talos prepare-iso' first to prepare the ISO, or use the --generate-iso flag to generate a new one")
-		}
-
-		// Prepared ISO exists, use it
-		isoURL = standardISOPath
-		customISO = true // Mark as custom since it's from prepare-iso
-		logger.Success("Using prepared ISO: %s (size: %d bytes)", standardISOPath, size)
-		logger.Info("Prepared ISO found - proceeding with VM deployment...")
-
-		// Get version info for logging
-		versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-		talosVersion = versionConfig.TalosVersion
-		// Note: schematicID won't be available here, but that's okay for VM creation
+		return err
 	}
 
-	// Get SPICE password
-	logger.Debug("Retrieving SPICE password")
-	spicePassword := getSpicePassword()
-	if spicePassword == "" {
-		return fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
-	}
-	logger.Debug("SPICE password retrieved successfully")
-
-	// Create VM manager
-	logger.Debug("Creating VM manager for TrueNAS host: %s", host)
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if vmManager == nil {
-		return fmt.Errorf("failed to create VM manager")
+	isoSelection, err := resolveTrueNASISOSelection(logger, host, generateISO)
+	if err != nil {
+		return err
 	}
 
-	logger.Debug("Connecting to TrueNAS API")
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("TrueNAS connection failed: %w", err)
+	vmManager, err := connectedTrueNASVMManager(logger, host, apiKey)
+	if err != nil {
+		return err
 	}
-	logger.Debug("Successfully connected to TrueNAS")
 
 	defer func() {
 		logger.Debug("Closing VM manager connection")
@@ -1622,75 +2449,22 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 
 	// Build VM configuration with auto-generated ZVol paths matching the pattern from working scripts
 	logger.Debug("Building VM configuration")
-	networkBridge := getEnvOrDefault("NETWORK_BRIDGE", "br0")
+	networkBridge := trueNASNetworkBridge()
 	logger.Debug("Network bridge: %s", networkBridge)
 
-	config := truenas.VMConfig{
-		Name:          name,
-		Memory:        memory,
-		VCPUs:         vcpus,
-		DiskSize:      diskSize,
-		OpenEBSSize:   openebsSize,
-		TrueNASHost:   host,
-		TrueNASAPIKey: apiKey,
-		TrueNASPort:   443,
-		NoSSL:         false,
-		TalosISO:      isoURL,
-		NetworkBridge: networkBridge,
-		StoragePool:   pool,
-		MacAddress:    macAddress,
-		// Let getZVolPaths handle path construction to avoid duplication
-		// BootZVol, OpenEBSZVol, RookZVol will be auto-generated
-		SkipZVolCreate: skipZVolCreate,
-		SpicePassword:  spicePassword,
-		UseSpice:       true, // Always use SPICE as per working scripts
-		// Schematic configuration fields
-		SchematicID:  schematicID,
-		TalosVersion: talosVersion,
-		CustomISO:    customISO,
-	}
+	config := buildTrueNASVMConfig(name, memory, vcpus, diskSize, openebsSize, host, apiKey, isoSelection.ISOPath, networkBridge, pool, macAddress, spicePassword, isoSelection.SchematicID, isoSelection.TalosVersion, skipZVolCreate, isoSelection.CustomISO)
 
 	logger.Debug("VM configuration built successfully")
 	logger.Debug("Configuration summary: Name=%s, Memory=%dMB, vCPUs=%d, ISO=%s, Bridge=%s, Pool=%s",
-		name, memory, vcpus, isoURL, networkBridge, pool)
+		name, memory, vcpus, isoSelection.ISOPath, networkBridge, pool)
 
 	// STEP 3: Deploy the VM (ISO is now ready on TrueNAS)
 	logger.Info("STEP 3: Starting VM deployment process...")
 
-	// Deploy VM with spinner
-	err = ui.SpinWithFunc(fmt.Sprintf("Deploying VM %s", name), func() error {
-		logger.Debug("Calling vmManager.DeployVM with configuration")
-		if err := vmManager.DeployVM(config); err != nil {
-			return fmt.Errorf("VM deployment failed: %w", err)
-		}
-		return nil
-	})
-
-	if err != nil {
-		logger.Error("VM deployment failed: %v", err)
+	if err := executeTrueNASVMDeployment(logger, vmManager, config); err != nil {
 		return err
 	}
-
-	logger.Success("VM %s deployed successfully!", name)
-	logger.Info("VM deployment completed with the following configuration:")
-	logger.Info("  VM Name:      %s", name)
-	logger.Info("  Memory:       %d MB", memory)
-	logger.Info("  vCPUs:        %d", vcpus)
-	logger.Info("  Storage Pool: %s", pool)
-	logger.Info("  Network:      %s", networkBridge)
-	if macAddress != "" {
-		logger.Info("  MAC Address:  %s", macAddress)
-	}
-	logger.Info("  ISO Source:   %s", isoURL)
-	if customISO {
-		logger.Info("  Schematic ID: %s", schematicID)
-		logger.Info("  Talos Ver:    %s", talosVersion)
-	}
-	logger.Info("ZVol naming pattern:")
-	logger.Info("  Boot disk:   %s/%s-boot (%dGB)", pool, name, diskSize)
-	if openebsSize > 0 {
-		logger.Info("  OpenEBS disk: %s/%s-openebs (%dGB)", pool, name, openebsSize)
-	}
+	logTrueNASDeploymentSuccess(logger, config)
 
 	logger.Debug("VM deployment function completed successfully")
 	return nil
@@ -1734,89 +2508,43 @@ func newListVMsCommand() *cobra.Command {
 }
 
 func listVMs(provider string) error {
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
 	logger := common.NewColorLogger()
 
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		// Get TrueNAS connection details
-		host, apiKey, err := getTrueNASCredentials()
-		if err != nil {
-			return err
-		}
-
-		// Create VM manager
-		vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-		if err := vmManager.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-		}
-		defer func() {
-			if closeErr := vmManager.Close(); closeErr != nil {
-				logger.Warn("Failed to close VM manager: %v", closeErr)
-			}
-		}()
-
-		return vmManager.ListVMs()
+		return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+			return vmManager.ListVMs()
+		})
 
 	case "proxmox":
-		// Get Proxmox connection details
-		host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-		if err != nil {
-			return err
-		}
+		return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
+			return vmManager.ListVMs()
+		})
 
-		// Create VM manager
-		vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-		if err != nil {
-			return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-		}
-		defer func() {
-			if closeErr := vmManager.Close(); closeErr != nil {
-				logger.Warn("Failed to close VM manager: %v", closeErr)
+	case "vsphere":
+		return withVSphereClient(logger, func(client vsphereClient) error {
+			vms, err := client.ListVMs()
+			if err != nil {
+				return fmt.Errorf("failed to list VMs: %w", err)
 			}
-		}()
 
-		return vmManager.ListVMs()
+			fmt.Println("\nVMs on vSphere:")
+			fmt.Println("================")
+			for _, vm := range vms {
+				fmt.Printf("- %s\n", vm.Name())
+			}
+			fmt.Printf("\nTotal: %d VMs\n", len(vms))
 
-	default:
-		// vSphere provider - get credentials
-		host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-		if host == "" {
-			host = os.Getenv(constants.EnvVSphereHost)
-		}
-		username := get1PasswordSecret("op://Infrastructure/esxi/username")
-		if username == "" {
-			username = os.Getenv(constants.EnvVSphereUsername)
-		}
-		password := get1PasswordSecret("op://Infrastructure/esxi/password")
-		if password == "" {
-			password = os.Getenv(constants.EnvVSpherePassword)
-		}
-
-		if host == "" || username == "" || password == "" {
-			return fmt.Errorf("vSphere credentials not found")
-		}
-
-		// Create vSphere client
-		client := vsphere.NewClient(host, username, password, true)
-		if err := client.Connect(host, username, password, true); err != nil {
-			return fmt.Errorf("failed to connect to vSphere: %w", err)
-		}
-		defer func() { _ = client.Close() }()
-
-		vms, err := client.ListVMs()
-		if err != nil {
-			return fmt.Errorf("failed to list VMs: %w", err)
-		}
-
-		fmt.Println("\nVMs on vSphere:")
-		fmt.Println("================")
-		for _, vm := range vms {
-			fmt.Printf("- %s\n", vm.Name())
-		}
-		fmt.Printf("\nTotal: %d VMs\n", len(vms))
-
-		return nil
+			return nil
+		})
 	}
+
+	return nil
 }
 
 func newStartVMCommand() *cobra.Command {
@@ -1845,128 +2573,84 @@ func newStartVMCommand() *cobra.Command {
 
 // startVMWithProvider starts a VM on the specified provider with interactive selector
 func startVMWithProvider(name, provider string) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "start")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to start:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
 	// Call appropriate start function based on provider
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return startVM(name)
+		return startTrueNASVMFn(name)
 	case "proxmox":
-		return startVMOnProxmox(name)
-	default:
-		return powerOnVMOnVSphere(name)
+		return startProxmoxVMFn(name)
+	case "vsphere":
+		return powerOnVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 // stopVMWithProvider stops a VM on the specified provider with interactive selector
 func stopVMWithProvider(name, provider string) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "stop")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to stop:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
-	// Call appropriate stop function based on provider
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return stopVM(name)
+		return stopTrueNASVMFn(name, false)
 	case "proxmox":
-		return stopVMOnProxmox(name, false)
-	default:
-		return powerOffVMOnVSphere(name)
+		return stopProxmoxVMFn(name, false)
+	case "vsphere":
+		return powerOffVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 // infoVMWithProvider gets VM info from the specified provider with interactive selector
 func infoVMWithProvider(name, provider string) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "get info")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to get info:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
-	// Call appropriate info function based on provider
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return infoVM(name)
+		return infoTrueNASVMFn(name)
 	case "proxmox":
-		return infoVMOnProxmox(name)
-	default:
-		return infoVMOnVSphere(name)
+		return infoProxmoxVMFn(name)
+	case "vsphere":
+		return infoVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 // infoVMOnVSphere gets detailed VM information from vSphere/ESXi
@@ -1974,100 +2658,37 @@ func infoVMOnVSphere(vmName string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Getting vSphere/ESXi VM info: %s", vmName)
 
-	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
-
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
-	}
-
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+	return withVSphereClient(logger, func(client vsphereClient) error {
+		vm, err := client.FindVM(vmName)
+		if err != nil {
+			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
 		}
-	}()
 
-	// Find the VM
-	vm, err := client.FindVM(vmName)
-	if err != nil {
-		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-	}
+		vmInfo, err := client.GetVMInfo(vm)
+		if err != nil {
+			return fmt.Errorf("failed to get VM info for %s: %w", vmName, err)
+		}
 
-	// Get VM info
-	vmInfo, err := client.GetVMInfo(vm)
-	if err != nil {
-		return fmt.Errorf("failed to get VM info for %s: %w", vmName, err)
-	}
+		logger.Info("VM Information for: %s", vmName)
+		logger.Info("  Power State: %s", vmInfo.Runtime.PowerState)
+		logger.Info("  Guest OS: %s", vmInfo.Config.GuestFullName)
+		logger.Info("  CPUs: %d", vmInfo.Config.Hardware.NumCPU)
+		logger.Info("  Memory: %d MB", vmInfo.Config.Hardware.MemoryMB)
+		logger.Info("  UUID: %s", vmInfo.Config.Uuid)
 
-	// Display VM information
-	logger.Info("VM Information for: %s", vmName)
-	logger.Info("  Power State: %s", vmInfo.Runtime.PowerState)
-	logger.Info("  Guest OS: %s", vmInfo.Config.GuestFullName)
-	logger.Info("  CPUs: %d", vmInfo.Config.Hardware.NumCPU)
-	logger.Info("  Memory: %d MB", vmInfo.Config.Hardware.MemoryMB)
-	logger.Info("  UUID: %s", vmInfo.Config.Uuid)
+		if vmInfo.Guest != nil && vmInfo.Guest.IpAddress != "" {
+			logger.Info("  IP Address: %s", vmInfo.Guest.IpAddress)
+		}
 
-	if vmInfo.Guest != nil && vmInfo.Guest.IpAddress != "" {
-		logger.Info("  IP Address: %s", vmInfo.Guest.IpAddress)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 func startVM(name string) error {
 	logger := common.NewColorLogger()
-
-	// If VM name is not provided, prompt for selection
-	if name == "" {
-		vmNames, err := getTrueNASVMNames()
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to start:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
-	}
-
-	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.StartVM(name)
+	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+		return vmManager.StartVM(name)
+	})
 }
 
 func newStopVMCommand() *cobra.Command {
@@ -2094,44 +2715,11 @@ func newStopVMCommand() *cobra.Command {
 	return cmd
 }
 
-func stopVM(name string) error {
+func stopVM(name string, force bool) error {
 	logger := common.NewColorLogger()
-
-	// If VM name is not provided, prompt for selection
-	if name == "" {
-		vmNames, err := getTrueNASVMNames()
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to stop:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
-	}
-
-	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.StopVM(name, false)
+	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+		return vmManager.StopVM(name, force)
+	})
 }
 
 func newDeleteVMCommand() *cobra.Command {
@@ -2161,40 +2749,24 @@ func newDeleteVMCommand() *cobra.Command {
 }
 
 func deleteVMWithConfirmation(name, provider string, force bool) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "delete")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to delete:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
 	// Add confirmation for deletion
 	if !force {
 		var message string
-		switch provider {
-		case "vsphere", "esxi":
+		switch normalizedProvider {
+		case "vsphere":
 			message = fmt.Sprintf("Delete VM '%s' on vSphere/ESXi? This is destructive!", name)
 		case "proxmox":
 			message = fmt.Sprintf("Delete VM '%s' on Proxmox? This is destructive!", name)
@@ -2202,7 +2774,7 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 			message = fmt.Sprintf("Delete VM '%s' and all its ZVols on TrueNAS? This is destructive!", name)
 		}
 
-		confirmed, err := ui.Confirm(message, false)
+		confirmed, err := confirmActionFn(message, false)
 		if err != nil {
 			return fmt.Errorf("confirmation failed: %w", err)
 		}
@@ -2211,41 +2783,24 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 		}
 	}
 
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return deleteVM(name)
+		return deleteTrueNASVMFn(name)
 	case "proxmox":
-		return deleteVMOnProxmox(name)
-	default:
-		return deleteVMOnVSphere(name)
+		return deleteProxmoxVMFn(name)
+	case "vsphere":
+		return deleteVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 func deleteVM(name string) error {
 	logger := common.NewColorLogger()
-
-	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	// Delete VM and ZVols
-	// Use the most common storage pool path where VMs are deployed
-	// The VM manager will try multiple patterns to find the actual ZVols
 	storagePool := getEnvOrDefault("STORAGE_POOL", "flashstor")
-	return vmManager.DeleteVM(name, true, storagePool)
+	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+		return vmManager.DeleteVM(name, true, storagePool)
+	})
 }
 
 func newInfoVMCommand() *cobra.Command {
@@ -2274,25 +2829,9 @@ func newInfoVMCommand() *cobra.Command {
 
 func infoVM(name string) error {
 	logger := common.NewColorLogger()
-
-	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.GetVMInfo(name)
+	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+		return vmManager.GetVMInfo(name)
+	})
 }
 
 // newPrepareISOCommand creates the prepare-iso command
@@ -2306,7 +2845,7 @@ func newPrepareISOCommand() *cobra.Command {
 This command will:
 1. Generate a Talos schematic from the embedded schematic.yaml template
 2. Create a custom ISO from the Talos factory
-3. Upload the ISO to TrueNAS storage or vSphere datastore
+3. Upload the ISO to Proxmox storage, TrueNAS storage, or a vSphere datastore
 4. Update the node configuration templates with the new schematic ID
 
 This separates ISO preparation from VM deployment, allowing you to prepare the ISO once
@@ -2316,238 +2855,167 @@ and deploy multiple VMs using the same custom configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "vsphere", "Storage provider: vsphere (default) or truenas")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Storage provider: proxmox (default), truenas, or vsphere/esxi")
 
 	return cmd
 }
 
+type isoPreparationTarget struct {
+	providerName   string
+	platform       string
+	uploadStep     string
+	uploadSpinner  string
+	location       string
+	deployCommand  string
+	uploadISO      func(*talos.ISOInfo) error
+	summaryMessage string
+}
+
 // prepareISOWithProvider handles the ISO generation and upload process for different providers
 func prepareISOWithProvider(provider string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for provider: %s", provider)
-
-	switch provider {
-	case "truenas":
-		return prepareISOForTrueNAS()
-	case "vsphere":
-		return prepareISOForVSphere()
-	default:
-		return fmt.Errorf("unsupported provider: %s. Supported providers: truenas, vsphere", provider)
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
 	}
+
+	switch normalizedProvider {
+	case "truenas":
+		return prepareISOForTrueNASFn()
+	case "proxmox":
+		return prepareISOForProxmoxFn()
+	case "vsphere":
+		return prepareISOForVSphereFn()
+	default:
+		return fmt.Errorf("unsupported provider: %s", provider)
+	}
+}
+
+func prepareISOForTarget(target isoPreparationTarget) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting custom Talos ISO preparation for %s...", target.providerName)
+
+	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
+	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
+
+	logger.Debug("Creating Talos factory client")
+	factoryClient := newTalosFactoryClientFn()
+	if factoryClient == nil {
+		return fmt.Errorf("failed to create factory client")
+	}
+
+	logger.Info("STEP 1: Loading schematic configuration...")
+	schematic, err := factoryClient.LoadSchematicFromTemplate()
+	if err != nil {
+		return fmt.Errorf("failed to load schematic template: %w", err)
+	}
+	logger.Success("Schematic configuration loaded successfully")
+
+	logger.Info("STEP 2: Generating custom Talos ISO...")
+	var isoInfo *talos.ISOInfo
+	err = spinWithFuncFn("Generating custom Talos ISO", func() error {
+		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=%s", versionConfig.TalosVersion, target.platform)
+		var genErr error
+		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", target.platform)
+		if genErr != nil {
+			return fmt.Errorf("ISO generation failed: %w", genErr)
+		}
+		if isoInfo == nil {
+			return fmt.Errorf("ISO generation returned nil result")
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	logger.Success("Custom ISO generated successfully")
+	logger.Info("ISO Details:")
+	logger.Info("  URL: %s", isoInfo.URL)
+	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
+
+	logger.Info("STEP 3: %s", target.uploadStep)
+	err = spinWithFuncFn(target.uploadSpinner, func() error {
+		return target.uploadISO(isoInfo)
+	})
+	if err != nil {
+		return err
+	}
+
+	logger.Success("Custom ISO uploaded to %s successfully", target.providerName)
+	logger.Info("ISO Location: %s", target.location)
+
+	logger.Info("STEP 4: Updating node configuration templates...")
+	if err := updateNodeTemplatesWithSchematicFn(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
+		logger.Warn("Failed to update node templates: %v", err)
+		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
+	} else {
+		logger.Success("Node configuration templates updated successfully")
+	}
+
+	logger.Success("ISO preparation completed successfully!")
+	logger.Info("Summary:")
+	logger.Info("  - %s", target.summaryMessage)
+	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
+	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
+	logger.Info("  - ISO Path: %s", target.location)
+	logger.Info("  - Node templates updated with new schematic ID")
+	logger.Info("")
+	logger.Info("You can now deploy VMs using: %s", target.deployCommand)
+	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
+
+	return nil
 }
 
 // prepareISOForTrueNAS handles TrueNAS-specific ISO preparation
 func prepareISOForTrueNAS() error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for TrueNAS...")
+	target := isoPreparationTarget{
+		providerName:   "TrueNAS",
+		platform:       "metal",
+		uploadStep:     "Uploading ISO to TrueNAS...",
+		uploadSpinner:  "Uploading ISO to TrueNAS",
+		location:       constants.TrueNASStandardISOPath,
+		deployCommand:  "homeops-cli talos deploy-vm --provider truenas --name <vm_name> [other flags]",
+		summaryMessage: "Custom ISO generated and uploaded to TrueNAS",
+		uploadISO: func(isoInfo *talos.ISOInfo) error {
+			downloader := newISODownloaderFn()
+			downloadConfig := iso.GetDefaultConfig()
+			downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
+			downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
+			downloadConfig.ISOURL = isoInfo.URL
+			downloadConfig.ISOFilename = filepath.Base(constants.TrueNASStandardISOPath)
 
-	// Load version configuration
-	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
-
-	// Create factory client
-	logger.Debug("Creating Talos factory client")
-	factoryClient := talos.NewFactoryClient()
-	if factoryClient == nil {
-		return fmt.Errorf("failed to create factory client")
+			if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
+				return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)
+			}
+			return nil
+		},
 	}
 
-	// Load schematic from embedded templates
-	logger.Info("STEP 1: Loading schematic configuration...")
-	schematic, err := factoryClient.LoadSchematicFromTemplate()
-	if err != nil {
-		return fmt.Errorf("failed to load schematic template: %w", err)
-	}
-	logger.Success("Schematic configuration loaded successfully")
-
-	// Generate ISO from schematic
-	logger.Info("STEP 2: Generating custom Talos ISO...")
-
-	var isoInfo *talos.ISOInfo
-	err = ui.SpinWithFunc("Generating custom Talos ISO", func() error {
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=metal", versionConfig.TalosVersion)
-		var genErr error
-		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "metal")
-		if genErr != nil {
-			return fmt.Errorf("ISO generation failed: %w", genErr)
-		}
-		if isoInfo == nil {
-			return fmt.Errorf("ISO generation returned nil result")
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO generated successfully")
-	logger.Info("ISO Details:")
-	logger.Info("  URL: %s", isoInfo.URL)
-	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
-
-	// Upload ISO to TrueNAS
-	logger.Info("STEP 3: Uploading ISO to TrueNAS...")
-	downloader := iso.NewDownloader()
-
-	// Create download configuration with standard filename
-	downloadConfig := iso.GetDefaultConfig()
-	downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
-	downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
-	downloadConfig.ISOURL = isoInfo.URL
-	downloadConfig.ISOFilename = "vmware-amd64.iso" // Standard filename for vSphere provider
-
-	err = ui.SpinWithFunc("Uploading ISO to TrueNAS", func() error {
-		if dlErr := downloader.DownloadCustomISO(downloadConfig); dlErr != nil {
-			return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", dlErr)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO uploaded to TrueNAS successfully")
-	logger.Info("ISO Location: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
-
-	// Update node templates with schematic ID
-	logger.Info("STEP 4: Updating node configuration templates...")
-	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
-		logger.Warn("Failed to update node templates: %v", err)
-		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
-	} else {
-		logger.Success("Node configuration templates updated successfully")
-	}
-
-	logger.Success("ISO preparation completed successfully!")
-	logger.Info("Summary:")
-	logger.Info("  - Custom ISO generated and uploaded to TrueNAS")
-	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
-	logger.Info("  - ISO Path: %s/%s", downloadConfig.ISOStoragePath, downloadConfig.ISOFilename)
-	logger.Info("  - Node templates updated with new schematic ID")
-	logger.Info("")
-	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --name <vm_name> [other flags]")
-	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
-
-	return nil
+	return prepareISOForTargetFn(target)
 }
 
 // prepareISOForVSphere handles vSphere-specific ISO preparation
 func prepareISOForVSphere() error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting custom Talos ISO preparation for vSphere...")
-
-	// Load version configuration
-	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-	logger.Debug("Using versions: Kubernetes=%s, Talos=%s", versionConfig.KubernetesVersion, versionConfig.TalosVersion)
-
-	// Create factory client
-	logger.Debug("Creating Talos factory client")
-	factoryClient := talos.NewFactoryClient()
-	if factoryClient == nil {
-		return fmt.Errorf("failed to create factory client")
+	target := isoPreparationTarget{
+		providerName:   "vSphere",
+		platform:       "nocloud",
+		uploadStep:     "Uploading ISO to vSphere datastore...",
+		uploadSpinner:  "Uploading ISO to vSphere",
+		location:       vsphere.DefaultISOPath(),
+		deployCommand:  "homeops-cli talos deploy-vm --provider vsphere --name <vm_name> [other flags]",
+		summaryMessage: "Custom ISO generated and uploaded to vSphere datastore1",
+		uploadISO: func(isoInfo *talos.ISOInfo) error {
+			return uploadISOToVSphereFn(isoInfo.URL)
+		},
 	}
 
-	// Load schematic from embedded templates
-	logger.Info("STEP 1: Loading schematic configuration...")
-	schematic, err := factoryClient.LoadSchematicFromTemplate()
-	if err != nil {
-		return fmt.Errorf("failed to load schematic template: %w", err)
-	}
-	logger.Success("Schematic configuration loaded successfully")
-
-	// Generate ISO from schematic
-	logger.Info("STEP 2: Generating custom Talos ISO...")
-
-	var isoInfo *talos.ISOInfo
-	err = ui.SpinWithFunc("Generating custom Talos ISO", func() error {
-		logger.Debug("Generating ISO with parameters: version=%s, arch=amd64, platform=nocloud", versionConfig.TalosVersion)
-		var genErr error
-		isoInfo, genErr = factoryClient.GenerateISOFromSchematic(schematic, versionConfig.TalosVersion, "amd64", "nocloud")
-		if genErr != nil {
-			return fmt.Errorf("ISO generation failed: %w", genErr)
-		}
-		if isoInfo == nil {
-			return fmt.Errorf("ISO generation returned nil result")
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO generated successfully")
-	logger.Info("ISO Details:")
-	logger.Info("  URL: %s", isoInfo.URL)
-	logger.Info("  Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  Talos Version: %s", isoInfo.TalosVersion)
-
-	// Upload ISO to vSphere datastore
-	logger.Info("STEP 3: Uploading ISO to vSphere datastore...")
-	err = ui.SpinWithFunc("Uploading ISO to vSphere", func() error {
-		if uploadErr := uploadISOToVSphere(isoInfo.URL); uploadErr != nil {
-			return fmt.Errorf("failed to upload custom ISO to vSphere: %w", uploadErr)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	logger.Success("Custom ISO uploaded to vSphere datastore successfully")
-	logger.Info("ISO Location: [datastore1] vmware-amd64.iso")
-
-	// Update node templates with schematic ID
-	logger.Info("STEP 4: Updating node configuration templates...")
-	if err := updateNodeTemplatesWithSchematic(isoInfo.SchematicID, isoInfo.TalosVersion); err != nil {
-		logger.Warn("Failed to update node templates: %v", err)
-		logger.Warn("You may need to manually update the templates with schematic ID: %s", isoInfo.SchematicID)
-	} else {
-		logger.Success("Node configuration templates updated successfully")
-	}
-
-	logger.Success("ISO preparation completed successfully!")
-	logger.Info("Summary:")
-	logger.Info("  - Custom ISO generated and uploaded to vSphere datastore1")
-	logger.Info("  - Schematic ID: %s", isoInfo.SchematicID)
-	logger.Info("  - Talos Version: %s", isoInfo.TalosVersion)
-	logger.Info("  - ISO Path: [datastore1] vmware-amd64.iso")
-	logger.Info("  - Node templates updated with new schematic ID")
-	logger.Info("")
-	logger.Info("You can now deploy VMs using: homeops talos deploy-vm --provider vsphere --name <vm_name> [other flags]")
-	logger.Info("(The deploy-vm command will automatically use the prepared ISO)")
-
-	return nil
+	return prepareISOForTargetFn(target)
 }
 
 // uploadISOToVSphere downloads ISO from URL and uploads it to vSphere datastore
 func uploadISOToVSphere(isoURL string) error {
 	logger := common.NewColorLogger()
-
-	// Get vSphere credentials
-	host := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/host")
-	username := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/username")
-	password := common.Get1PasswordSecretSilent("op://Infrastructure/esxi/password")
-
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("failed to get vSphere credentials from 1Password")
-	}
-
-	logger.Debug("Connecting to vSphere host: %s", host)
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
-		}
-	}()
 
 	// Download ISO to temporary file
 	logger.Info("Downloading ISO from factory...")
@@ -2564,13 +3032,15 @@ func uploadISOToVSphere(isoURL string) error {
 	logger.Success("ISO downloaded to temporary file: %s", tempFile)
 
 	// Upload to vSphere datastore
-	logger.Info("Uploading ISO to vSphere datastore1...")
-	if err := client.UploadISOToDatastore(tempFile, "datastore1", "vmware-amd64.iso"); err != nil {
-		return fmt.Errorf("failed to upload ISO to datastore: %w", err)
-	}
+	return withVSphereClient(logger, func(client vsphereClient) error {
+		logger.Info("Uploading ISO to vSphere datastore1...")
+		if err := client.UploadISOToDatastore(tempFile, vsphere.DefaultISODatastore, vsphere.DefaultISOFilename); err != nil {
+			return fmt.Errorf("failed to upload ISO to datastore: %w", err)
+		}
 
-	logger.Success("ISO uploaded to vSphere datastore successfully")
-	return nil
+		logger.Success("ISO uploaded to vSphere datastore successfully")
+		return nil
+	})
 }
 
 // downloadISOToTemp downloads ISO from URL to a temporary file and returns the file path
@@ -2591,7 +3061,7 @@ func downloadISOToTemp(isoURL string) (string, error) {
 
 	// Download ISO
 	logger.Debug("Downloading from URL: %s", isoURL)
-	resp, err := http.Get(isoURL)
+	resp, err := httpGetFn(isoURL)
 	if err != nil {
 		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to download ISO: %w", err)
@@ -2631,7 +3101,7 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	logger := common.NewColorLogger()
 
 	// Update controlplane.yaml template with schematic ID
-	templateFile := "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
+	templateFile := controlplaneTemplatePath
 	logger.Debug("Updating controlplane template: %s", templateFile)
 
 	// Read the template file
@@ -2689,7 +3159,7 @@ func newCleanupZVolsCommand() *cobra.Command {
 		Long:  `Clean up orphaned ZVols when a VM was deleted but its ZVols remain. This is useful when VM deletion didn't properly clean up the storage volumes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
-				confirmed, err := ui.Confirm(fmt.Sprintf("Delete orphaned ZVols for VM '%s'?", vmName), false)
+				confirmed, err := confirmActionFn(fmt.Sprintf("Delete orphaned ZVols for VM '%s'?", vmName), false)
 				if err != nil {
 					return err
 				}
@@ -2713,147 +3183,94 @@ func newCleanupZVolsCommand() *cobra.Command {
 func cleanupOrphanedZVols(vmName, storagePool string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting cleanup of orphaned ZVols for VM: %s", vmName)
+	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+		if err := vmManager.CleanupOrphanedZVols(vmName, storagePool); err != nil {
+			return fmt.Errorf("failed to cleanup orphaned ZVols: %w", err)
+		}
 
-	// Get TrueNAS connection details
-	host, apiKey, err := getTrueNASCredentials()
+		logger.Success("Successfully cleaned up orphaned ZVols for VM: %s", vmName)
+		return nil
+	})
+}
+
+// deployVMOnVSphere deploys one or more VMs on vSphere/ESXi
+func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount, startIndex int) error {
+	logger := common.NewColorLogger()
+	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
+
+	host, err := getVSphereHostFn()
 	if err != nil {
 		return err
 	}
 
-	// Create VM manager
-	vmManager := truenas.NewVMManager(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	// Use the CleanupOrphanedZVols method from VM manager
-	if err := vmManager.CleanupOrphanedZVols(vmName, storagePool); err != nil {
-		return fmt.Errorf("failed to cleanup orphaned ZVols: %w", err)
-	}
-
-	logger.Success("Successfully cleaned up orphaned ZVols for VM: %s", vmName)
-	return nil
-}
-
-// deployVMOnVSphere deploys one or more VMs on vSphere/ESXi
-func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
-
-	// Get ESXi host from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-
-	if host == "" {
-		return fmt.Errorf("ESXi host not found. Please set VSPHERE_HOST environment variable or configure 1Password")
-	}
-
-	// Check if this is a k8s node deployment - use SSH-based method for exact config match
-	isK8sNode := strings.HasPrefix(baseName, "k8s-")
+	// Check if this is a k8s node deployment - use SSH-based method for exact config match.
+	// Batch deployments commonly use the shared base name "k8s", which expands to k8s-0, k8s-1, ...
+	isK8sNode := strings.HasPrefix(baseName, "k8s")
 	if isK8sNode {
-		return deployK8sVMViaSSH(baseName, host, memory, vcpus, diskSize, openebsSize, network, generateISO, nodeCount)
+		return deployK8sVMViaSSH(baseName, host, memory, vcpus, diskSize, openebsSize, network, generateISO, nodeCount, startIndex)
 	}
 
 	// For non-k8s VMs, use the standard govmomi approach
-	return deployGenericVMOnVSphere(baseName, host, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount)
+	return deployGenericVMOnVSphere(baseName, host, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, generateISO, concurrent, nodeCount, startIndex)
 }
 
 // deployK8sVMViaSSH deploys k8s VMs using SSH for exact configuration control
 // This ensures the VMs match the existing manually-deployed production VMs exactly
-func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, openebsSize int, network string, _generateISO bool, nodeCount int) error {
+func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, openebsSize int, network string, _generateISO bool, nodeCount, startIndex int) error {
 	logger := common.NewColorLogger()
 	logger.Info("Deploying k8s VM(s) via SSH with production configuration")
 
-	// ISO path on datastore1 (where the Talos ISO is stored)
-	isoPath := "[datastore1] vmware-amd64.iso"
-
 	// Create ESXi SSH client (fetches SSH key from 1Password)
-	esxiClient, err := vsphere.NewESXiSSHClient(host, "root")
+	esxiClient, err := newESXiK8sVMDeployerFn(host, "root")
 	if err != nil {
 		return fmt.Errorf("failed to create ESXi SSH client: %w", err)
 	}
 	defer esxiClient.Close() // Clean up SSH key file
 
-	// Determine which VMs to deploy
-	var vmNames []string
-	if nodeCount == 1 {
-		vmNames = append(vmNames, baseName)
-	} else {
-		for i := 0; i < nodeCount; i++ {
-			vmNames = append(vmNames, fmt.Sprintf("%s-%d", baseName, i))
-		}
+	plan, err := buildK8sVSphereDeploymentPlan(baseName, memory, vcpus, diskSize, openebsSize, network, nodeCount, nodeCount, startIndex)
+	if err != nil {
+		return err
 	}
 
 	// Deploy each VM
-	for _, vmName := range vmNames {
-		// Get the predefined k8s node configuration
-		nodeConfig, exists := vsphere.GetK8sNodeConfig(vmName)
-		if !exists {
-			return fmt.Errorf("no predefined configuration for k8s node: %s (valid nodes: k8s-0, k8s-1, k8s-2, k8s-3)", vmName)
-		}
+	for idx, config := range plan.Configs {
+		nodeConfig := plan.NodeConfigs[idx]
 
-		logger.Info("Deploying %s with production configuration:", vmName)
+		logger.Info("Deploying %s with production configuration:", config.Name)
 		logger.Info("  Boot Datastore: %s", nodeConfig.BootDatastore)
 		logger.Info("  OpenEBS Datastore: truenas-iscsi")
 		logger.Info("  RDM (Ceph): %s", nodeConfig.RDMPath)
 		logger.Info("  SR-IOV PCI: %s", nodeConfig.PCIDevice)
 		logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
 		logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)
-		logger.Info("  Memory: %d MB (%d GB) - pinned reservation", memory, memory/1024)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB", diskSize)
-		logger.Info("  OpenEBS Disk: %d GB", openebsSize)
-
-		// Build VM configuration
-		config := vsphere.GetK8sVMConfig(vmName)
-		config.Memory = memory
-		config.VCPUs = vcpus
-		config.DiskSize = diskSize
-		config.OpenEBSSize = openebsSize
-		config.Network = network
-		config.ISO = isoPath
-		config.PowerOn = true
+		logger.Info("  Memory: %d MB (%d GB) - pinned reservation", config.Memory, config.Memory/1024)
+		logger.Info("  vCPUs: %d", config.VCPUs)
+		logger.Info("  Boot Disk: %d GB", config.DiskSize)
+		logger.Info("  OpenEBS Disk: %d GB", config.OpenEBSSize)
 
 		// Create the VM
 		if err := esxiClient.CreateK8sVM(config); err != nil {
-			return fmt.Errorf("failed to create VM %s: %w", vmName, err)
+			return fmt.Errorf("failed to create VM %s: %w", config.Name, err)
 		}
 
-		logger.Success("VM %s deployed successfully!", vmName)
+		logger.Success("VM %s deployed successfully!", config.Name)
 	}
 
 	return nil
 }
 
 // deployGenericVMOnVSphere deploys non-k8s VMs using govmomi (legacy behavior)
-func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount int) error {
+func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount, startIndex int) error {
 	logger := common.NewColorLogger()
 
-	// Get additional vSphere credentials
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
+	_, username, password, err := getVSphereCredsFn()
+	if err != nil {
+		return err
 	}
 
-	if username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_USERNAME and VSPHERE_PASSWORD environment variables or configure 1Password")
-	}
-
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
+	client, err := newVSphereDeployerFn(host, username, password)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		if err := client.Close(); err != nil {
@@ -2866,120 +3283,31 @@ func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskS
 	if generateISO {
 		logger.Info("Generating custom Talos ISO...")
 		logger.Warn("For vSphere, please ensure the ISO is already uploaded to the datastore")
-		logger.Warn("Run 'homeops talos prepare-iso' first if needed")
-		isoPath = "[datastore1] vmware-amd64.iso"
+		logger.Warn("Run 'homeops-cli talos prepare-iso' first if needed")
+		isoPath = vsphere.DefaultISOPath()
 	} else {
-		isoPath = "[datastore1] vmware-amd64.iso"
+		isoPath = vsphere.DefaultISOPath()
 	}
 
-	// Prepare VM configurations
-	var configs []vsphere.VMConfig
-
-	if nodeCount == 1 {
-		config := vsphere.VMConfig{
-			Name:                 baseName,
-			Memory:               memory,
-			VCPUs:                vcpus,
-			DiskSize:             diskSize,
-			OpenEBSSize:          openebsSize,
-			Datastore:            datastore,
-			Network:              network,
-			ISO:                  isoPath,
-			MacAddress:           macAddress,
-			PowerOn:              true,
-			EnableIOMMU:          true,
-			ExposeCounters:       true,
-			ThinProvisioned:      true,
-			EnablePrecisionClock: true,
-			EnableWatchdog:       true,
-		}
-		configs = append(configs, config)
-	} else {
-		for i := 0; i < nodeCount; i++ {
-			vmName := fmt.Sprintf("%s-%d", baseName, i)
-			config := vsphere.VMConfig{
-				Name:                 vmName,
-				Memory:               memory,
-				VCPUs:                vcpus,
-				DiskSize:             diskSize,
-				OpenEBSSize:          openebsSize,
-				Datastore:            datastore,
-				Network:              network,
-				ISO:                  isoPath,
-				MacAddress:           "", // Generic VMs use auto-generated MAC
-				PowerOn:              true,
-				EnableIOMMU:          true,
-				ExposeCounters:       true,
-				ThinProvisioned:      true,
-				EnablePrecisionClock: true,
-				EnableWatchdog:       true,
-			}
-			configs = append(configs, config)
-		}
+	plan, err := buildGenericVSphereDeploymentPlan(baseName, memory, vcpus, diskSize, openebsSize, macAddress, datastore, network, isoPath, concurrent, nodeCount, startIndex)
+	if err != nil {
+		return err
 	}
 
-	// Deploy VMs
-	if len(configs) == 1 {
-		// Single VM deployment
-		logger.Info("Deploying VM: %s", configs[0].Name)
-		logger.Info("Enhanced Configuration:")
-		logger.Info("  Memory: %d MB", configs[0].Memory)
-		logger.Info("  vCPUs: %d", configs[0].VCPUs)
-		logger.Info("  Boot Disk: %d GB (thin provisioned: %v)", configs[0].DiskSize, configs[0].ThinProvisioned)
-		logger.Info("  OpenEBS Disk: %d GB (thin provisioned: %v)", configs[0].OpenEBSSize, configs[0].ThinProvisioned)
-		logger.Info("  Datastore: %s", configs[0].Datastore)
-		logger.Info("  Network: %s (vmxnet3)", configs[0].Network)
-		logger.Info("  ISO: %s", configs[0].ISO)
-		if configs[0].MacAddress != "" {
-			logger.Info("  MAC Address: %s", configs[0].MacAddress)
-		}
-		logger.Info("  IOMMU Enabled: %v", configs[0].EnableIOMMU)
-		logger.Info("  CPU Counters Exposed: %v", configs[0].ExposeCounters)
-		logger.Info("  Precision Clock: %v", configs[0].EnablePrecisionClock)
-		logger.Info("  Watchdog Timer: %v", configs[0].EnableWatchdog)
-		logger.Info("  EFI Firmware: enabled")
-		logger.Info("  UEFI Secure Boot: disabled")
-		logger.Info("  NVME Controllers: 2 (separate for each disk)")
-
-		_, err := client.CreateVM(configs[0])
-		if err != nil {
-			return fmt.Errorf("failed to create VM: %w", err)
-		}
-
-		logger.Success("VM %s deployed successfully with enhanced configuration!", configs[0].Name)
+	if len(plan.Configs) == 1 {
+		logVSphereGenericSingleVMConfig(logger, plan.Configs[0])
 	} else {
-		// Parallel VM deployment
-		logger.Info("Deploying %d VMs in parallel (max concurrent: %d)", len(configs), concurrent)
-		logger.Info("Enhanced VM Configuration (for all VMs):")
-		logger.Info("  Memory: %d MB", memory)
-		logger.Info("  vCPUs: %d", vcpus)
-		logger.Info("  Boot Disk: %d GB (thin provisioned)", diskSize)
-		logger.Info("  OpenEBS Disk: %d GB (thin provisioned)", openebsSize)
-		logger.Info("  Datastore: %s", datastore)
-		logger.Info("  Network: %s (vmxnet3)", network)
-		logger.Info("  ISO: %s", isoPath)
-		logger.Info("  IOMMU Enabled: true")
-		logger.Info("  CPU Counters Exposed: true")
-		logger.Info("  Precision Clock: enabled")
-		logger.Info("  Watchdog Timer: enabled")
-		logger.Info("  EFI Firmware: enabled")
-		logger.Info("  UEFI Secure Boot: disabled")
-		logger.Info("  NVME Controllers: 2 (separate for each disk)")
-		logger.Info("")
-		logger.Info("VMs to deploy:")
-		for _, config := range configs {
-			if config.MacAddress != "" {
-				logger.Info("  - %s (MAC: %s)", config.Name, config.MacAddress)
-			} else {
-				logger.Info("  - %s", config.Name)
-			}
-		}
+		logVSphereGenericParallelPlan(logger, plan, memory, vcpus, diskSize, openebsSize, datastore, network)
+	}
 
-		if err := client.DeployVMsConcurrently(configs); err != nil {
-			return fmt.Errorf("parallel deployment failed: %w", err)
-		}
+	if err := executeVSphereGenericDeploymentPlan(logger, client, plan); err != nil {
+		return err
+	}
 
-		logger.Success("Successfully deployed %d VMs with enhanced configuration!", len(configs))
+	if len(plan.Configs) == 1 {
+		logger.Success("VM %s deployed successfully with enhanced configuration!", plan.Configs[0].Name)
+	} else {
+		logger.Success("Successfully deployed %d VMs with enhanced configuration!", len(plan.Configs))
 	}
 
 	return nil
@@ -2989,151 +3317,56 @@ func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskS
 func deleteVMOnVSphere(vmName string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deletion for: %s", vmName)
-
-	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
-
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
-	}
-
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+	return withVSphereClient(logger, func(client vsphereClient) error {
+		vm, err := client.FindVM(vmName)
+		if err != nil {
+			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
 		}
-	}()
 
-	// Find the VM
-	vm, err := client.FindVM(vmName)
-	if err != nil {
-		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-	}
+		logger.Info("Found VM: %s", vmName)
+		if err := client.DeleteVM(vm); err != nil {
+			return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
+		}
 
-	logger.Info("Found VM: %s", vmName)
-
-	// Delete the VM
-	if err := client.DeleteVM(vm); err != nil {
-		return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
-	}
-
-	logger.Success("VM %s deleted successfully!", vmName)
-	return nil
+		logger.Success("VM %s deleted successfully!", vmName)
+		return nil
+	})
 }
 
 // startVMOnProxmox starts a VM on Proxmox VE
 func startVMOnProxmox(name string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting Proxmox VM: %s", name)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.StartVM(name)
+	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
+		return vmManager.StartVM(name)
+	})
 }
 
 // stopVMOnProxmox stops a VM on Proxmox VE
 func stopVMOnProxmox(name string, force bool) error {
 	logger := common.NewColorLogger()
 	logger.Info("Stopping Proxmox VM: %s", name)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.StopVM(name, force)
+	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
+		return vmManager.StopVM(name, force)
+	})
 }
 
 // deleteVMOnProxmox deletes a VM on Proxmox VE
 func deleteVMOnProxmox(name string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Deleting Proxmox VM: %s", name)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.DeleteVM(name)
+	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
+		return vmManager.DeleteVM(name)
+	})
 }
 
 // infoVMOnProxmox gets detailed VM information from Proxmox VE
 func infoVMOnProxmox(name string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Getting Proxmox VM info: %s", name)
-
-	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return err
-	}
-
-	// Create VM manager
-	vmManager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return vmManager.GetVMInfo(name)
+	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
+		return vmManager.GetVMInfo(name)
+	})
 }
 
 func newPowerOnVMCommand() *cobra.Command {
@@ -3186,181 +3419,91 @@ func newPowerOffVMCommand() *cobra.Command {
 
 // powerOnVM powers on a VM on the specified provider with interactive selector
 func powerOnVM(name, provider string) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "power on")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to power on:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
-	// Call appropriate power on function based on provider
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return startVM(name)
+		return startTrueNASVMFn(name)
 	case "proxmox":
-		return startVMOnProxmox(name)
-	default:
-		return powerOnVMOnVSphere(name)
+		return startProxmoxVMFn(name)
+	case "vsphere":
+		return powerOnVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 // powerOffVM powers off a VM on the specified provider with interactive selector
 func powerOffVM(name, provider string) error {
-	// If VM name is not provided, prompt for selection based on provider
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, "power off")
+	if err != nil {
+		return err
+	}
 	if name == "" {
-		var vmNames []string
-		var err error
-
-		// Use appropriate VM listing based on provider
-		switch provider {
-		case "truenas":
-			vmNames, err = getTrueNASVMNames()
-		case "proxmox":
-			vmNames, err = getProxmoxVMNames()
-		default:
-			vmNames, err = getESXiVMNames()
-		}
-
-		if err != nil {
-			return err
-		}
-
-		selectedVM, err := ui.Choose("Select VM to power off:", vmNames)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("VM selection failed: %w", err)
-		}
-		name = selectedVM
+		return nil
 	}
 
-	// Call appropriate power off function based on provider
-	switch provider {
+	switch normalizedProvider {
 	case "truenas":
-		return stopVM(name)
+		return stopTrueNASVMFn(name, true)
 	case "proxmox":
-		return stopVMOnProxmox(name, false)
-	default:
-		return powerOffVMOnVSphere(name)
+		return stopProxmoxVMFn(name, true)
+	case "vsphere":
+		return powerOffVSphereVMFn(name)
 	}
+
+	return nil
 }
 
 func powerOnVMOnVSphere(vmName string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Powering on vSphere/ESXi VM: %s", vmName)
-
-	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
-
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
-	}
-
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+	return withVSphereClient(logger, func(client vsphereClient) error {
+		vm, err := client.FindVM(vmName)
+		if err != nil {
+			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
 		}
-	}()
 
-	// Find the VM
-	vm, err := client.FindVM(vmName)
-	if err != nil {
-		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-	}
+		if err := client.PowerOnVM(vm); err != nil {
+			return fmt.Errorf("failed to power on VM %s: %w", vmName, err)
+		}
 
-	// Power on the VM
-	if err := client.PowerOnVM(vm); err != nil {
-		return fmt.Errorf("failed to power on VM %s: %w", vmName, err)
-	}
-
-	logger.Success("VM %s powered on successfully!", vmName)
-	return nil
+		logger.Success("VM %s powered on successfully!", vmName)
+		return nil
+	})
 }
 
 // powerOffVMOnVSphere powers off a VM on vSphere/ESXi
 func powerOffVMOnVSphere(vmName string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Powering off vSphere/ESXi VM: %s", vmName)
-
-	// Get vSphere credentials from 1Password or environment
-	host := get1PasswordSecret("op://Infrastructure/esxi/add more/host")
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	username := get1PasswordSecret("op://Infrastructure/esxi/username")
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	password := get1PasswordSecret("op://Infrastructure/esxi/password")
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
-
-	if host == "" || username == "" || password == "" {
-		return fmt.Errorf("vSphere credentials not found. Please set VSPHERE_HOST, VSPHERE_USERNAME, and VSPHERE_PASSWORD environment variables or configure 1Password")
-	}
-
-	// Create vSphere client
-	client := vsphere.NewClient(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			logger.Warn("Failed to close vSphere connection: %v", err)
+	return withVSphereClient(logger, func(client vsphereClient) error {
+		vm, err := client.FindVM(vmName)
+		if err != nil {
+			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
 		}
-	}()
 
-	// Find the VM
-	vm, err := client.FindVM(vmName)
-	if err != nil {
-		return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-	}
+		if err := client.PowerOffVM(vm); err != nil {
+			return fmt.Errorf("failed to power off VM %s: %w", vmName, err)
+		}
 
-	// Power off the VM
-	if err := client.PowerOffVM(vm); err != nil {
-		return fmt.Errorf("failed to power off VM %s: %w", vmName, err)
-	}
-
-	logger.Success("VM %s powered off successfully!", vmName)
-	return nil
+		logger.Success("VM %s powered off successfully!", vmName)
+		return nil
+	})
 }

@@ -74,12 +74,15 @@ This repository contains the configuration for my homelab Kubernetes cluster bui
 
 [`homeops-cli`](./cmd/homeops-cli) is a purpose-built command-line tool that automates every operational aspect of this infrastructure. It is not a wrapper around shell scripts — it's a full Go application with 19 internal packages, native API clients, and embedded template rendering.
 
+The built binary and CLI command name are `homeops-cli`.
+
 | Command | What it does |
 |---------|-------------|
 | `homeops-cli bootstrap` | End-to-end cluster initialization with preflight checks and 1Password secret injection |
-| `homeops-cli talos deploy-vm` | Provisions Proxmox VMs with custom Talos ISOs generated via Factory API |
+| `homeops-cli talos deploy-vm` | Provisions Talos VMs with Proxmox as the default provider and supports batch deployment |
 | `homeops-cli talos apply-node` | Renders and applies Talos machine configs with Jinja2 templating ([minijinja](https://github.com/mitsuhiko/minijinja)) |
 | `homeops-cli talos upgrade-k8s` | Orchestrated Kubernetes version upgrades across the cluster |
+| `homeops-cli k8s view-secret` | Decodes secret data with interactive secret and namespace selection |
 | `homeops-cli volsync snapshot` | Triggers Kopia-backed PVC snapshots via VolSync |
 | `homeops-cli volsync restore` | Point-in-time PVC recovery from Kopia repository |
 | `homeops-cli workstation` | Developer workstation setup and validation |
@@ -91,6 +94,8 @@ This repository contains the configuration for my homelab Kubernetes cluster bui
 - **Embedded Jinja2 templates** via minijinja for Talos machine config rendering
 - **Interactive TUI** with rich prompts, spinners, and progress indicators
 - **Full test suite** with unit and integration tests
+
+See the dedicated CLI guide at [`cmd/homeops-cli/README.md`](./cmd/homeops-cli/README.md) for current operator workflows, and the supporting docs for [testing](./cmd/homeops-cli/docs/TESTING.md), [code review findings](./cmd/homeops-cli/docs/CODE_REVIEW.md), and [coverage notes](./cmd/homeops-cli/docs/COVERAGE_REVIEW.md).
 
 ```
 cmd/homeops-cli/
@@ -232,16 +237,21 @@ A purpose-built Go application that provides complete infrastructure automation:
 **Key Commands:**
 ```bash
 # Bootstrap entire cluster
-./homeops-cli bootstrap
+homeops-cli bootstrap
 
-# Talos node operations
-./homeops-cli talos apply-node --ip 192.168.122.10
-./homeops-cli talos deploy-vm --name test_node --generate-iso
-./homeops-cli talos upgrade-k8s
+# Talos node and VM operations
+homeops-cli talos apply-node --ip 192.168.122.10
+homeops-cli talos deploy-vm --name test --generate-iso
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+homeops-cli talos upgrade-k8s
+
+# Kubernetes and Flux operations
+homeops-cli k8s view-secret
+homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 
 # Volume backup/restore
-./homeops-cli volsync snapshot --pvc data-pvc --namespace default
-./homeops-cli volsync restore --pvc data-pvc --namespace default
+homeops-cli volsync snapshot --pvc data-pvc --namespace default
+homeops-cli volsync restore --pvc data-pvc --namespace default
 ```
 
 **Supporting Tools:**

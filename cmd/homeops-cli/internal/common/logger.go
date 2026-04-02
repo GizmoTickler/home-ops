@@ -3,7 +3,6 @@ package common
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"sync"
 	"time"
 
@@ -193,7 +192,7 @@ func CheckCLI(tools ...string) error {
 	var missing []string
 	for _, tool := range tools {
 		if _, err := os.Stat(tool); err != nil {
-			if _, err := exec.LookPath(tool); err != nil {
+			if _, err := LookPath(tool); err != nil {
 				missing = append(missing, tool)
 			}
 		}

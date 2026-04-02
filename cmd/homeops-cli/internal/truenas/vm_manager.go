@@ -3,11 +3,14 @@ package truenas
 import (
 	"fmt"
 	"math/rand"
+	"slices"
 	"strings"
 	"time"
 
 	"homeops-cli/internal/common"
 )
+
+var sleepForOperation = time.Sleep
 
 // VMConfig represents the configuration for VM deployment
 type VMConfig struct {
@@ -172,7 +175,7 @@ func (vm *VMManager) StopVM(name string, force bool) error {
 	}
 	vm.logger.Info("%s VM: %s (ID: %d)", action, vmItem.Name, vmItem.ID)
 
-	if err := vm.client.StopVM(vmItem.ID); err != nil {
+	if err := vm.stopVMByMode(vmItem.ID, force); err != nil {
 		return fmt.Errorf("failed to stop VM: %w", err)
 	}
 
@@ -248,17 +251,18 @@ func (vm *VMManager) DeleteVM(name string, deleteZVol bool, storagePool string) 
 	vm.logger.Success("VM deletion API call completed successfully")
 
 	// Brief wait to ensure VM deletion is processed
-	time.Sleep(2 * time.Second)
+	sleepForOperation(2 * time.Second)
 
 	// Verify VM is actually deleted
 	vm.logger.Info("Verifying VM deletion...")
 	_, verifyErr := vm.getVMByName(name)
 	if verifyErr == nil {
 		vm.logger.Warn("VM still exists after deletion API call - waiting and retrying verification")
-		time.Sleep(3 * time.Second)
+		sleepForOperation(3 * time.Second)
 		_, verifyErr = vm.getVMByName(name)
 		if verifyErr == nil {
-			vm.logger.Error("VM persists after deletion - this may indicate a TrueNAS API issue")
+			vm.logger.Error("VM persists after deletion - refusing to delete ZVols while the VM still exists")
+			return fmt.Errorf("VM %s still exists after deletion request; refusing to delete backing ZVols", name)
 		}
 	}
 	if verifyErr != nil {
@@ -539,34 +543,22 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		isoPath = "/mnt/flashstor/ISO/metal-amd64.iso" // Fallback to default
 	}
 
-	cdromDevice := map[string]interface{}{
-		"vm": vmID,
-		"attributes": map[string]interface{}{
-			"dtype": "CDROM",
-			"path":  isoPath,
-		},
-		"order": 1006,
-	}
-
-	if _, err := vm.client.Call("vm.device.create", []interface{}{cdromDevice}, 30); err != nil {
+	if err := vm.createVMDevice(vmID, 1006, map[string]interface{}{
+		"dtype": "CDROM",
+		"path":  isoPath,
+	}); err != nil {
 		return fmt.Errorf("failed to create CD-ROM device: %w", err)
 	}
 	vm.logger.Info("Created CD-ROM device with ISO: %s", isoPath)
 
 	// Create network device (order 1002) - matching working script structure
-	nicDevice := map[string]interface{}{
-		"vm": vmID,
-		"attributes": map[string]interface{}{
-			"dtype":                  "NIC",
-			"type":                   "VIRTIO",
-			"mac":                    macAddress,
-			"nic_attach":             config.NetworkBridge,
-			"trust_guest_rx_filters": false,
-		},
-		"order": 1002,
-	}
-
-	if _, err := vm.client.Call("vm.device.create", []interface{}{nicDevice}, 30); err != nil {
+	if err := vm.createVMDevice(vmID, 1002, map[string]interface{}{
+		"dtype":                  "NIC",
+		"type":                   "VIRTIO",
+		"mac":                    macAddress,
+		"nic_attach":             config.NetworkBridge,
+		"trust_guest_rx_filters": false,
+	}); err != nil {
 		return fmt.Errorf("failed to create NIC device: %w", err)
 	}
 	vm.logger.Info("Created NIC device with MAC %s on bridge %s", macAddress, config.NetworkBridge)
@@ -576,24 +568,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 
 	// Boot/OpenEBS disk (order 1001) - 250GB combined disk
 	if bootPath, exists := zvolPaths["boot"]; exists && bootPath != "" {
-		bootDevice := map[string]interface{}{
-			"vm": vmID,
-			"attributes": map[string]interface{}{
-				"dtype":               "DISK",
-				"type":                "VIRTIO",
-				"path":                fmt.Sprintf("/dev/zvol/%s", bootPath),
-				"iotype":              "THREADS",
-				"create_zvol":         false,
-				"logical_sectorsize":  nil,
-				"physical_sectorsize": nil,
-				"serial":              vm.generateRandomSerial(),
-				"zvol_name":           nil,
-				"zvol_volsize":        nil,
-			},
-			"order": 1001,
-		}
-
-		if _, err := vm.client.Call("vm.device.create", []interface{}{bootDevice}, 30); err != nil {
+		if err := vm.createVMDevice(vmID, 1001, vm.buildDiskDeviceAttributes(bootPath)); err != nil {
 			return fmt.Errorf("failed to create boot/OpenEBS disk device: %w", err)
 		}
 		vm.logger.Info("Created boot/OpenEBS disk device (250GB): /dev/zvol/%s", bootPath)
@@ -601,56 +576,35 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 
 	// OpenEBS disk (order 1004) - 1TB disk for local storage
 	if openebsPath, exists := zvolPaths["openebs"]; exists && openebsPath != "" {
-		openebsDevice := map[string]interface{}{
-			"vm": vmID,
-			"attributes": map[string]interface{}{
-				"dtype":               "DISK",
-				"type":                "VIRTIO",
-				"path":                fmt.Sprintf("/dev/zvol/%s", openebsPath),
-				"iotype":              "THREADS",
-				"create_zvol":         false,
-				"logical_sectorsize":  nil,
-				"physical_sectorsize": nil,
-				"serial":              vm.generateRandomSerial(),
-				"zvol_name":           nil,
-				"zvol_volsize":        nil,
-			},
-			"order": 1004,
-		}
-
-		if _, err := vm.client.Call("vm.device.create", []interface{}{openebsDevice}, 30); err != nil {
+		if err := vm.createVMDevice(vmID, 1004, vm.buildDiskDeviceAttributes(openebsPath)); err != nil {
 			return fmt.Errorf("failed to create OpenEBS disk device: %w", err)
 		}
 		vm.logger.Info("Created OpenEBS disk device (1TB): /dev/zvol/%s", openebsPath)
 	}
 
-	// Create SPICE display device (order 1003) - matching working script
-	if config.SpicePassword == "" {
-		return fmt.Errorf("SPICE password is required for display device")
-	}
-
-	displayDevice := map[string]interface{}{
-		"vm": vmID,
-		"attributes": map[string]interface{}{
-			"bind":       "192.168.120.10", // SPICE bind interface
+	if config.UseSpice {
+		if config.SpicePassword == "" {
+			return fmt.Errorf("SPICE password is required for display device")
+		}
+		if err := vm.createVMDevice(vmID, 1003, map[string]interface{}{
+			"bind":       "192.168.120.10",
 			"dtype":      "DISPLAY",
 			"password":   config.SpicePassword,
-			"port":       nil, // Let TrueNAS auto-assign port
+			"port":       nil,
 			"resolution": "1920x1080",
-			"type":       "SPICE", // Always SPICE
+			"type":       "SPICE",
 			"wait":       false,
 			"web":        true,
-			"web_port":   nil, // Let TrueNAS auto-assign web port
-		},
-		"order": 1003,
-	}
+			"web_port":   nil,
+		}); err != nil {
+			return fmt.Errorf("failed to create display device: %w", err)
+		}
 
-	if _, err := vm.client.Call("vm.device.create", []interface{}{displayDevice}, 30); err != nil {
-		return fmt.Errorf("failed to create display device: %w", err)
+		vm.logger.Info("Created SPICE display device with password from config")
+		vm.logger.Info("Display access: SPICE://192.168.120.10:[auto-assigned] (web: https://192.168.120.10:[auto-assigned])")
+	} else {
+		vm.logger.Info("Skipping SPICE display device for VM %s", config.Name)
 	}
-
-	vm.logger.Info("Created SPICE display device with password from config")
-	vm.logger.Info("Display access: SPICE://192.168.120.10:[auto-assigned] (web: https://192.168.120.10:[auto-assigned])")
 
 	vm.logger.Success("All VM devices created successfully")
 	return nil
@@ -658,7 +612,6 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 
 func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 	vm.logger.Info("Discovering ZVols for VM %s (ID: %d)", vmItem.Name, vmItem.ID)
-	var zvolPaths []string
 
 	// Query VM devices to find disk devices
 	devices, err := vm.client.QueryVMDevices(vmItem.ID)
@@ -668,40 +621,15 @@ func (vm *VMManager) discoverVMZVols(vmItem *VM) ([]string, error) {
 
 	vm.logger.Info("Found %d devices for VM %s", len(devices), vmItem.Name)
 
+	var zvolPaths []string
 	for i, device := range devices {
-		vm.logger.Info("Device %d: %+v", i+1, device)
-		if attributes, ok := device["attributes"].(map[string]interface{}); ok {
-			vm.logger.Info("Device attributes: %+v", attributes)
-
-			// Check dtype field
-			if dtype, ok := attributes["dtype"].(string); ok {
-				vm.logger.Info("Device type (dtype): %s", dtype)
-				if dtype == "DISK" {
-					vm.logger.Info("Found DISK device: %+v", device)
-					if path, ok := attributes["path"].(string); ok {
-						vm.logger.Info("Device path: %s", path)
-						// Extract ZVol path from device path
-						if strings.HasPrefix(path, "/dev/zvol/") {
-							zvolPath := strings.TrimPrefix(path, "/dev/zvol/")
-							zvolPaths = append(zvolPaths, zvolPath)
-							vm.logger.Success("✓ Found ZVol: %s", zvolPath)
-						} else {
-							vm.logger.Info("Device path is not a ZVol (doesn't start with /dev/zvol/): %s", path)
-						}
-					} else {
-						vm.logger.Warn("DISK device has no path attribute")
-					}
-				} else {
-					vm.logger.Info("Skipping non-DISK device type: %s", dtype)
-				}
-			} else {
-				vm.logger.Warn("Device has no dtype attribute or dtype is not a string")
-			}
-		} else {
-			vm.logger.Warn("Device has no attributes or attributes is not a map")
+		if zvolPath, ok := extractZVolPathFromDevice(device); ok {
+			zvolPaths = append(zvolPaths, zvolPath)
+			vm.logger.Debug("Found ZVol on device %d: %s", i+1, zvolPath)
 		}
 	}
 
+	zvolPaths = uniqueSortedStrings(zvolPaths)
 	vm.logger.Info("Discovered %d ZVols for VM %s: %v", len(zvolPaths), vmItem.Name, zvolPaths)
 	return zvolPaths, nil
 }
@@ -831,16 +759,77 @@ func (vm *VMManager) discoverZVolsByPattern(storagePool, vmName string) []string
 		}
 	}
 
-	// Remove duplicates
-	seen := make(map[string]bool)
-	var uniquePaths []string
-	for _, path := range zvolPaths {
-		if !seen[path] {
-			seen[path] = true
-			uniquePaths = append(uniquePaths, path)
-		}
-	}
+	uniquePaths := uniqueSortedStrings(zvolPaths)
 
 	vm.logger.Info("Pattern-based discovery found %d unique ZVols", len(uniquePaths))
 	return uniquePaths
+}
+
+func (vm *VMManager) stopVMByMode(vmID int, force bool) error {
+	if force {
+		return vm.client.PowerOffVM(vmID)
+	}
+	return vm.client.StopVM(vmID)
+}
+
+func (vm *VMManager) createVMDevice(vmID, order int, attributes map[string]interface{}) error {
+	device := map[string]interface{}{
+		"vm":         vmID,
+		"attributes": attributes,
+		"order":      order,
+	}
+	_, err := vm.client.Call("vm.device.create", []interface{}{device}, 30)
+	return err
+}
+
+func (vm *VMManager) buildDiskDeviceAttributes(zvolPath string) map[string]interface{} {
+	return map[string]interface{}{
+		"dtype":               "DISK",
+		"type":                "VIRTIO",
+		"path":                fmt.Sprintf("/dev/zvol/%s", zvolPath),
+		"iotype":              "THREADS",
+		"create_zvol":         false,
+		"logical_sectorsize":  nil,
+		"physical_sectorsize": nil,
+		"serial":              vm.generateRandomSerial(),
+		"zvol_name":           nil,
+		"zvol_volsize":        nil,
+	}
+}
+
+func extractZVolPathFromDevice(device map[string]interface{}) (string, bool) {
+	attributes, ok := device["attributes"].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	dtype, ok := attributes["dtype"].(string)
+	if !ok || dtype != "DISK" {
+		return "", false
+	}
+	path, ok := attributes["path"].(string)
+	if !ok || !strings.HasPrefix(path, "/dev/zvol/") {
+		return "", false
+	}
+	return strings.TrimPrefix(path, "/dev/zvol/"), true
+}
+
+func uniqueSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	slices.Sort(unique)
+	return unique
 }

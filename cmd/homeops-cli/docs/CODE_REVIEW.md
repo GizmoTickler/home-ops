@@ -17,6 +17,10 @@ This document tracks identified issues in the homeops-cli codebase and their res
 | Inconsistent stderr logging | Medium | Fixed | `talos.go`, `workstation.go` |
 | No global log level control | Low | Fixed | `main.go`, `logger.go` |
 | Per-function logger creation | Low | Improved | `logger.go` |
+| Proxmox disk storage format bug | High | Fixed | `internal/proxmox/vm_manager.go` |
+| `deploy-vm` invalid provider fallback to vSphere | Medium | Fixed | `cmd/talos/talos.go` |
+| Batch deploy naming lacked start index control | Medium | Fixed | `cmd/talos/talos.go` |
+| TrueNAS/vSphere/Proxmox deploy orchestration drift | Medium | Improved | `cmd/talos/talos.go` |
 
 ---
 
@@ -211,6 +215,94 @@ Every function calls `logger := common.NewColorLogger()`, creating a new instanc
 
 ---
 
+### 12. Proxmox Disk Storage Format Bug
+
+**Location**: `internal/proxmox/vm_manager.go`
+
+**Problem**:
+Custom Proxmox VM creation could emit invalid disk references such as:
+
+```text
+efidisk0=:1
+scsi0=:5
+```
+
+That produced real API failures during VM creation:
+
+```text
+Parameter verification failed
+unable to parse volume ID ':1'
+unable to parse volume ID ':5'
+```
+
+**Fix**:
+- Normalize storage selection before disk option assembly
+- Ensure EFI and boot disk references always include a valid storage target
+- Cover the storage-path behavior with direct Proxmox tests
+
+**Status**: ✅ Fixed
+
+---
+
+### 13. `deploy-vm` Invalid Provider Fallback
+
+**Location**: `cmd/talos/talos.go`
+
+**Problem**:
+`deploy-vm` accepted `--provider` values without normalizing or validating them before dispatch. Invalid values could silently fall through into the vSphere path instead of failing fast.
+
+**Fix**:
+- Normalize `--provider` through the shared provider parser before deployment dispatch
+- Accept `esxi` as an explicit alias for `vsphere`
+- Reject unsupported providers with a clear error
+
+**Status**: ✅ Fixed
+
+---
+
+### 14. Batch Deploy Naming Missing Start Index
+
+**Location**: `cmd/talos/talos.go`
+
+**Problem**:
+Batch Talos VM deploys always started naming at `-0`, which made iterative cluster bring-up and test deployments slower and more error-prone when users wanted `worker-3`, `worker-4`, etc.
+
+**Fix**:
+- Added `--start-index` support for batch deploys
+- Applied the offset consistently across Proxmox and vSphere paths
+- Updated dry-run and live deployment flows to use the same naming logic
+- Improved interactive prompts so `start-index` is only asked for true batch deploys
+
+**Status**: ✅ Fixed
+
+---
+
+### 15. Talos Provider Deploy Orchestration Drift
+
+**Location**: `cmd/talos/talos.go`
+
+**Problem**:
+TrueNAS, Proxmox, and vSphere deploy flows had drifted into separate inline implementations mixing:
+- prompt handling
+- provider normalization
+- plan building
+- ISO resolution
+- execution
+- success reporting
+
+That made behavior changes risky and pushed coverage effort into broad end-to-end tests instead of narrow helper tests.
+
+**Fix**:
+- Extracted deployment plan/build helpers for Proxmox and vSphere
+- Extracted dry-run summary builders for all providers
+- Split TrueNAS ISO resolution, access setup, manager connection, deploy execution, and success reporting into helpers
+- Switched TrueNAS deploy to the existing VM-manager seam and spinner seam
+- Added targeted tests around the new helpers instead of only outer command flows
+
+**Status**: ✅ Improved
+
+---
+
 ## Testing
 
 After applying fixes, run:
@@ -225,17 +317,10 @@ make build  # Build the binary
 
 ## Future Improvements
 
-1. **Add Test Coverage**: Many internal packages lack tests
-   - `internal/ssh`
-   - `internal/talos`
-   - `internal/templates`
-   - `internal/truenas`
-   - `internal/ui`
-   - `internal/vsphere`
-   - `internal/yaml`
+1. **Standardize Provider Success Reporting**: TrueNAS, Proxmox, and vSphere are much closer structurally now, but final user-facing deploy summaries still differ in tone and detail.
 
-2. **Standardize Error Handling**: Some functions return errors on cancellation, others return nil
+2. **Reduce Remaining CLI Coupling In `cmd/talos`**: `talosctl`, SSH, and provider clients still dominate the uncovered surface. More seams around live command execution would keep future changes cheaper to test.
 
-3. **Remove Deprecated NewClient**: The `vsphere.NewClient()` function has unused parameters
+3. **Unify Cancellation Semantics**: Some interactive flows still return `nil` on cancellation while others return a cancellation-style error. That inconsistency should be flattened.
 
-4. **Migrate to Singleton Logger**: Gradually replace `common.NewColorLogger()` with `common.Logger()` calls
+4. **Migrate More Call Sites To Shared Logger Patterns**: The global/singleton logger is in place, but most command code still constructs local loggers repeatedly.

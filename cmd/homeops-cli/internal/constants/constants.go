@@ -125,7 +125,7 @@ const (
 
 // TrueNAS storage paths
 const (
-	TrueNASStandardISOPath = "/mnt/flashstor/ISO/vmware-amd64.iso"
+	TrueNASStandardISOPath = "/mnt/flashstor/ISO/metal-amd64.iso"
 )
 
 // Application labels used for Kubernetes resources

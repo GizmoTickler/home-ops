@@ -56,6 +56,10 @@ func NewClient(host, tokenID, secret string, insecure bool) (*Client, error) {
 
 // Connect verifies connection and retrieves node information
 func (c *Client) Connect(nodeName string) error {
+	if c.client == nil {
+		return fmt.Errorf("proxmox client is not initialized")
+	}
+
 	// Verify connection by getting version
 	version, err := c.client.Version(c.ctx)
 	if err != nil {
@@ -84,6 +88,9 @@ func (c *Client) Close() error {
 
 // GetNextVMID gets the next available VMID
 func (c *Client) GetNextVMID() (int, error) {
+	if c.client == nil {
+		return 0, fmt.Errorf("proxmox client is not initialized")
+	}
 	cluster, err := c.client.Cluster(c.ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get cluster: %w", err)

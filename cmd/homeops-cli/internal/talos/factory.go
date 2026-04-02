@@ -9,8 +9,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -486,42 +486,18 @@ func (fc *FactoryClient) ClearCache() error {
 // GetNodeIPs retrieves the list of Talos node IPs from the cluster
 func GetNodeIPs() ([]string, error) {
 	// Get list of Talos nodes
-	getNodesCmd := exec.Command("talosctl", "get", "members", "-o", "json")
-	output, err := getNodesCmd.Output()
+	output, err := common.Output("talosctl", "get", "members", "-o", "json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get Talos nodes: %w", err)
 	}
 
-	// Parse JSON to extract node IPs
-	var result struct {
-		Spec struct {
-			Addresses []string `json:"addresses"`
-		} `json:"spec"`
-	}
-
-	// Try to extract IPs from members list
-	lines := strings.Split(string(output), "\n")
-	nodeIPs := []string{}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		if err := json.Unmarshal([]byte(line), &result); err == nil {
-			nodeIPs = append(nodeIPs, result.Spec.Addresses...)
-		}
-	}
+	nodeIPs := parseTalosMemberIPs(output)
 
 	// Fallback: try to get from talosconfig
 	if len(nodeIPs) == 0 {
-		getEndpointsCmd := exec.Command("talosctl", "config", "info", "-o", "json")
-		endpointsOutput, err := getEndpointsCmd.Output()
+		endpointsOutput, err := common.Output("talosctl", "config", "info", "-o", "json")
 		if err == nil {
-			var configInfo struct {
-				Endpoints []string `json:"endpoints"`
-			}
-			if err := json.Unmarshal(endpointsOutput, &configInfo); err == nil {
-				nodeIPs = configInfo.Endpoints
-			}
+			nodeIPs = parseTalosConfigEndpoints(endpointsOutput)
 		}
 	}
 
@@ -529,5 +505,76 @@ func GetNodeIPs() ([]string, error) {
 		return nil, fmt.Errorf("no Talos nodes found in cluster")
 	}
 
-	return nodeIPs, nil
+	return uniqueStrings(nodeIPs), nil
+}
+
+func parseTalosMemberIPs(output []byte) []string {
+	type talosMember struct {
+		Spec struct {
+			Addresses []string `json:"addresses"`
+		} `json:"spec"`
+	}
+
+	trimmed := bytes.TrimSpace(output)
+	if len(trimmed) == 0 {
+		return nil
+	}
+
+	var members []talosMember
+	if trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &members); err == nil {
+			var ips []string
+			for _, member := range members {
+				ips = append(ips, member.Spec.Addresses...)
+			}
+			return uniqueStrings(ips)
+		}
+	}
+
+	var ips []string
+	lines := strings.Split(string(trimmed), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var member talosMember
+		if err := json.Unmarshal([]byte(line), &member); err == nil {
+			ips = append(ips, member.Spec.Addresses...)
+		}
+	}
+
+	return uniqueStrings(ips)
+}
+
+func parseTalosConfigEndpoints(output []byte) []string {
+	var configInfo struct {
+		Endpoints []string `json:"endpoints"`
+	}
+	if err := json.Unmarshal(output, &configInfo); err != nil {
+		return nil
+	}
+	return uniqueStrings(configInfo.Endpoints)
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	slices.Sort(unique)
+	return unique
 }

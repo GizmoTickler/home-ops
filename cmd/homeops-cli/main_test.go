@@ -1,250 +1,228 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"homeops-cli/cmd/bootstrap"
-	"homeops-cli/cmd/completion"
-	"homeops-cli/cmd/kubernetes"
-	"homeops-cli/cmd/talos"
-	"homeops-cli/cmd/volsync"
-	"homeops-cli/cmd/workstation"
-	"homeops-cli/internal/testutil"
 )
 
-func TestMainCLIStructure(t *testing.T) {
-	// Test that the main CLI has the expected structure and commands
-	rootCmd := createRootCommand()
+func TestNewRootCommandAndEnvironment(t *testing.T) {
+	t.Setenv("MINIJINJA_CONFIG_FILE", "")
+	cmd := newRootCommand(context.Background())
 
-	assert.Equal(t, "homeops", rootCmd.Use)
-	assert.Contains(t, rootCmd.Short, "HomeOps Infrastructure Management CLI")
-	assert.Contains(t, rootCmd.Long, "comprehensive CLI tool")
+	assert.Equal(t, "homeops-cli", cmd.Use)
+	assert.True(t, cmd.CompletionOptions.DisableDefaultCmd)
+	assert.Equal(t, context.Background(), cmd.Context())
+	assert.NotNil(t, cmd.VersionTemplate())
 
-	// Check that all expected subcommands are registered
-	expectedCommands := []string{
-		"bootstrap",
-		"completion",
-		"k8s",
-		"talos",
-		"volsync",
-		"workstation",
+	minijinjaConfig := os.Getenv("MINIJINJA_CONFIG_FILE")
+	require.NotEmpty(t, minijinjaConfig)
+	assert.True(t, filepath.IsAbs(minijinjaConfig))
+
+	subcommands := map[string]bool{}
+	for _, subcmd := range cmd.Commands() {
+		subcommands[subcmd.Name()] = true
 	}
-
-	actualCommands := make([]string, 0)
-	for _, cmd := range rootCmd.Commands() {
-		actualCommands = append(actualCommands, cmd.Name())
-	}
-
-	for _, expected := range expectedCommands {
-		assert.Contains(t, actualCommands, expected, "Missing command: %s", expected)
-	}
+	assert.True(t, subcommands["bootstrap"])
+	assert.True(t, subcommands["completion"])
+	assert.True(t, subcommands["k8s"])
+	assert.True(t, subcommands["talos"])
+	assert.True(t, subcommands["volsync"])
+	assert.True(t, subcommands["workstation"])
 }
 
-func TestCLIHelpOutput(t *testing.T) {
-	rootCmd := createRootCommand()
+func TestShowInteractiveMenu(t *testing.T) {
+	originalChoose := chooseFn
+	t.Cleanup(func() { chooseFn = originalChoose })
 
-	output, err := testutil.ExecuteCommand(rootCmd, "--help")
-	require.NoError(t, err)
-
-	// Verify help output contains expected content
-	assert.Contains(t, output, "A comprehensive CLI tool for managing home infrastructure")
-	assert.Contains(t, output, "Available Commands:")
-	assert.Contains(t, output, "bootstrap")
-	assert.Contains(t, output, "k8s")
-	assert.Contains(t, output, "talos")
-	assert.Contains(t, output, "volsync")
-	assert.Contains(t, output, "completion")
-	assert.Contains(t, output, "workstation")
-}
-
-func TestCLIVersionOutput(t *testing.T) {
-	rootCmd := createRootCommand()
-
-	output, err := testutil.ExecuteCommand(rootCmd, "--version")
-	require.NoError(t, err)
-
-	// Should contain version information
-	assert.Contains(t, output, "dev")
-	assert.Contains(t, output, "commit:")
-	assert.Contains(t, output, "built:")
-}
-
-func TestSubcommandHelp(t *testing.T) {
-	rootCmd := createRootCommand()
-
-	subcommands := []string{"bootstrap", "k8s", "talos", "volsync"}
-
-	for _, subcmd := range subcommands {
-		t.Run(subcmd, func(t *testing.T) {
-			output, err := testutil.ExecuteCommand(rootCmd, subcmd, "--help")
-			require.NoError(t, err)
-			assert.NotEmpty(t, output)
-			assert.Contains(t, strings.ToLower(output), strings.ToLower(subcmd))
-		})
-	}
-}
-
-func TestEnvironmentSetup(t *testing.T) {
-	// Save original environment
-	originalMiniJinja := os.Getenv("MINIJINJA_CONFIG_FILE")
-	defer func() {
-		if originalMiniJinja != "" {
-			_ = os.Setenv("MINIJINJA_CONFIG_FILE", originalMiniJinja)
-		} else {
-			_ = os.Unsetenv("MINIJINJA_CONFIG_FILE")
+	t.Run("exit immediately", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			assert.Contains(t, prompt, "Select a command")
+			return "Exit - Exit the application", nil
 		}
-	}()
-
-	// Clear the environment variable
-	_ = os.Unsetenv("MINIJINJA_CONFIG_FILE")
-
-	// Call setEnvironment
-	setEnvironment()
-
-	// Check that default was set to absolute path
-	expectedPath, _ := filepath.Abs("./.minijinja.toml")
-	assert.Equal(t, expectedPath, os.Getenv("MINIJINJA_CONFIG_FILE"))
-}
-
-func TestEnvironmentSetupDoesNotOverride(t *testing.T) {
-	// Save original environment
-	originalMiniJinja := os.Getenv("MINIJINJA_CONFIG_FILE")
-	defer func() {
-		if originalMiniJinja != "" {
-			_ = os.Setenv("MINIJINJA_CONFIG_FILE", originalMiniJinja)
-		} else {
-			_ = os.Unsetenv("MINIJINJA_CONFIG_FILE")
-		}
-	}()
-
-	// Set a custom value
-	customValue := "/custom/path/minijinja.toml"
-	_ = os.Setenv("MINIJINJA_CONFIG_FILE", customValue)
-
-	// Call setEnvironment
-	setEnvironment()
-
-	// Check that custom value was not overridden
-	assert.Equal(t, customValue, os.Getenv("MINIJINJA_CONFIG_FILE"))
-}
-
-func TestCLIErrorHandling(t *testing.T) {
-	rootCmd := createRootCommand()
-
-	// Test invalid command
-	output, err := testutil.ExecuteCommand(rootCmd, "invalid-command")
-	assert.Error(t, err)
-	assert.Contains(t, output, "unknown command")
-}
-
-func TestCLICompletion(t *testing.T) {
-	rootCmd := createRootCommand()
-
-	// Test that completion is available
-	output, err := testutil.ExecuteCommand(rootCmd, "completion", "--help")
-	require.NoError(t, err)
-	assert.Contains(t, output, "completion")
-}
-
-// Helper function to create the root command for testing
-func createRootCommand() *cobra.Command {
-	rootCmd := &cobra.Command{
-		Use:   "homeops",
-		Short: "HomeOps Infrastructure Management CLI",
-		Long: `A comprehensive CLI tool for managing home infrastructure including
-Talos clusters, Kubernetes applications, VolSync backups, and more.`,
-		Version: "dev (commit: none, built: unknown)",
-	}
-
-	// Add subcommands (import the actual command constructors)
-	rootCmd.AddCommand(
-		bootstrap.NewCommand(),
-		completion.NewCommand(),
-		kubernetes.NewCommand(),
-		talos.NewCommand(),
-		volsync.NewCommand(),
-		workstation.NewCommand(),
-	)
-
-	rootCmd.CompletionOptions.DisableDefaultCmd = true
-
-	return rootCmd
-}
-
-// Functional test for the complete CLI workflow
-func TestCLIWorkflow(t *testing.T) {
-	rootCmd := createRootCommand()
-
-	t.Run("help workflow", func(t *testing.T) {
-		// Test complete help workflow
-		helpOutput, err := testutil.ExecuteCommand(rootCmd, "--help")
-		require.NoError(t, err)
-		assert.Contains(t, helpOutput, "Available Commands:")
-
-		// Test subcommand help
-		talosHelp, err := testutil.ExecuteCommand(rootCmd, "talos", "--help")
-		require.NoError(t, err)
-		assert.Contains(t, talosHelp, "Talos")
-
-		k8sHelp, err := testutil.ExecuteCommand(rootCmd, "k8s", "--help")
-		require.NoError(t, err)
-		assert.Contains(t, k8sHelp, "Kubernetes")
+		require.NoError(t, showInteractiveMenu(&cobra.Command{Use: "homeops-cli"}))
 	})
 
-	t.Run("version workflow", func(t *testing.T) {
-		versionOutput, err := testutil.ExecuteCommand(rootCmd, "--version")
-		require.NoError(t, err)
-		// Check if output contains version info or help (either is acceptable)
-		assert.True(t,
-			strings.Contains(versionOutput, "homeops version") ||
-				strings.Contains(versionOutput, "Available Commands:"),
-			"Output should contain version info or help menu")
-	})
-}
-
-// Integration test for CLI command structure
-func TestCLICommandStructureIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
-	rootCmd := createRootCommand()
-
-	// Test that each major command group has expected subcommands
-	testCases := []struct {
-		command         string
-		expectedSubcmds []string
-	}{
-		{
-			command:         "talos",
-			expectedSubcmds: []string{"apply-node", "deploy-vm", "upgrade-k8s"},
-		},
-		{
-			command:         "k8s",
-			expectedSubcmds: []string{"browse-pvc", "node-shell", "sync-secrets"},
-		},
-		{
-			command:         "volsync",
-			expectedSubcmds: []string{"snapshot", "restore"},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.command, func(t *testing.T) {
-			output, err := testutil.ExecuteCommand(rootCmd, tc.command, "--help")
-			require.NoError(t, err)
-
-			for _, subcmd := range tc.expectedSubcmds {
-				assert.Contains(t, output, subcmd,
-					"Command %s should have subcommand %s", tc.command, subcmd)
+	t.Run("runs leaf command then exits", func(t *testing.T) {
+		var chooseCalls int
+		var ran bool
+		chooseFn = func(prompt string, options []string) (string, error) {
+			chooseCalls++
+			if chooseCalls == 1 {
+				return "workstation - Setup workstation tools", nil
 			}
+			return "Exit - Exit the application", nil
+		}
+
+		rootCmd := &cobra.Command{Use: "homeops-cli"}
+		rootCmd.AddCommand(&cobra.Command{
+			Use: "workstation",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				ran = true
+				return nil
+			},
 		})
-	}
+
+		require.NoError(t, showInteractiveMenu(rootCmd))
+		assert.True(t, ran)
+	})
+
+	t.Run("unknown selection falls back to help", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "mystery command", nil
+		}
+
+		var helped bool
+		rootCmd := &cobra.Command{Use: "homeops-cli"}
+		rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+			helped = true
+		})
+
+		require.NoError(t, showInteractiveMenu(rootCmd))
+		assert.True(t, helped)
+	})
+
+	t.Run("cancel exits cleanly", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "", errors.New("cancelled")
+		}
+		require.NoError(t, showInteractiveMenu(&cobra.Command{Use: "homeops-cli"}))
+	})
+}
+
+func TestShowSubcommandMenu(t *testing.T) {
+	originalChoose := chooseFn
+	t.Cleanup(func() { chooseFn = originalChoose })
+
+	t.Run("back exits submenu", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			assert.Contains(t, prompt, "Select a talos subcommand")
+			return "Back - Return to main menu", nil
+		}
+
+		cmd := &cobra.Command{Use: "talos"}
+		cmd.AddCommand(&cobra.Command{Use: "status", Short: "status"})
+		require.NoError(t, showSubcommandMenu(cmd))
+	})
+
+	t.Run("runs subcommand", func(t *testing.T) {
+		var ran bool
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "status - Show status", nil
+		}
+
+		cmd := &cobra.Command{Use: "talos"}
+		cmd.AddCommand(&cobra.Command{
+			Use:   "status",
+			Short: "Show status",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				ran = true
+				return nil
+			},
+		})
+
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.True(t, ran)
+	})
+
+	t.Run("nested submenu returns to parent", func(t *testing.T) {
+		choices := []string{
+			"cluster - Cluster operations",
+			"status - Show status",
+			"Back - Return to main menu",
+		}
+		var idx int
+		var ran bool
+		chooseFn = func(prompt string, options []string) (string, error) {
+			choice := choices[idx]
+			idx++
+			return choice, nil
+		}
+
+		cmd := &cobra.Command{Use: "talos"}
+		clusterCmd := &cobra.Command{Use: "cluster", Short: "Cluster operations"}
+		clusterCmd.AddCommand(&cobra.Command{
+			Use:   "status",
+			Short: "Show status",
+			Run: func(cmd *cobra.Command, args []string) {
+				ran = true
+			},
+		})
+		cmd.AddCommand(clusterCmd)
+
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.True(t, ran)
+	})
+
+	t.Run("no visible subcommands shows help", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "", nil
+		}
+
+		var helped bool
+		cmd := &cobra.Command{Use: "talos"}
+		cmd.AddCommand(&cobra.Command{Use: "hidden", Hidden: true})
+		cmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+			helped = true
+		})
+
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.True(t, helped)
+	})
+}
+
+func TestRunApp(t *testing.T) {
+	originalNotify := signalNotifyFn
+	originalExecute := executeRootCmdFn
+	originalStderr := stderrWriter
+	t.Cleanup(func() {
+		signalNotifyFn = originalNotify
+		executeRootCmdFn = originalExecute
+		stderrWriter = originalStderr
+	})
+
+	t.Run("success and signal cancels context", func(t *testing.T) {
+		var stderr bytes.Buffer
+		stderrWriter = &stderr
+		signalNotifyFn = func(c chan<- os.Signal, sig ...os.Signal) {}
+		sigChan := make(chan os.Signal, 1)
+		executeRootCmdFn = func(cmd *cobra.Command) error {
+			go func() {
+				time.Sleep(10 * time.Millisecond)
+				sigChan <- os.Interrupt
+			}()
+			select {
+			case <-cmd.Context().Done():
+				return nil
+			case <-time.After(time.Second):
+				t.Fatal("expected command context to be cancelled")
+				return nil
+			}
+		}
+
+		code := runApp(sigChan)
+		assert.Equal(t, 0, code)
+		assert.Contains(t, stderr.String(), "Received interrupt signal")
+	})
+
+	t.Run("execute error returns non-zero and writes stderr", func(t *testing.T) {
+		var stderr bytes.Buffer
+		stderrWriter = &stderr
+		signalNotifyFn = func(c chan<- os.Signal, sig ...os.Signal) {}
+		executeRootCmdFn = func(cmd *cobra.Command) error {
+			return errors.New("boom")
+		}
+
+		code := runApp(make(chan os.Signal, 1))
+		assert.Equal(t, 1, code)
+		assert.Contains(t, stderr.String(), "Error: boom")
+	})
 }
