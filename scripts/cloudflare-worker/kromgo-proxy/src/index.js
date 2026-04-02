@@ -2,35 +2,6 @@
 // Generates pixel-perfect SVG badges with stale fallback caching,
 // textLength-pinned text, viewBox scaling, and integer-coordinate rendering.
 
-// --- Rate limiter (per-isolate, sliding window) ---
-// README renders can burst dozens of image requests at once through GitHub's proxy.
-// Keep lightweight abuse protection, but don't block normal badge loads.
-const RATE_LIMIT = 120;
-const RATE_WINDOW_MS = 60_000;
-const DAILY_LIMIT = 250_000;
-const rateMap = new Map();
-let dailyCount = 0;
-let dailyResetAt = 0;
-
-function isRateLimited(ip) {
-  const now = Date.now();
-  if (now > dailyResetAt) { dailyCount = 0; dailyResetAt = now + 86_400_000; }
-  dailyCount++;
-  if (dailyCount > DAILY_LIMIT) return true;
-  let entry = rateMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + RATE_WINDOW_MS };
-    rateMap.set(ip, entry);
-  }
-  entry.count++;
-  if (rateMap.size > 1024) {
-    for (const [key, val] of rateMap) {
-      if (now > val.resetAt) rateMap.delete(key);
-    }
-  }
-  return entry.count > RATE_LIMIT;
-}
-
 // --- Edge cache for stale fallback ---
 // Always try to fetch fresh data for GET requests so README refreshes stay current.
 // Keep the last good response for up to 15 minutes and serve it only when the
@@ -493,18 +464,6 @@ var index_default = {
       });
     }
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method not allowed", { status: 405 });
-
-    const clientIp = request.headers.get("CF-Connecting-IP") || "unknown";
-    if (request.method !== "HEAD" && isRateLimited(clientIp)) {
-      return new Response("Too many requests", {
-        status: 429,
-        headers: {
-          "Retry-After": "60",
-          "Content-Type": "text/plain",
-          "Cache-Control": ERROR_CACHE_CONTROL,
-        },
-      });
-    }
 
     const url = new URL(request.url);
     const metricName = url.pathname.substring(1);
