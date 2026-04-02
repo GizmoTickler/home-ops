@@ -180,7 +180,7 @@ const LABEL_BG_VERSION = "#1f2937"; // Darker slate for version badges
 let _badgeIdCounter = 0;
 function makeBadgeData(label, message, color, logoName, opts = {}) {
   label = (label || "").toUpperCase();
-  message = (message || "").toUpperCase();
+  message = opts.preserveCase ? (message || "") : (message || "").toUpperCase();
   const hex = resolveColor(color);
   const labelBg = opts.labelBg || LABEL_BG;
   const id = opts._id || `b${_badgeIdCounter++}`;
@@ -248,10 +248,12 @@ function makeBadgeRow(metrics) {
   const gap = 6;
   const badges = metrics.map((m) => {
     const label = m.label || "";
-    const message = panelMessage(m.message);
+    const message = m.preserveCase ? (m.message || "") : panelMessage(m.message);
     const logo = m.logo || METRIC_ICON_MAP[m.metric] || null;
     const color = m.color;
-    const opts = m.labelBg ? { labelBg: m.labelBg } : {};
+    const opts = {};
+    if (m.labelBg) opts.labelBg = m.labelBg;
+    if (m.preserveCase) opts.preserveCase = true;
     return makeBadgeData(label, message, color, logo, opts);
   });
 
@@ -336,6 +338,30 @@ async function fetchWanMetric(metric, env) {
     return result.data;
   } catch {
     return { message: "ERR", color: "grey" };
+  }
+}
+
+// --- Uptime Kuma status page API ---
+async function fetchKumaStatus(env) {
+  if (!env.KUMA_DOMAIN) return null;
+  try {
+    const resp = await fetch(`https://status.${env.KUMA_DOMAIN}/api/status-page/heartbeat/internet`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    // Monitor 2 = Frontier Fiber — get latest heartbeat
+    const beats = data.heartbeatList?.["2"];
+    if (!beats || beats.length === 0) return null;
+    const latest = beats[beats.length - 1];
+    // status: 1 = UP, 0 = DOWN, 2 = PENDING
+    return {
+      up: latest.status === 1,
+      ping: latest.ping,
+      time: latest.time,
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -505,15 +531,23 @@ async function renderMetric(metricName, url, env) {
     return renderMetricPanel(metricName, env);
   }
 
-  // Network status panel — 3 parallel fetches, rendered as badge row
+  // Network status panel — Fiber from Uptime Kuma (external), cells from kromgo (internal)
   if (metricName === "network_status") {
-    const [fiber, cell1, cell2] = await Promise.all([
-      fetchWanMetric("wan_primary", env),
+    const [kuma, cell1, cell2] = await Promise.all([
+      fetchKumaStatus(env),
       fetchWanMetric("wan_cellular1", env),
       fetchWanMetric("wan_cellular2", env),
     ]);
+    let fiberBadge;
+    if (!kuma) {
+      fiberBadge = { label: "Fiber", message: "ERR", color: "grey", logo: "bolt" };
+    } else if (!kuma.up) {
+      fiberBadge = { label: "Fiber", message: "DOWN", color: "red", logo: "bolt" };
+    } else {
+      fiberBadge = { label: "Fiber", message: `UP / ${Math.round(kuma.ping)}ms`, color: "brightgreen", logo: "bolt", preserveCase: true };
+    }
     return svgResponse(makeBadgeRow([
-      { label: "Fiber", message: fiber.message, color: fiber.color, logo: "bolt" },
+      fiberBadge,
       { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal" },
       { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal" },
     ]), 200);
