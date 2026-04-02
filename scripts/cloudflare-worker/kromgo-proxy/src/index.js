@@ -362,6 +362,10 @@ function jsonResponse(data, status, cacheControl = status === 200 ? CLIENT_CACHE
   });
 }
 
+function svgBadgeResponse(label, message, color, logoName, opts = {}) {
+  return svgResponse(makeBadge(label, message, color, logoName, opts), 200);
+}
+
 // --- Origin fetch helpers ---
 async function fetchKromgoMetric(metric, env) {
   const resp = await fetch(`https://kromgo.${env.SECRET_DOMAIN}/${metric}`, {
@@ -403,7 +407,7 @@ async function renderMetric(metricName, url, env) {
   // Renovate workflow status — GitHub Actions API
   if (metricName === "renovate") {
     if (!env.GIT_PAT) {
-      return svgResponse(makeBadge("renovate", "no token", "critical", "renovatebot"), 500);
+      return svgBadgeResponse("renovate", "no token", "critical", "renovatebot");
     }
     try {
       const ghResp = await fetch(
@@ -418,7 +422,7 @@ async function renderMetric(metricName, url, env) {
         },
       );
       if (!ghResp.ok) {
-        return svgResponse(makeBadge("renovate", "api error", "critical", "renovatebot"), 503);
+        return svgBadgeResponse("renovate", "api error", "critical", "renovatebot");
       }
       const data = await ghResp.json();
       const run = data.workflow_runs?.[0];
@@ -443,7 +447,7 @@ async function renderMetric(metricName, url, env) {
       const logo = url.searchParams.get("logo") || "renovatebot";
       return svgResponse(makeBadge(label, message, color, logo, { labelBg: LABEL_BG_VERSION }), 200);
     } catch {
-      return svgResponse(makeBadge("renovate", "timeout", "lightgrey", "renovatebot"), 503);
+      return svgBadgeResponse("renovate", "timeout", "lightgrey", "renovatebot");
     }
   }
 
@@ -455,17 +459,17 @@ async function renderMetric(metricName, url, env) {
       if (result.error === "auth") {
         return wantJson
           ? jsonResponse({ schemaVersion: 1, label: "kromgo", message: "auth failed", color: "critical" }, 503)
-          : svgResponse(makeBadge("kromgo", "auth failed", "critical"), 503);
+          : svgBadgeResponse("kromgo", "auth failed", "critical");
       }
       return wantJson
         ? jsonResponse({ schemaVersion: 1, label: "error", message: "unavailable", color: "lightgrey" }, 503)
-        : svgResponse(makeBadge("error", "unavailable", "lightgrey"), 503);
+        : svgBadgeResponse("error", "unavailable", "lightgrey");
     }
-    // Treat kromgo "no data" responses as errors — don't cache them
+    // Treat kromgo "no data" responses as errors for caching, but still return
+    // a renderable 200 badge so README image consumers don't break.
     const msg = (result.data.message || "").toLowerCase();
     if (msg.includes("no data") || msg.includes("error")) {
-      const badge = makeBadge(result.data.label || metricName, result.data.message, "lightgrey", METRIC_ICON_MAP[metricName]);
-      return svgResponse(badge, 503);
+      return svgBadgeResponse(result.data.label || metricName, result.data.message, "lightgrey", METRIC_ICON_MAP[metricName]);
     }
     if (wantJson) return jsonResponse(result.data, 200);
     const label = url.searchParams.get("label") || result.data.label || metricName;
@@ -476,7 +480,7 @@ async function renderMetric(metricName, url, env) {
   } catch {
     return wantJson
       ? jsonResponse({ schemaVersion: 1, label: "error", message: "timeout", color: "lightgrey" }, 503)
-      : svgResponse(makeBadge("error", "timeout", "lightgrey"), 503);
+      : svgBadgeResponse("error", "timeout", "lightgrey");
   }
 }
 
