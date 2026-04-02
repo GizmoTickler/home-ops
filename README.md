@@ -12,49 +12,35 @@ _Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, manag
 <!-- Stack Versions -->
 <div align="center">
 
-[![Talos](https://kromgo-proxy.pixel-forge.workers.dev/talos_version?label=Talos&color=blue&logo=talos)](https://talos.dev)&nbsp;&nbsp;
-[![Kubernetes](https://kromgo-proxy.pixel-forge.workers.dev/kubernetes_version?label=Kubernetes&color=blue&logo=kubernetes)](https://kubernetes.io)&nbsp;&nbsp;
-[![Flux](https://kromgo-proxy.pixel-forge.workers.dev/flux_version?label=Flux&color=blue&logo=flux)](https://fluxcd.io)&nbsp;&nbsp;
-[![Renovate](https://kromgo-proxy.pixel-forge.workers.dev/renovate?label=Renovate&color=blue&logo=renovatebot)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel" alt="Stack Versions"/>
 
 </div>
 
 <!-- Cluster Health -->
 <div align="center">
 
-[![Nodes](https://kromgo-proxy.pixel-forge.workers.dev/cluster_node_count?label=Nodes)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Age](https://kromgo-proxy.pixel-forge.workers.dev/cluster_age_days?label=Age)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Uptime](https://kromgo-proxy.pixel-forge.workers.dev/cluster_uptime_days?label=Uptime)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Alerts](https://kromgo-proxy.pixel-forge.workers.dev/cluster_alert_count?label=Alerts)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Ceph](https://kromgo-proxy.pixel-forge.workers.dev/ceph_health?label=Ceph)](https://github.com/kashalls/kromgo)
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/health_panel" alt="Cluster Health"/>
 
 </div>
 
 <!-- Resource Usage -->
 <div align="center">
 
-[![Pods](https://kromgo-proxy.pixel-forge.workers.dev/cluster_pod_count?label=Pods)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Containers](https://kromgo-proxy.pixel-forge.workers.dev/container_count?label=Containers)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![CPU](https://kromgo-proxy.pixel-forge.workers.dev/cluster_cpu_usage?label=CPU)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Memory](https://kromgo-proxy.pixel-forge.workers.dev/cluster_memory_usage?label=Memory)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Storage](https://kromgo-proxy.pixel-forge.workers.dev/ceph_storage_used?label=Storage)](https://github.com/kashalls/kromgo)
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel" alt="Resource Usage"/>
 
 </div>
 
 <!-- GitOps & Reliability -->
 <div align="center">
 
-[![HelmReleases](https://kromgo-proxy.pixel-forge.workers.dev/helmrelease_count?label=HelmReleases)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![PVCs](https://kromgo-proxy.pixel-forge.workers.dev/pvc_count?label=PVCs)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Flux Errors](https://kromgo-proxy.pixel-forge.workers.dev/flux_failing_count?label=Flux%20Errors)](https://github.com/kashalls/kromgo)&nbsp;&nbsp;
-[![Cert Expiry](https://kromgo-proxy.pixel-forge.workers.dev/cert_expiry_days?label=Cert%20Expiry)](https://github.com/kashalls/kromgo)
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel" alt="GitOps and Reliability"/>
 
 </div>
 
 <!-- Network Status -->
 <div align="center">
 
-[![Network Status](https://kromgo-proxy.pixel-forge.workers.dev/network_status)](https://github.com/kashalls/kromgo)
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/network_status" alt="Network Status"/>
 
 </div>
 

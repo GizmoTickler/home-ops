@@ -175,7 +175,7 @@ const LOGO_GAP = 40; // 4px gap after logo in 10x
 const LABEL_BG = "#30363d"; // GitHub dark surface
 const LABEL_BG_VERSION = "#1f2937"; // Darker slate for version badges
 
-function makeBadge(label, message, color, logoName, opts = {}) {
+function makeBadgeData(label, message, color, logoName, opts = {}) {
   label = (label || "").toUpperCase();
   message = (message || "").toUpperCase();
   const hex = resolveColor(color);
@@ -206,27 +206,131 @@ function makeBadge(label, message, color, logoName, opts = {}) {
   // Helvetica Bold cap-height ~72% of font-size (110 units at scale .1 = 11px)
   const textY = (HEIGHT * 10 + 80) / 2;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tW}" height="${HEIGHT}" viewBox="0 0 ${tW} ${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}"><title>${escapeXml(label)}: ${escapeXml(message)}</title><defs><linearGradient id="hi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="sh" x2="0" y2="100%"><stop offset=".6" stop-opacity="0"/><stop offset="1" stop-opacity=".10"/></linearGradient></defs><clipPath id="r"><rect width="${tW}" height="${HEIGHT}" rx="${RADIUS}" fill="#fff"/></clipPath><g clip-path="url(#r)"><rect width="${lW}" height="${HEIGHT}" fill="${labelBg}" shape-rendering="crispEdges"/><rect x="${lW}" width="${mW}" height="${HEIGHT}" fill="${hex}" shape-rendering="crispEdges"/><rect width="${tW}" height="${HEIGHT}" fill="url(#hi)"/><rect width="${tW}" height="${HEIGHT}" fill="url(#sh)"/><rect width="${tW}" height="${HEIGHT}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" rx="${RADIUS}"/></g><g fill="#fff" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" text-rendering="geometricPrecision" font-size="110">${logoEl}<text aria-hidden="true" transform="scale(.1)" x="${labelTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(label)}</text><text transform="scale(.1)" x="${labelTX}" y="${textY}" fill="#fff">${escapeXml(label)}</text><text aria-hidden="true" transform="scale(.1)" x="${msgTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(message)}</text><text transform="scale(.1)" x="${msgTX}" y="${textY}" fill="#fff">${escapeXml(message)}</text></g></svg>`;
+  return {
+    width: tW,
+    height: HEIGHT,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tW}" height="${HEIGHT}" viewBox="0 0 ${tW} ${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}"><title>${escapeXml(label)}: ${escapeXml(message)}</title><defs><linearGradient id="hi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="sh" x2="0" y2="100%"><stop offset=".6" stop-opacity="0"/><stop offset="1" stop-opacity=".10"/></linearGradient></defs><clipPath id="r"><rect width="${tW}" height="${HEIGHT}" rx="${RADIUS}" fill="#fff"/></clipPath><g clip-path="url(#r)"><rect width="${lW}" height="${HEIGHT}" fill="${labelBg}" shape-rendering="crispEdges"/><rect x="${lW}" width="${mW}" height="${HEIGHT}" fill="${hex}" shape-rendering="crispEdges"/><rect width="${tW}" height="${HEIGHT}" fill="url(#hi)"/><rect width="${tW}" height="${HEIGHT}" fill="url(#sh)"/><rect width="${tW}" height="${HEIGHT}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" rx="${RADIUS}"/></g><g fill="#fff" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" text-rendering="geometricPrecision" font-size="110">${logoEl}<text aria-hidden="true" transform="scale(.1)" x="${labelTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(label)}</text><text transform="scale(.1)" x="${labelTX}" y="${textY}" fill="#fff">${escapeXml(label)}</text><text aria-hidden="true" transform="scale(.1)" x="${msgTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(message)}</text><text transform="scale(.1)" x="${msgTX}" y="${textY}" fill="#fff">${escapeXml(message)}</text></g></svg>`,
+  };
+}
+
+function makeBadge(label, message, color, logoName, opts = {}) {
+  return makeBadgeData(label, message, color, logoName, opts).svg;
 }
 
 function escapeXml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+function panelMessage(message) {
+  const normalized = (message || "").toLowerCase();
+  switch (normalized) {
+    case "timeout":
+    case "unavailable":
+    case "auth failed":
+    case "api error":
+    case "no token":
+    case "no runs":
+      return "ERR";
+    case "cancelled":
+      return "CANCEL";
+    default:
+      return (message || "").toUpperCase();
+  }
+}
+
+function makeStatsPanel(title, metrics, opts = {}) {
+  const cols = opts.cols || metrics.length;
+  const minCardWidth = opts.cardWidth || 190;
+  const cardHeight = opts.cardHeight || 56;
+  const gap = opts.gap || 14;
+  const rowGap = opts.rowGap || 14;
+  const padX = opts.padX || 18;
+  const padY = opts.padY || 16;
+  const titleGap = 12;
+  const titleH = 12;
+  const valueWidth = opts.valueWidth || 82;
+  const panelBg = "#161b22";
+  const panelBorder = "rgba(255,255,255,0.06)";
+  const cards = metrics.map((metric) => {
+    const labelText = (metric.label || "").toUpperCase();
+    const valueText = panelMessage(metric.message);
+    const hasIcon = Boolean(LOGOS[metric.logo] || METRIC_LOGOS[metric.logo]);
+    const labelSectionMin = hasIcon ? 116 : 96;
+    const labelSection = Math.max(labelSectionMin, (hasIcon ? 48 : 16) + tw(labelText) * 0.11 + 18);
+    const valueSection = Math.max(valueWidth, tw(valueText) * 0.11 + 28);
+    return {
+      ...metric,
+      labelText,
+      valueText,
+      width: Math.max(minCardWidth, labelSection + valueSection),
+      labelSection,
+      valueSection,
+    };
+  });
+
+  const rows = [];
+  for (let i = 0; i < cards.length; i += cols) {
+    rows.push(cards.slice(i, i + cols));
+  }
+
+  const maxCols = Math.max(...rows.map((row) => row.length), 1);
+  const rowWidths = rows.map((row) => row.reduce((sum, metric) => sum + metric.width, 0) + Math.max(0, row.length - 1) * gap);
+  const panelWidth = padX * 2 + Math.max(...rowWidths, maxCols * minCardWidth + Math.max(0, maxCols - 1) * gap);
+  const panelHeight = padY * 2 + titleH + titleGap + rows.length * cardHeight + Math.max(0, rows.length - 1) * rowGap;
+
+  let content = "";
+
+  rows.forEach((row, rowIndex) => {
+    const rowWidth = row.reduce((sum, metric) => sum + metric.width, 0) + Math.max(0, row.length - 1) * gap;
+    let x = padX + (panelWidth - padX * 2 - rowWidth) / 2;
+    const y = padY + titleH + titleGap + rowIndex * (cardHeight + rowGap);
+
+    row.forEach((metric) => {
+      const radius = 12;
+      const cardWidth = metric.width;
+      const labelWidth = metric.labelSection;
+      const metricValueWidth = metric.valueSection;
+      const hex = resolveColor(metric.color);
+      const iconB64 = LOGOS[metric.logo] || METRIC_LOGOS[metric.logo] || null;
+      const iconEl = iconB64
+        ? `<image x="${x + 14}" y="${y + 16}" width="24" height="24" href="data:image/svg+xml;base64,${iconB64}"/>`
+        : "";
+      const labelX = x + (iconB64 ? 48 : 16);
+      const labelY = y + 35;
+      const valueX = x + labelWidth + metricValueWidth / 2;
+      const valueY = y + 35;
+
+      content += `<g>`;
+      content += `<rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="${radius}" fill="#2d333b"/>`;
+      content += `<rect x="${x + labelWidth}" y="${y}" width="${metricValueWidth}" height="${cardHeight}" rx="${radius}" fill="${hex}"/>`;
+      content += `<rect x="${x}" y="${y}" width="${labelWidth + radius}" height="${cardHeight}" rx="${radius}" fill="#2b3138"/>`;
+      content += `<rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="${radius}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>`;
+      content += iconEl;
+      content += `<text x="${labelX}" y="${labelY}" fill="#f0f6fc" font-size="12" font-weight="700" font-family="Helvetica,Arial,sans-serif" letter-spacing=".4" text-rendering="geometricPrecision">${escapeXml(metric.labelText)}</text>`;
+      content += `<text x="${valueX}" y="${valueY}" fill="#fff" text-anchor="middle" font-size="13" font-weight="700" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(metric.valueText)}</text>`;
+      content += `</g>`;
+
+      x += metric.width + gap;
+    });
+  });
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelWidth}" height="${panelHeight}" viewBox="0 0 ${panelWidth} ${panelHeight}" role="img" aria-label="${escapeXml(title)}"><title>${escapeXml(title)}</title><defs><linearGradient id="pbg" x2="0" y2="100%"><stop offset="0" stop-color="#1f2630"/><stop offset="1" stop-color="#151b23"/></linearGradient><linearGradient id="phi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient><clipPath id="pr"><rect width="${panelWidth}" height="${panelHeight}" rx="14"/></clipPath></defs><g clip-path="url(#pr)"><rect width="${panelWidth}" height="${panelHeight}" fill="url(#pbg)"/><rect width="${panelWidth}" height="${panelHeight}" fill="url(#phi)"/><rect width="${panelWidth}" height="${panelHeight}" fill="none" stroke="${panelBorder}" stroke-width="1" rx="14"/></g><text x="${padX}" y="${padY + titleH}" fill="#8b949e" font-size="11" font-weight="700" font-family="Helvetica,Arial,sans-serif" letter-spacing="1.2" text-rendering="geometricPrecision">${escapeXml(title.toUpperCase())}</text>${content}</svg>`;
+}
+
 // --- Network status panel ---
 function makeNetworkPanel(links) {
-  const secW = 186;
+  const secW = 206;
   const panelW = secW * 3;
-  const panelH = 44;
-  const radius = 6;
+  const panelH = 60;
+  const radius = 12;
   const midY = panelH / 2;
   const BG = "#161b22";
   const BORDER = "rgba(255,255,255,0.06)";
 
-  const padL = 16;
-  const iconW = 14, iconGap = 7;   // icon + gap before label
-  const dotR = 4, dotGap = 7;      // status dot + gap before status text
-  const labelGap = 10;             // gap between label and dot
+  const padL = 20;
+  const iconW = 16, iconGap = 10;  // icon + gap before label
+  const dotR = 5, dotGap = 9;      // status dot + gap before status text
+  const labelGap = 13;             // gap between label and dot
 
   let content = "";
 
@@ -244,29 +348,29 @@ function makeNetworkPanel(links) {
 
     // Icon — lightning bolt for fiber, signal bars for cellular
     const iconX = sx;
-    const iconY = Math.round(midY - 7);
+    const iconY = Math.round(midY - 8);
     if (link.icon === "bolt") {
-      // Lightning bolt (fiber) — 14x14 viewBox scaled inline
+      // Lightning bolt (fiber) — scaled slightly larger to match panel size
       content += `<g transform="translate(${iconX},${iconY})">`;
-      content += `<polygon points="8,0 3,7 6,7 4,14 11,5 7,5 9,0" fill="#d29922" opacity=".9"/>`;
+      content += `<polygon points="9,0 3,8 7,8 5,16 12,6 8,6 10,0" fill="#d29922" opacity=".9"/>`;
       content += `</g>`;
     } else {
       // Signal tower (cellular) — 3 ascending bars + radiating arcs
       const bx2 = iconX;
-      const by = Math.round(midY + 7);
-      content += `<rect x="${bx2}" y="${by - 4}" width="3" height="4" rx=".5" fill="#58a6ff" shape-rendering="crispEdges"/>`;
-      content += `<rect x="${bx2 + 4}" y="${by - 8}" width="3" height="8" rx=".5" fill="#58a6ff" shape-rendering="crispEdges"/>`;
-      content += `<rect x="${bx2 + 8}" y="${by - 12}" width="3" height="12" rx=".5" fill="#58a6ff" shape-rendering="crispEdges"/>`;
+      const by = Math.round(midY + 8);
+      content += `<rect x="${bx2}" y="${by - 5}" width="3.5" height="5" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
+      content += `<rect x="${bx2 + 5}" y="${by - 10}" width="3.5" height="10" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
+      content += `<rect x="${bx2 + 10}" y="${by - 15}" width="3.5" height="15" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
       // Small radiating arc on top bar
-      const arcCX = bx2 + 13;
-      const arcCY = by - 12;
-      content += `<path d="M${arcCX},${arcCY + 4} a5,5 0 0,1 0,-8" fill="none" stroke="#58a6ff" stroke-width="1.2" opacity=".5"/>`;
+      const arcCX = bx2 + 16;
+      const arcCY = by - 15;
+      content += `<path d="M${arcCX},${arcCY + 5} a6,6 0 0,1 0,-10" fill="none" stroke="#58a6ff" stroke-width="1.4" opacity=".5"/>`;
     }
 
     // Label text
     const labelX = Math.round(sx + iconW + iconGap);
-    const textYP = Math.round(midY + 4);
-    content += `<text x="${labelX}" y="${textYP}" fill="#c9d1d9" font-size="11" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
+    const textYP = Math.round(midY + 5);
+      content += `<text x="${labelX}" y="${textYP}" fill="#c9d1d9" font-size="13" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
 
     // Status dot with glow
     const dotCX = Math.round(labelX + labelPx + labelGap + dotR);
@@ -278,12 +382,12 @@ function makeNetworkPanel(links) {
 
     // Status text
     const statusX = Math.round(dotCX + dotR + dotGap);
-    content += `<text x="${statusX}" y="${textYP}" fill="${statusColor}" font-size="11" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
+    content += `<text x="${statusX}" y="${textYP}" fill="${statusColor}" font-size="13" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
 
     // Dashed divider
     if (i < 2) {
       const dx = Math.round(bx + secW);
-      content += `<line x1="${dx}" y1="10" x2="${dx}" y2="${panelH - 10}" stroke="#30363d" stroke-dasharray="2,3" shape-rendering="crispEdges"/>`;
+      content += `<line x1="${dx}" y1="13" x2="${dx}" y2="${panelH - 13}" stroke="#30363d" stroke-dasharray="2,3" shape-rendering="crispEdges"/>`;
     }
   });
 
@@ -298,7 +402,8 @@ const ALLOWED_METRICS = new Set([
   "cluster_alert_count", "ceph_storage_used", "ceph_health",
   "cert_expiry_days", "flux_failing_count", "helmrelease_count",
   "pvc_count", "container_count", "wan_primary", "wan_cellular1", "wan_cellular2",
-  "network_status", "renovate",
+  "network_status", "renovate", "stack_panel", "health_panel",
+  "usage_panel", "gitops_panel",
 ]);
 
 // --- Response helpers ---
@@ -359,8 +464,185 @@ async function fetchWanMetric(metric, env) {
   }
 }
 
+function metricStateCacheRequest(key) {
+  return new Request(`https://metric-cache.local/${key}`, { method: "GET" });
+}
+
+async function getCachedMetricState(key) {
+  const cached = await caches.default.match(metricStateCacheRequest(key));
+  if (!cached) return null;
+  const cachedAt = parseInt(cached.headers.get("x-fetch-time") || "0");
+  const cachedAge = cachedAt ? (Date.now() - cachedAt) / 1000 : Number.POSITIVE_INFINITY;
+  if (cachedAge >= CACHE_STALE_S) return null;
+  try {
+    return await cached.json();
+  } catch {
+    return null;
+  }
+}
+
+async function putMetricStateCache(key, value) {
+  const headers = new Headers({
+    "Content-Type": "application/json",
+    "Cache-Control": "public, s-maxage=900",
+    "x-fetch-time": Date.now().toString(),
+  });
+  await caches.default.put(metricStateCacheRequest(key), new Response(JSON.stringify(value), { status: 200, headers }));
+}
+
+function metricState(item, message, color, logo, opts = {}) {
+  return {
+    label: item.label || item.metric,
+    message,
+    color,
+    logo,
+    opts,
+  };
+}
+
+const PANEL_DEFINITIONS = {
+  stack_panel: {
+    title: "Stack Versions",
+    cols: 4,
+    cardWidth: 196,
+    valueWidth: 86,
+    items: [
+      { metric: "talos_version", label: "Talos", color: "blue", logo: "talos", labelBg: LABEL_BG_VERSION },
+      { metric: "kubernetes_version", label: "Kubernetes", color: "blue", logo: "kubernetes", labelBg: LABEL_BG_VERSION },
+      { metric: "flux_version", label: "Flux", color: "blue", logo: "flux", labelBg: LABEL_BG_VERSION },
+      { metric: "renovate", label: "Renovate", color: "blue", logo: "renovatebot", labelBg: LABEL_BG_VERSION },
+    ],
+  },
+  health_panel: {
+    title: "Cluster Health",
+    cols: 3,
+    cardWidth: 184,
+    items: [
+      { metric: "cluster_node_count", label: "Nodes" },
+      { metric: "cluster_age_days", label: "Age" },
+      { metric: "cluster_uptime_days", label: "Uptime" },
+      { metric: "cluster_alert_count", label: "Alerts" },
+      { metric: "ceph_health", label: "Ceph" },
+    ],
+  },
+  usage_panel: {
+    title: "Resource Usage",
+    cols: 3,
+    cardWidth: 184,
+    items: [
+      { metric: "cluster_pod_count", label: "Pods" },
+      { metric: "container_count", label: "Containers" },
+      { metric: "cluster_cpu_usage", label: "CPU" },
+      { metric: "cluster_memory_usage", label: "Memory" },
+      { metric: "ceph_storage_used", label: "Storage" },
+    ],
+  },
+  gitops_panel: {
+    title: "GitOps & Reliability",
+    cols: 2,
+    cardWidth: 214,
+    items: [
+      { metric: "helmrelease_count", label: "HelmReleases" },
+      { metric: "pvc_count", label: "PVCs" },
+      { metric: "flux_failing_count", label: "Flux Errors" },
+      { metric: "cert_expiry_days", label: "Cert Expiry" },
+    ],
+  },
+};
+
+async function buildRenovateBadgeData(item, env) {
+  const label = item.label || "Renovate";
+  const logo = item.logo || "renovatebot";
+  const opts = item.labelBg ? { labelBg: item.labelBg } : {};
+  const cacheKey = `panel/renovate`;
+
+  if (!env.GIT_PAT) {
+    return metricState(item, "no token", "critical", logo, opts);
+  }
+  try {
+    const ghResp = await fetch(
+      "https://api.github.com/repos/GizmoTickler/home-ops/actions/workflows/renovate.yaml/runs?branch=main&per_page=1",
+      {
+        headers: {
+          Authorization: `Bearer ${env.GIT_PAT}`,
+          Accept: "application/vnd.github+json",
+          "User-Agent": "kromgo-proxy-worker",
+        },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (!ghResp.ok) {
+      return (await getCachedMetricState(cacheKey)) || metricState(item, "api error", "critical", logo, opts);
+    }
+    const data = await ghResp.json();
+    const run = data.workflow_runs?.[0];
+    if (!run) {
+      const state = metricState(item, "no runs", "lightgrey", logo, opts);
+      await putMetricStateCache(cacheKey, state);
+      return state;
+    }
+    let message = "running";
+    let badgeColor = "yellow";
+    if (run.status === "completed") {
+      switch (run.conclusion) {
+        case "success":   message = "passing"; badgeColor = "brightgreen"; break;
+        case "failure":   message = "failing"; badgeColor = "red"; break;
+        case "cancelled": message = "cancelled"; badgeColor = "orange"; break;
+        case "skipped":   message = "skipped"; badgeColor = "lightgrey"; break;
+        default:          message = run.conclusion || "unknown"; badgeColor = "lightgrey";
+      }
+    }
+    const state = metricState(item, message, item.color || badgeColor, logo, opts);
+    await putMetricStateCache(cacheKey, state);
+    return state;
+  } catch {
+    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey", logo, opts);
+  }
+}
+
+async function buildMetricBadgeData(item, env) {
+  const label = item.label || item.metric;
+  const logo = item.logo || METRIC_ICON_MAP[item.metric] || null;
+  const opts = item.labelBg ? { labelBg: item.labelBg } : {};
+  const cacheKey = `panel/${item.metric}`;
+
+  try {
+    const result = await fetchKromgoMetric(item.metric, env);
+    if (!result.ok) {
+      if (result.error === "auth") {
+        return (await getCachedMetricState(cacheKey)) || metricState(item, "auth failed", "critical", logo, opts);
+      }
+      return (await getCachedMetricState(cacheKey)) || metricState(item, "unavailable", "lightgrey", logo, opts);
+    }
+
+    const msg = (result.data.message || "").toLowerCase();
+    if (msg.includes("no data") || msg.includes("error")) {
+      return (await getCachedMetricState(cacheKey)) || metricState(item, result.data.message, "lightgrey", logo, opts);
+    }
+
+    const state = metricState(item, result.data.message, item.color || result.data.color, logo, opts);
+    await putMetricStateCache(cacheKey, state);
+    return state;
+  } catch {
+    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey", logo, opts);
+  }
+}
+
+async function renderMetricPanel(metricName, env) {
+  const panel = PANEL_DEFINITIONS[metricName];
+  const metrics = await Promise.all(panel.items.map((item) => {
+    if (item.metric === "renovate") return buildRenovateBadgeData(item, env);
+    return buildMetricBadgeData(item, env);
+  }));
+  return svgResponse(makeStatsPanel(panel.title, metrics, panel), 200);
+}
+
 // --- Metric rendering (produces final Response) ---
 async function renderMetric(metricName, url, env) {
+  if (PANEL_DEFINITIONS[metricName]) {
+    return renderMetricPanel(metricName, env);
+  }
+
   // Network status panel — 3 parallel fetches
   if (metricName === "network_status") {
     const [fiber, cell1, cell2] = await Promise.all([
