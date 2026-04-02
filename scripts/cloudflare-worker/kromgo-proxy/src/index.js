@@ -144,6 +144,8 @@ const METRIC_LOGOS = {
   helm: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xOS40MyAxMi45OGMuMDQtLjMyLjA3LS42NC4wNy0uOThzLS4wMy0uNjYtLjA3LS45OGwyLjExLTEuNjVjLjE5LS4xNS4yNC0uNDIuMTItLjY0bC0yLTMuNDZjLS4xMi0uMjItLjM5LS4zLS42MS0uMjJsLTIuNDkgMWMtLjUyLS40LTEuMDgtLjczLTEuNjktLjk4bC0uMzgtMi42NUMxNC40NiAyLjE4IDE0LjI1IDIgMTQgMmgtNGMtLjI1IDAtLjQ2LjE4LS40OS40MmwtLjM4IDIuNjVjLS42MS4yNS0xLjE3LjU5LTEuNjkuOThsLTIuNDktMWMtLjIzLS4wOS0uNDkgMC0uNjEuMjJsLTIgMy40NmMtLjEzLjIyLS4wNy40OS4xMi42NGwyLjExIDEuNjVjLS4wNC4zMi0uMDcuNjUtLjA3Ljk4cy4wMy42Ni4wNy45OGwtMi4xMSAxLjY1Yy0uMTkuMTUtLjI0LjQyLS4xMi42NGwyIDMuNDZjLjEyLjIyLjM5LjMuNjEuMjJsMi40OS0xYy41Mi40IDEuMDguNzMgMS42OS45OGwuMzggMi42NWMuMDMuMjQuMjQuNDIuNDkuNDJoNGMuMjUgMCAuNDYtLjE4LjQ5LS40MmwuMzgtMi42NWMuNjEtLjI1IDEuMTctLjU5IDEuNjktLjk4bDIuNDkgMWMuMjMuMDkuNDkgMCAuNjEtLjIybDItMy40NmMuMTItLjIyLjA3LS40OS0uMTItLjY0bC0yLjExLTEuNjV6TTEyIDE1LjVjLTEuOTMgMC0zLjUtMS41Ny0zLjUtMy41czEuNTctMy41IDMuNS0zLjUgMy41IDEuNTcgMy41IDMuNS0xLjU3IDMuNS0zLjUgMy41eiIvPjwvc3ZnPg==",
   volume: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0yIDIwaDIwdi00SDJ2NHptMi0zaDJ2Mkg0di0yek0yIDR2NGgyMFY0SDJ6bTQgM0g0VjVoMnYyem0tNCA3aDIwdi00SDJ2NHptMi0zaDJ2Mkg0di0yeiIvPjwvc3ZnPg==",
   shield: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xMiAxTDMgNXY2YzAgNS41NSAzLjg0IDEwLjc0IDkgMTIgNS4xNi0xLjI2IDktNi40NSA5LTEyVjVsLTktNHptLTIgMTZsLTQtNCAxLjQxLTEuNDFMMTAgMTQuMTdsNi41OS02LjU5TDE4IDlsLTggOHoiLz48L3N2Zz4=",
+  bolt: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik03IDJ2MTFoM3Y5bDctMTJoLTRsNC04eiIvPjwvc3ZnPg==",
+  signal: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHg9IjEiIHk9IjE2IiB3aWR0aD0iNCIgaGVpZ2h0PSI2IiByeD0iMSIvPjxyZWN0IHg9IjciIHk9IjExIiB3aWR0aD0iNCIgaGVpZ2h0PSIxMSIgcng9IjEiLz48cmVjdCB4PSIxMyIgeT0iNiIgd2lkdGg9IjQiIGhlaWdodD0iMTYiIHJ4PSIxIi8+PHJlY3QgeD0iMTkiIHk9IjEiIHdpZHRoPSI0IiBoZWlnaHQ9IjIxIiByeD0iMSIvPjwvc3ZnPg==",
 };
 
 
@@ -175,11 +177,13 @@ const LOGO_GAP = 40; // 4px gap after logo in 10x
 const LABEL_BG = "#30363d"; // GitHub dark surface
 const LABEL_BG_VERSION = "#1f2937"; // Darker slate for version badges
 
+let _badgeIdCounter = 0;
 function makeBadgeData(label, message, color, logoName, opts = {}) {
   label = (label || "").toUpperCase();
   message = (message || "").toUpperCase();
   const hex = resolveColor(color);
   const labelBg = opts.labelBg || LABEL_BG;
+  const id = opts._id || `b${_badgeIdCounter++}`;
 
   const hasLogo = logoName && (LOGOS[logoName] || METRIC_LOGOS[logoName]);
   const logoSpace10x = hasLogo ? (LOGO_X + LOGO_SIZE) * 10 + LOGO_GAP : 0;
@@ -203,13 +207,12 @@ function makeBadgeData(label, message, color, logoName, opts = {}) {
     ? `<image x="${LOGO_X}" y="${logoY}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" href="data:image/svg+xml;base64,${logoB64}"/>`
     : "";
 
-  // Helvetica Bold cap-height ~72% of font-size (110 units at scale .1 = 11px)
   const textY = (HEIGHT * 10 + 80) / 2;
 
   return {
     width: tW,
     height: HEIGHT,
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tW}" height="${HEIGHT}" viewBox="0 0 ${tW} ${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}"><title>${escapeXml(label)}: ${escapeXml(message)}</title><defs><linearGradient id="hi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="sh" x2="0" y2="100%"><stop offset=".6" stop-opacity="0"/><stop offset="1" stop-opacity=".10"/></linearGradient></defs><clipPath id="r"><rect width="${tW}" height="${HEIGHT}" rx="${RADIUS}" fill="#fff"/></clipPath><g clip-path="url(#r)"><rect width="${lW}" height="${HEIGHT}" fill="${labelBg}" shape-rendering="crispEdges"/><rect x="${lW}" width="${mW}" height="${HEIGHT}" fill="${hex}" shape-rendering="crispEdges"/><rect width="${tW}" height="${HEIGHT}" fill="url(#hi)"/><rect width="${tW}" height="${HEIGHT}" fill="url(#sh)"/><rect width="${tW}" height="${HEIGHT}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" rx="${RADIUS}"/></g><g fill="#fff" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" text-rendering="geometricPrecision" font-size="110">${logoEl}<text aria-hidden="true" transform="scale(.1)" x="${labelTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(label)}</text><text transform="scale(.1)" x="${labelTX}" y="${textY}" fill="#fff">${escapeXml(label)}</text><text aria-hidden="true" transform="scale(.1)" x="${msgTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(message)}</text><text transform="scale(.1)" x="${msgTX}" y="${textY}" fill="#fff">${escapeXml(message)}</text></g></svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tW}" height="${HEIGHT}" viewBox="0 0 ${tW} ${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}"><title>${escapeXml(label)}: ${escapeXml(message)}</title><defs><linearGradient id="hi_${id}" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="sh_${id}" x2="0" y2="100%"><stop offset=".6" stop-opacity="0"/><stop offset="1" stop-opacity=".10"/></linearGradient></defs><clipPath id="r_${id}"><rect width="${tW}" height="${HEIGHT}" rx="${RADIUS}" fill="#fff"/></clipPath><g clip-path="url(#r_${id})"><rect width="${lW}" height="${HEIGHT}" fill="${labelBg}" shape-rendering="crispEdges"/><rect x="${lW}" width="${mW}" height="${HEIGHT}" fill="${hex}" shape-rendering="crispEdges"/><rect width="${tW}" height="${HEIGHT}" fill="url(#hi_${id})"/><rect width="${tW}" height="${HEIGHT}" fill="url(#sh_${id})"/><rect width="${tW}" height="${HEIGHT}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" rx="${RADIUS}"/></g><g fill="#fff" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" text-rendering="geometricPrecision" font-size="110">${logoEl}<text aria-hidden="true" transform="scale(.1)" x="${labelTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(label)}</text><text transform="scale(.1)" x="${labelTX}" y="${textY}" fill="#fff">${escapeXml(label)}</text><text aria-hidden="true" transform="scale(.1)" x="${msgTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(message)}</text><text transform="scale(.1)" x="${msgTX}" y="${textY}" fill="#fff">${escapeXml(message)}</text></g></svg>`,
   };
 }
 
@@ -238,160 +241,32 @@ function panelMessage(message) {
   }
 }
 
-function makeStatsPanel(title, metrics, opts = {}) {
-  const cols = opts.cols || metrics.length;
-  const minCardWidth = opts.cardWidth || 190;
-  const cardHeight = opts.cardHeight || 56;
-  const gap = opts.gap || 14;
-  const rowGap = opts.rowGap || 14;
-  const padX = opts.padX || 18;
-  const padY = opts.padY || 16;
-  const titleGap = 12;
-  const titleH = 12;
-  const valueWidth = opts.valueWidth || 82;
-  const panelBg = "#161b22";
-  const panelBorder = "rgba(255,255,255,0.06)";
-  const cards = metrics.map((metric) => {
-    const labelText = (metric.label || "").toUpperCase();
-    const valueText = panelMessage(metric.message);
-    const hasIcon = Boolean(LOGOS[metric.logo] || METRIC_LOGOS[metric.logo]);
-    const labelSectionMin = hasIcon ? 116 : 96;
-    const labelSection = Math.max(labelSectionMin, (hasIcon ? 48 : 16) + tw(labelText) * 0.11 + 18);
-    const valueSection = Math.max(valueWidth, tw(valueText) * 0.11 + 28);
-    return {
-      ...metric,
-      labelText,
-      valueText,
-      width: Math.max(minCardWidth, labelSection + valueSection),
-      labelSection,
-      valueSection,
-    };
+// --- Badge row renderer ---
+// Composites multiple shields.io-style badges into a single SVG using nested <svg> elements.
+// Each badge keeps its own coordinate space and gradient/clipPath IDs.
+function makeBadgeRow(metrics) {
+  const gap = 6;
+  const badges = metrics.map((m) => {
+    const label = m.label || "";
+    const message = panelMessage(m.message);
+    const logo = m.logo || METRIC_ICON_MAP[m.metric] || null;
+    const color = m.color;
+    const opts = m.labelBg ? { labelBg: m.labelBg } : {};
+    return makeBadgeData(label, message, color, logo, opts);
   });
 
-  const rows = [];
-  for (let i = 0; i < cards.length; i += cols) {
-    rows.push(cards.slice(i, i + cols));
+  const totalWidth = badges.reduce((sum, b) => sum + b.width, 0) + Math.max(0, badges.length - 1) * gap;
+  const h = HEIGHT;
+
+  let inner = "";
+  let x = 0;
+  for (const b of badges) {
+    const badgeInner = b.svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>$/, "");
+    inner += `<g transform="translate(${x},0)">${badgeInner}</g>`;
+    x += b.width + gap;
   }
 
-  const maxCols = Math.max(...rows.map((row) => row.length), 1);
-  const rowWidths = rows.map((row) => row.reduce((sum, metric) => sum + metric.width, 0) + Math.max(0, row.length - 1) * gap);
-  const panelWidth = padX * 2 + Math.max(...rowWidths, maxCols * minCardWidth + Math.max(0, maxCols - 1) * gap);
-  const panelHeight = padY * 2 + titleH + titleGap + rows.length * cardHeight + Math.max(0, rows.length - 1) * rowGap;
-
-  let content = "";
-
-  rows.forEach((row, rowIndex) => {
-    const rowWidth = row.reduce((sum, metric) => sum + metric.width, 0) + Math.max(0, row.length - 1) * gap;
-    let x = padX + (panelWidth - padX * 2 - rowWidth) / 2;
-    const y = padY + titleH + titleGap + rowIndex * (cardHeight + rowGap);
-
-    row.forEach((metric) => {
-      const radius = 12;
-      const cardWidth = metric.width;
-      const labelWidth = metric.labelSection;
-      const metricValueWidth = metric.valueSection;
-      const hex = resolveColor(metric.color);
-      const iconB64 = LOGOS[metric.logo] || METRIC_LOGOS[metric.logo] || null;
-      const iconEl = iconB64
-        ? `<image x="${x + 14}" y="${y + 16}" width="24" height="24" href="data:image/svg+xml;base64,${iconB64}"/>`
-        : "";
-      const labelX = x + (iconB64 ? 48 : 16);
-      const labelY = y + 35;
-      const valueX = x + labelWidth + metricValueWidth / 2;
-      const valueY = y + 35;
-
-      content += `<g>`;
-      content += `<rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="${radius}" fill="#2d333b"/>`;
-      content += `<rect x="${x + labelWidth}" y="${y}" width="${metricValueWidth}" height="${cardHeight}" rx="${radius}" fill="${hex}"/>`;
-      content += `<rect x="${x}" y="${y}" width="${labelWidth + radius}" height="${cardHeight}" rx="${radius}" fill="#2b3138"/>`;
-      content += `<rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="${radius}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>`;
-      content += iconEl;
-      content += `<text x="${labelX}" y="${labelY}" fill="#f0f6fc" font-size="12" font-weight="700" font-family="Helvetica,Arial,sans-serif" letter-spacing=".4" text-rendering="geometricPrecision">${escapeXml(metric.labelText)}</text>`;
-      content += `<text x="${valueX}" y="${valueY}" fill="#fff" text-anchor="middle" font-size="13" font-weight="700" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(metric.valueText)}</text>`;
-      content += `</g>`;
-
-      x += metric.width + gap;
-    });
-  });
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelWidth}" height="${panelHeight}" viewBox="0 0 ${panelWidth} ${panelHeight}" role="img" aria-label="${escapeXml(title)}"><title>${escapeXml(title)}</title><defs><linearGradient id="pbg" x2="0" y2="100%"><stop offset="0" stop-color="#1f2630"/><stop offset="1" stop-color="#151b23"/></linearGradient><linearGradient id="phi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient><clipPath id="pr"><rect width="${panelWidth}" height="${panelHeight}" rx="14"/></clipPath></defs><g clip-path="url(#pr)"><rect width="${panelWidth}" height="${panelHeight}" fill="url(#pbg)"/><rect width="${panelWidth}" height="${panelHeight}" fill="url(#phi)"/><rect width="${panelWidth}" height="${panelHeight}" fill="none" stroke="${panelBorder}" stroke-width="1" rx="14"/></g><text x="${padX}" y="${padY + titleH}" fill="#8b949e" font-size="11" font-weight="700" font-family="Helvetica,Arial,sans-serif" letter-spacing="1.2" text-rendering="geometricPrecision">${escapeXml(title.toUpperCase())}</text>${content}</svg>`;
-}
-
-// --- Network status panel ---
-function makeNetworkPanel(links) {
-  const secW = 206;
-  const panelW = secW * 3;
-  const panelH = 60;
-  const radius = 12;
-  const midY = panelH / 2;
-  const BG = "#161b22";
-  const BORDER = "rgba(255,255,255,0.06)";
-
-  const padL = 20;
-  const iconW = 16, iconGap = 10;  // icon + gap before label
-  const dotR = 5, dotGap = 9;      // status dot + gap before status text
-  const labelGap = 13;             // gap between label and dot
-
-  let content = "";
-
-  links.forEach((link, i) => {
-    const bx = i * secW;
-    const statusText = (link.message || "?").toUpperCase();
-    const statusColor = resolveColor(link.color);
-    const isUp = statusText === "UP";
-    const labelPx = tw(link.label) * 11 / 100;
-    const statusPx = tw(statusText) * 11 / 100;
-
-    const contentW = iconW + iconGap + labelPx + labelGap + dotR * 2 + dotGap + statusPx;
-    const offset = Math.max(0, (secW - padL * 2 - contentW) / 2);
-    const sx = Math.round(bx + padL + offset);
-
-    // Icon — lightning bolt for fiber, signal bars for cellular
-    const iconX = sx;
-    const iconY = Math.round(midY - 8);
-    if (link.icon === "bolt") {
-      // Lightning bolt (fiber) — scaled slightly larger to match panel size
-      content += `<g transform="translate(${iconX},${iconY})">`;
-      content += `<polygon points="9,0 3,8 7,8 5,16 12,6 8,6 10,0" fill="#d29922" opacity=".9"/>`;
-      content += `</g>`;
-    } else {
-      // Signal tower (cellular) — 3 ascending bars + radiating arcs
-      const bx2 = iconX;
-      const by = Math.round(midY + 8);
-      content += `<rect x="${bx2}" y="${by - 5}" width="3.5" height="5" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
-      content += `<rect x="${bx2 + 5}" y="${by - 10}" width="3.5" height="10" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
-      content += `<rect x="${bx2 + 10}" y="${by - 15}" width="3.5" height="15" rx=".6" fill="#58a6ff" shape-rendering="crispEdges"/>`;
-      // Small radiating arc on top bar
-      const arcCX = bx2 + 16;
-      const arcCY = by - 15;
-      content += `<path d="M${arcCX},${arcCY + 5} a6,6 0 0,1 0,-10" fill="none" stroke="#58a6ff" stroke-width="1.4" opacity=".5"/>`;
-    }
-
-    // Label text
-    const labelX = Math.round(sx + iconW + iconGap);
-    const textYP = Math.round(midY + 5);
-      content += `<text x="${labelX}" y="${textYP}" fill="#c9d1d9" font-size="13" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(link.label)}</text>`;
-
-    // Status dot with glow
-    const dotCX = Math.round(labelX + labelPx + labelGap + dotR);
-    const dotCY = midY;
-    if (isUp) {
-      content += `<circle cx="${dotCX}" cy="${dotCY}" r="${dotR + 3}" fill="${statusColor}" opacity=".15"/>`;
-    }
-    content += `<circle cx="${dotCX}" cy="${dotCY}" r="${dotR}" fill="${statusColor}"/>`;
-
-    // Status text
-    const statusX = Math.round(dotCX + dotR + dotGap);
-    content += `<text x="${statusX}" y="${textYP}" fill="${statusColor}" font-size="13" font-weight="bold" font-family="Helvetica,Arial,sans-serif" text-rendering="geometricPrecision">${escapeXml(statusText)}</text>`;
-
-    // Dashed divider
-    if (i < 2) {
-      const dx = Math.round(bx + secW);
-      content += `<line x1="${dx}" y1="13" x2="${dx}" y2="${panelH - 13}" stroke="#30363d" stroke-dasharray="2,3" shape-rendering="crispEdges"/>`;
-    }
-  });
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${panelW}" height="${panelH}" viewBox="0 0 ${panelW} ${panelH}" role="img" aria-label="Network Status"><title>Network Status</title><defs><linearGradient id="nhi" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".06"/><stop offset=".5" stop-color="#fff" stop-opacity="0"/></linearGradient><clipPath id="nr"><rect width="${panelW}" height="${panelH}" rx="${radius}"/></clipPath></defs><g clip-path="url(#nr)"><rect width="${panelW}" height="${panelH}" fill="${BG}" shape-rendering="crispEdges"/><rect width="${panelW}" height="${panelH}" fill="url(#nhi)"/><rect width="${panelW}" height="${panelH}" fill="none" stroke="${BORDER}" stroke-width="1" rx="${radius}"/>${content}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${totalWidth}" height="${h}" viewBox="0 0 ${totalWidth} ${h}" role="img">${inner}</svg>`;
 }
 
 // --- Allowed metrics ---
@@ -502,10 +377,6 @@ function metricState(item, message, color, logo, opts = {}) {
 
 const PANEL_DEFINITIONS = {
   stack_panel: {
-    title: "Stack Versions",
-    cols: 4,
-    cardWidth: 196,
-    valueWidth: 86,
     items: [
       { metric: "talos_version", label: "Talos", color: "blue", logo: "talos", labelBg: LABEL_BG_VERSION },
       { metric: "kubernetes_version", label: "Kubernetes", color: "blue", logo: "kubernetes", labelBg: LABEL_BG_VERSION },
@@ -514,9 +385,6 @@ const PANEL_DEFINITIONS = {
     ],
   },
   health_panel: {
-    title: "Cluster Health",
-    cols: 3,
-    cardWidth: 184,
     items: [
       { metric: "cluster_node_count", label: "Nodes" },
       { metric: "cluster_age_days", label: "Age" },
@@ -526,9 +394,6 @@ const PANEL_DEFINITIONS = {
     ],
   },
   usage_panel: {
-    title: "Resource Usage",
-    cols: 3,
-    cardWidth: 184,
     items: [
       { metric: "cluster_pod_count", label: "Pods" },
       { metric: "container_count", label: "Containers" },
@@ -538,9 +403,6 @@ const PANEL_DEFINITIONS = {
     ],
   },
   gitops_panel: {
-    title: "GitOps & Reliability",
-    cols: 2,
-    cardWidth: 214,
     items: [
       { metric: "helmrelease_count", label: "HelmReleases" },
       { metric: "pvc_count", label: "PVCs" },
@@ -634,7 +496,7 @@ async function renderMetricPanel(metricName, env) {
     if (item.metric === "renovate") return buildRenovateBadgeData(item, env);
     return buildMetricBadgeData(item, env);
   }));
-  return svgResponse(makeStatsPanel(panel.title, metrics, panel), 200);
+  return svgResponse(makeBadgeRow(metrics), 200);
 }
 
 // --- Metric rendering (produces final Response) ---
@@ -643,17 +505,17 @@ async function renderMetric(metricName, url, env) {
     return renderMetricPanel(metricName, env);
   }
 
-  // Network status panel — 3 parallel fetches
+  // Network status panel — 3 parallel fetches, rendered as badge row
   if (metricName === "network_status") {
     const [fiber, cell1, cell2] = await Promise.all([
       fetchWanMetric("wan_primary", env),
       fetchWanMetric("wan_cellular1", env),
       fetchWanMetric("wan_cellular2", env),
     ]);
-    return svgResponse(makeNetworkPanel([
-      { label: "FIBER", icon: "bolt", message: fiber.message, color: fiber.color },
-      { label: "CELL 1", icon: "signal", message: cell1.message, color: cell1.color },
-      { label: "CELL 2", icon: "signal", message: cell2.message, color: cell2.color },
+    return svgResponse(makeBadgeRow([
+      { label: "Fiber", message: fiber.message, color: fiber.color, logo: "bolt" },
+      { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal" },
+      { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal" },
     ]), 200);
   }
 

@@ -1,45 +1,21 @@
 <div align="center">
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/logo" align="center" width="175px" height="175px"/>
+
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/logo" width="148" height="148"/>
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes cluster on Talos Linux VMs with Rook Ceph distributed storage, managed via GitOps_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
-
-</div>
+_Kubernetes on Talos Linux &middot; Rook Ceph storage &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 <br/>
 
-<!-- Stack Versions -->
-<div align="center">
-
 <img src="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel" alt="Stack Versions"/>
-
-</div>
-
-<!-- Cluster Health -->
-<div align="center">
-
+<br/>
 <img src="https://kromgo-proxy.pixel-forge.workers.dev/health_panel" alt="Cluster Health"/>
-
-</div>
-
-<!-- Resource Usage -->
-<div align="center">
-
+<br/>
 <img src="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel" alt="Resource Usage"/>
-
-</div>
-
-<!-- GitOps & Reliability -->
-<div align="center">
-
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel" alt="GitOps and Reliability"/>
-
-</div>
-
-<!-- Network Status -->
-<div align="center">
-
+<br/>
+<img src="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel" alt="GitOps & Reliability"/>
+<br/>
 <img src="https://kromgo-proxy.pixel-forge.workers.dev/network_status" alt="Network Status"/>
 
 </div>
