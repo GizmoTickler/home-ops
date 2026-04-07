@@ -6,7 +6,6 @@ metadata:
 spec:
   hostnames:
     - "grafana.${SECRET_DOMAIN}"
-    - "grafana.${EXT_SECRET_DOMAIN}"
   parentRefs:
     - name: kgateway-internal
       namespace: network

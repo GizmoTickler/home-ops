@@ -7,7 +7,6 @@ metadata:
 spec:
   hostnames:
     - "metrics.${SECRET_DOMAIN}"
-    - "metrics.${EXT_SECRET_DOMAIN}"
   parentRefs:
     - name: kgateway-internal
       namespace: network
@@ -24,7 +23,6 @@ metadata:
 spec:
   hostnames:
     - "alertmanager.${SECRET_DOMAIN}"
-    - "alertmanager.${EXT_SECRET_DOMAIN}"
   parentRefs:
     - name: kgateway-internal
       namespace: network

@@ -227,7 +227,6 @@ spec:
       sectionName: https
   hostnames:
     - netbox.${SECRET_DOMAIN}
-    - netbox.${EXT_SECRET_DOMAIN}
   rules:
     # Redirect /login/ to OIDC login
     - matches:
