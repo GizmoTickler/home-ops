@@ -19,4 +19,5 @@ resources:
   - ./pdns-recursor-dashboard.yaml
   - ./pdns-auth-dashboard.yaml
   - ./kea-dhcp4-dashboard.yaml
+  - ./dnscrypt-proxy-dashboard.yaml
   - ./stream-aggr-config.yaml
