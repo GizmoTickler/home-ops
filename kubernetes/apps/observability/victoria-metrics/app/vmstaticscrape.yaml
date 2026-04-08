@@ -401,3 +401,19 @@ spec:
       scrapeTimeout: 10s
       labels:
         job: kea-dhcp4
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: dnscrypt-proxy
+spec:
+  jobName: dnscrypt-proxy
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:49312
+        - dns1.${SECRET_DOMAIN}:49312
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: dnscrypt-proxy
