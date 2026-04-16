@@ -165,10 +165,11 @@ jobs:
       - name: Render HelmReleases from PR branch
         uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
         with:
+          # `build` subcommand renders helm natively; no --enable-helm flag here
+          # (that flag is only on `test` / `diff` which otherwise skip helm render).
           args: >-
             build helmrelease
             --all-namespaces
-            --enable-helm
             --path /github/workspace/kubernetes/flux/cluster
             --output /github/workspace/rendered.yaml
 
