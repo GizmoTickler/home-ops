@@ -68,6 +68,93 @@ spec:
             severity: critical
             component: dhcp
 
+        - alert: ReplicationSlotInactive
+          expr: |-
+            pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Spock replication slot {{ $labels.slot_name }} inactive on {{ $labels.instance }}"
+            description: |-
+              Slot {{ $labels.slot_name }} on {{ $labels.instance }} has been inactive for 5m.
+              WAL will accumulate until max_slot_wal_keep_size (4GB). Investigate Spock subscription health.
+          labels:
+            severity: warning
+            component: postgres
+
+        - alert: ReplicationLagHigh
+          expr: |-
+            (pg_replication_slot_slot_current_wal_lsn{job="postgres-exporter"} - pg_replication_slot_slot_confirmed_flush_lsn{job="postgres-exporter"}) > 52428800
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Spock replication lag >50MB for slot {{ $labels.slot_name }}"
+            description: |-
+              Slot {{ $labels.slot_name }} on {{ $labels.instance }} has >50MB unreplicated WAL for 10m.
+              Multi-master sync is lagging; writes on other node not yet applied locally.
+          labels:
+            severity: warning
+            component: postgres
+
+        - alert: KeaHAUnsentUpdatesHigh
+          expr: |-
+            max_over_time(kea_ha_unsent_update_count{job="kea-dhcp4"}[5m]) > 50
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Kea HA partner has {{ $value }} unsent lease updates on {{ $labels.instance }}"
+            description: |-
+              Kea HA on {{ $labels.instance }} has queued >50 lease updates toward its partner.
+              Partner may be slow, unreachable, or the backlog indicates a network issue between nodes.
+          labels:
+            severity: warning
+            component: dhcp
+
+        - alert: RecursorCacheHitRatioLow
+          expr: |-
+            (sum by (instance) (rate(pdns_recursor_packetcache_hits_total{job="pdns-recursor"}[15m]))
+             / (sum by (instance) (rate(pdns_recursor_packetcache_hits_total{job="pdns-recursor"}[15m]))
+               + sum by (instance) (rate(pdns_recursor_packetcache_misses_total{job="pdns-recursor"}[15m])))) < 0.3
+          for: 30m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Recursor packet cache hit ratio <30% on {{ $labels.instance }}"
+            description: |-
+              Hit ratio: {{ $value | humanizePercentage }} for 30m.
+              Likely a warming period after restart, unusual query mix, or a cache configuration regression.
+          labels:
+            severity: info
+            component: dns
+
+        - alert: DNSZoneSerialDrift
+          expr: |-
+            max(pdns_authoritative_zone_soa_serial{job="pdns-auth"}) by (domain)
+              - min(pdns_authoritative_zone_soa_serial{job="pdns-auth"}) by (domain) > 0
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Zone serial drift for {{ $labels.domain }}"
+            description: |-
+              SOA serial for {{ $labels.domain }} differs between dns0 and dns1 for 10m.
+              Spock logical replication between PowerDNS Auth backends may be stalled.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: KeepalivedVIPFlap
+          expr: |-
+            changes(keepalived_vrrp_state{job="keepalived"}[10m]) > 4
+          for: 0m
+          keep_firing_for: 15m
+          annotations:
+            summary: "Keepalived VIP state flapped {{ $value }} times in 10m on {{ $labels.instance }}"
+            description: |-
+              The DNS VIP (192.168.123.249) changed master/backup state repeatedly.
+              Health check may be flapping; investigate check-dns-health.sh and network between nodes.
+          labels:
+            severity: warning
+            component: dns
+
     # WAN / Gateway Alerts
     - name: wan-gateway.rules
       interval: 30s

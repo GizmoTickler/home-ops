@@ -417,3 +417,19 @@ spec:
       scrapeTimeout: 10s
       labels:
         job: dnscrypt-proxy
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: postgres-exporter
+spec:
+  jobName: postgres-exporter
+  targetEndpoints:
+    - targets:
+        - dns0.${SECRET_DOMAIN}:9187
+        - dns1.${SECRET_DOMAIN}:9187
+      path: /metrics
+      scrapeTimeout: 10s
+      labels:
+        job: postgres-exporter
