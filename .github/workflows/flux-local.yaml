@@ -131,11 +131,115 @@ jobs:
             ${{ steps.diff.outputs.diff }}
             ```
 
+  cluster-dryrun:
+    if: ${{ needs.filter.outputs.changed-files != '[]' }}
+    needs: filter
+    name: Flux Local - Cluster Dry-Run
+    # Self-hosted ARC runner; in-cluster SA home-ops-runner is cluster-admin
+    runs-on: home-ops-runner
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Generate Token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        id: app-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+
+      - name: Checkout Pull Request Branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Install kubectl
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o "$HOME/.local/bin/kubectl"
+          chmod +x "$HOME/.local/bin/kubectl"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Render HelmReleases from PR branch
+        uses: docker://ghcr.io/allenporter/flux-local:v8.1.0
+        with:
+          args: >-
+            build helmrelease
+            --all-namespaces
+            --enable-helm
+            --path /github/workspace/kubernetes/flux/cluster
+            --output /github/workspace/rendered.yaml
+
+      - name: Server-side dry-run against live cluster
+        id: dryrun
+        shell: bash
+        run: |
+          set -o pipefail
+          # In-cluster kubeconfig auto-detected from runner pod SA.
+          # --server-side + --force-conflicts mirrors how Flux helm-controller applies.
+          # --dry-run=server runs full admission + validation but persists nothing.
+          kubectl apply \
+            --server-side=true \
+            --force-conflicts \
+            --dry-run=server \
+            --validate=true \
+            --field-manager=ci-dryrun \
+            -f rendered.yaml 2>&1 | tee dryrun.log || true
+
+          # Fail job on any admission rejection:
+          #   "field is immutable" -> STS selector, Service.clusterIP, Job template
+          #   "Invalid value"      -> schema / CEL validation
+          #   "is forbidden"       -> quota / PSA / admission policy
+          #   "admission webhook ... denied" -> validating webhook
+          violations=$(grep -E 'Invalid value|field is immutable|is forbidden|admission webhook .* denied' dryrun.log || true)
+          if [ -n "$violations" ]; then
+            {
+              echo '## Server-side dry-run REJECTED by live cluster'
+              echo ''
+              echo 'Upgrade cannot be applied as-is. This PR will fail at merge time.'
+              echo ''
+              echo '```'
+              echo "$violations" | head -80
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo 'has_violations=true' >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo 'All rendered resources accepted by live cluster.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment on PR when dry-run fails
+        if: ${{ failure() && steps.dryrun.outputs.has_violations == 'true' }}
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+        with:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          header: ${{ github.event.pull_request.number }}/cluster-dryrun
+          message: |-
+            ### Cluster dry-run blocked this PR
+
+            The live cluster's API server rejected one or more rendered resources
+            during server-side dry-run. Merging would produce a failed Helm
+            upgrade — typically an immutable-field change (StatefulSet selector,
+            Service `clusterIP`, Job template, PVC size) that Helm cannot patch
+            in place.
+
+            Options:
+            - Bump the chart in a separate migration PR with a pre-upgrade hook.
+            - Pin the chart at the last working version until upstream provides
+              a migration path.
+            - If the change is safe to delete+recreate (PVC retained by default),
+              ensure the target HelmRelease has `spec.upgrade.force: true` so
+              Helm will replace the offending resource.
+
+            See the job log and step summary for the exact rejection.
+
   success:
     if: ${{ !cancelled() }}
     needs:
       - test
       - diff
+      - cluster-dryrun
     name: Flux Local - Success
     runs-on: ubuntu-latest
     steps:

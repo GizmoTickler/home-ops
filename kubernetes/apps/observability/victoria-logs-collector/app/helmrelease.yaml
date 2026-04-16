@@ -9,6 +9,9 @@ spec:
     kind: OCIRepository
     name: victoria-logs-collector
   interval: 1h
+  upgrade:
+    force: true
+    cleanupOnFail: false
   values:
     # vlagent DaemonSet — collects logs from all pods on each node
     remoteWrite:
