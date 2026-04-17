@@ -173,6 +173,33 @@ jobs:
             --path /github/workspace/kubernetes/flux/cluster
             --output /github/workspace/rendered.yaml
 
+      - name: Substitute Flux postBuild variables
+        # Mirrors Flux Kustomization postBuild.substituteFrom (cluster-config-secret).
+        # flux-local renders templates but does not run postBuild substitution, so
+        # ${SECRET_DOMAIN} etc. reach the API server literally and fail CRD regex.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import base64, json, re, subprocess, sys
+          data = json.loads(subprocess.check_output([
+              "kubectl", "-n", "flux-system", "get", "secret",
+              "cluster-config-secret", "-o", "json",
+          ]))["data"]
+          env = {k: base64.b64decode(v).decode() for k, v in data.items()}
+          with open("rendered.yaml") as f:
+              content = f.read()
+          pat = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)(?::=([^}]*))?\}")
+          def repl(m):
+              var, default = m.group(1), m.group(2)
+              if var in env:
+                  return env[var]
+              return default if default is not None else m.group(0)
+          with open("rendered.yaml", "w") as f:
+              f.write(pat.sub(repl, content))
+          print("Substituted keys: " + ", ".join(sorted(env)), file=sys.stderr)
+          PY
+
       - name: Server-side dry-run against live cluster
         id: dryrun
         shell: bash
