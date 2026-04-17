@@ -96,25 +96,17 @@ spec:
             severity: warning
             component: postgres
 
-        - alert: KeaHAUnsentUpdatesHigh
-          expr: |-
-            max_over_time(kea_ha_unsent_update_count{job="kea-dhcp4"}[5m]) > 50
-          for: 5m
-          keep_firing_for: 5m
-          annotations:
-            summary: "Kea HA partner has {{ $value }} unsent lease updates on {{ $labels.instance }}"
-            description: |-
-              Kea HA on {{ $labels.instance }} has queued >50 lease updates toward its partner.
-              Partner may be slow, unreachable, or the backlog indicates a network issue between nodes.
-          labels:
-            severity: warning
-            component: dhcp
+        # NOTE: KeaHAUnsentUpdatesHigh removed 2026-04-17 — kea-exporter (Python
+        # patched for Kea 3.0) does not emit kea_ha_unsent_update_count or any
+        # kea_*_ha_* metrics. If HA visibility is needed, use the Kea HA status
+        # command via control agent and a custom exporter.
 
         - alert: RecursorCacheHitRatioLow
+          # PowerDNS recursor exposes counters without _total suffix (pdns_recursor_packetcache_hits/misses).
           expr: |-
-            (sum by (instance) (rate(pdns_recursor_packetcache_hits_total{job="pdns-recursor"}[15m]))
-             / (sum by (instance) (rate(pdns_recursor_packetcache_hits_total{job="pdns-recursor"}[15m]))
-               + sum by (instance) (rate(pdns_recursor_packetcache_misses_total{job="pdns-recursor"}[15m])))) < 0.3
+            (sum by (instance) (rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]))
+             / (sum by (instance) (rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]))
+               + sum by (instance) (rate(pdns_recursor_packetcache_misses{job="pdns-recursor"}[15m])))) < 0.3
           for: 30m
           keep_firing_for: 5m
           annotations:
@@ -126,33 +118,43 @@ spec:
             severity: info
             component: dns
 
-        - alert: DNSZoneSerialDrift
+        # NOTE: DNSZoneSerialDrift removed 2026-04-17 — the PowerDNS Auth
+        # built-in Prometheus exporter does not expose per-zone SOA serial
+        # (pdns_authoritative_zone_soa_serial does not exist). Zone drift is
+        # instead covered indirectly by Spock ReplicationSlotInactive /
+        # ReplicationLagHigh on the postgres-exporter. If per-zone visibility
+        # is needed, scrape the PowerDNS HTTP API /servers/localhost/zones.
+
+        - alert: KeepalivedVIPFlap
+          # dns_keepalived_is_master is a textfile-collector metric on each
+          # node-exporter (dns0/dns1:9100). Count state changes across both
+          # instances; a healthy stable state has 0 changes in 10m.
           expr: |-
-            max(pdns_authoritative_zone_soa_serial{job="pdns-auth"}) by (domain)
-              - min(pdns_authoritative_zone_soa_serial{job="pdns-auth"}) by (domain) > 0
-          for: 10m
-          keep_firing_for: 5m
+            sum(changes(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}[10m])) > 4
+          for: 0m
+          keep_firing_for: 15m
           annotations:
-            summary: "Zone serial drift for {{ $labels.domain }}"
+            summary: "Keepalived DNS VIP flapped {{ $value }} times in 10m"
             description: |-
-              SOA serial for {{ $labels.domain }} differs between dns0 and dns1 for 10m.
-              Spock logical replication between PowerDNS Auth backends may be stalled.
+              The DNS VIP (192.168.123.249) changed master/backup state repeatedly across dns0/dns1.
+              Health check may be flapping; investigate check-dns-health.sh and network between nodes.
           labels:
             severity: warning
             component: dns
 
-        - alert: KeepalivedVIPFlap
+        - alert: KeepalivedNoMaster
+          # Either: no master elected (sum == 0) or split-brain (sum > 1)
           expr: |-
-            changes(keepalived_vrrp_state{job="keepalived"}[10m]) > 4
-          for: 0m
-          keep_firing_for: 15m
+            sum(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}) != 1
+          for: 2m
+          keep_firing_for: 5m
           annotations:
-            summary: "Keepalived VIP state flapped {{ $value }} times in 10m on {{ $labels.instance }}"
+            summary: "Keepalived DNS VIP election unhealthy (count={{ $value }})"
             description: |-
-              The DNS VIP (192.168.123.249) changed master/backup state repeatedly.
-              Health check may be flapping; investigate check-dns-health.sh and network between nodes.
+              Expected exactly 1 master for the DNS VIP. Current master count: {{ $value }}.
+              0 = no master (VIP offline); >1 = split-brain (both nodes claim master).
           labels:
-            severity: warning
+            severity: critical
             component: dns
 
     # WAN / Gateway Alerts

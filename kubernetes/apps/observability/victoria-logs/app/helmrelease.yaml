@@ -29,7 +29,13 @@ spec:
         size: 500Gi
       retentionPeriod: 14d
       serviceMonitor:
-        enabled: true
+        # Disabled — chart 0.12.0 ServiceMonitor selector (`app: server`) no longer
+        # matches the Service labels (`app.kubernetes.io/component: server`). The
+        # vm-operator auto-converts this broken ServiceMonitor and overwrites the
+        # Flux-managed VMServiceScrape at kubernetes/apps/observability/victoria-logs/
+        # app/vmservicescrape.yaml, silently dropping VL server scraping. The Flux
+        # VMServiceScrape uses the correct `app.kubernetes.io/name` selector.
+        enabled: false
       extraArgs:
         search.maxConcurrentRequests: "8"
         search.maxQueueDuration: "30s"
