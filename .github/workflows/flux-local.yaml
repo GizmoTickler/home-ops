@@ -252,13 +252,28 @@ jobs:
             Service `clusterIP`, Job template, PVC size) that Helm cannot patch
             in place.
 
-            Options:
-            - Bump the chart in a separate migration PR with a pre-upgrade hook.
+            This gate is the sole safety net: `spec.upgrade.force: true` is no
+            longer usable because recent Helm / helm-controller versions reject
+            the combination of Helm `--force` (replace) with the SSA
+            `ForceConflicts` that the upgrade path now uses by default
+            (`cannot use force conflicts and force replace together`).
+
+            Resolution options:
             - Pin the chart at the last working version until upstream provides
               a migration path.
-            - If the change is safe to delete+recreate (PVC retained by default),
-              ensure the target HelmRelease has `spec.upgrade.force: true` so
-              Helm will replace the offending resource.
+            - Split the change into a separate migration PR that performs the
+              pre-upgrade resource deletion manually:
+              ```
+              kubectl delete <kind>/<name> -n <ns> --cascade=orphan
+              ```
+              `--cascade=orphan` leaves child pods + PVCs in place. For
+              StatefulSets, PVCs created via `volumeClaimTemplates` are
+              retained by the default `whenDeleted: Retain` policy, so data
+              survives. After the delete, merge the PR and Flux will create
+              the fresh resource with the new selector/spec; the existing PVCs
+              re-attach by name.
+            - If the rejected resource is a Service (`clusterIP is immutable`)
+              or a Job, full delete+recreate is safe — no data concerns.
 
             See the job log and step summary for the exact rejection.
 

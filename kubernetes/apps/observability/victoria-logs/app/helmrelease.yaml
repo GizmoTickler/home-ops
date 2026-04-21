@@ -11,9 +11,6 @@ spec:
   interval: 1h
   timeout: 10m
   upgrade:
-    # Delete+recreate on immutable-field changes (chart selector / service / PVC).
-    # PVCs from volumeClaimTemplates are retained; server logs data is preserved.
-    force: true
     # Do NOT tear down resources on failed upgrade — leave the old workload
     # running / crashlooping so we can diagnose. Prior incident (chart 0.12.0
     # selector change) silently deleted the STS with cleanupOnFail: true.
