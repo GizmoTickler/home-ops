@@ -11,10 +11,6 @@ spec:
     kind: OCIRepository
     name: rook-ceph
   upgrade:
-    # Operator Deployment + RBAC; OSD/MON StatefulSets are owned by the
-    # CephCluster CR and not directly rendered by this chart — force here
-    # only affects operator-managed resources.
-    force: true
     cleanupOnFail: false
   values:
     csi:

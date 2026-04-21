@@ -10,10 +10,6 @@ spec:
     name: victoria-metrics-k8s-stack
   interval: 1h
   upgrade:
-    # Operator-managed CRs (VMSingle/VMAgent/VMAlertmanager) create their own
-    # StatefulSets — those aren't subject to force here — but the operator
-    # Deployment/RBAC may restructure labels/selectors on minor bumps.
-    force: true
     cleanupOnFail: false
   values:
     fullnameOverride: stack

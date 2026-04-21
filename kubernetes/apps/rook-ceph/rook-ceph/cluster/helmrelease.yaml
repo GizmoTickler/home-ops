@@ -11,9 +11,6 @@ spec:
   interval: 1h
   timeout: 15m
   upgrade:
-    # CephCluster/CephBlockPool/CephFilesystem CRs — chart changes typically
-    # restructure these; force lets Helm replace CRs the operator reconciles.
-    force: true
     cleanupOnFail: false
   values:
     monitoring:
