@@ -101,19 +101,42 @@ spec:
         # kea_*_ha_* metrics. If HA visibility is needed, use the Kea HA status
         # command via control agent and a custom exporter.
 
-        - alert: RecursorCacheHitRatioLow
-          # PowerDNS recursor exposes counters without _total suffix (pdns_recursor_packetcache_hits/misses).
+        - alert: DNSCacheHitRatioLow
+          # 3-layer cache architecture (2026-04-07): dnsdist (200K entries, minTTL=60s)
+          # fronts recursor (100K record, 50K packet cache). dnsdist absorbs most repeat
+          # queries, so the recursor sees mostly unique/fresh queries — a low RECURSOR
+          # packet-cache hit ratio in isolation is EXPECTED and not a regression. We now
+          # measure the EFFECTIVE 3-layer hit ratio: a query is a "hit" if it is served
+          # from either the dnsdist packet cache OR the recursor packet cache, i.e. did
+          # not require a recursor lookup beyond the packet cache.
+          #   (dnsdist_hits + recursor_packetcache_hits) / total_queries
+          # Total queries are taken from dnsdist_queries (all queries ingress the stack
+          # through dnsdist). Threshold lowered to <70% (typical healthy: 85-90%).
+          # NOTE: dnsdist scrapes on :8083 and pdns-recursor on :8092 on the
+          # same hosts, so raw `instance` labels differ between the two layers
+          # and `sum by (instance)` + `+` will NOT align them (returns empty).
+          # We strip the :port via label_replace and aggregate by the resulting
+          # `host` label so the two layers combine per-host.
           expr: |-
-            (sum by (instance) (rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]))
-             / (sum by (instance) (rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]))
-               + sum by (instance) (rate(pdns_recursor_packetcache_misses{job="pdns-recursor"}[15m])))) < 0.3
-          for: 30m
+            (
+              (
+                sum by (host) (label_replace(rate(dnsdist_cache_hits{job="dnsdist"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
+                +
+                sum by (host) (label_replace(rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
+              )
+              /
+              clamp_min(
+                sum by (host) (label_replace(rate(dnsdist_queries{job="dnsdist"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
+              , 1)
+            ) < 0.7
+          for: 1h
           keep_firing_for: 5m
           annotations:
-            summary: "Recursor packet cache hit ratio <30% on {{ $labels.instance }}"
+            summary: "Effective DNS cache hit ratio <70% on {{ $labels.host }}"
             description: |-
-              Hit ratio: {{ $value | humanizePercentage }} for 30m.
-              Likely a warming period after restart, unusual query mix, or a cache configuration regression.
+              Combined dnsdist + recursor packet cache hit ratio: {{ $value | humanizePercentage }} for 1h.
+              Typical healthy value is 85-90%. Likely a warming period after restart, unusual query
+              mix, or a cache configuration regression in the 3-layer stack.
           labels:
             severity: info
             component: dns
