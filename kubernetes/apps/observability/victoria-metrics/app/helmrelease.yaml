@@ -199,7 +199,7 @@ spec:
               - send_resolved: true
                 timeout: 10s
                 max_alerts: 5
-                url: http://192.168.120.14:8644/webhooks/alertmanager-diagnostics
+                url: http://192.168.120.14:8644/webhooks/amdiag
           - name: pushover
             pushover_configs:
               - html: true
