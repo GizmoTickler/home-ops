@@ -145,6 +145,14 @@ spec:
               repeat_interval: 5m
               matchers:
                 - alertname=Watchdog
+            # Friday3 diagnostics - parallel path; Pushover still receives below
+            - receiver: friday3-diagnostics
+              continue: true
+              group_wait: 0s
+              group_interval: 5m
+              repeat_interval: 12h
+              matchers:
+                - severity=~"warning|critical"
             # Warning alerts
             - receiver: pushover
               group_wait: 1m
@@ -186,6 +194,12 @@ spec:
               - url_secret:
                   name: &secret alertmanager-secret
                   key: ALERTMANAGER_HEARTBEAT_URL
+          - name: friday3-diagnostics
+            webhook_configs:
+              - send_resolved: true
+                timeout: 10s
+                max_alerts: 5
+                url: http://192.168.120.14:8644/webhooks/alertmanager-diagnostics
           - name: pushover
             pushover_configs:
               - html: true
