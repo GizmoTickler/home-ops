@@ -17,8 +17,8 @@ spec:
         - unifi.${SECRET_DOMAIN}
         - jellyfin.${SECRET_DOMAIN}
         - s3.${SECRET_DOMAIN}
-        - twingate0.${SECRET_DOMAIN}
-        - twingate1.${SECRET_DOMAIN}
+        - edge0.${SECRET_DOMAIN}
+        - edge1.${SECRET_DOMAIN}
         - dns0.${SECRET_DOMAIN}
         - dns1.${SECRET_DOMAIN}
         - gateway0.${SECRET_DOMAIN}
