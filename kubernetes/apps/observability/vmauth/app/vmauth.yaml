@@ -47,6 +47,7 @@ spec:
     maxConcurrentRequests: "32"
     maxConcurrentPerUserRequests: "16"
     maxIdleConnsPerBackend: "32"
+    requestBufferSize: "65536"
   resources:
     requests:
       cpu: 50m

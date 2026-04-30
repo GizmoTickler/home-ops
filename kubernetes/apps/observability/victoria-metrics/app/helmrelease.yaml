@@ -11,6 +11,10 @@ spec:
   interval: 1h
   upgrade:
     cleanupOnFail: false
+  valuesFrom:
+    - kind: ConfigMap
+      name: flux-metrics-configmap
+      valuesKey: flux-metrics.yaml
   values:
     fullnameOverride: stack
 
