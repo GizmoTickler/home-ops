@@ -24,6 +24,11 @@ func TestContextAndGitHelpers(t *testing.T) {
 	assert.Contains(t, string(combined), "out")
 	assert.Contains(t, string(combined), "err")
 
+	redactedCombined, err := RunCommandWithContext(context.Background(), "sh", "-c", "printf 'token: synthetic-test-fixture' >&2; exit 1")
+	require.Error(t, err)
+	assert.Contains(t, string(redactedCombined), "token: <redacted>")
+	assert.NotContains(t, string(redactedCombined), "synthetic-test-fixture")
+
 	output, err := RunCommandWithContextOutput(context.Background(), "sh", "-c", "printf stdout-only")
 	require.NoError(t, err)
 	assert.Equal(t, "stdout-only", string(output))

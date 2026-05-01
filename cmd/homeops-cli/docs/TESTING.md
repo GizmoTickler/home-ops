@@ -16,10 +16,12 @@ This document provides comprehensive guidance for testing the HomeOps CLI, inclu
 
 ## Overview
 
-The HomeOps CLI uses a comprehensive testing strategy that includes:
+The HomeOps CLI uses a comprehensive testing strategy that keeps the default
+suite hermetic. Plain `go test ./...` and `make test` do not opt into tests
+that require live Talos, Kubernetes, 1Password, or bootstrap infrastructure.
 
 - **Unit Tests**: Test individual functions and components in isolation
-- **Integration Tests**: Test component interactions and workflows
+- **Live Integration Tests**: Test workflows that require local infrastructure and must be run with the `integration` build tag
 - **Benchmark Tests**: Performance testing for critical operations
 - **End-to-End Tests**: Full workflow testing with real or simulated infrastructure
 
@@ -33,14 +35,14 @@ cmd/homeops-cli/
 ├── cmd/
 │   ├── bootstrap/
 │   │   ├── bootstrap_test.go   # Unit tests
-│   │   └── integration_test.go # Integration tests
+│   │   └── integration_test.go # Live integration tests, build tag: integration
 │   ├── talos/
 │   │   └── talos_test.go      # Unit tests
 │   ├── kubernetes/
 │   │   └── kubernetes_test.go # Unit tests
 │   └── volsync/
 │       └── volsync_test.go    # Unit tests
-├── integration_test.go        # System-wide integration tests
+├── integration_test.go        # System-wide live integration tests, build tag: integration
 └── docs/
     └── TESTING.md            # This file
 ```
@@ -87,11 +89,14 @@ func TestValidateVMName(t *testing.T) {
 }
 ```
 
-### Integration Tests
+### Live Integration Tests
 
-Integration tests verify that components work correctly together. They may use real or simulated external services.
+Live integration tests verify that components work correctly with local
+infrastructure. They may invoke Talos, Kubernetes, 1Password-backed flows, or
+bootstrap paths, so they are guarded with the `integration` build tag and are
+excluded from default `go test ./...` runs.
 
-**Running Integration Tests:**
+**Running Live Integration Tests:**
 ```bash
 make test-integration
 ```
@@ -114,13 +119,16 @@ func BenchmarkConfigRendering(b *testing.B) {
 ### Basic Test Commands
 
 ```bash
-# Run all tests
+# Run the default hermetic suite
+go test ./...
+
+# Run the race-enabled hermetic short suite
 make test
 
 # Run only unit tests (short tests)
 make test-unit
 
-# Run integration tests
+# Run live integration tests
 make test-integration
 
 # Run tests with coverage
@@ -243,7 +251,7 @@ make test-tdd
 - Test files: `*_test.go`
 - Test functions: `TestFunctionName`
 - Benchmark functions: `BenchmarkFunctionName`
-- Integration tests: Include `// +build integration` tag
+- Live integration tests: Include both `//go:build integration` and `// +build integration` tags at the top of the file
 
 ### Test Structure
 
@@ -331,6 +339,14 @@ func TestWithEnvironment(t *testing.T) {
 - `SetEnvs(t, envs)`: Set multiple environment variables
 - `ExecuteCommand(cmd, args...)`: Execute cobra command
 - `CaptureOutput(func())`: Capture stdout/stderr
+- `CheckNoSecretOutput(output)`: Check captured output for obvious secret-looking labels or PEM block markers
+- `RequireNoSecretOutput(t, outputs...)`: Fail a test if captured output contains those patterns
+
+Use `RequireNoSecretOutput` when a test captures command output from flows that
+could accidentally print credentials. The guard is intentionally conservative:
+it flags obvious labels such as `VALUE:`, common token fields, and raw private
+key or certificate block markers. It is not a replacement for avoiding real
+secrets in test fixtures.
 
 #### Mocks
 

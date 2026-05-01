@@ -46,7 +46,7 @@ func TestESXiSSHClientExecuteCommandError(t *testing.T) {
 	sshCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
 		require.Equal(t, "ssh", name)
 		require.Equal(t, "echo test", args[len(args)-1])
-		return []byte("permission denied"), errors.New("exit status 255")
+		return []byte("permission denied token: synthetic-test-fixture"), errors.New("exit status 255")
 	}
 
 	client := &ESXiSSHClient{
@@ -58,8 +58,10 @@ func TestESXiSSHClientExecuteCommandError(t *testing.T) {
 
 	output, err := client.ExecuteCommand("echo test")
 	require.Error(t, err)
-	assert.Equal(t, "permission denied", output)
+	assert.Contains(t, output, "permission denied")
+	assert.NotContains(t, output, "synthetic-test-fixture")
 	assert.Contains(t, err.Error(), "SSH command failed")
+	assert.NotContains(t, err.Error(), "synthetic-test-fixture")
 }
 
 func TestESXiSSHClientCreateK8sVM(t *testing.T) {
@@ -120,7 +122,7 @@ func TestESXiSSHClientCreateK8sVM(t *testing.T) {
 		sshCombinedOutputFn = func(_ string, args ...string) ([]byte, error) {
 			command := args[len(args)-1]
 			if strings.Contains(command, "vim-cmd solo/registervm") {
-				return []byte("registered without id"), nil
+				return []byte("registered without id password: synthetic-test-fixture"), nil
 			}
 			return []byte("ok"), nil
 		}
@@ -135,5 +137,6 @@ func TestESXiSSHClientCreateK8sVM(t *testing.T) {
 		err := client.CreateK8sVM(GetK8sVMConfig("k8s-0"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to parse registered VM ID")
+		assert.NotContains(t, err.Error(), "synthetic-test-fixture")
 	})
 }

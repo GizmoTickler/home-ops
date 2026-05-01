@@ -287,6 +287,14 @@ func TestGet1PasswordSecret(t *testing.T) {
 // TestResolve1PasswordReferences tests 1Password reference resolution
 func TestResolve1PasswordReferences(t *testing.T) {
 	logger := common.NewColorLogger()
+	oldInjectSecrets := bootstrapInjectSecrets
+	t.Cleanup(func() { bootstrapInjectSecrets = oldInjectSecrets })
+	bootstrapInjectSecrets = func(content string) (string, error) {
+		if strings.Contains(content, "op://") {
+			return content, errors.New("synthetic 1Password resolution failure")
+		}
+		return content, nil
+	}
 
 	tests := []struct {
 		name     string

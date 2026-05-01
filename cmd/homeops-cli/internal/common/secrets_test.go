@@ -1,9 +1,11 @@
 package common
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -102,6 +104,71 @@ func TestInjectSecrets_AggregatedErrors(t *testing.T) {
 	// Expect both references mentioned in error
 	if !contains(err.Error(), "op://Vault/NeedsSignin/Key") || !contains(err.Error(), "op://Vault/Missing/Key") {
 		t.Fatalf("expected aggregated error to include both refs, got: %v", err)
+	}
+}
+
+func TestSecretResolverInjectCachesDuplicateReferences(t *testing.T) {
+	calls := 0
+	resolver := NewSecretResolverWithReader(func(reference string) (string, error) {
+		calls++
+		if reference != "op://Vault/Item/Field" {
+			t.Fatalf("unexpected reference: %s", reference)
+		}
+		return "fake-shared-value", nil
+	})
+
+	out, err := resolver.InjectSecrets("a: op://Vault/Item/Field\nb: op://Vault/Item/Field\n")
+	if err != nil {
+		t.Fatalf("InjectSecrets returned error: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("expected duplicate reference to be read once, got %d reads", calls)
+	}
+	if strings.Count(out, "fake-shared-value") != 2 {
+		t.Fatalf("expected both references to be replaced with fake value, got: %s", out)
+	}
+}
+
+func TestSecretResolverCachesFailures(t *testing.T) {
+	calls := 0
+	readErr := errors.New("fake read failure")
+	resolver := NewSecretResolverWithReader(func(string) (string, error) {
+		calls++
+		return "", readErr
+	})
+
+	for i := 0; i < 2; i++ {
+		if _, err := resolver.Resolve("op://Vault/Item/Field"); !errors.Is(err, readErr) {
+			t.Fatalf("expected cached failure %v, got %v", readErr, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("expected failed reference to be read once, got %d reads", calls)
+	}
+}
+
+func TestSecretResolverResolvesDistinctReferencesIndependently(t *testing.T) {
+	calls := map[string]int{}
+	values := map[string]string{
+		"op://Vault/Item/One": "fake-one-value",
+		"op://Vault/Item/Two": "fake-two-value",
+	}
+	resolver := NewSecretResolverWithReader(func(reference string) (string, error) {
+		calls[reference]++
+		return values[reference], nil
+	})
+
+	out, err := resolver.InjectSecrets("a: op://Vault/Item/One\nb: op://Vault/Item/Two\n")
+	if err != nil {
+		t.Fatalf("InjectSecrets returned error: %v", err)
+	}
+	for _, ref := range []string{"op://Vault/Item/One", "op://Vault/Item/Two"} {
+		if calls[ref] != 1 {
+			t.Fatalf("expected %s to be read once, got %d reads", ref, calls[ref])
+		}
+		if !strings.Contains(out, values[ref]) {
+			t.Fatalf("expected output to contain fake resolved value for %s, got: %s", ref, out)
+		}
 	}
 }
 

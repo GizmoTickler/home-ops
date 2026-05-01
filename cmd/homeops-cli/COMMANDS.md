@@ -207,6 +207,7 @@ homeops-cli k8s view-secret my-secret -n default
 homeops-cli k8s view-secret my-secret -n default -k password
 homeops-cli k8s view-secret my-secret -n default -o json
 homeops-cli k8s view-secret
+homeops-cli k8s view-secret my-secret -n default -k password --unsafe-reveal-values --i-understand-this-prints-secrets
 
 homeops-cli k8s force-sync-externalsecret my-secret -n default
 homeops-cli k8s force-sync-externalsecret --all -n default
@@ -214,7 +215,8 @@ homeops-cli k8s force-sync-externalsecret --all -n default
 
 Notes:
 
-- `view-secret` supports `table`, `json`, and `yaml` output.
+- `view-secret` supports `table`, `json`, and `yaml` output and shows key metadata by default: decoded byte length and a short SHA-256 fingerprint prefix.
+- Decoded secret values are only printed when both `--unsafe-reveal-values` and `--i-understand-this-prints-secrets` are provided. Redirected or piped unsafe output also requires `--unsafe-force-non-tty`.
 - If you omit the secret name and `default` has no secrets, `view-secret` now prompts for another namespace instead of failing immediately.
 - `force-sync-externalsecret` accepts either a secret name or `--all`.
 

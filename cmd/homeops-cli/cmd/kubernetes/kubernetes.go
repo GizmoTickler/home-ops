@@ -2,6 +2,8 @@ package kubernetes
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -65,6 +67,10 @@ var (
 		decodeCmd := exec.Command("base64", "-d")
 		decodeCmd.Stdin = strings.NewReader(value)
 		return decodeCmd.Output()
+	}
+	isStdoutTerminalFn = func() bool {
+		info, err := os.Stdout.Stat()
+		return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 	}
 	fluxBuildKustomizationFn = func(name, namespace, path, ksFile string) ([]byte, error) {
 		return common.Command("flux", "build", "kustomization", name,
@@ -710,28 +716,38 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 
 func newViewSecretCommand() *cobra.Command {
 	var (
-		namespace  string
-		format     string
-		key        string
-		secretName string
+		namespace                    string
+		format                       string
+		key                          string
+		secretName                   string
+		unsafeRevealValues           bool
+		unsafeAcknowledgePrintSecret bool
+		unsafeForceNonTTY            bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "view-secret [secret-name]",
-		Short: "View decoded secret data",
-		Long:  `Retrieves and decodes secret data, displaying it in the specified format. If secret name is not provided, presents an interactive selector.`,
+		Short: "View safe secret metadata",
+		Long:  `Retrieves secret data and displays safe metadata by default. If secret name is not provided, presents an interactive selector.`,
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				secretName = args[0]
 			}
-			return viewSecret(namespace, secretName, format, key)
+			return viewSecretWithOptions(namespace, secretName, format, key, viewSecretOptions{
+				unsafeRevealValues:           unsafeRevealValues,
+				unsafeAcknowledgePrintSecret: unsafeAcknowledgePrintSecret,
+				unsafeForceNonTTY:            unsafeForceNonTTY,
+			})
 		},
 	}
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "Kubernetes namespace")
 	cmd.Flags().StringVarP(&format, "format", "o", "table", "Output format (table|json|yaml)")
-	cmd.Flags().StringVarP(&key, "key", "k", "", "Specific key to view (optional)")
+	cmd.Flags().StringVarP(&key, "key", "k", "", "Specific key to inspect (optional)")
+	cmd.Flags().BoolVar(&unsafeRevealValues, "unsafe-reveal-values", false, "Unsafe: reveal decoded secret values")
+	cmd.Flags().BoolVar(&unsafeAcknowledgePrintSecret, "i-understand-this-prints-secrets", false, "Required with --unsafe-reveal-values to acknowledge secret output")
+	cmd.Flags().BoolVar(&unsafeForceNonTTY, "unsafe-force-non-tty", false, "Unsafe: allow secret output when stdout is not a terminal")
 
 	// Add completion for namespace flag
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
@@ -748,8 +764,34 @@ func listSecretNames(namespace string) ([]string, error) {
 	return strings.Fields(string(output)), nil
 }
 
+type viewSecretOptions struct {
+	unsafeRevealValues           bool
+	unsafeAcknowledgePrintSecret bool
+	unsafeForceNonTTY            bool
+}
+
+type secretKeyData struct {
+	value []byte
+	meta  secretMetadata
+}
+
+type secretMetadata struct {
+	DecodedBytes int    `json:"decodedBytes" yaml:"decodedBytes"`
+	SHA256Prefix string `json:"sha256Prefix" yaml:"sha256Prefix"`
+	ReadError    string `json:"readError,omitempty" yaml:"readError,omitempty"`
+	DecodeError  string `json:"decodeError,omitempty" yaml:"decodeError,omitempty"`
+}
+
 func viewSecret(namespace, secretName, format, key string) error {
+	return viewSecretWithOptions(namespace, secretName, format, key, viewSecretOptions{})
+}
+
+func viewSecretWithOptions(namespace, secretName, format, key string, opts viewSecretOptions) error {
 	logger := common.NewColorLogger()
+
+	if err := validateViewSecretOptions(opts); err != nil {
+		return err
+	}
 
 	// If secret name is not provided, prompt for selection
 	if secretName == "" {
@@ -808,7 +850,7 @@ func viewSecret(namespace, secretName, format, key string) error {
 		return nil
 	}
 
-	decodedData := make(map[string]string)
+	secretData := make(map[string]secretKeyData)
 
 	for _, k := range keys {
 		k = strings.TrimSpace(k)
@@ -825,23 +867,30 @@ func viewSecret(namespace, secretName, format, key string) error {
 			jsonpathExpr = fmt.Sprintf("{.data['%s']}", strings.ReplaceAll(k, "'", "\\'"))
 			encodedValue, err = commandOutputFn("kubectl", "get", "secret", secretName, "-n", namespace, "-o", "jsonpath="+jsonpathExpr)
 			if err != nil {
-				decodedData[k] = "<error reading value>"
+				secretData[k] = secretKeyData{meta: secretMetadata{ReadError: err.Error()}}
 				continue
 			}
 		}
 
 		decoded, err := decodeBase64Fn(string(encodedValue))
 		if err != nil {
-			decodedData[k] = "<error decoding>"
+			secretData[k] = secretKeyData{meta: secretMetadata{DecodeError: err.Error()}}
 		} else {
-			decodedData[k] = string(decoded)
+			secretData[k] = secretKeyData{
+				value: decoded,
+				meta:  newSecretMetadata(decoded),
+			}
 		}
 	}
 
 	// Filter by key if specified
 	if key != "" {
-		if val, ok := decodedData[key]; ok {
-			fmt.Println(val)
+		if data, ok := secretData[key]; ok {
+			if opts.unsafeRevealValues {
+				fmt.Println(secretDisplayValue(data))
+				return nil
+			}
+			printSecretMetadataTable([]string{key}, secretData)
 			return nil
 		}
 		return fmt.Errorf("key %s not found in secret", key)
@@ -850,58 +899,146 @@ func viewSecret(namespace, secretName, format, key string) error {
 	// Display based on format
 	switch format {
 	case "json":
-		fmt.Printf("{")
-		first := true
-		for k, v := range decodedData {
-			if !first {
-				fmt.Printf(",")
-			}
-			// Escape special characters in JSON
-			escapedVal := strings.ReplaceAll(v, "\\", "\\\\")
-			escapedVal = strings.ReplaceAll(escapedVal, "\"", "\\\"")
-			escapedVal = strings.ReplaceAll(escapedVal, "\n", "\\n")
-			escapedVal = strings.ReplaceAll(escapedVal, "\r", "\\r")
-			escapedVal = strings.ReplaceAll(escapedVal, "\t", "\\t")
-			fmt.Printf("\n  \"%s\": \"%s\"", k, escapedVal)
-			first = false
-		}
-		fmt.Printf("\n}\n")
+		return printSecretJSON(secretData, opts.unsafeRevealValues)
 	case "yaml":
-		for k, v := range decodedData {
-			// Handle multiline values
-			if strings.Contains(v, "\n") {
-				fmt.Printf("%s: |\n", k)
-				for _, line := range strings.Split(v, "\n") {
-					fmt.Printf("  %s\n", line)
-				}
-			} else {
-				fmt.Printf("%s: %s\n", k, v)
-			}
-		}
+		return printSecretYAML(secretData, opts.unsafeRevealValues)
 	default: // table
 		logger.Info("Secret: %s/%s", namespace, secretName)
 		fmt.Printf("\n")
 
-		// For each key, show it with full value (no truncation)
-		for k, v := range decodedData {
-			// Check if value is multiline
-			if strings.Contains(v, "\n") {
-				// Multiline value - show key and indicate it's multiline
-				lines := strings.Split(v, "\n")
-				fmt.Printf("KEY: %s\n", k)
-				fmt.Printf("VALUE (multiline, %d lines):\n", len(lines))
-				fmt.Printf("%s\n", strings.Repeat("-", 80))
-				fmt.Println(v)
-				fmt.Printf("%s\n\n", strings.Repeat("-", 80))
-			} else {
-				// Single line value - show in compact format
-				fmt.Printf("KEY: %s\n", k)
-				fmt.Printf("VALUE: %s\n\n", v)
-			}
-		}
+		printSecretTable(secretData, opts.unsafeRevealValues)
 	}
 
 	return nil
+}
+
+func validateViewSecretOptions(opts viewSecretOptions) error {
+	if opts.unsafeRevealValues != opts.unsafeAcknowledgePrintSecret {
+		if opts.unsafeRevealValues {
+			return fmt.Errorf("--unsafe-reveal-values requires --i-understand-this-prints-secrets")
+		}
+		return fmt.Errorf("--i-understand-this-prints-secrets requires --unsafe-reveal-values")
+	}
+	if opts.unsafeRevealValues && !opts.unsafeForceNonTTY && !isStdoutTerminalFn() {
+		return fmt.Errorf("refusing to print secret values because stdout is not a terminal; add --unsafe-force-non-tty for local-only redirected output")
+	}
+	return nil
+}
+
+func newSecretMetadata(value []byte) secretMetadata {
+	sum := sha256.Sum256(value)
+	return secretMetadata{
+		DecodedBytes: len(value),
+		SHA256Prefix: fmt.Sprintf("%x", sum)[:12],
+	}
+}
+
+func sortedSecretKeys(data map[string]secretKeyData) []string {
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func secretMetadataMap(data map[string]secretKeyData) map[string]secretMetadata {
+	output := make(map[string]secretMetadata, len(data))
+	for k, v := range data {
+		output[k] = v.meta
+	}
+	return output
+}
+
+func secretValueMap(data map[string]secretKeyData) map[string]string {
+	output := make(map[string]string, len(data))
+	for k, v := range data {
+		output[k] = secretDisplayValue(v)
+	}
+	return output
+}
+
+func secretDisplayValue(data secretKeyData) string {
+	switch {
+	case data.meta.ReadError != "":
+		return "<error reading value>"
+	case data.meta.DecodeError != "":
+		return "<error decoding>"
+	default:
+		return string(data.value)
+	}
+}
+
+func printSecretJSON(data map[string]secretKeyData, revealValues bool) error {
+	var output []byte
+	var err error
+	if revealValues {
+		output, err = json.MarshalIndent(secretValueMap(data), "", "  ")
+	} else {
+		output, err = json.MarshalIndent(secretMetadataMap(data), "", "  ")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to marshal secret output: %w", err)
+	}
+	fmt.Println(string(output))
+	return nil
+}
+
+func printSecretYAML(data map[string]secretKeyData, revealValues bool) error {
+	var output []byte
+	var err error
+	if revealValues {
+		output, err = yaml.Marshal(secretValueMap(data))
+	} else {
+		output, err = yaml.Marshal(secretMetadataMap(data))
+	}
+	if err != nil {
+		return fmt.Errorf("failed to marshal secret output: %w", err)
+	}
+	fmt.Print(string(output))
+	return nil
+}
+
+func printSecretTable(data map[string]secretKeyData, revealValues bool) {
+	if revealValues {
+		printSecretValuesTable(sortedSecretKeys(data), data)
+		return
+	}
+	printSecretMetadataTable(sortedSecretKeys(data), data)
+}
+
+func printSecretMetadataTable(keys []string, data map[string]secretKeyData) {
+	for _, k := range keys {
+		meta := data[k].meta
+		fmt.Printf("KEY: %s\n", k)
+		if meta.ReadError != "" {
+			fmt.Printf("READ_ERROR: %s\n\n", meta.ReadError)
+			continue
+		}
+		if meta.DecodeError != "" {
+			fmt.Printf("DECODE_ERROR: %s\n\n", meta.DecodeError)
+			continue
+		}
+		fmt.Printf("DECODED_BYTES: %d\n", meta.DecodedBytes)
+		fmt.Printf("SHA256_PREFIX: %s\n\n", meta.SHA256Prefix)
+	}
+}
+
+func printSecretValuesTable(keys []string, data map[string]secretKeyData) {
+	for _, k := range keys {
+		v := secretDisplayValue(data[k])
+		if strings.Contains(v, "\n") {
+			lines := strings.Split(v, "\n")
+			fmt.Printf("KEY: %s\n", k)
+			fmt.Printf("VALUE (multiline, %d lines):\n", len(lines))
+			fmt.Printf("%s\n", strings.Repeat("-", 80))
+			fmt.Println(v)
+			fmt.Printf("%s\n\n", strings.Repeat("-", 80))
+		} else {
+			fmt.Printf("KEY: %s\n", k)
+			fmt.Printf("VALUE: %s\n\n", v)
+		}
+	}
 }
 
 func newSyncCommand() *cobra.Command {

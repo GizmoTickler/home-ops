@@ -637,7 +637,8 @@ func (c *ESXiSSHClient) ExecuteCommand(command string) (string, error) {
 
 	output, err := sshCombinedOutputFn("ssh", args...)
 	if err != nil {
-		return string(output), fmt.Errorf("SSH command failed: %w\nOutput: %s", err, string(output))
+		redactedOutput := common.RedactCommandOutput(string(output))
+		return redactedOutput, fmt.Errorf("SSH command failed: %w\nOutput: %s", err, redactedOutput)
 	}
 
 	return string(output), nil
@@ -1182,7 +1183,7 @@ func parseRegisteredVMID(output string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("unable to find numeric VM ID in output: %s", trimmed)
+	return "", fmt.Errorf("unable to find numeric VM ID in output: %s", common.RedactCommandOutput(trimmed))
 }
 
 func isDigits(value string) bool {

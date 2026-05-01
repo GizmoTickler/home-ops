@@ -64,7 +64,7 @@ func SaveKubeconfigTo1Password(kubeconfigContent []byte, logger *ColorLogger) er
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return fmt.Errorf("failed to update kubeconfig file in 1Password: %w (output: %s)", err, string(output))
+		return fmt.Errorf("failed to update kubeconfig file in 1Password: %w (output: %s)", err, RedactCommandOutput(string(output)))
 	}
 
 	logger.Debug("Kubeconfig file updated in 1Password")
@@ -93,7 +93,7 @@ func PullKubeconfigFrom1Password(destPath string, logger *ColorLogger) error {
 	output, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return fmt.Errorf("failed to pull kubeconfig from 1Password: %w (output: %s)", err, string(output))
+		return fmt.Errorf("failed to pull kubeconfig from 1Password: %w (output: %s)", err, RedactCommandOutput(string(output)))
 	}
 
 	// Set proper permissions (600 for kubeconfig)

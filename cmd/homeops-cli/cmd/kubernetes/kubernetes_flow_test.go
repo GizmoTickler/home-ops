@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -128,29 +129,50 @@ func TestViewSecret(t *testing.T) {
 			return base64.StdEncoding.DecodeString(value)
 		}
 
-		require.NoError(t, viewSecret("media", "", "table", "password"))
+		stdout, _, err := testutil.CaptureOutput(func() {
+			require.NoError(t, viewSecret("media", "", "table", "password"))
+		})
+		require.NoError(t, err)
+		assert.Contains(t, stdout, "KEY: password")
+		assert.Contains(t, stdout, "DECODED_BYTES: 6")
+		assert.Contains(t, stdout, "SHA256_PREFIX: "+secretFingerprintPrefix([]byte("secret")))
+		assert.NotContains(t, stdout, "VALUE:")
+		assert.NotContains(t, stdout, "secret")
 	})
 
-	t.Run("json output and decode fallback", func(t *testing.T) {
+	t.Run("json output is safe and includes decode fallback metadata", func(t *testing.T) {
 		commandOutputFn = func(name string, args ...string) ([]byte, error) {
 			key := name + " " + strings.Join(args, " ")
 			switch key {
 			case "kubectl get secret app-secret -n media --template={{range $k, $v := .data}}{{$k}}{{\"\\n\"}}{{end}}":
-				return []byte("config\n"), nil
+				return []byte("config\ntoken\n"), nil
 			case "kubectl get secret app-secret -n media -o jsonpath={.data.config}":
 				return []byte("%%%"), nil
+			case "kubectl get secret app-secret -n media -o jsonpath={.data.token}":
+				return []byte(base64.StdEncoding.EncodeToString([]byte("abc123"))), nil
 			default:
 				return nil, fmt.Errorf("unexpected args: %s", key)
 			}
 		}
 		decodeBase64Fn = func(value string) ([]byte, error) {
-			return nil, errors.New("bad base64")
+			if value == "%%%" {
+				return nil, errors.New("bad base64")
+			}
+			return base64.StdEncoding.DecodeString(value)
 		}
 
-		require.NoError(t, viewSecret("media", "app-secret", "json", ""))
+		stdout, _, err := testutil.CaptureOutput(func() {
+			require.NoError(t, viewSecret("media", "app-secret", "json", ""))
+		})
+		require.NoError(t, err)
+		assert.Contains(t, stdout, "\"token\"")
+		assert.Contains(t, stdout, "\"decodedBytes\": 6")
+		assert.Contains(t, stdout, "\"sha256Prefix\": \""+secretFingerprintPrefix([]byte("abc123"))+"\"")
+		assert.Contains(t, stdout, "\"decodeError\": \"bad base64\"")
+		assert.NotContains(t, stdout, "abc123")
 	})
 
-	t.Run("yaml output uses bracket fallback for dotted keys", func(t *testing.T) {
+	t.Run("yaml output is safe and uses bracket fallback for dotted keys", func(t *testing.T) {
 		commandOutputFn = func(name string, args ...string) ([]byte, error) {
 			key := name + " " + strings.Join(args, " ")
 			switch key {
@@ -172,12 +194,14 @@ func TestViewSecret(t *testing.T) {
 			require.NoError(t, viewSecret("media", "app-secret", "yaml", ""))
 		})
 		require.NoError(t, err)
-		assert.Contains(t, stdout, "tls.crt: |")
-		assert.Contains(t, stdout, "  line1")
-		assert.Contains(t, stdout, "  line2")
+		assert.Contains(t, stdout, "tls.crt:")
+		assert.Contains(t, stdout, "decodedBytes: 11")
+		assert.Contains(t, stdout, "sha256Prefix: "+secretFingerprintPrefix([]byte("line1\nline2")))
+		assert.NotContains(t, stdout, "line1")
+		assert.NotContains(t, stdout, "line2")
 	})
 
-	t.Run("table output renders full values", func(t *testing.T) {
+	t.Run("table output renders safe metadata only", func(t *testing.T) {
 		commandOutputFn = func(name string, args ...string) ([]byte, error) {
 			key := name + " " + strings.Join(args, " ")
 			switch key {
@@ -198,7 +222,67 @@ func TestViewSecret(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Contains(t, stdout, "KEY: token")
-		assert.Contains(t, stdout, "VALUE: abc123")
+		assert.Contains(t, stdout, "DECODED_BYTES: 6")
+		assert.Contains(t, stdout, "SHA256_PREFIX: "+secretFingerprintPrefix([]byte("abc123")))
+		assert.NotContains(t, stdout, "VALUE:")
+		assert.NotContains(t, stdout, "abc123")
+	})
+
+	t.Run("unsafe reveal requires both intent flags", func(t *testing.T) {
+		_, err := testutil.ExecuteCommand(newViewSecretCommand(), "app-secret", "--unsafe-reveal-values")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--i-understand-this-prints-secrets")
+
+		_, err = testutil.ExecuteCommand(newViewSecretCommand(), "app-secret", "--i-understand-this-prints-secrets")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--unsafe-reveal-values")
+	})
+
+	t.Run("unsafe reveal refuses non terminal stdout without force", func(t *testing.T) {
+		_, _, err := testutil.CaptureOutput(func() {
+			_, execErr := testutil.ExecuteCommand(
+				newViewSecretCommand(),
+				"app-secret",
+				"--unsafe-reveal-values",
+				"--i-understand-this-prints-secrets",
+			)
+			require.Error(t, execErr)
+			assert.Contains(t, execErr.Error(), "stdout is not a terminal")
+			assert.Contains(t, execErr.Error(), "--unsafe-force-non-tty")
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("unsafe reveal with force prints fake key value", func(t *testing.T) {
+		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+			key := name + " " + strings.Join(args, " ")
+			switch key {
+			case "kubectl get secret app-secret -n media --template={{range $k, $v := .data}}{{$k}}{{\"\\n\"}}{{end}}":
+				return []byte("token\n"), nil
+			case "kubectl get secret app-secret -n media -o jsonpath={.data.token}":
+				return []byte(base64.StdEncoding.EncodeToString([]byte("fake-token-value"))), nil
+			default:
+				return nil, fmt.Errorf("unexpected args: %s", key)
+			}
+		}
+		decodeBase64Fn = func(value string) ([]byte, error) {
+			return base64.StdEncoding.DecodeString(value)
+		}
+
+		stdout, _, err := testutil.CaptureOutput(func() {
+			_, execErr := testutil.ExecuteCommand(
+				newViewSecretCommand(),
+				"app-secret",
+				"--namespace", "media",
+				"--key", "token",
+				"--unsafe-reveal-values",
+				"--i-understand-this-prints-secrets",
+				"--unsafe-force-non-tty",
+			)
+			require.NoError(t, execErr)
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "fake-token-value\n", stdout)
 	})
 
 	t.Run("empty default namespace falls back to namespace selection", func(t *testing.T) {
@@ -249,6 +333,11 @@ func TestViewSecret(t *testing.T) {
 		assert.Contains(t, err.Error(), "no secrets found in namespace media")
 		assert.Contains(t, err.Error(), "--namespace")
 	})
+}
+
+func secretFingerprintPrefix(value []byte) string {
+	sum := sha256.Sum256(value)
+	return fmt.Sprintf("%x", sum)[:12]
 }
 
 func TestSyncFluxResources(t *testing.T) {

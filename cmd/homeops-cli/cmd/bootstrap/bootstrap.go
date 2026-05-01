@@ -242,6 +242,10 @@ func kubectlCombinedOutputWithInput(config *BootstrapConfig, input io.Reader, ar
 	return cmd.CombinedOutput()
 }
 
+func redactCommandOutput(output []byte) string {
+	return common.RedactCommandOutput(string(output))
+}
+
 func buildHelmfileCmd(tempDir string, config *BootstrapConfig, args ...string) *exec.Cmd {
 	cmd := common.Command("helmfile", args...)
 	cmd.Dir = tempDir
@@ -608,7 +612,7 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 				logger.Debug("Namespace %s already exists", ns)
 				continue
 			}
-			return fmt.Errorf("failed to create namespace %s: %w\nOutput: %s", ns, err, string(output))
+			return fmt.Errorf("failed to create namespace %s: %w\nOutput: %s", ns, err, redactCommandOutput(output))
 		}
 
 		logger.Debug("Successfully created namespace: %s", ns)
@@ -1424,7 +1428,7 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 		logger.Info("Talos cluster is already bootstrapped (etcd is running)")
 		return nil
 	} else {
-		logger.Debug("Cluster not bootstrapped yet: %s", string(checkOutput))
+		logger.Debug("Cluster not bootstrapped yet: %s", redactCommandOutput(checkOutput))
 	}
 
 	// Bootstrap with retry logic similar to onedr0p's implementation
@@ -1464,10 +1468,10 @@ func bootstrapTalos(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 		// Preserve last error and output for final error message
 		lastErr = err
-		lastOutput = strings.TrimSpace(outputStr)
+		lastOutput = common.RedactCommandOutput(strings.TrimSpace(outputStr))
 
 		logger.Debug("Bootstrap attempt %d failed: %v", attempts+1, err)
-		logger.Debug("Bootstrap output: %s", outputStr)
+		logger.Debug("Bootstrap output: %s", common.RedactCommandOutput(outputStr))
 
 		// Wait 5 seconds between attempts (matching onedr0p's timing)
 		if attempts < maxAttempts-1 {
@@ -1602,7 +1606,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 			currentErrorType = "certificate"
 			logger.Debug("Kubeconfig fetch: Certificate issue (elapsed: %v)", elapsed.Round(time.Second))
 		} else {
-			logger.Debug("Kubeconfig fetch failed: %s (elapsed: %v)", strings.TrimSpace(outputStr), elapsed.Round(time.Second))
+			logger.Debug("Kubeconfig fetch failed: %s (elapsed: %v)", common.RedactCommandOutput(strings.TrimSpace(outputStr)), elapsed.Round(time.Second))
 		}
 
 		// Update progress if error type changed (indicates different stage)
@@ -1983,7 +1987,7 @@ func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) er
 	}
 
 	if output, err := kubectlCombinedOutput(config, "apply", "--server-side", "--filename", url); err != nil {
-		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, string(output))
+		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, redactCommandOutput(output))
 	}
 
 	logger.Success("Gateway API CRDs %s applied successfully", version)
@@ -2050,7 +2054,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 		crdYaml := strings.Join(crdManifests, "\n---\n")
 
 		if applyOutput, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(crdYaml)), "apply", "--server-side", "--filename", "-"); err != nil {
-			return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, string(applyOutput))
+			return fmt.Errorf("failed to apply CRDs: %w\nOutput: %s", err, redactCommandOutput(applyOutput))
 		}
 
 		logger.Info("CRDs applied, waiting for them to be established...")
@@ -2092,7 +2096,7 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 
 	// Apply resources with force-conflicts to handle cert-manager managed fields
 	if output, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(resolvedResources)), "apply", "--server-side", "--force-conflicts", "--filename", "-"); err != nil {
-		return fmt.Errorf("failed to apply resources: %w\n%s", err, output)
+		return fmt.Errorf("failed to apply resources: %w\n%s", err, redactCommandOutput(output))
 	}
 
 	logger.Info("Resources applied successfully")
@@ -2156,9 +2160,15 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 
 	// Save rendered configuration for validation if debug is enabled
 	if os.Getenv(constants.EnvDebug) == "1" || os.Getenv("SAVE_RENDERED_CONFIG") == "1" {
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(resolved)))
-		filename := fmt.Sprintf("rendered-config-%s.yaml", hash[:8])
-		if err := saveRenderedConfig(resolved, filename, logger); err != nil {
+		redacted := redactResolved1PasswordValues(content, resolved)
+		hash := fmt.Sprintf("%x", md5.Sum([]byte(redacted)))
+		debugDir, err := renderedConfigDebugDir()
+		if err != nil {
+			logger.Warn("Failed to determine rendered configuration debug directory: %v", err)
+			return resolved, nil
+		}
+		filename := filepath.Join(debugDir, fmt.Sprintf("rendered-config-%s.yaml", hash[:8]))
+		if err := saveRenderedConfig(redacted, filename, logger); err != nil {
 			logger.Warn("Failed to save rendered configuration: %v", err)
 		}
 	}
@@ -2166,11 +2176,39 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	return resolved, nil
 }
 
+func renderedConfigDebugDir() (string, error) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cacheDir, "homeops-cli", "rendered-configs"), nil
+}
+
+func redactResolved1PasswordValues(original, resolved string) string {
+	opRefs := extractOnePasswordReferences(original)
+	if len(opRefs) == 0 {
+		return resolved
+	}
+
+	redacted := original
+	for _, ref := range opRefs {
+		redacted = strings.ReplaceAll(redacted, ref, "<redacted:1password>")
+	}
+	return redacted
+}
+
 // saveRenderedConfig saves the rendered configuration to a file for inspection
 func saveRenderedConfig(config, filename string, logger *common.ColorLogger) error {
+	if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", filename, err)
+	}
+
 	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", filename, err)
+	}
+	if err := file.Chmod(0600); err != nil {
+		return fmt.Errorf("failed to set permissions on %s: %w", filename, err)
 	}
 	defer func() {
 		if err := file.Close(); err != nil {
@@ -2213,7 +2251,7 @@ func applyClusterSecretStore(config *BootstrapConfig, logger *common.ColorLogger
 	// Apply cluster secret store with force-conflicts to handle field management conflicts
 	if output, err := bootstrapKubectlCombinedIn(config, bytes.NewReader([]byte(resolvedClusterSecretStore)),
 		"apply", "--namespace", constants.NSExternalSecret, "--server-side", "--force-conflicts", "--filename", "-", "--wait=true"); err != nil {
-		return fmt.Errorf("failed to apply cluster secret store: %w\n%s", err, output)
+		return fmt.Errorf("failed to apply cluster secret store: %w\n%s", err, redactCommandOutput(output))
 	}
 
 	logger.Info("Cluster secret store applied successfully")
@@ -2571,7 +2609,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 			fmt.Sprintf("meta.helm.sh/release-namespace=%s", owner.releaseNamespace),
 			"--overwrite"); err != nil {
 			logger.Warn("Failed to add annotations to CRD %s: %v\nOutput: %s",
-				crd.Metadata.Name, err, string(output))
+				crd.Metadata.Name, err, redactCommandOutput(output))
 			continue
 		}
 
@@ -2579,7 +2617,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 			"app.kubernetes.io/managed-by=Helm",
 			"--overwrite"); err != nil {
 			logger.Warn("Failed to add labels to CRD %s: %v\nOutput: %s",
-				crd.Metadata.Name, err, string(output))
+				crd.Metadata.Name, err, redactCommandOutput(output))
 			continue
 		}
 
@@ -2599,7 +2637,7 @@ func fixExistingCRDMetadata(config *BootstrapConfig, logger *common.ColorLogger)
 func testAPIServerConnectivity(config *BootstrapConfig, logger *common.ColorLogger) error {
 	output, err := bootstrapKubectlCombined(config, "cluster-info", "--request-timeout=10s")
 	if err != nil {
-		logger.Debug("API server connectivity check output: %s", string(output))
+		logger.Debug("API server connectivity check output: %s", redactCommandOutput(output))
 		return fmt.Errorf("cluster-info failed: %w", err)
 	}
 	return nil
@@ -2689,7 +2727,7 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 			// Get detailed pod info for debugging
 			podOutput, _ := bootstrapKubectlOutput(config, "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide")
 			return fmt.Errorf("external-secrets webhook stalled: no progress for %v (state: %s)\nPods:\n%s",
-				stallDuration.Round(time.Second), currentState, string(podOutput))
+				stallDuration.Round(time.Second), currentState, redactCommandOutput(podOutput))
 		}
 
 		// Periodic status update
@@ -2697,7 +2735,7 @@ func waitForExternalSecretsWebhook(config *BootstrapConfig, logger *common.Color
 			logger.Info("Waiting for external-secrets webhook: state=%s, %v elapsed", currentState, elapsed.Round(time.Second))
 			// Show pod status for debugging
 			if podOutput, podErr := bootstrapKubectlOutput(config, "get", "pods", "-n", constants.NSExternalSecret, "-o", "wide"); podErr == nil {
-				logger.Debug("External-secrets pods:\n%s", string(podOutput))
+				logger.Debug("External-secrets pods:\n%s", redactCommandOutput(podOutput))
 			}
 		}
 
@@ -2885,7 +2923,7 @@ func waitForGitRepositoryReady(config *BootstrapConfig, logger *common.ColorLogg
 			// Get diagnostic info
 			diagOutput, _ := bootstrapKubectlOutput(config, "get", "gitrepository", "-n", constants.NSFluxSystem, "-o", "wide")
 			return fmt.Errorf("GitRepository stalled: no progress for %v (state: %s)\n%s",
-				stallDuration.Round(time.Second), currentState, string(diagOutput))
+				stallDuration.Round(time.Second), currentState, redactCommandOutput(diagOutput))
 		}
 
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {
@@ -2940,7 +2978,7 @@ func waitForFluxKustomizationReady(config *BootstrapConfig, logger *common.Color
 			// Get diagnostic info
 			diagOutput, _ := bootstrapKubectlOutput(config, "get", "kustomization", "-n", constants.NSFluxSystem, "-o", "wide")
 			return fmt.Errorf("kustomization %s stalled: no progress for %v (state: %s)\n%s",
-				ksName, stallDuration.Round(time.Second), currentState, string(diagOutput))
+				ksName, stallDuration.Round(time.Second), currentState, redactCommandOutput(diagOutput))
 		}
 
 		if int(elapsed.Seconds())%30 == 0 && elapsed.Seconds() > 0 {

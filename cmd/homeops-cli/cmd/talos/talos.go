@@ -51,6 +51,8 @@ var (
 	workingDirectoryFn                = common.GetWorkingDirectory
 	getVSphereCredsFn                 = getVSphereCredentials
 	getVSphereHostFn                  = getVSphereHost
+	getTrueNASCredentialsFn           = getTrueNASCredentials
+	ensureVMLifecycleProviderFn       = ensureVMLifecycleProviderAvailable
 	getMachineTypeFromNodeFn          = getMachineTypeFromNode
 	renderMachineConfigFromEmbeddedFn = renderMachineConfigFromEmbedded
 	injectSecretsFn                   = common.InjectSecrets
@@ -206,7 +208,9 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "talos",
 		Short: "Manage Talos Linux nodes and clusters",
-		Long:  `Commands for managing Talos Linux nodes, including configuration, upgrades, and VM deployments`,
+		Long: `Commands for managing Talos Linux nodes, including configuration, upgrades, and VM deployments.
+
+Use ` + "`homeops-cli talos manage-vm`" + ` for VM lifecycle operations such as list, start, stop, info, poweron, poweroff, and delete.`,
 	}
 
 	// Add subcommands
@@ -222,6 +226,13 @@ func NewCommand() *cobra.Command {
 		newPrepareISOCommand(),
 		newDeployVMCommand(),
 		newManageVMCommand(),
+		newVMLifecycleRootGuidanceCommand("list"),
+		newVMLifecycleRootGuidanceCommand("start"),
+		newVMLifecycleRootGuidanceCommand("stop"),
+		newVMLifecycleRootGuidanceCommand("info"),
+		newVMLifecycleRootGuidanceCommand("poweron"),
+		newVMLifecycleRootGuidanceCommand("poweroff"),
+		newVMLifecycleRootGuidanceCommand("delete"),
 	)
 
 	return cmd
@@ -336,7 +347,7 @@ func getVSphereCredentials() (host, username, password string, err error) {
 }
 
 func withTrueNASVMManager(logger *common.ColorLogger, fn func(trueNASVMManager) error) error {
-	host, apiKey, err := getTrueNASCredentials()
+	host, apiKey, err := getTrueNASCredentialsFn()
 	if err != nil {
 		return err
 	}
@@ -568,6 +579,58 @@ func getVMNamesForProvider(provider string) ([]string, error) {
 	}
 }
 
+func vmProviderDisplayName(provider string) string {
+	switch provider {
+	case "truenas":
+		return "TrueNAS"
+	case "vsphere":
+		return "vSphere/ESXi"
+	default:
+		return "Proxmox"
+	}
+}
+
+func vmProviderPrerequisites(provider string) string {
+	switch provider {
+	case "truenas":
+		return fmt.Sprintf("%s/%s environment variables or 1Password refs %s/%s",
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+	case "vsphere":
+		return fmt.Sprintf("%s/%s/%s environment variables or vSphere 1Password refs",
+			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
+	default:
+		return "Proxmox host, token ID, token secret, and node configuration from environment or 1Password"
+	}
+}
+
+func ensureVMLifecycleProviderAvailable(provider, action string) error {
+	normalizedProvider, err := normalizeVMProvider(provider)
+	if err != nil {
+		return err
+	}
+
+	var capabilityErr error
+	switch normalizedProvider {
+	case "truenas":
+		_, _, capabilityErr = getTrueNASCredentialsFn()
+	case "proxmox":
+		_, _, _, _, capabilityErr = getProxmoxCredentialsFn()
+	case "vsphere":
+		_, _, _, capabilityErr = getVSphereCredsFn()
+	}
+
+	if capabilityErr == nil {
+		return nil
+	}
+
+	return fmt.Errorf("%s VM lifecycle commands require %s: %w. Use `homeops-cli talos manage-vm %s --provider %s --name <vm-name>` after configuring prerequisites",
+		vmProviderDisplayName(normalizedProvider),
+		vmProviderPrerequisites(normalizedProvider),
+		capabilityErr,
+		action,
+		normalizedProvider)
+}
+
 func chooseVMNameForProvider(name, provider, action string) (string, error) {
 	if strings.TrimSpace(name) != "" {
 		return name, nil
@@ -587,6 +650,48 @@ func chooseVMNameForProvider(name, provider, action string) (string, error) {
 	}
 
 	return selectedVM, nil
+}
+
+func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
+	var (
+		provider string
+		name     string
+		force    bool
+	)
+
+	cmd := &cobra.Command{
+		Use:    action,
+		Hidden: true,
+		Short:  fmt.Sprintf("Use manage-vm %s", action),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			normalizedProvider, err := normalizeVMProvider(provider)
+			if err != nil {
+				normalizedProvider = provider
+			}
+
+			example := fmt.Sprintf("homeops-cli talos manage-vm %s --provider %s", action, normalizedProvider)
+			if strings.TrimSpace(name) != "" {
+				example += fmt.Sprintf(" --name %s", name)
+			} else if action != "list" {
+				example += " --name <vm-name>"
+			}
+			if action == "delete" && force {
+				example += " --force"
+			}
+
+			return fmt.Errorf("VM lifecycle command `talos %s` is available under `talos manage-vm %s`; use `%s`", action, action, example)
+		},
+	}
+
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	if action != "list" {
+		cmd.Flags().StringVar(&name, "name", "", "VM name")
+	}
+	if action == "delete" {
+		cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
+	}
+
+	return cmd
 }
 
 // getTrueNASVMNames retrieves the list of VM names from TrueNAS
@@ -2474,7 +2579,19 @@ func newManageVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "manage-vm",
 		Short: "Manage VMs on Proxmox, TrueNAS, or vSphere",
-		Long:  `Commands for managing VMs on Proxmox VE, TrueNAS Scale, or vSphere/ESXi`,
+		Long: `Commands for managing VMs on Proxmox VE, TrueNAS Scale, or vSphere/ESXi.
+
+Examples:
+  homeops-cli talos manage-vm list --provider proxmox
+  homeops-cli talos manage-vm start --provider proxmox --name <vm-name>
+  homeops-cli talos manage-vm stop --provider truenas --name <vm-name>
+  homeops-cli talos manage-vm info --provider vsphere --name <vm-name>
+  homeops-cli talos manage-vm delete --provider proxmox --name <vm-name> --force
+
+Provider prerequisites:
+  Proxmox: host, API token, token secret, and node name from environment or 1Password
+  TrueNAS: host and API key from environment or 1Password
+  vSphere/ESXi: host, username, and password from environment or 1Password`,
 	}
 
 	cmd.AddCommand(
@@ -2498,6 +2615,9 @@ func newListVMsCommand() *cobra.Command {
 		Use:   "list",
 		Short: "List all VMs on Proxmox, TrueNAS, or vSphere",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "list"); err != nil {
+				return err
+			}
 			return listVMs(provider)
 		},
 	}
@@ -2558,6 +2678,9 @@ func newStartVMCommand() *cobra.Command {
 		Short: "Start a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Start a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "start"); err != nil {
+				return err
+			}
 			return startVMWithProvider(name, provider)
 		},
 	}
@@ -2702,6 +2825,9 @@ func newStopVMCommand() *cobra.Command {
 		Short: "Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "stop"); err != nil {
+				return err
+			}
 			return stopVMWithProvider(name, provider)
 		},
 	}
@@ -2734,6 +2860,9 @@ func newDeleteVMCommand() *cobra.Command {
 		Short: "Delete a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Delete a VM on Proxmox, TrueNAS (with ZVols), or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "delete"); err != nil {
+				return err
+			}
 			return deleteVMWithConfirmation(name, provider, force)
 		},
 	}
@@ -2814,6 +2943,9 @@ func newInfoVMCommand() *cobra.Command {
 		Short: "Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "info"); err != nil {
+				return err
+			}
 			return infoVMWithProvider(name, provider)
 		},
 	}
@@ -3380,6 +3512,9 @@ func newPowerOnVMCommand() *cobra.Command {
 		Short: "Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "poweron"); err != nil {
+				return err
+			}
 			return powerOnVM(name, provider)
 		},
 	}
@@ -3404,6 +3539,9 @@ func newPowerOffVMCommand() *cobra.Command {
 		Short: "Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureVMLifecycleProviderFn(provider, "poweroff"); err != nil {
+				return err
+			}
 			return powerOffVM(name, provider)
 		},
 	}

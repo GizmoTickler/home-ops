@@ -15,13 +15,13 @@ func CommandWithContext(ctx context.Context, name string, args ...string) *exec.
 // RunCommandWithContext executes a command with context support.
 // Returns the combined stdout/stderr output and any error.
 func RunCommandWithContext(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := CommandWithContext(ctx, name, args...)
-	return cmd.CombinedOutput()
+	result, err := RunCommand(ctx, CommandOptions{Name: name, Args: args})
+	return []byte(result.Stdout + result.Stderr), err
 }
 
 // RunCommandWithContextOutput executes a command with context support.
 // Returns only stdout output and any error.
 func RunCommandWithContextOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
-	cmd := CommandWithContext(ctx, name, args...)
-	return cmd.Output()
+	result, err := RunCommand(ctx, CommandOptions{Name: name, Args: args})
+	return []byte(result.Stdout), err
 }

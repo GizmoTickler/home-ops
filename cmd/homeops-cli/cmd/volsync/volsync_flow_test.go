@@ -3,6 +3,8 @@ package volsync
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +56,59 @@ func TestChangeVolsyncState(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to resume helmrelease")
 		assert.Contains(t, err.Error(), "boom")
 	})
+}
+
+func TestDefaultCommandFnsRedactSensitiveFailureOutput(t *testing.T) {
+	oldKubectlCombinedOutput := kubectlCombinedOutputFn
+	oldFluxCombinedOutput := fluxCombinedOutputFn
+	oldCommandRun := commandRunFn
+	oldApplyYAML := kubectlApplyYAMLFn
+	t.Cleanup(func() {
+		kubectlCombinedOutputFn = oldKubectlCombinedOutput
+		fluxCombinedOutputFn = oldFluxCombinedOutput
+		commandRunFn = oldCommandRun
+		kubectlApplyYAMLFn = oldApplyYAML
+	})
+
+	binDir := t.TempDir()
+	writeFailingCommand(t, binDir, "kubectl", "password=SENTINEL_PASSWORD_VALUE", "api_key=SENTINEL_API_KEY_VALUE")
+	writeFailingCommand(t, binDir, "flux", "client_secret=SENTINEL_CLIENT_SECRET_VALUE", "token: SENTINEL_TOKEN_VALUE")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	output, err := kubectlCombinedOutputFn("synthetic")
+	require.Error(t, err)
+	outputText := string(output)
+	assert.Contains(t, outputText, "password=<redacted>")
+	assert.Contains(t, outputText, "api_key=<redacted>")
+	assert.NotContains(t, outputText, "SENTINEL_PASSWORD_VALUE")
+	assert.NotContains(t, outputText, "SENTINEL_API_KEY_VALUE")
+
+	output, err = fluxCombinedOutputFn("synthetic")
+	require.Error(t, err)
+	outputText = string(output)
+	assert.Contains(t, outputText, "client_secret=<redacted>")
+	assert.Contains(t, outputText, "token: <redacted>")
+	assert.NotContains(t, outputText, "SENTINEL_CLIENT_SECRET_VALUE")
+	assert.NotContains(t, outputText, "SENTINEL_TOKEN_VALUE")
+
+	err = commandRunFn("kubectl", "synthetic")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "api_key=<redacted>")
+	assert.NotContains(t, err.Error(), "SENTINEL_API_KEY_VALUE")
+
+	output, err = kubectlApplyYAMLFn("apiVersion: v1\nkind: ConfigMap\n")
+	require.Error(t, err)
+	outputText = string(output)
+	assert.Contains(t, outputText, "password=<redacted>")
+	assert.NotContains(t, outputText, "SENTINEL_PASSWORD_VALUE")
+	assert.Contains(t, err.Error(), "password=<redacted>")
+	assert.NotContains(t, err.Error(), "SENTINEL_PASSWORD_VALUE")
+}
+
+func writeFailingCommand(t *testing.T, dir, name, stdout, stderr string) {
+	t.Helper()
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q\nprintf '%%s\\n' %q >&2\nexit 7\n", stdout, stderr)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755))
 }
 
 func TestResolveNamespace(t *testing.T) {

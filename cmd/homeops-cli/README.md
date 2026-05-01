@@ -61,8 +61,8 @@ homeops-cli talos prepare-iso --provider truenas
 homeops-cli talos manage-vm list
 homeops-cli talos manage-vm info --name k8s-0
 homeops-cli talos manage-vm delete --name test --force
-homeops-cli talos poweron --name k8s-0
-homeops-cli talos poweroff --name k8s-0
+homeops-cli talos manage-vm poweron --name k8s-0
+homeops-cli talos manage-vm poweroff --name k8s-0
 ```
 
 ## Kubernetes Operations
@@ -104,8 +104,8 @@ homeops-cli k8s force-sync-externalsecret my-secret -n default
 ## VolSync Workflows
 
 ```bash
-homeops-cli volsync snapshot --pvc data-pvc --namespace default
-homeops-cli volsync restore --pvc data-pvc --namespace default
+homeops-cli volsync snapshot --app paperless --namespace default
+homeops-cli volsync restore --app paperless --namespace default
 homeops-cli volsync snapshots --namespace default
 homeops-cli volsync suspend --all -n default
 homeops-cli volsync resume --all -n default
