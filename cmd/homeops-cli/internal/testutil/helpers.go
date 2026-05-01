@@ -2,9 +2,11 @@ package testutil
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -117,6 +119,92 @@ func CaptureOutput(f func()) (string, string, error) {
 	os.Stderr = oldStderr
 
 	return stdout, stderr, nil
+}
+
+// CheckNoSecretOutput returns an error when captured test output contains
+// obvious secret-looking values. The error does not include the matched line.
+func CheckNoSecretOutput(output string) error {
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		upper := strings.ToUpper(trimmed)
+
+		switch {
+		case strings.HasPrefix(upper, "VALUE:"):
+			return fmt.Errorf("captured output contains possible secret label VALUE")
+		case strings.Contains(upper, "-----BEGIN ") && strings.Contains(upper, " PRIVATE KEY-----"):
+			return fmt.Errorf("captured output contains private key block marker")
+		case strings.Contains(upper, "-----BEGIN CERTIFICATE-----"):
+			return fmt.Errorf("captured output contains certificate block marker")
+		}
+
+		label, value, ok := splitOutputLabel(trimmed)
+		if !ok || isRedactedOutputValue(value) {
+			continue
+		}
+
+		if isSecretOutputLabel(label) {
+			return fmt.Errorf("captured output contains possible secret label %q", label)
+		}
+	}
+
+	return nil
+}
+
+// RequireNoSecretOutput fails the test when captured command output contains
+// obvious secret-looking values.
+func RequireNoSecretOutput(t testing.TB, outputs ...string) {
+	t.Helper()
+
+	for _, output := range outputs {
+		require.NoError(t, CheckNoSecretOutput(output))
+	}
+}
+
+func splitOutputLabel(line string) (string, string, bool) {
+	colon := strings.Index(line, ":")
+	equals := strings.Index(line, "=")
+
+	var idx int
+	switch {
+	case colon >= 0 && equals >= 0:
+		idx = min(colon, equals)
+	case colon >= 0:
+		idx = colon
+	case equals >= 0:
+		idx = equals
+	default:
+		return "", "", false
+	}
+
+	label := strings.TrimSpace(line[:idx])
+	value := strings.Trim(strings.TrimSpace(line[idx+1:]), `"'`)
+	if label == "" || value == "" {
+		return "", "", false
+	}
+
+	return label, value, true
+}
+
+func isSecretOutputLabel(label string) bool {
+	normalized := strings.ToLower(strings.NewReplacer("-", "_", " ", "_").Replace(label))
+
+	switch normalized {
+	case "token", "access_token", "refresh_token", "id_token", "client_secret", "password":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRedactedOutputValue(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return normalized == "" ||
+		normalized == "<redacted>" ||
+		normalized == "redacted" ||
+		normalized == "***" ||
+		normalized == "****" ||
+		normalized == "xxxxx" ||
+		normalized == "placeholder"
 }
 
 // CreateTestConfig creates a test configuration file

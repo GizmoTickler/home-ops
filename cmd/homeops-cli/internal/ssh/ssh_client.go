@@ -1,14 +1,18 @@
 package ssh
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"homeops-cli/internal/common"
 )
+
+const defaultSSHCommandTimeout = 2 * time.Minute
+
+var runCommand = common.RunCommand
 
 // SSHClient represents an SSH client for TrueNAS operations
 type SSHClient struct {
@@ -50,20 +54,12 @@ func (c *SSHClient) Connect() error {
 		return fmt.Errorf("SSH username is required")
 	}
 
-	// Test SSH connection using 1Password SSH agent with limited key attempts
-	cmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "IdentitiesOnly=yes", "-o", "NumberOfPasswordPrompts=0", "-p", c.port, fmt.Sprintf("%s@%s", c.username, c.host), "echo", "connection_test")
-
-	// Ensure SSH agent is available
-	if sshAuthSock := os.Getenv("SSH_AUTH_SOCK"); sshAuthSock != "" {
-		cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
-	}
-
-	output, err := cmd.CombinedOutput()
+	result, err := c.runSSHCommand("echo", "connection_test")
 	if err != nil {
-		return fmt.Errorf("failed to connect via SSH to %s@%s:%s: %w\nOutput: %s", c.username, c.host, c.port, err, string(output))
+		return fmt.Errorf("failed to connect via SSH to %s@%s:%s: %w\nOutput: %s", c.username, c.host, c.port, err, combinedCommandOutput(result))
 	}
 
-	if !strings.Contains(string(output), "connection_test") {
+	if !strings.Contains(result.Stdout+result.Stderr, "connection_test") {
 		return fmt.Errorf("SSH connection test failed - expected 'connection_test' in output")
 	}
 
@@ -81,20 +77,35 @@ func (c *SSHClient) Close() error {
 func (c *SSHClient) ExecuteCommand(command string) (string, error) {
 	c.logger.Debug("Executing command via SSH: %s", command)
 
-	// Execute command using SSH with 1Password SSH agent
-	cmd := exec.Command("ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "IdentitiesOnly=yes", "-o", "NumberOfPasswordPrompts=0", "-p", c.port, fmt.Sprintf("%s@%s", c.username, c.host), command)
-
-	// Ensure SSH agent is available
-	if sshAuthSock := os.Getenv("SSH_AUTH_SOCK"); sshAuthSock != "" {
-		cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+sshAuthSock)
-	}
-
-	output, err := cmd.Output()
+	result, err := c.runSSHCommand(command)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute command via SSH: %w", err)
+		return "", fmt.Errorf("failed to execute command via SSH: %w\nOutput: %s", err, combinedCommandOutput(result))
 	}
 
-	return string(output), nil
+	return result.Stdout, nil
+}
+
+func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, error) {
+	return runCommand(context.Background(), common.CommandOptions{
+		Name:    "ssh",
+		Args:    append(c.sshArgs(), remoteArgs...),
+		Timeout: defaultSSHCommandTimeout,
+	})
+}
+
+func (c *SSHClient) sshArgs() []string {
+	return []string{
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "IdentitiesOnly=yes",
+		"-o", "NumberOfPasswordPrompts=0",
+		"-p", c.port,
+		fmt.Sprintf("%s@%s", c.username, c.host),
+	}
+}
+
+func combinedCommandOutput(result common.CommandResult) string {
+	return common.RedactCommandOutput(strings.TrimSpace(result.Stdout + result.Stderr))
 }
 
 // DownloadISO downloads an ISO from a URL to a specific path on TrueNAS

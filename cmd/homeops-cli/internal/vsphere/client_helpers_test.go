@@ -253,10 +253,13 @@ func TestDeployVMsConcurrently(t *testing.T) {
 		originalCreateVMForDeploy := createVMForDeployFn
 		t.Cleanup(func() { createVMForDeployFn = originalCreateVMForDeploy })
 
+		var mu sync.Mutex
 		var seen []string
 		createVMForDeployFn = func(client *Client, config VMConfig) (*object.VirtualMachine, error) {
 			require.NotNil(t, client)
+			mu.Lock()
 			seen = append(seen, config.Name)
+			mu.Unlock()
 			return nil, nil
 		}
 

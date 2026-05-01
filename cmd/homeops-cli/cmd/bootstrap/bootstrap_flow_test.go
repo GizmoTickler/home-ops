@@ -560,6 +560,34 @@ func TestBootstrapTalos(t *testing.T) {
 			t.Fatalf("expected single 10s retry sleep, got %v", sleeps)
 		}
 	})
+
+	t.Run("redacts bootstrap failure output", func(t *testing.T) {
+		oldGetRandomController := bootstrapGetRandomController
+		oldTalosctlCombined := bootstrapTalosctlCombined
+		oldSleep := bootstrapSleep
+		t.Cleanup(func() {
+			bootstrapGetRandomController = oldGetRandomController
+			bootstrapTalosctlCombined = oldTalosctlCombined
+			bootstrapSleep = oldSleep
+		})
+
+		bootstrapGetRandomController = func(string) (string, error) { return "10.0.0.10", nil }
+		bootstrapTalosctlCombined = func(_ string, args ...string) ([]byte, error) {
+			if strings.Contains(strings.Join(args, " "), "bootstrap") {
+				return []byte("token: synthetic-test-fixture"), errors.New("bootstrap failed")
+			}
+			return []byte("password: synthetic-test-fixture"), errors.New("not bootstrapped")
+		}
+		bootstrapSleep = func(time.Duration) {}
+
+		err := bootstrapTalos(&BootstrapConfig{}, common.NewColorLogger())
+		if err == nil {
+			t.Fatal("expected bootstrapTalos to fail")
+		}
+		if strings.Contains(err.Error(), "synthetic-test-fixture") {
+			t.Fatalf("expected redacted error, got %q", err.Error())
+		}
+	})
 }
 
 func TestGetRandomController(t *testing.T) {
@@ -881,6 +909,90 @@ func TestResolve1PasswordReferencesRetry(t *testing.T) {
 	}
 }
 
+func TestResolve1PasswordReferencesDebugSaveRedactsAndAvoidsWorkingDirectory(t *testing.T) {
+	oldInjectSecrets := bootstrapInjectSecrets
+	t.Cleanup(func() {
+		bootstrapInjectSecrets = oldInjectSecrets
+	})
+
+	workDir := t.TempDir()
+	cacheHome := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("failed to chdir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	})
+	t.Setenv("HOME", cacheHome)
+	t.Setenv(constants.EnvDebug, "1")
+
+	const (
+		passwordValue = "fake-resolved-password"
+		tokenValue    = "fake-resolved-token"
+	)
+	bootstrapInjectSecrets = func(content string) (string, error) {
+		content = strings.ReplaceAll(content, "op://vault/item/password", passwordValue)
+		content = strings.ReplaceAll(content, "op://vault/item/token", tokenValue)
+		return content, nil
+	}
+
+	resolved, err := resolve1PasswordReferences("password: op://vault/item/password\ntoken: op://vault/item/token\nplain: keep\n", common.NewColorLogger())
+	if err != nil {
+		t.Fatalf("resolve1PasswordReferences returned error: %v", err)
+	}
+	if !strings.Contains(resolved, passwordValue) || !strings.Contains(resolved, tokenValue) {
+		t.Fatalf("resolved content should still be returned to callers, got %q", resolved)
+	}
+
+	cwdMatches, err := filepath.Glob(filepath.Join(workDir, "rendered-config-*.yaml"))
+	if err != nil {
+		t.Fatalf("failed to glob working directory: %v", err)
+	}
+	if len(cwdMatches) != 0 {
+		t.Fatalf("debug render wrote artifact into working directory: %v", cwdMatches)
+	}
+
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatalf("failed to get user cache dir: %v", err)
+	}
+	debugDir := filepath.Join(userCacheDir, "homeops-cli", "rendered-configs")
+	matches, err := filepath.Glob(filepath.Join(debugDir, "rendered-config-*.yaml"))
+	if err != nil {
+		t.Fatalf("failed to glob debug directory: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected one debug artifact in cache directory, got %d: %v", len(matches), matches)
+	}
+
+	content, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("failed reading debug artifact: %v", err)
+	}
+	if strings.Contains(string(content), passwordValue) || strings.Contains(string(content), tokenValue) {
+		t.Fatalf("debug artifact contains resolved fake secret values: %q", string(content))
+	}
+	if !strings.Contains(string(content), "password: <redacted:1password>") ||
+		!strings.Contains(string(content), "token: <redacted:1password>") ||
+		!strings.Contains(string(content), "plain: keep") {
+		t.Fatalf("debug artifact was not structurally useful after redaction: %q", string(content))
+	}
+
+	info, err := os.Stat(matches[0])
+	if err != nil {
+		t.Fatalf("failed to stat debug artifact: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("debug artifact permissions = %o, want 0600", info.Mode().Perm())
+	}
+}
+
 func TestApplyNamespaces(t *testing.T) {
 	t.Run("creates all bootstrap namespaces", func(t *testing.T) {
 		oldOutput := bootstrapKubectlOutput
@@ -1189,6 +1301,31 @@ spec:
 			t.Fatalf("applyClusterSecretStore returned error: %v", err)
 		}
 	})
+
+	t.Run("redacts apply errors", func(t *testing.T) {
+		oldGetBootstrapFile := bootstrapGetBootstrapFile
+		oldResolveSecrets := bootstrapResolveSecrets
+		oldCombinedIn := bootstrapKubectlCombinedIn
+		t.Cleanup(func() {
+			bootstrapGetBootstrapFile = oldGetBootstrapFile
+			bootstrapResolveSecrets = oldResolveSecrets
+			bootstrapKubectlCombinedIn = oldCombinedIn
+		})
+
+		bootstrapGetBootstrapFile = func(string) (string, error) { return validSecretStore, nil }
+		bootstrapResolveSecrets = func(content string, _ *common.ColorLogger) (string, error) { return content, nil }
+		bootstrapKubectlCombinedIn = func(_ *BootstrapConfig, _ io.Reader, _ ...string) ([]byte, error) {
+			return []byte("password: synthetic-test-fixture"), errors.New("apply failed")
+		}
+
+		err := applyClusterSecretStore(&BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}, common.NewColorLogger())
+		if err == nil {
+			t.Fatal("expected applyClusterSecretStore to fail")
+		}
+		if strings.Contains(err.Error(), "synthetic-test-fixture") {
+			t.Fatalf("expected redacted error, got %q", err.Error())
+		}
+	})
 }
 
 func TestValidateClusterSecretStoreTemplate(t *testing.T) {
@@ -1267,6 +1404,31 @@ metadata:
 
 		if err := applyResources(&BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}, common.NewColorLogger()); err != nil {
 			t.Fatalf("applyResources returned error: %v", err)
+		}
+	})
+
+	t.Run("redacts apply errors", func(t *testing.T) {
+		oldGetBootstrapFile := bootstrapGetBootstrapFile
+		oldResolveSecrets := bootstrapResolveSecrets
+		oldCombinedIn := bootstrapKubectlCombinedIn
+		t.Cleanup(func() {
+			bootstrapGetBootstrapFile = oldGetBootstrapFile
+			bootstrapResolveSecrets = oldResolveSecrets
+			bootstrapKubectlCombinedIn = oldCombinedIn
+		})
+
+		bootstrapGetBootstrapFile = func(string) (string, error) { return resourcesYAML, nil }
+		bootstrapResolveSecrets = func(content string, _ *common.ColorLogger) (string, error) { return content, nil }
+		bootstrapKubectlCombinedIn = func(_ *BootstrapConfig, _ io.Reader, _ ...string) ([]byte, error) {
+			return []byte("token: synthetic-test-fixture"), errors.New("apply failed")
+		}
+
+		err := applyResources(&BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}, common.NewColorLogger())
+		if err == nil {
+			t.Fatal("expected applyResources to fail")
+		}
+		if strings.Contains(err.Error(), "synthetic-test-fixture") {
+			t.Fatalf("expected redacted error, got %q", err.Error())
 		}
 	})
 }

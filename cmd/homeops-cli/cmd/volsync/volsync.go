@@ -2,9 +2,11 @@ package volsync
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,33 +23,38 @@ import (
 
 var (
 	kubectlOutputFn = func(args ...string) ([]byte, error) {
-		return common.Output("kubectl", args...)
+		return volsyncCommandOutput("kubectl", args...)
 	}
 	kubectlRunFn = func(args ...string) error {
-		return common.Command("kubectl", args...).Run()
+		return volsyncCommandRun("kubectl", args...)
 	}
 	kubectlCombinedOutputFn = func(args ...string) ([]byte, error) {
-		return common.Command("kubectl", args...).CombinedOutput()
+		return volsyncCommandCombinedOutput("kubectl", args...)
 	}
 	fluxCombinedOutputFn = func(args ...string) ([]byte, error) {
-		return common.Command("flux", args...).CombinedOutput()
+		return volsyncCommandCombinedOutput("flux", args...)
 	}
 	fluxRunFn = func(args ...string) error {
-		return common.Command("flux", args...).Run()
+		return volsyncCommandRun("flux", args...)
 	}
 	commandOutputFn = func(name string, args ...string) ([]byte, error) {
-		return exec.Command(name, args...).Output()
+		return volsyncCommandOutput(name, args...)
 	}
 	commandRunFn = func(name string, args ...string) error {
-		return exec.Command(name, args...).Run()
+		return volsyncCommandRun(name, args...)
 	}
 	commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
-		return exec.Command(name, args...).CombinedOutput()
+		return volsyncCommandCombinedOutput(name, args...)
 	}
 	kubectlApplyYAMLFn = func(yaml string) ([]byte, error) {
-		cmd := exec.Command("kubectl", "apply", "--server-side", "--filename", "-")
+		ctx, cancel := context.WithTimeout(context.Background(), volsyncDefaultCommandTimeout)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "kubectl", "apply", "--server-side", "--filename", "-")
 		cmd.Stdin = bytes.NewReader([]byte(yaml))
-		return cmd.CombinedOutput()
+		output, err := cmd.CombinedOutput()
+		redactedOutput := common.RedactCommandOutput(string(output))
+		return []byte(redactedOutput), redactCommandError(err, redactedOutput, "", ctx.Err())
 	}
 	selectNamespaceFn       = ui.SelectNamespace
 	chooseOptionFn          = ui.Choose
@@ -59,6 +66,80 @@ var (
 	snapshotAppFn           = snapshotApp
 	restoreAppFn            = restoreApp
 )
+
+const (
+	volsyncDefaultCommandTimeout = 2 * time.Minute
+	volsyncWaitTimeoutBuffer     = 30 * time.Second
+)
+
+var kubectlTimeoutArgPattern = regexp.MustCompile(`^--timeout=(.+)$`)
+
+func volsyncCommandOutput(name string, args ...string) ([]byte, error) {
+	result, err := runVolsyncCommand(name, args...)
+	return []byte(result.Stdout), redactCommandError(err, result.Stdout, result.Stderr, nil)
+}
+
+func volsyncCommandCombinedOutput(name string, args ...string) ([]byte, error) {
+	result, err := runVolsyncCommand(name, args...)
+	return []byte(result.Stdout + result.Stderr), redactCommandError(err, result.Stdout, result.Stderr, nil)
+}
+
+func volsyncCommandRun(name string, args ...string) error {
+	result, err := runVolsyncCommand(name, args...)
+	return redactCommandError(err, result.Stdout, result.Stderr, nil)
+}
+
+func runVolsyncCommand(name string, args ...string) (common.CommandResult, error) {
+	return common.RunCommand(context.Background(), common.CommandOptions{
+		Name:    name,
+		Args:    args,
+		Timeout: volsyncCommandTimeout(args...),
+	})
+}
+
+func redactCommandError(err error, stdout, stderr string, ctxErr error) error {
+	if ctxErr != nil {
+		err = ctxErr
+	}
+	if err == nil {
+		return nil
+	}
+
+	output := strings.TrimSpace(strings.Join(nonEmptyStrings(stdout, stderr), "\n"))
+	if output == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, output)
+}
+
+func nonEmptyStrings(values ...string) []string {
+	var nonEmpty []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			nonEmpty = append(nonEmpty, value)
+		}
+	}
+	return nonEmpty
+}
+
+func volsyncCommandTimeout(args ...string) time.Duration {
+	timeout := volsyncDefaultCommandTimeout
+	for _, arg := range args {
+		matches := kubectlTimeoutArgPattern.FindStringSubmatch(arg)
+		if len(matches) != 2 {
+			continue
+		}
+		parsed, err := time.ParseDuration(matches[1])
+		if err != nil {
+			continue
+		}
+		if parsed+volsyncWaitTimeoutBuffer > timeout {
+			timeout = parsed + volsyncWaitTimeoutBuffer
+		}
+	}
+	return timeout
+}
 
 // VolsyncConfig holds configuration for volsync operations
 type VolsyncConfig struct {

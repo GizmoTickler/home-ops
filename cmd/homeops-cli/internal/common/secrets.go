@@ -11,9 +11,130 @@ import (
 // OpRefRegex matches 1Password references of the form op://vault/item/field
 var OpRefRegex = regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
 
-// Get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic
-// This matches the sophisticated error handling from bootstrap.go
-func Get1PasswordSecret(reference string) (string, error) {
+// SecretReader resolves a single 1Password reference.
+type SecretReader func(reference string) (string, error)
+
+type secretResolution struct {
+	value string
+	err   error
+	ready chan struct{}
+}
+
+// SecretResolver caches 1Password reads for the lifetime of a single operation.
+// Values stay in memory only and are never persisted by the resolver.
+type SecretResolver struct {
+	mu     sync.Mutex
+	reader SecretReader
+	cache  map[string]*secretResolution
+}
+
+// NewSecretResolver creates an operation-scoped resolver backed by the 1Password CLI.
+func NewSecretResolver() *SecretResolver {
+	return NewSecretResolverWithReader(read1PasswordSecret)
+}
+
+// NewSecretResolverWithReader creates an operation-scoped resolver with a custom reader.
+func NewSecretResolverWithReader(reader SecretReader) *SecretResolver {
+	if reader == nil {
+		reader = read1PasswordSecret
+	}
+	return &SecretResolver{
+		reader: reader,
+		cache:  make(map[string]*secretResolution),
+	}
+}
+
+// Resolve returns the value for a 1Password reference, caching successes and failures.
+func (r *SecretResolver) Resolve(reference string) (string, error) {
+	if r == nil {
+		return read1PasswordSecret(reference)
+	}
+
+	r.mu.Lock()
+	if r.cache == nil {
+		r.cache = make(map[string]*secretResolution)
+	}
+	if cached, ok := r.cache[reference]; ok {
+		r.mu.Unlock()
+		<-cached.ready
+		return cached.value, cached.err
+	}
+	reader := r.reader
+	if reader == nil {
+		reader = read1PasswordSecret
+	}
+	resolution := &secretResolution{ready: make(chan struct{})}
+	r.cache[reference] = resolution
+	r.mu.Unlock()
+
+	value, err := reader(reference)
+
+	r.mu.Lock()
+	resolution.value = value
+	resolution.err = err
+	close(resolution.ready)
+	r.mu.Unlock()
+
+	return value, err
+}
+
+// InjectSecrets replaces op:// references with secrets resolved through this resolver.
+func (r *SecretResolver) InjectSecrets(content string) (string, error) {
+	opRefs := OpRefRegex.FindAllString(content, -1)
+	if len(opRefs) == 0 {
+		return content, nil
+	}
+
+	seen := make(map[string]struct{}, len(opRefs))
+	orderedRefs := make([]string, 0, len(opRefs))
+	errCache := make(map[string]error)
+	for _, ref := range opRefs {
+		if _, ok := seen[ref]; ok {
+			continue
+		}
+		seen[ref] = struct{}{}
+		orderedRefs = append(orderedRefs, ref)
+		if _, err := r.Resolve(ref); err != nil {
+			errCache[ref] = err
+		}
+	}
+
+	if len(errCache) > 0 {
+		var b strings.Builder
+		b.WriteString("failed to resolve 1Password references:\n")
+		for _, ref := range orderedRefs {
+			err, ok := errCache[ref]
+			if !ok {
+				continue
+			}
+			b.WriteString(" - ")
+			b.WriteString(ref)
+			b.WriteString(": ")
+			b.WriteString(err.Error())
+			b.WriteByte('\n')
+		}
+		msg := strings.TrimRight(b.String(), "\n")
+		return "", fmt.Errorf("%s", msg)
+	}
+
+	result := OpRefRegex.ReplaceAllStringFunc(content, func(fullMatch string) string {
+		secret, err := r.Resolve(fullMatch)
+		if err != nil {
+			return fullMatch
+		}
+		return secret
+	})
+
+	if strings.Contains(result, "op://") {
+		rem := OpRefRegex.FindString(result)
+		return "", fmt.Errorf("unresolved 1Password reference remains: %s", rem)
+	}
+
+	return result, nil
+}
+
+// read1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic.
+func read1PasswordSecret(reference string) (string, error) {
 	maxAttempts := 3
 	for attempts := 0; attempts < maxAttempts; attempts++ {
 		cmd := Command("op", "read", reference)
@@ -45,6 +166,11 @@ func Get1PasswordSecret(reference string) (string, error) {
 	return "", fmt.Errorf("failed to read 1Password secret %s after %d attempts", reference, maxAttempts)
 }
 
+// Get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic.
+func Get1PasswordSecret(reference string) (string, error) {
+	return read1PasswordSecret(reference)
+}
+
 // Get1PasswordSecretSilent retrieves a secret from 1Password, returns empty string on failure
 // This matches the existing pattern in talos.go for fallback scenarios
 func Get1PasswordSecretSilent(reference string) string {
@@ -67,13 +193,20 @@ func Get1PasswordSecretsBatch(references []string) map[string]string {
 	results := make(map[string]string)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	resolver := NewSecretResolverWithReader(func(reference string) (string, error) {
+		secret := Get1PasswordSecretSilent(reference)
+		if secret == "" {
+			return "", fmt.Errorf("1Password secret %s returned empty value", reference)
+		}
+		return secret, nil
+	})
 
 	for _, ref := range references {
 		wg.Add(1)
 		go func(reference string) {
 			defer wg.Done()
-			secret := Get1PasswordSecretSilent(reference)
-			if secret != "" {
+			secret, err := resolver.Resolve(reference)
+			if err == nil && secret != "" {
 				mu.Lock()
 				results[reference] = secret
 				mu.Unlock()
@@ -87,52 +220,5 @@ func Get1PasswordSecretsBatch(references []string) map[string]string {
 
 // InjectSecrets replaces op:// references with actual secrets from 1Password
 func InjectSecrets(content string) (string, error) {
-	// Use shared regex for matching op:// references
-	opRegex := OpRefRegex
-
-	// Caches for successes and failures to avoid repeated CLI calls
-	cache := make(map[string]string)
-	errCache := make(map[string]error)
-
-	// Replace using a single regex pass to avoid substring collisions
-	result := opRegex.ReplaceAllStringFunc(content, func(fullMatch string) string {
-		if v, ok := cache[fullMatch]; ok {
-			return v
-		}
-		if _, failed := errCache[fullMatch]; failed {
-			return fullMatch
-		}
-		secret, err := Get1PasswordSecret(fullMatch)
-		if err != nil {
-			errCache[fullMatch] = err
-			return fullMatch
-		}
-		cache[fullMatch] = secret
-		return secret
-	})
-
-	// Aggregate detailed errors if any
-	if len(errCache) > 0 {
-		// Build a descriptive error including each reference and cause
-		var b strings.Builder
-		b.WriteString("failed to resolve 1Password references:\n")
-		for ref, err := range errCache {
-			b.WriteString(" - ")
-			b.WriteString(ref)
-			b.WriteString(": ")
-			b.WriteString(err.Error())
-			b.WriteByte('\n')
-		}
-		// Wrap the aggregated message in a single error
-		msg := strings.TrimRight(b.String(), "\n")
-		return "", fmt.Errorf("%s", msg)
-	}
-
-	// Extra safety: if any references still remain (e.g., in comments), report the first
-	if strings.Contains(result, "op://") {
-		rem := opRegex.FindString(result)
-		return "", fmt.Errorf("unresolved 1Password reference remains: %s", rem)
-	}
-
-	return result, nil
+	return NewSecretResolver().InjectSecrets(content)
 }

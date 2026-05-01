@@ -844,6 +844,55 @@ func TestCommandProviderDefaults(t *testing.T) {
 	assert.Contains(t, prepareISOCmd.Long, "Upload the ISO to Proxmox storage, TrueNAS storage, or a vSphere datastore")
 }
 
+func TestVMLifecycleHelpMakesManageVMDiscoverable(t *testing.T) {
+	rootCmd := NewCommand()
+	rootOutput, err := testutil.ExecuteCommand(rootCmd, "--help")
+	require.NoError(t, err)
+	assert.Contains(t, rootOutput, "manage-vm")
+	assert.Contains(t, rootCmd.Long, "Use `homeops-cli talos manage-vm`")
+
+	manageOutput, err := testutil.ExecuteCommand(newManageVMCommand(), "--help")
+	require.NoError(t, err)
+	assert.Contains(t, manageOutput, "start")
+	assert.Contains(t, manageOutput, "stop")
+	assert.Contains(t, manageOutput, "delete")
+	assert.Contains(t, manageOutput, "--provider proxmox")
+	assert.Contains(t, manageOutput, "TrueNAS")
+	assert.Contains(t, manageOutput, "vSphere")
+}
+
+func TestRootVMLifecycleAliasReturnsManageVMGuidance(t *testing.T) {
+	_, err := testutil.ExecuteCommand(NewCommand(), "start", "--provider", "truenas", "--name", "tn-vm")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "talos manage-vm start")
+	assert.Contains(t, err.Error(), "--provider truenas")
+}
+
+func TestVMLifecycleProviderCapabilityError(t *testing.T) {
+	oldStartTrueNAS := startTrueNASVMFn
+	t.Cleanup(func() {
+		startTrueNASVMFn = oldStartTrueNAS
+	})
+
+	stubUnavailable1PasswordCLI(t)
+	t.Setenv(constants.EnvTrueNASHost, "")
+	t.Setenv(constants.EnvTrueNASAPIKey, "")
+
+	called := false
+	startTrueNASVMFn = func(name string) error {
+		called = true
+		return nil
+	}
+
+	_, err := testutil.ExecuteCommand(newStartVMCommand(), "--provider", "truenas", "--name", "tn-vm")
+	require.Error(t, err)
+	assert.False(t, called, "provider operation should not run when config-level prerequisites are missing")
+	assert.Contains(t, err.Error(), "TrueNAS VM lifecycle commands require")
+	assert.Contains(t, err.Error(), "homeops-cli talos manage-vm start --provider truenas --name <vm-name>")
+	assert.Contains(t, err.Error(), constants.EnvTrueNASHost)
+	assert.Contains(t, err.Error(), constants.EnvTrueNASAPIKey)
+}
+
 func TestPowerOffVMDispatchesForceStop(t *testing.T) {
 	oldChoose := chooseVMFunc
 	oldTrueNASGetter := getTrueNASVMNamesFn
@@ -1049,6 +1098,7 @@ func TestBuildProxmoxDeploymentPlanPresetBatchDetails(t *testing.T) {
 }
 
 func TestVMLifecycleCommandWrappers(t *testing.T) {
+	oldEnsureProvider := ensureVMLifecycleProviderFn
 	oldStartProxmox := startProxmoxVMFn
 	oldStopProxmox := stopProxmoxVMFn
 	oldDeleteProxmox := deleteProxmoxVMFn
@@ -1056,6 +1106,7 @@ func TestVMLifecycleCommandWrappers(t *testing.T) {
 	oldPowerOnVSphere := powerOnVSphereVMFn
 	oldPowerOffVSphere := powerOffVSphereVMFn
 	t.Cleanup(func() {
+		ensureVMLifecycleProviderFn = oldEnsureProvider
 		startProxmoxVMFn = oldStartProxmox
 		stopProxmoxVMFn = oldStopProxmox
 		deleteProxmoxVMFn = oldDeleteProxmox
@@ -1065,6 +1116,10 @@ func TestVMLifecycleCommandWrappers(t *testing.T) {
 	})
 
 	var calls []string
+	ensureVMLifecycleProviderFn = func(provider, action string) error {
+		calls = append(calls, "check:"+provider+":"+action)
+		return nil
+	}
 	startProxmoxVMFn = func(name string) error {
 		calls = append(calls, "start:"+name)
 		return nil
@@ -1111,11 +1166,17 @@ func TestVMLifecycleCommandWrappers(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
+		"check:proxmox:start",
 		"start:px-vm",
+		"check:proxmox:stop",
 		"stop:px-vm:false",
+		"check:proxmox:delete",
 		"delete:px-vm",
+		"check:proxmox:info",
 		"info:px-vm",
+		"check:vsphere:poweron",
 		"poweron:esx-vm",
+		"check:vsphere:poweroff",
 		"poweroff:esx-vm",
 	}, calls)
 }
@@ -1810,10 +1871,12 @@ func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 	oldConfirm := confirmActionFn
 	oldDeleteTrueNAS := deleteTrueNASVMFn
 	oldTrueNASFactory := newTrueNASVMManagerFn
+	oldTrueNASCreds := getTrueNASCredentialsFn
 	t.Cleanup(func() {
 		confirmActionFn = oldConfirm
 		deleteTrueNASVMFn = oldDeleteTrueNAS
 		newTrueNASVMManagerFn = oldTrueNASFactory
+		getTrueNASCredentialsFn = oldTrueNASCreds
 	})
 
 	t.Run("delete vm confirmation uses provider-specific warning", func(t *testing.T) {
@@ -1835,14 +1898,12 @@ func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 
 	t.Run("cleanup zvol command force wrapper", func(t *testing.T) {
 		manager := &fakeTrueNASVMManager{}
+		getTrueNASCredentialsFn = func() (string, string, error) {
+			return "truenas.local", "api-key", nil
+		}
 		newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
 			return manager
 		}
-		cleanup := testutil.SetEnvs(t, map[string]string{
-			constants.EnvTrueNASHost:   "truenas.local",
-			constants.EnvTrueNASAPIKey: "api-key",
-		})
-		defer cleanup()
 
 		_, err := testutil.ExecuteCommand(newCleanupZVolsCommand(), "--vm-name", "tn-vm", "--force")
 		require.NoError(t, err)
@@ -2325,60 +2386,27 @@ func TestValidateVMName(t *testing.T) {
 }
 
 func TestGetTrueNASCredentials(t *testing.T) {
-	// Note: This test is limited because the function calls actual 1Password
-	// which may return real credentials. For proper testing, the function
-	// would need dependency injection to mock the 1Password client.
+	stubUnavailable1PasswordCLI(t)
 
-	// Test only that the function works and returns some values
-	// when environment variables are set properly
 	t.Run("function returns values", func(t *testing.T) {
-		// Save original values
-		origHost := os.Getenv("TRUENAS_HOST")
-		origKey := os.Getenv("TRUENAS_API_KEY")
-
-		// Set test values
-		_ = os.Setenv("TRUENAS_HOST", "test-host")
-		_ = os.Setenv("TRUENAS_API_KEY", "test-key")
-
-		defer func() {
-			// Restore original values
-			if origHost != "" {
-				_ = os.Setenv("TRUENAS_HOST", origHost)
-			} else {
-				_ = os.Unsetenv("TRUENAS_HOST")
-			}
-			if origKey != "" {
-				_ = os.Setenv("TRUENAS_API_KEY", origKey)
-			} else {
-				_ = os.Unsetenv("TRUENAS_API_KEY")
-			}
-		}()
+		t.Setenv(constants.EnvTrueNASHost, "test-host")
+		t.Setenv(constants.EnvTrueNASAPIKey, "test-key")
 
 		host, apiKey, err := getTrueNASCredentials()
 
-		// Should not error when credentials are available
 		assert.NoError(t, err)
-		assert.NotEmpty(t, host)
-		assert.NotEmpty(t, apiKey)
+		assert.Equal(t, "test-host", host)
+		assert.Equal(t, "test-key", apiKey)
 	})
 
 	t.Run("function signature exists", func(t *testing.T) {
-		// Just verify the function exists and can be called
-		// The actual implementation may return 1Password values
 		host, apiKey, err := getTrueNASCredentials()
 
-		// Function should either succeed or fail with meaningful error
-		if err != nil {
-			assert.Contains(t, err.Error(), "TrueNAS credentials")
-		} else {
-			assert.NotEmpty(t, host)
-			assert.NotEmpty(t, apiKey)
-		}
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TrueNAS credentials")
+		assert.Empty(t, host)
+		assert.Empty(t, apiKey)
 	})
-
-	// TODO: Implement proper testing with mocked 1Password client
-	// This would require refactoring getTrueNASCredentials to accept
-	// an interface for the secret provider
 }
 
 func TestRenderMachineConfigFromEmbedded(t *testing.T) {

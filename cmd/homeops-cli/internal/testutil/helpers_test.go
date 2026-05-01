@@ -70,6 +70,32 @@ func TestExecuteCommandAndCaptureOutput(t *testing.T) {
 	assert.Contains(t, stderr, "stderr-line")
 }
 
+func TestCheckNoSecretOutputAllowsBenignOutput(t *testing.T) {
+	output := "dry run completed\nresources validated\n"
+
+	require.NoError(t, CheckNoSecretOutput(output))
+}
+
+func TestCheckNoSecretOutputRejectsObviousSecretOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "generic value label", output: "VALUE: synthetic-test-fixture\n"},
+		{name: "private key marker", output: "-----BEGIN " + "PRIVATE KEY-----\n"},
+		{name: "certificate marker", output: "-----BEGIN CERTIFICATE-----\n"},
+		{name: "token label", output: "token: synthetic-test-fixture\n"},
+		{name: "access token label", output: "access_token: synthetic-test-fixture\n"},
+		{name: "client secret label", output: "client_secret=synthetic-test-fixture\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Error(t, CheckNoSecretOutput(tt.output))
+		})
+	}
+}
+
 func TestMocks(t *testing.T) {
 	httpClient := NewMockHTTPClient()
 	httpClient.AddResponse("https://example.com", 200, "ok")

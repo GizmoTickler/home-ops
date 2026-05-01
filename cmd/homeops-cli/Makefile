@@ -13,7 +13,7 @@ GO_FILES := $(shell find . -name '*.go' -type f)
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)"
+LDFLAGS := -ldflags "-X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(BUILD_TIME)"
 
 # Colors for output
 RED := \033[31m
@@ -51,23 +51,23 @@ install: build
 
 ##@ Development Tasks
 
-## test: Run all tests (unit tests only, skip long-running integration tests)
+## test: Run hermetic unit tests (race-enabled short suite, excludes live integration tags)
 test:
 	@echo "$(GREEN)Running tests...$(RESET)"
 	go test -v -race -short -timeout 30s ./...
 	@echo "$(GREEN)✅ Tests completed$(RESET)"
 
-## test-unit: Run unit tests only
+## test-unit: Run hermetic unit tests only
 test-unit:
 	@echo "$(GREEN)Running unit tests...$(RESET)"
 	go test -v -short -race ./...
 	@echo "$(GREEN)✅ Unit tests completed$(RESET)"
 
-## test-integration: Run integration tests
+## test-integration: Run live integration tests that require local infrastructure
 test-integration:
-	@echo "$(GREEN)Running integration tests...$(RESET)"
+	@echo "$(GREEN)Running live integration tests...$(RESET)"
 	go test -v -tags=integration -timeout 30m ./...
-	@echo "$(GREEN)✅ Integration tests completed$(RESET)"
+	@echo "$(GREEN)✅ Live integration tests completed$(RESET)"
 
 ## test-coverage: Run tests with coverage
 test-coverage:
