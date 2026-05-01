@@ -1,12 +1,48 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 )
+
+// opCommandTimeout caps how long a single `op read` call is allowed to run
+// before being cancelled. Each retry gets its own timeout window.
+const opCommandTimeout = 30 * time.Second
+
+// opReadFn invokes `op read` and is overridable in tests. The default routes
+// through RunCommand with an identity Redactor so secret values returned via
+// stdout are not corrupted by output redaction.
+var opReadFn = defaultOpRead
+
+// identityRedactor preserves command output verbatim. We use it for `op read`
+// because the secret value IS the stdout payload — applying the standard
+// secret-label redactor would corrupt valid secrets that happen to look like
+// `password=...` or similar. Stdout is therefore handled with extra care: it
+// must never appear in error messages, and the returned value is forwarded
+// only via the SecretReader return path.
+func identityRedactor(s string) string { return s }
+
+func defaultOpRead(reference string) (CommandResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), opCommandTimeout)
+	defer cancel()
+	return RunCommand(ctx, CommandOptions{
+		Name:     "op",
+		Args:     []string{"read", reference},
+		Redactor: identityRedactor,
+	})
+}
+
+// SetOpReadFnForTesting overrides the underlying op-read implementation for
+// the duration of a test. Returns a restore function the caller should defer.
+func SetOpReadFnForTesting(fn func(reference string) (CommandResult, error)) func() {
+	old := opReadFn
+	opReadFn = fn
+	return func() { opReadFn = old }
+}
 
 // OpRefRegex matches 1Password references of the form op://vault/item/field
 var OpRefRegex = regexp.MustCompile(`op://([^/]+)/([^/]+)/([^\s"']+)`)
@@ -134,36 +170,53 @@ func (r *SecretResolver) InjectSecrets(content string) (string, error) {
 }
 
 // read1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic.
+//
+// The secret value is returned to callers via the success return path only. It is
+// never included in any error message. Error classification is based on stderr —
+// stdout is treated as the (possibly partial) secret payload and must not leak
+// into diagnostic output.
 func read1PasswordSecret(reference string) (string, error) {
-	maxAttempts := 3
+	const maxAttempts = 3
 	for attempts := 0; attempts < maxAttempts; attempts++ {
-		cmd := Command("op", "read", reference)
-		output, err := cmd.CombinedOutput()
+		result, err := opReadFn(reference)
 		if err == nil {
-			secretValue := strings.TrimSpace(string(output))
+			secretValue := strings.TrimSpace(result.Stdout)
 			if secretValue == "" {
 				return "", fmt.Errorf("1Password secret %s returned empty value", reference)
 			}
 			return secretValue, nil
 		}
 
-		// Check for specific error types
-		outputStr := string(output)
-		if strings.Contains(outputStr, "not found") {
-			return "", fmt.Errorf("1Password secret %s not found", reference)
-		}
-		if strings.Contains(outputStr, "unauthorized") || strings.Contains(outputStr, "not signed in") {
-			return "", fmt.Errorf("1Password CLI not authenticated. Please run 'op signin'")
+		if classified := classifyOpFailure(reference, result.Stderr); classified != nil {
+			return "", classified
 		}
 
-		// If this isn't the last attempt, wait a bit before retrying
+		// Generic failure that may be transient — retry with backoff. Do not include
+		// stdout/stderr in any error path; both could carry secret-looking content.
 		if attempts < maxAttempts-1 {
-			// Simple exponential backoff: 100ms, 200ms
 			time.Sleep(time.Duration(100*(attempts+1)) * time.Millisecond)
 		}
 	}
 
 	return "", fmt.Errorf("failed to read 1Password secret %s after %d attempts", reference, maxAttempts)
+}
+
+// classifyOpFailure returns a redaction-safe error for known op-CLI failure
+// modes. Returns nil if the failure is not recognised, leaving the caller to
+// retry or surface a generic message. Only stderr is inspected — stdout would
+// contain the (partial) secret payload on success and is therefore treated as
+// untrusted for error-message purposes.
+func classifyOpFailure(reference, stderr string) error {
+	lower := strings.ToLower(stderr)
+	switch {
+	case strings.Contains(lower, "not found"):
+		return fmt.Errorf("1Password secret %s not found", reference)
+	case strings.Contains(lower, "unauthorized"),
+		strings.Contains(lower, "not signed in"),
+		strings.Contains(lower, "no active session"):
+		return fmt.Errorf("1Password CLI not authenticated. Please run 'op signin'")
+	}
+	return nil
 }
 
 // Get1PasswordSecret retrieves a secret from 1Password using the CLI with retry logic.
@@ -172,15 +225,15 @@ func Get1PasswordSecret(reference string) (string, error) {
 }
 
 // Get1PasswordSecretSilent retrieves a secret from 1Password, returns empty string on failure
-// This matches the existing pattern in talos.go for fallback scenarios
+// This matches the existing pattern in talos.go for fallback scenarios.
+// Routes through the shared op-read executor so timeouts and the no-output
+// guarantee for errors are consistent with read1PasswordSecret.
 func Get1PasswordSecretSilent(reference string) string {
-	cmd := Command("op", "read", reference)
-	output, err := cmd.Output()
+	result, err := opReadFn(reference)
 	if err != nil {
-		// Silently fail and return empty string to allow fallback to env vars
 		return ""
 	}
-	return strings.TrimSpace(string(output))
+	return strings.TrimSpace(result.Stdout)
 }
 
 // Get1PasswordSecretsBatch retrieves multiple secrets from 1Password in parallel

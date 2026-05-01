@@ -450,39 +450,20 @@ func newSnapshotCommand() *cobra.Command {
 func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error {
 	logger := common.NewColorLogger()
 
-	// If namespace is not provided, prompt for selection
-	if namespace == "" {
-		selectedNS, err := selectNamespaceFn("Select namespace:", false)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return err
-		}
-		namespace = selectedNS
+	namespace, cancelled, err := promptForNamespace(namespace)
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
 	}
 
-	// If app is not provided, prompt for selection
-	if app == "" {
-		output, err := commandOutputFn("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		if err != nil {
-			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
-		}
-
-		apps := strings.Fields(string(output))
-		if len(apps) == 0 {
-			return fmt.Errorf("no ReplicationSources found in namespace %s", namespace)
-		}
-
-		// Use interactive selector
-		selectedApp, err := chooseOptionFn(fmt.Sprintf("Select application to snapshot in %s:", namespace), apps)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("application selection failed: %w", err)
-		}
-		app = selectedApp
+	app, cancelled, err = resolveReplicationSourceApp(namespace, app, "snapshot")
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
 	}
 
 	// Check if ReplicationSource exists
@@ -510,17 +491,8 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 	jobName := fmt.Sprintf("volsync-src-%s", app)
 	logger.Info("Waiting for job %s to start...", jobName)
 
-	startTime := time.Now()
-	for {
-		if time.Since(startTime) > timeout {
-			return fmt.Errorf("timeout waiting for job to start")
-		}
-
-		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
-			break
-		}
-
-		volsyncSleep(5 * time.Second)
+	if err := waitForJobToAppear(namespace, jobName, timeout); err != nil {
+		return fmt.Errorf("timeout waiting for job to start: %w", err)
 	}
 
 	// Wait for job to complete
@@ -535,6 +507,74 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 
 	logger.Success("Snapshot completed successfully for %s/%s", namespace, app)
 	return nil
+}
+
+// promptForNamespace returns the chosen namespace. If `namespace` is empty it prompts
+// the user; cancelled is true when the user cancels the prompt.
+func promptForNamespace(namespace string) (string, bool, error) {
+	if namespace != "" {
+		return namespace, false, nil
+	}
+	selected, err := selectNamespaceFn("Select namespace:", false)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", true, nil
+		}
+		return "", false, err
+	}
+	return selected, false, nil
+}
+
+// resolveReplicationSourceApp returns the chosen ReplicationSource app name. If `app`
+// is empty it lists ReplicationSources in `namespace` and prompts the user to pick one.
+// cancelled is true when the user cancels the prompt.
+func resolveReplicationSourceApp(namespace, app, action string) (string, bool, error) {
+	if app != "" {
+		return app, false, nil
+	}
+
+	apps, err := fetchReplicationSourceNames(namespace)
+	if err != nil {
+		return "", false, err
+	}
+
+	selected, err := chooseOptionFn(fmt.Sprintf("Select application to %s in %s:", action, namespace), apps)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", true, nil
+		}
+		return "", false, fmt.Errorf("application selection failed: %w", err)
+	}
+	return selected, false, nil
+}
+
+// fetchReplicationSourceNames returns the names of ReplicationSources in the namespace.
+// It returns a non-nil error when the kubectl call fails or when no resources exist.
+func fetchReplicationSourceNames(namespace string) ([]string, error) {
+	output, err := commandOutputFn("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
+	}
+	apps := strings.Fields(string(output))
+	if len(apps) == 0 {
+		return nil, fmt.Errorf("no ReplicationSources found in namespace %s", namespace)
+	}
+	return apps, nil
+}
+
+// waitForJobToAppear polls kubectl until the named Job exists in the namespace.
+// Returns an error if the job does not appear within `timeout`.
+func waitForJobToAppear(namespace, jobName string, timeout time.Duration) error {
+	start := time.Now()
+	for {
+		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
+			return nil
+		}
+		if time.Since(start) >= timeout {
+			return fmt.Errorf("job %s did not appear within %v", jobName, timeout)
+		}
+		volsyncSleep(5 * time.Second)
+	}
 }
 
 func newSnapshotAllCommand() *cobra.Command {
@@ -788,39 +828,20 @@ func newRestoreCommand() *cobra.Command {
 func restoreApp(namespace, app, previous string, force bool, restoreTimeout time.Duration) error {
 	logger := common.NewColorLogger()
 
-	// If namespace is not provided, prompt for selection
-	if namespace == "" {
-		selectedNS, err := selectNamespaceFn("Select namespace:", false)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return err
-		}
-		namespace = selectedNS
+	namespace, cancelled, err := promptForNamespace(namespace)
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
 	}
 
-	// If app is not provided, prompt for selection
-	if app == "" {
-		output, err := commandOutputFn("kubectl", "get", "replicationsources", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
-		if err != nil {
-			return fmt.Errorf("failed to get ReplicationSources in namespace %s: %w", namespace, err)
-		}
-
-		apps := strings.Fields(string(output))
-		if len(apps) == 0 {
-			return fmt.Errorf("no ReplicationSources found in namespace %s", namespace)
-		}
-
-		// Use interactive selector
-		selectedApp, err := chooseOptionFn(fmt.Sprintf("Select application to restore in %s:", namespace), apps)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("application selection failed: %w", err)
-		}
-		app = selectedApp
+	app, cancelled, err = resolveReplicationSourceApp(namespace, app, "restore")
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
 	}
 
 	// If previous snapshot is not provided, list and prompt for selection
@@ -1022,21 +1043,9 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	logger.Info("Waiting for restore job %s to complete...", jobName)
 
 	// Wait for job to appear with timeout (use 1/4 of restoreTimeout or 5 minutes max for job appearance)
-	jobAppearTimeout := restoreTimeout / 4
-	if jobAppearTimeout > 5*time.Minute {
-		jobAppearTimeout = 5 * time.Minute
-	}
-	jobAppearStart := time.Now()
-	jobAppeared := false
-	for time.Since(jobAppearStart) < jobAppearTimeout {
-		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
-			jobAppeared = true
-			break
-		}
-		volsyncSleep(5 * time.Second)
-	}
-	if !jobAppeared {
-		return fmt.Errorf("restore job %s did not appear within %v", jobName, jobAppearTimeout)
+	jobAppearTimeout := min(restoreTimeout/4, 5*time.Minute)
+	if err := waitForJobToAppear(namespace, jobName, jobAppearTimeout); err != nil {
+		return fmt.Errorf("restore %w", err)
 	}
 
 	// Wait for completion

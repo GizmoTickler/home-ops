@@ -2,14 +2,15 @@ package kubernetes
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -55,47 +56,116 @@ var (
 		return common.Command("kubectl", "krew", "install", plugin).Run()
 	}
 	commandOutputFn = func(name string, args ...string) ([]byte, error) {
-		return exec.Command(name, args...).Output()
+		return runKubernetesCommandOutput(name, args...)
 	}
 	commandRunFn = func(name string, args ...string) error {
-		return exec.Command(name, args...).Run()
+		return runKubernetesCommandRun(name, args...)
 	}
 	commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
-		return exec.Command(name, args...).CombinedOutput()
+		return runKubernetesCommandCombinedOutput(name, args...)
 	}
 	decodeBase64Fn = func(value string) ([]byte, error) {
-		decodeCmd := exec.Command("base64", "-d")
-		decodeCmd.Stdin = strings.NewReader(value)
-		return decodeCmd.Output()
+		return decodeBase64(value)
 	}
 	isStdoutTerminalFn = func() bool {
 		info, err := os.Stdout.Stat()
 		return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 	}
 	fluxBuildKustomizationFn = func(name, namespace, path, ksFile string) ([]byte, error) {
-		return common.Command("flux", "build", "kustomization", name,
+		return runKubernetesCommandOutput("flux", "build", "kustomization", name,
 			"--namespace", namespace,
 			"--path", path,
 			"--kustomization-file", ksFile,
-			"--dry-run").Output()
+			"--dry-run")
 	}
+
+	// manifestStdout/manifestStderr let tests capture output produced by the default
+	// apply/delete manifest implementations without mutating os.Stdout/os.Stderr.
+	manifestStdout io.Writer = os.Stdout
+	manifestStderr io.Writer = os.Stderr
+
 	kubectlApplyManifestFn = func(manifest string) error {
-		applyCmd := common.Command("kubectl", "apply", "-f", "-")
-		applyCmd.Stdin = strings.NewReader(manifest)
-		applyCmd.Stdout = os.Stdout
-		applyCmd.Stderr = os.Stderr
-		return applyCmd.Run()
+		return runManifestCommand("apply", manifest)
 	}
 	kubectlDeleteManifestFn = func(manifest string) error {
-		deleteCmd := common.Command("kubectl", "delete", "-f", "-")
-		deleteCmd.Stdin = strings.NewReader(manifest)
-		deleteCmd.Stdout = os.Stdout
-		deleteCmd.Stderr = os.Stderr
-		return deleteCmd.Run()
+		return runManifestCommand("delete", manifest)
 	}
 	nowFn   = time.Now
 	sleepFn = time.Sleep
 )
+
+const kubernetesDefaultCommandTimeout = 5 * time.Minute
+
+// runManifestCommand pipes the manifest into `kubectl <action> -f -` while routing
+// output through the package-level writers so tests can intercept it.
+func runManifestCommand(action, manifest string) error {
+	cmd := common.Command("kubectl", action, "-f", "-")
+	cmd.Stdin = strings.NewReader(manifest)
+	cmd.Stdout = manifestStdout
+	cmd.Stderr = manifestStderr
+	return cmd.Run()
+}
+
+func runKubernetesCommandOutput(name string, args ...string) ([]byte, error) {
+	result, err := runKubernetesCommand(name, args...)
+	return []byte(result.Stdout), redactKubernetesCommandError(err, result.Stdout, result.Stderr)
+}
+
+func runKubernetesCommandCombinedOutput(name string, args ...string) ([]byte, error) {
+	result, err := runKubernetesCommand(name, args...)
+	return []byte(result.Stdout + result.Stderr), redactKubernetesCommandError(err, result.Stdout, result.Stderr)
+}
+
+func runKubernetesCommandRun(name string, args ...string) error {
+	result, err := runKubernetesCommand(name, args...)
+	return redactKubernetesCommandError(err, result.Stdout, result.Stderr)
+}
+
+func runKubernetesCommand(name string, args ...string) (common.CommandResult, error) {
+	return common.RunCommand(context.Background(), common.CommandOptions{
+		Name:    name,
+		Args:    args,
+		Timeout: kubernetesDefaultCommandTimeout,
+	})
+}
+
+// redactKubernetesCommandError wraps the underlying error with the redacted command
+// output. Returns nil when there is no error to surface.
+func redactKubernetesCommandError(err error, stdout, stderr string) error {
+	if err == nil {
+		return nil
+	}
+	output := strings.TrimSpace(strings.Join(nonEmptyKubernetesStrings(stdout, stderr), "\n"))
+	if output == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, output)
+}
+
+func nonEmptyKubernetesStrings(values ...string) []string {
+	var nonEmpty []string
+	for _, value := range values {
+		if v := strings.TrimSpace(value); v != "" {
+			nonEmpty = append(nonEmpty, v)
+		}
+	}
+	return nonEmpty
+}
+
+// decodeBase64 decodes a possibly padded base64 string using the standard library.
+// kubectl jsonpath output may include surrounding whitespace; trim it before decoding.
+func decodeBase64(value string) ([]byte, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+		return decoded, nil
+	}
+	// Fall back to URL-encoded variant — Kubernetes generally uses StdEncoding but
+	// some tooling emits the URL-safe alphabet.
+	return base64.URLEncoding.DecodeString(trimmed)
+}
 
 func resolveKustomizationFilePath(ksPath string) (string, error) {
 	info, err := os.Stat(ksPath)
@@ -1343,7 +1413,8 @@ func upgradeARC() error {
 	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "home-ops-runner"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
-			return fmt.Errorf("failed to uninstall home-ops-runner: %w\n%s", err, output)
+			redacted := common.RedactCommandOutput(string(output))
+			return fmt.Errorf("failed to uninstall home-ops-runner: %w\n%s", err, redacted)
 		}
 	}
 
@@ -1352,7 +1423,8 @@ func upgradeARC() error {
 	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "actions-runner-controller"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
-			return fmt.Errorf("failed to uninstall actions-runner-controller: %w\n%s", err, output)
+			redacted := common.RedactCommandOutput(string(output))
+			return fmt.Errorf("failed to uninstall actions-runner-controller: %w\n%s", err, redacted)
 		}
 	}
 

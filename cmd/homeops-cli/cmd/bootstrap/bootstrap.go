@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -119,28 +120,41 @@ var (
 	bootstrapExecuteHelmfileSync    = executeHelmfileSync
 	bootstrapHelmfileTemplateOutput = func(tempDir string, config *BootstrapConfig, helmfilePath string) ([]byte, error) {
 		cmd := buildHelmfileCmd(tempDir, config, "--file", helmfilePath, "template")
-		return cmd.Output()
+		out, err := cmd.Output()
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) {
+				redacted := common.RedactCommandOutput(string(exitErr.Stderr))
+				return nil, fmt.Errorf("helmfile template failed: %w\nStderr: %s", err, redacted)
+			}
+			return nil, fmt.Errorf("helmfile template failed: %w", err)
+		}
+		return out, nil
 	}
 	bootstrapRunHelmfileSyncCmd = func(tempDir, helmfilePath string, config *BootstrapConfig) error {
 		cmd := buildHelmfileCmd(tempDir, config, "--file", helmfilePath, "sync", "--hide-notes")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = bootstrapHelmfileStdout
+		cmd.Stderr = bootstrapHelmfileStderr
 		cmd.Env = append(cmd.Env, fmt.Sprintf("HELMFILE_TEMPLATE_DIR=%s", tempDir))
 		return cmd.Run()
 	}
-	bootstrapExternalSecretsUp   = isExternalSecretsInstalled
-	bootstrapWaitExternalSecrets = waitForExternalSecretsWebhook
-	bootstrapTestAPIConnectivity = testAPIServerConnectivity
-	bootstrapRenderHelmValues    = templates.RenderHelmfileValues
-	bootstrapCheckIntervalNormal = time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
-	bootstrapCheckIntervalFast   = time.Duration(constants.BootstrapCheckIntervalFast) * time.Second
-	bootstrapCheckIntervalSlow   = time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
-	bootstrapStallTimeout        = time.Duration(constants.BootstrapStallTimeout) * time.Second
-	bootstrapExtSecMaxWait       = time.Duration(constants.BootstrapExtSecMaxWait) * time.Second
-	bootstrapFluxMaxWait         = time.Duration(constants.BootstrapFluxMaxWait) * time.Second
-	bootstrapNodeMaxWait         = time.Duration(constants.BootstrapNodeMaxWait) * time.Second
-	bootstrapKubeconfigMaxWait   = time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
-	bootstrapCRDMaxWait          = time.Duration(constants.BootstrapCRDMaxWait) * time.Second
+	// bootstrapHelmfileStdout/Stderr default to os.Stdout/Stderr but can be replaced
+	// in tests so we can verify the sync command wires its streams correctly.
+	bootstrapHelmfileStdout      io.Writer = os.Stdout
+	bootstrapHelmfileStderr      io.Writer = os.Stderr
+	bootstrapExternalSecretsUp             = isExternalSecretsInstalled
+	bootstrapWaitExternalSecrets           = waitForExternalSecretsWebhook
+	bootstrapTestAPIConnectivity           = testAPIServerConnectivity
+	bootstrapRenderHelmValues              = templates.RenderHelmfileValues
+	bootstrapCheckIntervalNormal           = time.Duration(constants.BootstrapCheckIntervalNormal) * time.Second
+	bootstrapCheckIntervalFast             = time.Duration(constants.BootstrapCheckIntervalFast) * time.Second
+	bootstrapCheckIntervalSlow             = time.Duration(constants.BootstrapCheckIntervalSlow) * time.Second
+	bootstrapStallTimeout                  = time.Duration(constants.BootstrapStallTimeout) * time.Second
+	bootstrapExtSecMaxWait                 = time.Duration(constants.BootstrapExtSecMaxWait) * time.Second
+	bootstrapFluxMaxWait                   = time.Duration(constants.BootstrapFluxMaxWait) * time.Second
+	bootstrapNodeMaxWait                   = time.Duration(constants.BootstrapNodeMaxWait) * time.Second
+	bootstrapKubeconfigMaxWait             = time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
+	bootstrapCRDMaxWait                    = time.Duration(constants.BootstrapCRDMaxWait) * time.Second
 	bootstrapTalosTempDir        string
 	bootstrapPreflightChecks     = []func(*BootstrapConfig, *common.ColorLogger) *PreflightResult{
 		checkToolAvailability,
@@ -240,6 +254,29 @@ func kubectlCombinedOutputWithInput(config *BootstrapConfig, input io.Reader, ar
 	cmd := buildKubectlCmd(config, args...)
 	cmd.Stdin = input
 	return cmd.CombinedOutput()
+}
+
+// runKubectlContext executes kubectl with a context-bound timeout/cancellation
+// signal. Output is redacted before being returned via the error path.
+func runKubectlContext(ctx context.Context, config *BootstrapConfig, args ...string) (common.CommandResult, error) {
+	cmdArgs := append(append([]string{}, args...), "--kubeconfig", config.KubeConfig)
+	return common.RunCommand(ctx, common.CommandOptions{
+		Name: "kubectl",
+		Args: cmdArgs,
+	})
+}
+
+// runTalosctlContext executes talosctl with a context-bound timeout/cancellation
+// signal. Output is redacted before being returned via the error path.
+func runTalosctlContext(ctx context.Context, talosConfig string, args ...string) (common.CommandResult, error) {
+	cmdArgs := args
+	if talosConfig != "" {
+		cmdArgs = append([]string{"--talosconfig", talosConfig}, args...)
+	}
+	return common.RunCommand(ctx, common.CommandOptions{
+		Name: "talosctl",
+		Args: cmdArgs,
+	})
 }
 
 func redactCommandOutput(output []byte) string {
@@ -1169,7 +1206,10 @@ func applyNodeConfig(node string, config []byte) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s: %s", err, output)
+		// Redact before surfacing — talosctl error output sometimes echoes secret-laden
+		// machineconfig fragments. Keep error wording stable for upstream pattern matching.
+		redacted := common.RedactCommandOutput(string(output))
+		return fmt.Errorf("%s: %s", err, redacted)
 	}
 
 	return nil
@@ -1336,9 +1376,11 @@ func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
 
 	mergedConfig, err := cmd.Output()
 	if err != nil {
-		// Get stderr for better error reporting
-		if exitError, ok := err.(*exec.ExitError); ok {
-			return nil, fmt.Errorf("talosctl config merge failed: %w\nStderr: %s", err, string(exitError.Stderr))
+		// Get stderr for better error reporting; redact before surfacing.
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			redacted := common.RedactCommandOutput(string(exitError.Stderr))
+			return nil, fmt.Errorf("talosctl config merge failed: %w\nStderr: %s", err, redacted)
 		}
 		return nil, fmt.Errorf("talosctl config merge failed: %w", err)
 	}
