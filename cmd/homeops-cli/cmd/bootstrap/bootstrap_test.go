@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -91,6 +93,142 @@ func TestBuildHelmfileCmd(t *testing.T) {
 	}
 	if !foundRootDir {
 		t.Fatalf("expected ROOT_DIR to be present in env, got %v", cmd.Env)
+	}
+}
+
+func TestApplyNodeConfigRedactsErrorOutput(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'config error: api_key=SENTINEL_VALUE_LEAK' >&2\nexit 1\n"
+	scriptPath := filepath.Join(dir, "talosctl")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake talosctl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	err := applyNodeConfig("1.2.3.4", []byte("kind: machineconfig"))
+	if err == nil {
+		t.Fatal("expected applyNodeConfig to fail")
+	}
+	if strings.Contains(err.Error(), "SENTINEL_VALUE_LEAK") {
+		t.Fatalf("error must redact sensitive output: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted>") {
+		t.Fatalf("expected redaction marker, got: %v", err)
+	}
+}
+
+func TestRunHelmfileSyncCmdUsesTestableWriters(t *testing.T) {
+	oldStdout := bootstrapHelmfileStdout
+	oldStderr := bootstrapHelmfileStderr
+	t.Cleanup(func() {
+		bootstrapHelmfileStdout = oldStdout
+		bootstrapHelmfileStderr = oldStderr
+	})
+
+	stdoutBuf := &bytes.Buffer{}
+	stderrBuf := &bytes.Buffer{}
+	bootstrapHelmfileStdout = stdoutBuf
+	bootstrapHelmfileStderr = stderrBuf
+
+	dir := t.TempDir()
+	helmfileScript := "#!/bin/sh\nprintf 'sync output' \nprintf 'sync stderr' >&2\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "helmfile"), []byte(helmfileScript), 0o755); err != nil {
+		t.Fatalf("write fake helmfile: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if err := bootstrapRunHelmfileSyncCmd(dir, filepath.Join(dir, "ignored.yaml"), &BootstrapConfig{RootDir: "/tmp"}); err != nil {
+		t.Fatalf("expected helmfile fake to succeed: %v", err)
+	}
+	if !strings.Contains(stdoutBuf.String(), "sync output") {
+		t.Fatalf("expected stdout to be captured, got %q", stdoutBuf.String())
+	}
+	if !strings.Contains(stderrBuf.String(), "sync stderr") {
+		t.Fatalf("expected stderr to be captured, got %q", stderrBuf.String())
+	}
+}
+
+func TestRunKubectlContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 30\n"
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake kubectl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := runKubectlContext(ctx, &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}, "get", "nodes")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("cancellation should kill process quickly, took %v", elapsed)
+	}
+}
+
+func TestRunTalosctlContextCancellation(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nsleep 30\n"
+	if err := os.WriteFile(filepath.Join(dir, "talosctl"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake talosctl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := runTalosctlContext(ctx, "/tmp/talosconfig", "config", "info")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("cancellation should kill process quickly, took %v", elapsed)
+	}
+}
+
+func TestRunKubectlContextRedactsOutput(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'failure: password=SENTINEL_PWD api_key=SENTINEL_KEY' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake kubectl: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	result, err := runKubectlContext(context.Background(), &BootstrapConfig{KubeConfig: "/tmp/kubeconfig"}, "get", "secrets")
+	if err == nil {
+		t.Fatal("expected fake kubectl to fail")
+	}
+	if strings.Contains(result.Stderr, "SENTINEL_PWD") || strings.Contains(result.Stderr, "SENTINEL_KEY") {
+		t.Fatalf("stderr must be redacted, got: %s", result.Stderr)
+	}
+	if !strings.Contains(result.Stderr, "<redacted>") {
+		t.Fatalf("expected redaction marker, got: %s", result.Stderr)
+	}
+}
+
+func TestHelmfileTemplateOutputRedactsExitErrorStderr(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'error: token=SENTINEL_TOKEN_VALUE' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "helmfile"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake helmfile: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err := bootstrapHelmfileTemplateOutput(dir, &BootstrapConfig{RootDir: "/tmp"}, filepath.Join(dir, "ignored.yaml"))
+	if err == nil {
+		t.Fatal("expected fake helmfile to fail")
+	}
+	if strings.Contains(err.Error(), "SENTINEL_TOKEN_VALUE") {
+		t.Fatalf("error must redact stderr secrets: %v", err)
+	}
+	if !strings.Contains(err.Error(), "<redacted>") {
+		t.Fatalf("expected redaction marker in error, got: %v", err)
 	}
 }
 

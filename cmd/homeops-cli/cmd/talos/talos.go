@@ -2,6 +2,7 @@ package talos
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
@@ -31,6 +33,10 @@ import (
 	"github.com/vmware/govmomi/vim25/mo"
 	"gopkg.in/yaml.v3"
 )
+
+// talosCommandTimeout caps how long we wait for talosctl invocations that don't
+// have their own dedicated timeout knob (apply-config, kubeconfig).
+const talosCommandTimeout = 10 * time.Minute
 
 var (
 	chooseVMFunc                      = ui.Choose
@@ -62,15 +68,26 @@ var (
 	talosApplyConfigFn                = func(nodeIP, mode, config string) ([]byte, error) {
 		cmd := common.Command("talosctl", "--nodes", nodeIP, "apply-config", "--mode", mode, "--file", "/dev/stdin")
 		cmd.Stdin = bytes.NewReader([]byte(config))
-		return cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
+		// Redact before returning — apply-config error output may echo a snippet of
+		// the machineconfig that contains secrets.
+		return []byte(common.RedactCommandOutput(string(out))), err
 	}
 	talosctlNodeOutputFn = func(nodeIP string, args ...string) ([]byte, error) {
 		commandArgs := append([]string{"--nodes", nodeIP}, args...)
 		return common.Output("talosctl", commandArgs...)
 	}
 	generateKubeconfigFn = func(node, rootDir string) ([]byte, error) {
-		cmd := common.Command("talosctl", "kubeconfig", "--nodes", node, "--force", "--force-context-name", "home-ops-cluster", rootDir)
-		return cmd.CombinedOutput()
+		ctx, cancel := context.WithTimeout(context.Background(), talosCommandTimeout)
+		defer cancel()
+		result, err := common.RunCommand(ctx, common.CommandOptions{
+			Name: "talosctl",
+			Args: []string{"kubeconfig", "--nodes", node, "--force", "--force-context-name", "home-ops-cluster", rootDir},
+		})
+		// Combined output preserves diagnostic information without leaking raw secrets
+		// (kubeconfig content goes to disk via talosctl, not stdout).
+		combined := []byte(result.Stdout + result.Stderr)
+		return combined, err
 	}
 	pushKubeconfigTo1PasswordFn        = common.PushKubeconfigTo1Password
 	pullKubeconfigFrom1PasswordFn      = common.PullKubeconfigFrom1Password

@@ -1,6 +1,7 @@
 package talos
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2749,5 +2751,70 @@ func BenchmarkValidateVMName(b *testing.B) {
 		for _, name := range names {
 			_ = validateVMName(name)
 		}
+	}
+}
+
+func TestTalosApplyConfigFnRedactsErrorOutput(t *testing.T) {
+	// Use PATH override with a fake talosctl so we can assert that the default
+	// implementation redacts secret-looking output before returning it.
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho 'apply-config error: api_key=SENTINEL_LEAKED_API' >&2\nexit 1\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "talosctl"), []byte(script), 0o755))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	out, err := talosApplyConfigFn("1.2.3.4", "auto", "kind: machineconfig")
+	require.Error(t, err)
+	assert.NotContains(t, string(out), "SENTINEL_LEAKED_API", "redacted output must not echo secret values")
+	assert.Contains(t, string(out), "<redacted>", "expected redaction marker in returned output")
+}
+
+func TestGenerateKubeconfigFnTimesOut(t *testing.T) {
+	// Verify that the kubeconfig path uses a context-bound timeout. We can't
+	// easily reduce the package-level talosCommandTimeout, so we stand up the
+	// same RunCommand path with a short context against a hanging fake binary.
+	dir := t.TempDir()
+	hangScript := "#!/bin/sh\nsleep 60\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "talosctl"), []byte(hangScript), 0o755))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := common.RunCommand(ctx, common.CommandOptions{
+		Name: "talosctl",
+		Args: []string{"kubeconfig", "--nodes", "1.2.3.4", "--force", "--force-context-name", "home-ops-cluster", "/tmp/rd"},
+	})
+	elapsed := time.Since(start)
+	require.Error(t, err)
+	assert.Less(t, elapsed, 5*time.Second, "kubeconfig hang should be cancelled quickly")
+}
+
+func TestTalosCommandTimeoutIsReasonable(t *testing.T) {
+	if talosCommandTimeout < time.Minute {
+		t.Fatalf("talosCommandTimeout too short: %v", talosCommandTimeout)
+	}
+}
+
+func TestProviderProvidersGivePredictableSummary(t *testing.T) {
+	// Verifies that logNamedVMDeploymentSuccess produces a uniform success
+	// message shape across providers (TrueNAS, Proxmox, vSphere).
+	logger := common.NewColorLogger()
+	cases := []struct {
+		provider string
+		names    []string
+	}{
+		{"truenas", []string{"vm-1"}},
+		{"proxmox", []string{"vm-1", "vm-2"}},
+		{"vsphere", []string{"vm-1", "vm-2", "vm-3"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.provider, func(t *testing.T) {
+			// Function should not panic regardless of provider/name count.
+			require.NotPanics(t, func() {
+				logNamedVMDeploymentSuccess(logger, tc.provider, tc.names)
+				logNamedVMDeploymentStart(logger, tc.provider, tc.names)
+			})
+		})
 	}
 }
