@@ -5,10 +5,17 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+# Use `read` loops instead of `mapfile` so the script runs on the bash 3.2
+# that ships with macOS (`/usr/bin/env bash`).
+files=()
 if [[ $# -gt 0 ]]; then
-  mapfile -t files < <(printf '%s\n' "$@" | sed '/^$/d')
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && files+=("$line")
+  done < <(printf '%s\n' "$@")
 else
-  mapfile -t files < <(git diff --cached --name-only --diff-filter=ACMR)
+  while IFS= read -r line; do
+    files+=("$line")
+  done < <(git diff --cached --name-only --diff-filter=ACMR)
 fi
 
 if [[ ${#files[@]} -eq 0 ]]; then
@@ -46,7 +53,10 @@ for file in "${files[@]}"; do
   while IFS=$'\t' read -r label regex; do
     [[ -n "$label" ]] || continue
 
-    mapfile -t lines < <(LC_ALL=C grep -nE -- "$regex" "$content_path" | cut -d: -f1 | sort -u)
+    lines=()
+    while IFS= read -r line_no; do
+      [[ -n "$line_no" ]] && lines+=("$line_no")
+    done < <(LC_ALL=C grep -nE -- "$regex" "$content_path" | cut -d: -f1 | sort -u)
     if [[ ${#lines[@]} -eq 0 ]]; then
       continue
     fi
