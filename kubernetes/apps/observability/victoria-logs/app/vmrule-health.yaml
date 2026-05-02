@@ -38,22 +38,31 @@ spec:
             severity: critical
 
         - alert: VictoriaLogsIngestionStalled
+          # vl_rows_ingested_total is broken out by `type` label (nativeinsert,
+          # syslog_udp, syslog_tcp, elasticsearch_bulk, ...). Without sum() this rule
+          # fires per-type, so any historically-used ingest path that goes idle (e.g.
+          # an experimental Vector instance that was decommissioned) makes this alert
+          # fire even though aggregate ingestion is healthy. Aggregate cluster-wide so
+          # the alert only fires when ALL ingestion paths are zero.
+          # Per-type stalls are covered by SyslogIngestionStalled below; add similar
+          # per-type rules if a specific path becomes critical to monitor.
           expr: |-
-            rate(vl_rows_ingested_total{job="victoria-logs-server"}[10m]) == 0
+            sum(rate(vl_rows_ingested_total{job="victoria-logs-server"}[10m])) == 0
           for: 15m
           keep_firing_for: 5m
           annotations:
             summary: >-
               VictoriaLogs log ingestion has stalled
             description: >-
-              VictoriaLogs has not ingested any logs in the last 15 minutes. Check vlagent collector and syslog listeners.
+              VictoriaLogs has not ingested any logs in the last 15 minutes across all ingestion paths. Check vlagent collector and syslog listeners.
             runbook_url: https://docs.victoriametrics.com/victorialogs/
           labels:
             severity: warning
 
         - alert: VictoriaLogsHighIngestionRate
+          # Aggregate across types — see VictoriaLogsIngestionStalled for context.
           expr: |-
-            rate(vl_rows_ingested_total{job="victoria-logs-server"}[5m]) > 100000
+            sum(rate(vl_rows_ingested_total{job="victoria-logs-server"}[5m])) > 100000
           for: 15m
           keep_firing_for: 5m
           annotations:
