@@ -111,28 +111,30 @@ spec:
           # not require a recursor lookup beyond the packet cache.
           #   (dnsdist_hits + recursor_packetcache_hits) / total_queries
           # Total queries are taken from dnsdist_queries (all queries ingress the stack
-          # through dnsdist). Threshold lowered to <70% (typical healthy: 85-90%).
-          # NOTE: dnsdist scrapes on :8083 and pdns-recursor on :8092 on the
-          # same hosts, so raw `instance` labels differ between the two layers
-          # and `sum by (instance)` + `+` will NOT align them (returns empty).
-          # We strip the :port via label_replace and aggregate by the resulting
-          # `host` label so the two layers combine per-host.
+          # through dnsdist). Threshold: <70% (cluster-wide steady state ~85-90%).
+          #
+          # 2026-05-02: switched to CLUSTER-WIDE aggregation. The previous per-host
+          # formula was load-bearing-broken: each host's dnsdist forwards round-robin
+          # to BOTH recursors, so the recursor packetcache_hits on host X include cross-
+          # host traffic, while dnsdist_queries on host X only counts local ingress.
+          # That mismatch produced numbers that exceeded 100% on the lighter-loaded
+          # node and dipped well below 70% on the busier node, generating chronic
+          # info-severity false positives. Cluster-wide aggregation is exact under
+          # active/active load balancing and is what we actually care about: the user-
+          # facing cache effectiveness across the HA pair.
           expr: |-
             (
-              (
-                sum by (host) (label_replace(rate(dnsdist_cache_hits{job="dnsdist"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
-                +
-                sum by (host) (label_replace(rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
-              )
-              /
-              clamp_min(
-                sum by (host) (label_replace(rate(dnsdist_queries{job="dnsdist"}[15m]), "host", "$1", "instance", "([^:]+):.*"))
-              , 1)
-            ) < 0.7
+              sum(rate(dnsdist_cache_hits{job="dnsdist"}[15m]))
+              +
+              sum(rate(pdns_recursor_packetcache_hits{job="pdns-recursor"}[15m]))
+            )
+            /
+            clamp_min(sum(rate(dnsdist_queries{job="dnsdist"}[15m])), 1)
+            < 0.7
           for: 1h
           keep_firing_for: 5m
           annotations:
-            summary: "Effective DNS cache hit ratio <70% on {{ $labels.host }}"
+            summary: "Effective DNS cache hit ratio <70% (cluster-wide)"
             description: |-
               Combined dnsdist + recursor packet cache hit ratio: {{ $value | humanizePercentage }} for 1h.
               Typical healthy value is 85-90%. Likely a warming period after restart, unusual query
