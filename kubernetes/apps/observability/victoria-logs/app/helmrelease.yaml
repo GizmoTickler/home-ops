@@ -45,6 +45,15 @@ spec:
         # Each value must be a JSON array (VictoriaLogs parses as JSON)
         syslog.streamFields.udp: '["hostname","app_name"]'
         syslog.streamFields.tcp: '["hostname","app_name"]'
+        # RFC3164 has no timezone in its timestamp; VyOS and UniFi APs send local
+        # wall-clock time (US/Eastern, UTC-4 during EDT) but VL parses the bare
+        # MMM DD HH:MM:SS as UTC, producing a 4h skew on _time. Tell VL the
+        # source TZ so parsed timestamps land correctly.
+        # Cisco IOS (SC01, gateway1) is unaffected: its non-canonical "<seq>: host: ..."
+        # header makes VL's RFC3164 parser bail on the timestamp entirely and fall back
+        # to receive time, so the TZ flag is a no-op for those devices — no regression
+        # risk on Cisco-sourced logs from setting this.
+        syslog.timezone: "America/New_York"
       resources:
         requests:
           cpu: 175m
