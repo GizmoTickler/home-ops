@@ -215,11 +215,10 @@ spec:
                 http_config:
                   tls_config:
                     server_name: friday3.${SECRET_DOMAIN}
-                    cert:
-                      secret:
-                        name: alertmanager-secret
-                        key: friday3-client.crt
-                    key_secret:
+                    cert_secret_ref:
+                      name: alertmanager-secret
+                      key: friday3-client.crt
+                    key_secret_ref:
                       name: alertmanager-secret
                       key: friday3-client.key
           - name: pushover
