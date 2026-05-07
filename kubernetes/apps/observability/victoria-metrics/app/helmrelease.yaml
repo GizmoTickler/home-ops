@@ -214,11 +214,17 @@ spec:
                 url: https://friday3.${SECRET_DOMAIN}/webhooks/amdiag
                 http_config:
                   tls_config:
-                    server_name: friday3.${SECRET_DOMAIN}
-                    cert_secret_ref:
-                      name: alertmanager-secret
-                      key: friday3-client.crt
-                    key_secret_ref:
+                    # Operator's TLSConfig struct uses camelCase JSON tags
+                    # (serverName / cert / keySecret), unlike the surrounding
+                    # snake_case AM-config keys.  Verified against
+                    # github.com/VictoriaMetrics/operator (v0.69.0)
+                    # api/operator/v1beta1/vmextra_types.go.
+                    serverName: friday3.${SECRET_DOMAIN}
+                    cert:
+                      secret:
+                        name: alertmanager-secret
+                        key: friday3-client.crt
+                    keySecret:
                       name: alertmanager-secret
                       key: friday3-client.key
           - name: pushover
