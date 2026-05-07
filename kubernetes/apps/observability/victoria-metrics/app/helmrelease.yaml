@@ -124,11 +124,6 @@ spec:
       annotations: {}
       spec:
         replicaCount: 1
-        # Mount alertmanager-secret as files at /etc/vm/secrets/alertmanager-secret/
-        # so http_config.tls_config in webhook receivers can reference cert_file /
-        # key_file paths.  Used by friday3-diagnostics receiver below for mTLS.
-        secrets:
-          - alertmanager-secret
         port: "9093"
         selectAllByDefault: true
         externalURL: ""
@@ -210,15 +205,23 @@ spec:
                 max_alerts: 5
                 # mTLS via Caddy on varunlnx0 → 127.0.0.1:8644 Hermes webhook.
                 # Caddy's client_auth { mode require_and_verify } is the AuthN gate;
-                # client cert is minted from the friday3 client CA, mounted via
-                # alertmanager-secret (see secrets: above).  No HMAC needed since
-                # the only path to /webhooks/amdiag is through the cert gate.
+                # client cert is minted from the friday3 client CA, sourced from
+                # alertmanager-secret via VMAlertmanagerConfig K8s-native refs
+                # (cert_file/key_file paths are rejected by the operator's
+                # admission webhook — only cert: / key_secret: refs are allowed).
+                # No HMAC needed since the only path to /webhooks/amdiag is
+                # through the cert gate.
                 url: https://friday3.${SECRET_DOMAIN}/webhooks/amdiag
                 http_config:
                   tls_config:
                     server_name: friday3.${SECRET_DOMAIN}
-                    cert_file: /etc/vm/secrets/alertmanager-secret/friday3-client.crt
-                    key_file:  /etc/vm/secrets/alertmanager-secret/friday3-client.key
+                    cert:
+                      secret:
+                        name: alertmanager-secret
+                        key: friday3-client.crt
+                    key_secret:
+                      name: alertmanager-secret
+                      key: friday3-client.key
           - name: pushover
             pushover_configs:
               - html: true
