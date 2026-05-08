@@ -25,7 +25,7 @@ releases:
   - name: kgateway-crds
     namespace: network
     chart: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
-    version: v2.2.3
+    version: v2.2.4
 
   - name: grafana-operator
     namespace: observability
