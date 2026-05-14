@@ -11,7 +11,7 @@ spec:
   talosctl:
     image:
       repository: ghcr.io/siderolabs/talosctl
-      tag: v1.13.0
+      tag: v1.13.2
       pullPolicy: IfNotPresent
   healthChecks:
     - apiVersion: volsync.backube/v1alpha1
