@@ -9,6 +9,7 @@ spec:
     kind: OCIRepository
     name: autobrr
   interval: 1h
+  timeout: 10m
   values:
     controllers:
       autobrr:
@@ -69,6 +70,16 @@ spec:
                   timeoutSeconds: 5
                   failureThreshold: 5
               readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /api/healthz/liveness
+                    port: *port
+                  periodSeconds: 5
+                  timeoutSeconds: 5
+                  failureThreshold: 60
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
