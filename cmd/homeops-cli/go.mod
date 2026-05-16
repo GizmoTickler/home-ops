@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	dario.cat/mergo v1.0.2
 	github.com/fatih/color v1.19.0
-	github.com/luthermonson/go-proxmox v0.5.0
+	github.com/luthermonson/go-proxmox v0.5.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
@@ -21,7 +21,7 @@ require (
 require (
 	github.com/buger/goterm v1.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/diskfs/go-diskfs v1.9.2 // indirect
+	github.com/diskfs/go-diskfs v1.9.3 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

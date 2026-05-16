@@ -14,6 +14,8 @@ github.com/diskfs/go-diskfs v1.7.0 h1:vonWmt5CMowXwUc79jWyGrf2DIMeoOjkLlMnQYGVOs
 github.com/diskfs/go-diskfs v1.7.0/go.mod h1:LhQyXqOugWFRahYUSw47NyZJPezFzB9UELwhpszLP/k=
 github.com/diskfs/go-diskfs v1.9.2 h1:HAN2DmAEtG2Dp/3BZ+10DvhtRDC10IwufPUOnnbwDfc=
 github.com/diskfs/go-diskfs v1.9.2/go.mod h1:TePJORO83Adh5pb2SqsxAwaP0fofFxKLkxctiS/9OQc=
+github.com/diskfs/go-diskfs v1.9.3 h1:cLciNCeZ4QAXVxyPJDr1ZJ9N9CCG3rQlQ/z/Cs/cNDM=
+github.com/diskfs/go-diskfs v1.9.3/go.mod h1:TePJORO83Adh5pb2SqsxAwaP0fofFxKLkxctiS/9OQc=
 github.com/djherbis/times v1.6.0 h1:w2ctJ92J8fBvWPxugmXIv7Nz7Q3iDMKNx9v5ocVH20c=
 github.com/djherbis/times v1.6.0/go.mod h1:gOHeRAz2h+VJNZ5Gmc/o7iD9k4wW7NMVqieYCY99oc0=
 github.com/elliotwutingfeng/asciiset v0.0.0-20230602022725-51bbb787efab h1:h1UgjJdAAhj+uPL68n7XASS6bU+07ZX1WJvVS2eyoeY=
@@ -76,6 +78,8 @@ github.com/luthermonson/go-proxmox v0.4.1 h1:1WnUBHzCQEa5goHuzewkApi6LKtQcFB8/tX
 github.com/luthermonson/go-proxmox v0.4.1/go.mod h1:U6dAkJ+iiwaeb1g/LMWpWuWN4nmvWeXhmoMuYJMumS4=
 github.com/luthermonson/go-proxmox v0.5.0 h1:15/ZaoNXeBtpE31ZZ5kSY5XnlMNcCJmbTteEXxPLS4o=
 github.com/luthermonson/go-proxmox v0.5.0/go.mod h1:/mrMokmcU1lcWiWJFCPDO5nzcxpo8h0PEfcmY/ERZmA=
+github.com/luthermonson/go-proxmox v0.5.1 h1:MO/Ir+daqtHh8XyRTcwbIwOe/FfPZev8uxhfUg/ipwo=
+github.com/luthermonson/go-proxmox v0.5.1/go.mod h1:Q6ByFv9Zak9NvJwZJ36HMN5qwIZVj0isxf8u4YIk6lE=
 github.com/magefile/mage v1.14.0 h1:6QDX3g6z1YvJ4olPhT1wksUcSa/V0a1B+pJb73fBjyo=
 github.com/magefile/mage v1.14.0/go.mod h1:z5UZb/iS3GoOSn0JgWuiw7dxlurVYTu+/jHXqQg881A=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
