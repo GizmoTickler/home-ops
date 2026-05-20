@@ -35,7 +35,7 @@ spec:
           app:
             image:
               repository: freshrss/freshrss
-              tag: 1.29.0
+              tag: 1.29.1
             env:
               CRON_MIN: "*"
               DOMAIN: "rss.${SECRET_DOMAIN}"
