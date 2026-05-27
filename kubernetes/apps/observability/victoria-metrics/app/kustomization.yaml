@@ -21,6 +21,7 @@ resources:
   - ./kea-dhcp4-dashboard.yaml
   - ./dnscrypt-proxy-dashboard.yaml
   - ./stream-aggr-config.yaml
+  - ./trustsec-sgacl-exporter.yaml
 configMapGenerator:
   - name: flux-metrics-configmap
     files:
