@@ -185,8 +185,8 @@ spec:
     readinessProbe:
       enabled: true
       initialDelaySeconds: 5
-      periodSeconds: 10
-      timeoutSeconds: 5
+      periodSeconds: 15
+      timeoutSeconds: 15  # was 5; the app gets slow under load and was flapping
       failureThreshold: 6
       successThreshold: 1
 
@@ -200,9 +200,9 @@ spec:
         path: /api/
         port: http
       initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      failureThreshold: 6
+      periodSeconds: 30   # was 10; lower frequency reduces probe-induced load
+      timeoutSeconds: 15  # was 5; matches readiness timeout
+      failureThreshold: 6 # 90s with 15s timeout × 6 = ~3 min before kill
       successThreshold: 1
 
     # Service account
