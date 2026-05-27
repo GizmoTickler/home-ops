@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cisco-trustsec-logs
+  namespace: observability
+  labels:
+    rule-type: vlogs
+spec:
+  groups:
+    - name: cisco-trustsec-logs
+      type: vlogs
+      interval: 1m
+      rules:
+        - alert: CiscoTrustSecSGACLDeny
+          expr: |
+            facility:23 (_msg:~"SGACLHIT|IPACCESSLOG.*RBACL_DENY_LOG|RBACL_DENY_LOG") | stats count() denies | filter denies:>0
+          for: 0m
+          annotations:
+            summary: SC01 TrustSec SGACL deny observed
+            description: >-
+              SC01 emitted one or more TrustSec SGACL deny events in the last VMAlert logs evaluation window.
+              Query VictoriaLogs for facility:23 and RBACL_DENY_LOG / SGACLHIT to inspect sgt/dgt, src/dst, and ports.
+            runbook_url: https://docs.victoriametrics.com/victorialogs/logsql/
+          labels:
+            severity: warning
+            app: cisco-trustsec
+            device: sc01

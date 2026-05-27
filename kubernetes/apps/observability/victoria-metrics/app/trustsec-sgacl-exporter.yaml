@@ -1,0 +1,267 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/external-secrets.io/externalsecret_v1.json
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: trustsec-sgacl-exporter
+spec:
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: onepassword
+  target:
+    name: trustsec-sgacl-exporter-secret
+  data:
+    - secretKey: id_ed25519
+      remoteRef:
+        key: sc01-ssh
+        property: private key
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trustsec-sgacl-exporter
+data:
+  exporter.py: |
+    #!/usr/bin/env python3
+    import http.server
+    import os
+    import re
+    import subprocess
+    import time
+
+    HOST = os.environ.get("SC01_HOST", "10.255.255.253")
+    USER = os.environ.get("SC01_USER", "99940218")
+    KEY = os.environ.get("SC01_KEY", "/etc/sc01-ssh/id_ed25519")
+    PORT = int(os.environ.get("PORT", "9898"))
+
+    ROW = re.compile(r"^(\*|Unknown|\d+)\s+(\*|Unknown|\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$")
+
+    def esc(value: str) -> str:
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def run_show():
+        try:
+            os.chmod(KEY, 0o400)
+        except OSError:
+            # Secret volumes are read-only; defaultMode already sets 0400.
+            pass
+        cmd = [
+            "ssh",
+            "-i", KEY,
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=8",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "UserKnownHostsFile=/tmp/sc01_known_hosts",
+            f"{USER}@{HOST}",
+            "show cts role-based counters",
+        ]
+        return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+
+    def collect():
+        start = time.time()
+        lines = [
+            "# HELP cisco_trustsec_sgacl_packets_total SC01 TrustSec SGACL packet counters by source/destination SGT, action, and plane.",
+            "# TYPE cisco_trustsec_sgacl_packets_total counter",
+            "# HELP cisco_trustsec_sgacl_scrape_success Whether the SC01 TrustSec SGACL scrape succeeded.",
+            "# TYPE cisco_trustsec_sgacl_scrape_success gauge",
+            "# HELP cisco_trustsec_sgacl_scrape_duration_seconds Duration of the SC01 TrustSec SGACL scrape.",
+            "# TYPE cisco_trustsec_sgacl_scrape_duration_seconds gauge",
+        ]
+        try:
+            cp = run_show()
+            if cp.returncode != 0:
+                lines.append('cisco_trustsec_sgacl_scrape_success{device="sc01"} 0')
+                lines.append(f'cisco_trustsec_sgacl_scrape_error{{device="sc01",error="{esc(cp.stdout[-200:])}"}} 1')
+            else:
+                count = 0
+                for raw in cp.stdout.splitlines():
+                    m = ROW.match(raw.strip())
+                    if not m:
+                        continue
+                    src, dst, sw_denied, hw_denied, sw_permit, hw_permit, sw_monitor, hw_monitor = m.groups()
+                    values = [
+                        ("denied", "software", sw_denied),
+                        ("denied", "hardware", hw_denied),
+                        ("permitted", "software", sw_permit),
+                        ("permitted", "hardware", hw_permit),
+                        ("monitor", "software", sw_monitor),
+                        ("monitor", "hardware", hw_monitor),
+                    ]
+                    for action, plane, value in values:
+                        lines.append(
+                            'cisco_trustsec_sgacl_packets_total{device="sc01",src_sgt="%s",dst_sgt="%s",action="%s",plane="%s"} %s'
+                            % (esc(src), esc(dst), action, plane, value)
+                        )
+                    count += 1
+                lines.append('cisco_trustsec_sgacl_scrape_success{device="sc01"} 1')
+                lines.append(f'cisco_trustsec_sgacl_rows{{device="sc01"}} {count}')
+        except Exception as e:
+            lines.append('cisco_trustsec_sgacl_scrape_success{device="sc01"} 0')
+            lines.append(f'cisco_trustsec_sgacl_scrape_error{{device="sc01",error="{esc(type(e).__name__ + ": " + str(e))}"}} 1')
+        lines.append('cisco_trustsec_sgacl_scrape_duration_seconds{device="sc01"} %.3f' % (time.time() - start))
+        return "\n".join(lines) + "\n"
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/healthz":
+                body = b"ok\n"
+            elif self.path in ("/metrics", "/"):
+                body = collect().encode()
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_):
+            return
+
+    http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trustsec-sgacl-exporter
+  labels:
+    app.kubernetes.io/name: trustsec-sgacl-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trustsec-sgacl-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: trustsec-sgacl-exporter
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: exporter
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              apk add --no-cache openssh-client >/tmp/apk-add-openssh.log
+              exec python /app/exporter.py
+          env:
+            - name: SC01_HOST
+              value: "10.255.255.253"
+            - name: SC01_USER
+              value: "99940218"
+            - name: SC01_KEY
+              value: /etc/sc01-ssh/id_ed25519
+            - name: PORT
+              value: "9898"
+          ports:
+            - name: http
+              containerPort: 9898
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: exporter
+              mountPath: /app
+              readOnly: true
+            - name: sc01-ssh
+              mountPath: /etc/sc01-ssh
+              readOnly: true
+      volumes:
+        - name: exporter
+          configMap:
+            name: trustsec-sgacl-exporter
+            defaultMode: 0555
+        - name: sc01-ssh
+          secret:
+            secretName: trustsec-sgacl-exporter-secret
+            defaultMode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trustsec-sgacl-exporter
+  labels:
+    app.kubernetes.io/name: trustsec-sgacl-exporter
+spec:
+  selector:
+    app.kubernetes.io/name: trustsec-sgacl-exporter
+  ports:
+    - name: http
+      port: 9898
+      targetPort: http
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmservicescrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: trustsec-sgacl-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trustsec-sgacl-exporter
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 25s
+      relabelConfigs:
+        - targetLabel: job
+          replacement: trustsec-sgacl-exporter
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: trustsec-sgacl-exporter-alerts
+spec:
+  groups:
+    - name: trustsec-sgacl-exporter.rules
+      interval: 30s
+      rules:
+        - alert: TrustSecSGACLExporterDown
+          expr: |-
+            absent(cisco_trustsec_sgacl_scrape_success{device="sc01"}) or cisco_trustsec_sgacl_scrape_success{device="sc01"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: SC01 TrustSec SGACL counter exporter is down
+            description: >-
+              The trustsec-sgacl-exporter cannot scrape SC01 TrustSec SGACL counters. Check the exporter pod, 1Password sc01-ssh ExternalSecret, and SSH access to SC01.
+          labels:
+            severity: warning
+            component: trustsec
+        - alert: TrustSecSGACLDenyCounterIncreased
+          expr: |-
+            sum(increase(cisco_trustsec_sgacl_packets_total{device="sc01",action="denied"}[5m])) > 0
+          for: 0m
+          keep_firing_for: 5m
+          annotations:
+            summary: SC01 TrustSec SGACL deny counter increased
+            description: >-
+              One or more SC01 TrustSec SGACL deny counters increased in the last 5 minutes. Check VictoriaLogs for RBACL_DENY_LOG / SGACLHIT to identify source and destination SGT/IP/port.
+          labels:
+            severity: warning
+            component: trustsec
