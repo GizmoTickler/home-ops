@@ -80,6 +80,8 @@ github.com/luthermonson/go-proxmox v0.5.0 h1:15/ZaoNXeBtpE31ZZ5kSY5XnlMNcCJmbTte
 github.com/luthermonson/go-proxmox v0.5.0/go.mod h1:/mrMokmcU1lcWiWJFCPDO5nzcxpo8h0PEfcmY/ERZmA=
 github.com/luthermonson/go-proxmox v0.5.1 h1:MO/Ir+daqtHh8XyRTcwbIwOe/FfPZev8uxhfUg/ipwo=
 github.com/luthermonson/go-proxmox v0.5.1/go.mod h1:Q6ByFv9Zak9NvJwZJ36HMN5qwIZVj0isxf8u4YIk6lE=
+github.com/luthermonson/go-proxmox v0.6.0 h1:VWvQKUCxIOnxcy1cHd7jlL83OlTEBRnX2pG/YiKC/+8=
+github.com/luthermonson/go-proxmox v0.6.0/go.mod h1:Q6ByFv9Zak9NvJwZJ36HMN5qwIZVj0isxf8u4YIk6lE=
 github.com/magefile/mage v1.14.0 h1:6QDX3g6z1YvJ4olPhT1wksUcSa/V0a1B+pJb73fBjyo=
 github.com/magefile/mage v1.14.0/go.mod h1:z5UZb/iS3GoOSn0JgWuiw7dxlurVYTu+/jHXqQg881A=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
