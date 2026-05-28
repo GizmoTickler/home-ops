@@ -155,14 +155,11 @@ cluster:
             score:
               disabled:
                 - name: ImageLocality
-          pluginConfig:
-            - name: PodTopologySpread
-              args:
-                defaultingType: List
-                defaultConstraints:
-                  - maxSkew: 1
-                    topologyKey: kubernetes.io/hostname
-                    whenUnsatisfiable: ScheduleAnyway
+          # PodTopologySpread defaultConstraints removed: the bare int `maxSkew: 1`
+          # in this passthrough config map crashes Talos >=v1.13.3's static-pod
+          # render controller ("cannot deep copy int"), taking the whole control
+          # plane down. Restore via a mounted KubeSchedulerConfiguration file once
+          # the upstream Talos deep-copy regression is fixed.
     extraArgs:
       bind-address: 0.0.0.0
     image: registry.k8s.io/kube-scheduler:v1.36.1
