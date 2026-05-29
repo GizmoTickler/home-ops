@@ -1,0 +1,107 @@
+# kubeadm init config for the FIRST control-plane node (node0).
+# v1beta4 (k8s 1.31+). Faithful port of the Talos controlplane.yaml cluster settings.
+# Rendered with {{ ENV.* }} substitution; PKI is generated fresh by kubeadm (new cluster),
+# so no Talos CA reuse. CoreDNS + kube-proxy are skipped (CoreDNS via Flux, kube-proxy
+# replaced by Cilium).
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ ENV.NODE_IP }}"
+  bindPort: 6443
+nodeRegistration:
+  name: "{{ ENV.NODE_NAME }}"
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ ENV.NODE_IP }}"
+  # allowSchedulingOnControlPlanes: true  -> no control-plane NoSchedule taint
+  taints: []
+# CNI installed separately (Cilium); kube-proxy replaced by Cilium; CoreDNS via Flux.
+skipPhases:
+  - addon/kube-proxy
+  - addon/coredns
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+kubernetesVersion: "{{ ENV.KUBERNETES_VERSION }}"
+clusterName: home-ops-cluster
+# Bootstrap-reliable VIP (kube-vip ARP, CNI-independent). External clients use
+# k8s.${SECRET_DOMAIN} -> 192.168.255.10 (Cilium BGP LB), which is in certSANs below.
+controlPlaneEndpoint: "{{ ENV.CONTROL_PLANE_VIP }}:6443"
+networking:
+  podSubnet: 10.42.0.0/16
+  serviceSubnet: 10.43.0.0/16
+  dnsDomain: cluster.local
+etcd:
+  local:
+    # stacked etcd (3-node HA). Talos advertisedSubnets 192.168.120.0/22 == node subnet,
+    # which kubeadm already uses via the node IP. Expose metrics for VictoriaMetrics.
+    extraArgs:
+      - name: listen-metrics-urls
+        value: http://0.0.0.0:2381
+apiServer:
+  certSANs:
+    - 127.0.0.1
+    - localhost
+    - "{{ ENV.CONTROL_PLANE_VIP }}"   # 192.168.123.253 (kube-vip ARP VIP)
+    - 192.168.255.10                  # Cilium BGP external API LB
+    - k8s.${SECRET_DOMAIN}                  # K8S_ENDPOINT DNS (-> .255.10)
+    - 192.168.120.100                 # preserved from Talos certSANs
+    - "{{ ENV.NODE0_IP }}"
+    - "{{ ENV.NODE1_IP }}"
+    - "{{ ENV.NODE2_IP }}"
+  extraArgs:
+    - name: enable-aggregator-routing
+      value: "true"
+    - name: audit-policy-file
+      value: /etc/kubernetes/audit/policy.yaml
+    - name: audit-log-path
+      value: /var/log/kubernetes/audit/audit.log
+    - name: audit-log-maxage
+      value: "7"
+    - name: audit-log-maxbackup
+      value: "3"
+    - name: audit-log-maxsize
+      value: "100"
+  extraVolumes:
+    - name: audit-policy
+      hostPath: /etc/kubernetes/audit/policy.yaml
+      mountPath: /etc/kubernetes/audit/policy.yaml
+      readOnly: true
+      pathType: File
+    - name: audit-logs
+      hostPath: /var/log/kubernetes/audit
+      mountPath: /var/log/kubernetes/audit
+      pathType: DirectoryOrCreate
+controllerManager:
+  extraArgs:
+    - name: bind-address
+      value: 0.0.0.0
+    - name: feature-gates
+      value: HPAScaleToZero=true
+scheduler:
+  # Mirror Talos scheduler.config: disable the ImageLocality score plugin.
+  extraArgs:
+    - name: bind-address
+      value: 0.0.0.0
+    - name: config
+      value: /etc/kubernetes/scheduler/config.yaml
+  extraVolumes:
+    - name: scheduler-config
+      hostPath: /etc/kubernetes/scheduler/config.yaml
+      mountPath: /etc/kubernetes/scheduler/config.yaml
+      readOnly: true
+      pathType: File
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+# Talos parity:
+serializeImagePulls: false            # machine.kubelet.extraConfig.serializeImagePulls
+seccompDefault: true                  # defaultRuntimeSeccompProfileEnabled
+rotateServerCertificates: true
+clusterDomain: cluster.local
+clusterDNS:
+  - 10.43.0.10                        # CoreDNS Service clusterIP (verify vs coredns HR)
+maxPods: 250

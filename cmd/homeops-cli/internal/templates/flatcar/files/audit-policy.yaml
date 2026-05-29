@@ -1,0 +1,6 @@
+# kube-apiserver audit policy — port of Talos cluster.apiServer.auditPolicy.
+# Mounted into the apiserver static pod at /etc/kubernetes/audit/policy.yaml (see init-config).
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+  - level: Metadata

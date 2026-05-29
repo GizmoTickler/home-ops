@@ -1,0 +1,131 @@
+# Butane -> Ignition for a Flatcar control-plane node (all 3 nodes are control-plane).
+# Rendered with {{ ENV.* }} substitution (Butane text AND local:-referenced files both get
+# ENV substitution by the Go renderer), then transpiled to Ignition with --files-dir.
+#
+# This makes the node "kubeadm-ready": Kubernetes via systemd-sysext, containerd CRI,
+# kubelet enabled, all Talos OS tuning ported, kube-vip static manifest staged, kubeadm
+# config files staged. homeops-cli then runs `kubeadm init` (node0) / `kubeadm join`
+# (node1/2) over SSH so the dynamic join token / cert key / CA hash are handled at runtime.
+#
+# Verify before lab: that extensions.flatcar.org publishes the pinned k8s version sysext
+# (else build from flatcar/sysext-bundles), and the containerd config plugin keys match the
+# containerd version on the target Flatcar release.
+variant: flatcar
+version: 1.1.0
+
+storage:
+  links:
+    # Activate the Kubernetes sysext (kubelet, kubeadm, kubectl, crictl, CNI plugins).
+    - target: /opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
+      path: /etc/extensions/kubernetes.raw
+      hard: false
+  files:
+    # --- Kubernetes sysext bundle + auto-update wiring ---
+    - path: /opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
+      contents:
+        source: https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
+    - path: /etc/sysupdate.kubernetes.d/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf
+      contents:
+        source: https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf
+    - path: /etc/sysupdate.d/noop.conf
+      contents:
+        source: https://extensions.flatcar.org/extensions/noop.conf
+
+    # --- identity ---
+    - path: /etc/hostname
+      mode: 0644
+      contents:
+        inline: "{{ ENV.NODE_NAME }}"
+
+    # --- networking: DHCP-by-MAC, jumbo frames (MTU 9000) on ens18 ---
+    - path: /etc/systemd/network/10-k8s.network
+      mode: 0644
+      contents:
+        inline: |
+          [Match]
+          Name=ens18
+          [Link]
+          MTUBytes=9000
+          [Network]
+          DHCP=yes
+          [DHCPv4]
+          UseMTU=false
+          UseDomains=yes
+
+    # --- NTP: the 5 homelab NTP servers (port of Talos machine.time.servers) ---
+    - path: /etc/systemd/timesyncd.conf
+      mode: 0644
+      contents:
+        inline: |
+          [Time]
+          NTP=10.123.123.123 10.123.123.124 10.123.123.125 10.123.123.126 10.123.123.127
+
+    # --- OS tuning ported from Talos (ENV-substituted by the renderer where needed) ---
+    - path: /etc/sysctl.d/99-homeops.conf
+      mode: 0644
+      contents:
+        local: files/sysctl-99-homeops.conf
+    - path: /etc/modules-load.d/homeops.conf
+      mode: 0644
+      contents:
+        local: files/modules-load-homeops.conf
+    - path: /etc/nfsmount.conf
+      mode: 0644
+      contents:
+        local: files/nfsmount.conf
+
+    # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause) ---
+    - path: /etc/containerd/config.toml
+      mode: 0644
+      contents:
+        local: files/containerd-config.toml
+
+    # --- kube-vip static pod (ARP control-plane VIP); kubelet starts it post-init ---
+    - path: /etc/kubernetes/manifests/kube-vip.yaml
+      mode: 0644
+      contents:
+        local: manifests/kube-vip.yaml
+
+    # --- apiserver audit policy + scheduler config (mounted into static pods) ---
+    - path: /etc/kubernetes/audit/policy.yaml
+      mode: 0644
+      contents:
+        local: files/audit-policy.yaml
+    - path: /etc/kubernetes/scheduler/config.yaml
+      mode: 0644
+      contents:
+        local: files/scheduler-config.yaml
+
+systemd:
+  units:
+    # containerd from the Flatcar base OS, pointed at our /etc/containerd/config.toml
+    - name: containerd.service
+      enabled: true
+      dropins:
+        - name: 10-use-config.conf
+          contents: |
+            [Service]
+            ExecStart=
+            ExecStart=/usr/bin/containerd --config /etc/containerd/config.toml
+    # kubelet shipped by the Kubernetes sysext; kubeadm configures it during init/join
+    - name: kubelet.service
+      enabled: true
+    # docker not used by the cluster runtime
+    - name: docker.service
+      mask: true
+    # No automatic OS reboots; Kured coordinates (kubernetes app handles node drain/reboot)
+    - name: locksmithd.service
+      mask: true
+    # systemd-sysext + sysupdate for the Kubernetes bundle
+    - name: systemd-sysext.service
+      enabled: true
+    - name: systemd-sysupdate.timer
+      enabled: true
+    # mark a reboot as required when the k8s sysext version changes (Kured then drains/reboots)
+    - name: systemd-sysupdate.service
+      dropins:
+        - name: kubernetes.conf
+          contents: |
+            [Service]
+            ExecStartPre=/usr/bin/sh -c 'readlink --canonicalize /etc/extensions/kubernetes.raw > /tmp/kubernetes'
+            ExecStartPost=/usr/bin/sh -c 'readlink --canonicalize /etc/extensions/kubernetes.raw > /tmp/kubernetes-new; if ! cmp --silent /tmp/kubernetes /tmp/kubernetes-new; then touch /run/reboot-required; fi'
