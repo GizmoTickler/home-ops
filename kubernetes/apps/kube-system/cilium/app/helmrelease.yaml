@@ -40,8 +40,10 @@ spec:
     ipam:
       mode: kubernetes
     ipv4NativeRoutingCIDR: 10.42.0.0/16
-    k8sServiceHost: 127.0.0.1
-    k8sServicePort: 7445
+    # kubeadm migration: control-plane endpoint is the kube-vip ARP VIP (CNI-independent),
+    # not Talos KubePrism. Cilium agents reach the API here before/without the CNI.
+    k8sServiceHost: 192.168.123.253
+    k8sServicePort: 6443
     kubeProxyReplacement: true
     kubeProxyReplacementHealthzBindAddr: 0.0.0.0:10256
     l2announcements:
