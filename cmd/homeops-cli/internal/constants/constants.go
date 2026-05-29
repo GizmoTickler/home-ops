@@ -157,7 +157,7 @@ const (
 	DefaultControlPlaneVIP = "192.168.123.253"
 	DefaultPauseImage      = "registry.k8s.io/pause:3.10"
 	DefaultKubeVipVersion  = "v0.8.9"
-	DefaultNodeInterface   = "ens18"
+	DefaultNodeInterface   = "eth0"
 	DefaultFlatcarChannel  = "stable"
 
 	// Node IPs for the 3 control-plane nodes.
