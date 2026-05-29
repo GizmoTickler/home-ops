@@ -108,7 +108,7 @@ func (o *Orchestrator) InitFirstControlPlane(node0IP, initConfig string, skipPha
 		return nil, fmt.Errorf("failed to stage kubeadm init config on %s: %w", node0IP, err)
 	}
 
-	cmd := fmt.Sprintf("sudo kubeadm init --config %s --upload-certs", remoteInitConfigPath)
+	cmd := fmt.Sprintf("sudo kubeadm init --config %s --upload-certs --ignore-preflight-errors=DirAvailable--etc-kubernetes-manifests", remoteInitConfigPath)
 	if len(skipPhases) > 0 {
 		cmd += " --skip-phases=" + strings.Join(skipPhases, ",")
 	}

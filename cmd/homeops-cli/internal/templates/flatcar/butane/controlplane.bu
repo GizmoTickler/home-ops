@@ -46,6 +46,19 @@ storage:
       contents:
         inline: "{{ ENV.NODE_NAME }}"
 
+    # kube-vip resolves the apiserver via the hostname "kubernetes" for its leader-election
+    # client; map it to the LOCAL apiserver so the control-plane VIP comes up during bootstrap
+    # (the VIP can't be up yet — chicken/egg). kubeadm puts "kubernetes" in the apiserver cert
+    # SANs, so TLS validates. Confirmed required in the P2 lab. (All nodes are control-plane.)
+    - path: /etc/hosts
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          127.0.0.1   localhost
+          ::1         localhost
+          127.0.0.1   kubernetes
+
     # --- networking: jumbo frames (MTU 9000) on the primary NIC.
     # Flatcar names the virtio NIC eth0 (NOT ens18 like Talos) — confirmed in the P2 lab.
     # Kea also hands MTU 9000 via DHCP, but we set it explicitly here too. ---

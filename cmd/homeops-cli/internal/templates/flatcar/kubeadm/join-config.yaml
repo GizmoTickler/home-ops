@@ -1,7 +1,6 @@
 # kubeadm join config for ADDITIONAL control-plane nodes (node1, node2).
 # Joins via the kube-vip ARP VIP (live once node0 + Cilium are up). KubeletConfiguration is
 # pulled from the cluster's kubelet-config ConfigMap, so it's not repeated here.
----
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: JoinConfiguration
 controlPlane:
