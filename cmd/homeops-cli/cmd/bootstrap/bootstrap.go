@@ -40,6 +40,10 @@ type BootstrapConfig struct {
 	SkipHelmfile  bool
 	SkipPreflight bool
 	Verbose       bool
+	// Provider selects the node-provisioning path: "talos" (default, existing
+	// behavior) or "flatcar" (kubeadm-over-SSH). Only the pre-CNI steps differ;
+	// the generic post-CNI steps are shared.
+	Provider string
 }
 
 type PreflightResult struct {
@@ -96,6 +100,7 @@ var (
 	bootstrapValidatePrereqs        = validatePrerequisites
 	bootstrapApplyTalosConfig       = applyTalosConfig
 	bootstrapBootstrapTalos         = bootstrapTalos
+	bootstrapRunFlatcar             = runBootstrapFlatcar
 	bootstrapFetchKubeconfig        = fetchKubeconfig
 	bootstrapValidateKubeconfig     = validateKubeconfig
 	bootstrapWaitForNodes           = waitForNodes
@@ -319,6 +324,7 @@ func NewCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&config.SkipHelmfile, "skip-helmfile", false, "Skip Helmfile sync")
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
+	cmd.Flags().StringVar(&config.Provider, "provider", "talos", "Node provisioning provider: talos (default) or flatcar (kubeadm)")
 
 	return cmd
 }
@@ -392,6 +398,12 @@ func promptBootstrapOptions(config *BootstrapConfig, logger *common.ColorLogger)
 func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
+
+	// Provider dispatch: the Flatcar/kubeadm path replaces the Talos-specific
+	// pre-CNI steps but reuses the generic post-CNI steps. Talos remains default.
+	if strings.EqualFold(config.Provider, "flatcar") {
+		return bootstrapRunFlatcar(config)
+	}
 
 	// If no flags were set, show interactive menus
 	if !config.DryRun && !config.SkipCRDs && !config.SkipResources && !config.SkipHelmfile && !config.SkipPreflight && !config.Verbose {
