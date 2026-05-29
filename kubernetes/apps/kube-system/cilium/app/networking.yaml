@@ -67,8 +67,9 @@ metadata:
     lbipam.cilium.io/ips: 192.168.255.10
 spec:
   type: LoadBalancer
+  # kubeadm labels apiserver static pods component=kube-apiserver (Talos used k8s-app=...).
   selector:
-    k8s-app: kube-apiserver
+    component: kube-apiserver
     tier: control-plane
   ports:
     - name: https

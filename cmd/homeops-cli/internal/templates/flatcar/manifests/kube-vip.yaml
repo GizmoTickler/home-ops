@@ -1,0 +1,76 @@
+# kube-vip static pod — control-plane VIP via ARP (layer 2), no BGP.
+# Delivered to /etc/kubernetes/manifests/kube-vip.yaml by Ignition on every CONTROL-PLANE
+# node. Host-network so it runs BEFORE the CNI is installed, which is what makes it usable
+# as the kubeadm controlPlaneEndpoint during `kubeadm init`/`join`.
+#
+# Why ARP (not BGP): Cilium already runs a per-node BGP speaker to SC01 for service LBs.
+# kube-vip BGP would open a second BGP session to SC01 from the SAME node IP -> BGP neighbor
+# collision (SC01 keys a neighbor by its IP). ARP avoids the contention entirely.
+#
+# VIP 192.168.123.253 is L2-local to the nodes (VLAN 999 = 192.168.120.0/22), which is the
+# precondition for ARP to work. svc_enable=false: kube-vip does control-plane VIP ONLY;
+# Cilium LB-IPAM keeps owning Service LoadBalancer IPs (.255.10/.11/.12).
+#
+# Rendered by internal/templates: {{ ENV.* }} substitution (see renderer).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-vip
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: kube-vip
+spec:
+  priorityClassName: system-node-critical
+  hostNetwork: true
+  containers:
+    - name: kube-vip
+      image: ghcr.io/kube-vip/kube-vip:{{ ENV.KUBE_VIP_VERSION }}
+      imagePullPolicy: IfNotPresent
+      args:
+        - manager
+      env:
+        # --- VIP + interface ---
+        - name: address
+          value: "{{ ENV.CONTROL_PLANE_VIP }}"   # 192.168.123.253
+        - name: vip_interface
+          value: "{{ ENV.NODE_INTERFACE }}"       # ens18
+        - name: port
+          value: "6443"
+        # --- ARP (layer 2), BGP disabled ---
+        - name: vip_arp
+          value: "true"
+        - name: bgp_enable
+          value: "false"
+        # --- control-plane VIP role, leader-elected; no Service LB (Cilium owns those) ---
+        - name: cp_enable
+          value: "true"
+        - name: svc_enable
+          value: "false"
+        - name: vip_leaderelection
+          value: "true"
+        - name: vip_leaseduration
+          value: "5"
+        - name: vip_renewdeadline
+          value: "3"
+        - name: vip_retryperiod
+          value: "1"
+        - name: vip_leasename
+          value: "plndr-cp-lock"
+        # --- kube-vip needs a kubeconfig to do leader election; on a kubeadm CP node the
+        #     admin/super-admin kubeconfig is at /etc/kubernetes/admin.conf ---
+        - name: prometheus_server
+          value: ":2112"
+      securityContext:
+        capabilities:
+          add:
+            - NET_ADMIN
+            - NET_RAW
+            - SYS_TIME
+      volumeMounts:
+        - mountPath: /etc/kubernetes/admin.conf
+          name: kubeconfig
+  volumes:
+    - name: kubeconfig
+      hostPath:
+        path: /etc/kubernetes/admin.conf
+        type: FileOrCreate

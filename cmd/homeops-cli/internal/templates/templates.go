@@ -21,6 +21,9 @@ var bootstrapTemplates embed.FS
 //go:embed brew/*
 var brewTemplates embed.FS
 
+//go:embed flatcar/butane/*.bu flatcar/kubeadm/*.yaml flatcar/files/* flatcar/manifests/*
+var flatcarTemplates embed.FS
+
 // RenderTemplate renders a Jinja2-style template with environment variables
 func RenderVolsyncTemplate(templateName string, env map[string]string) (string, error) {
 	templateFile := fmt.Sprintf("volsync/%s", templateName)
@@ -73,6 +76,56 @@ func GetTalosTemplate(templateName string) (string, error) {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
 	return string(content), nil
+}
+
+// RenderFlatcarTemplate renders a Flatcar template (Butane, kubeadm config, or a
+// local: referenced file) with {{ ENV.* }} substitution. The templateName is the path
+// relative to the embedded flatcar/ directory, e.g. "butane/controlplane.bu",
+// "kubeadm/init-config.yaml", "files/containerd-config.toml", "manifests/kube-vip.yaml".
+func RenderFlatcarTemplate(templateName string, env map[string]string) (string, error) {
+	templateFile := fmt.Sprintf("flatcar/%s", templateName)
+	content, err := flatcarTemplates.ReadFile(templateFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read flatcar template %s: %w", templateName, err)
+	}
+
+	// Simple Jinja2-style variable replacement (same as Talos/Volsync renderers).
+	result := string(content)
+	for key, value := range env {
+		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+
+	return result, nil
+}
+
+// GetFlatcarTemplate returns the raw Flatcar template content (no substitution).
+func GetFlatcarTemplate(templateName string) (string, error) {
+	templateFile := fmt.Sprintf("flatcar/%s", templateName)
+	content, err := flatcarTemplates.ReadFile(templateFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read flatcar template %s: %w", templateName, err)
+	}
+	return string(content), nil
+}
+
+// ListFlatcarFiles returns the embedded file paths (relative to flatcar/) under the
+// given subdirectory (e.g. "files" or "manifests"). Used by the Ignition renderer to
+// materialize local:-referenced files into a temp FilesDir.
+func ListFlatcarFiles(subdir string) ([]string, error) {
+	dir := fmt.Sprintf("flatcar/%s", subdir)
+	entries, err := flatcarTemplates.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list flatcar dir %s: %w", subdir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		names = append(names, fmt.Sprintf("%s/%s", subdir, e.Name()))
+	}
+	return names, nil
 }
 
 // RenderBootstrapTemplate renders a Jinja2-style bootstrap template with environment variables

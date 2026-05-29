@@ -1,0 +1,24 @@
+# kubeadm join config for ADDITIONAL control-plane nodes (node1, node2).
+# Joins via the kube-vip ARP VIP (live once node0 + Cilium are up). KubeletConfiguration is
+# pulled from the cluster's kubelet-config ConfigMap, so it's not repeated here.
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: JoinConfiguration
+controlPlane:
+  localAPIEndpoint:
+    advertiseAddress: "{{ ENV.NODE_IP }}"
+    bindPort: 6443
+  # cert key from `kubeadm init --upload-certs` (decrypts uploaded control-plane certs)
+  certificateKey: "{{ ENV.CERTIFICATE_KEY }}"
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: "{{ ENV.CONTROL_PLANE_VIP }}:6443"
+    token: "{{ ENV.BOOTSTRAP_TOKEN }}"
+    caCertHashes:
+      - "{{ ENV.CA_CERT_HASH }}"
+nodeRegistration:
+  name: "{{ ENV.NODE_NAME }}"
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ ENV.NODE_IP }}"
+  taints: []
