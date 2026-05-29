@@ -148,6 +148,16 @@ type VMConfig struct {
 	SchematicID  string
 	TalosVersion string
 	CustomISO    bool
+
+	// Flatcar/kubeadm-specific. When IgnitionConfig is set the VM is treated as a
+	// Flatcar node: it boots from a pre-staged Flatcar image disk (ImageDiskPath /
+	// import-from) instead of an install ISO, and the rendered Ignition JSON is
+	// injected via fw_cfg (qemu args). BootMode lets callers force a boot order.
+	IgnitionConfig  string // rendered Ignition JSON (controls Flatcar branch in buildVMOptions)
+	IgnitionPath    string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
+	ImageDiskPath   string // path/volume to import the Flatcar disk image from (import-from=)
+	ImageVolume     string // pre-existing storage volume to use directly as scsi0 (alternative to import)
+	BootMode        string // override boot order (e.g. "order=scsi0"); empty = sensible default
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -194,6 +204,66 @@ var TalosNodeConfigs = map[string]TalosNodeConfig{
 		NUMANode:       0,
 		MacAddress:     "00:a0:98:3e:6c:22",
 	},
+}
+
+// FlatcarNodeConfig defines per-node configuration for Flatcar/kubeadm nodes.
+// It mirrors TalosNodeConfig (same VMIDs/MACs/storage/affinity/NUMA) and adds the
+// node IP + NODE_NAME used to render kubeadm/Ignition configs.
+type FlatcarNodeConfig struct {
+	Name           string
+	VMID           int    // Proxmox VMID (same as Talos: 200, 201, 202)
+	NodeIP         string // primary node IP (advertiseAddress / node-ip)
+	BootStorage    string // Storage pool for boot disk
+	OpenEBSStorage string // Storage pool for OpenEBS disk
+	CephDiskByID   string // Disk passthrough by-id path for Ceph SSD
+	CPUAffinity    string // CPU core pinning
+	NUMANode       int    // NUMA node (0 or 1)
+	MacAddress     string // Static MAC address
+}
+
+// FlatcarNodeConfigs contains pre-defined Flatcar node configurations. VMIDs, MACs,
+// storage pools, CPU affinity and NUMA nodes are intentionally identical to
+// TalosNodeConfigs so the migration reuses the same Proxmox slots.
+var FlatcarNodeConfigs = map[string]FlatcarNodeConfig{
+	"k8s-0": {
+		Name:           "k8s-0",
+		VMID:           200,
+		NodeIP:         "192.168.122.10",
+		BootStorage:    "nvme1",
+		OpenEBSStorage: "nvmeof-vmdata",
+		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN",
+		CPUAffinity:    "0-7,32-39",
+		NUMANode:       0,
+		MacAddress:     "00:a0:98:28:c8:83",
+	},
+	"k8s-1": {
+		Name:           "k8s-1",
+		VMID:           201,
+		NodeIP:         "192.168.122.11",
+		BootStorage:    "nvme2",
+		OpenEBSStorage: "nvmeof-vmdata",
+		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN",
+		CPUAffinity:    "16-23,48-55",
+		NUMANode:       1,
+		MacAddress:     "00:a0:98:1a:f3:72",
+	},
+	"k8s-2": {
+		Name:           "k8s-2",
+		VMID:           202,
+		NodeIP:         "192.168.122.12",
+		BootStorage:    "nvme1",
+		OpenEBSStorage: "nvmeof-vmdata",
+		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN",
+		CPUAffinity:    "8-15,40-47",
+		NUMANode:       0,
+		MacAddress:     "00:a0:98:3e:6c:22",
+	},
+}
+
+// GetFlatcarNodeConfig retrieves predefined config for a Flatcar node.
+func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
+	config, exists := FlatcarNodeConfigs[name]
+	return config, exists
 }
 
 // DefaultVMConfig provides default VM settings matching actual deployment
@@ -321,11 +391,14 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		}
 	}
 
-	// Get next available VMID or use predefined one
+	// Get next available VMID or use predefined one (Talos and Flatcar share slots)
 	var vmid int
 	if nodeConfig, exists := GetTalosNodeConfig(config.Name); exists {
 		vmid = nodeConfig.VMID
 		vm.logger.Info("Using predefined VMID: %d for %s", vmid, config.Name)
+	} else if flatcarConfig, exists := GetFlatcarNodeConfig(config.Name); exists {
+		vmid = flatcarConfig.VMID
+		vm.logger.Info("Using predefined Flatcar VMID: %d for %s", vmid, config.Name)
 	} else {
 		vmid, err = vm.nextVMID()
 		if err != nil {
@@ -334,8 +407,14 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		vm.logger.Info("Assigned VMID: %d", vmid)
 	}
 
-	// Build VM options for Talos
-	options := vm.buildVMOptions(config)
+	// Build VM options. Flatcar nodes (IgnitionConfig set) use the Ignition/fw_cfg
+	// boot path; everything else uses the Talos ISO path. Talos behavior unchanged.
+	var options []proxmox.VirtualMachineOption
+	if config.IgnitionConfig != "" || config.ImageDiskPath != "" || config.ImageVolume != "" {
+		options = vm.buildFlatcarVMOptions(config)
+	} else {
+		options = vm.buildVMOptions(config)
+	}
 
 	// Create the VM
 	task, err := vm.createVMTask(vmid, options...)
@@ -497,6 +576,170 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 	}
 
 	return options
+}
+
+// buildFlatcarVMOptions builds the VirtualMachineOption slice for a Flatcar/kubeadm
+// node. It mirrors buildVMOptions (CPU/NUMA/UEFI/network/watchdog/agent) but:
+//   - boots scsi0 from a pre-staged Flatcar disk image (import-from=<path>) or an
+//     existing volume (ImageVolume) instead of installing from an ISO,
+//   - keeps scsi1 = OpenEBS and scsi2 = Ceph passthrough,
+//   - injects the rendered Ignition via fw_cfg:
+//     args = -fw_cfg name=opt/org.flatcar-linux/config,file=<IgnitionPath>
+//
+// This does not alter the Talos buildVMOptions path.
+func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
+	options := []proxmox.VirtualMachineOption{
+		{Name: "name", Value: config.Name},
+		{Name: "memory", Value: config.Memory},
+		{Name: "cores", Value: config.Cores},
+		{Name: "sockets", Value: config.Sockets},
+		{Name: "ostype", Value: "l26"},
+	}
+
+	// CPU configuration
+	if config.CPUType != "" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "cpu", Value: config.CPUType})
+	}
+	if config.CPUAffinity != "" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "affinity", Value: config.CPUAffinity})
+	}
+
+	// NUMA configuration
+	if config.NUMAEnabled {
+		options = append(options, proxmox.VirtualMachineOption{Name: "numa", Value: 1})
+		numaConfig := fmt.Sprintf("cpus=0-%d,hostnodes=%d,memory=%d,policy=bind",
+			config.Cores-1, config.NUMANode, config.Memory)
+		options = append(options, proxmox.VirtualMachineOption{Name: "numa0", Value: numaConfig})
+	}
+
+	// UEFI boot configuration (Flatcar amd64-usr images are UEFI-capable)
+	if config.BIOS == "ovmf" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "bios", Value: "ovmf"})
+		efiStorage := config.EFIDiskStorage
+		if efiStorage == "" {
+			efiStorage = config.BootStorage
+		}
+		efiDisk := fmt.Sprintf("%s:1,efitype=4m,pre-enrolled-keys=0", efiStorage)
+		options = append(options, proxmox.VirtualMachineOption{Name: "efidisk0", Value: efiDisk})
+	}
+
+	// SCSI controller
+	if config.SCSIController != "" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "scsihw", Value: config.SCSIController})
+	}
+
+	// Boot disk (scsi0): import the Flatcar image, or attach an existing volume.
+	bootDiskOpts := vm.flatcarBootDiskOpts(config)
+	options = append(options, proxmox.VirtualMachineOption{Name: "scsi0", Value: bootDiskOpts})
+
+	// OpenEBS disk (scsi1)
+	if config.OpenEBSSize > 0 && config.OpenEBSStorage != "" {
+		openebsDiskOpts := fmt.Sprintf("%s:%d", config.OpenEBSStorage, config.OpenEBSSize)
+		if config.Discard {
+			openebsDiskOpts += ",discard=on"
+		}
+		if config.IOThread {
+			openebsDiskOpts += ",iothread=1"
+		}
+		options = append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
+	}
+
+	// Ceph SSD disk passthrough (scsi2)
+	if config.CephDiskByID != "" {
+		cephDiskPath := fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
+		cephDiskOpts := cephDiskPath
+		if config.Discard {
+			cephDiskOpts += ",discard=on"
+		}
+		if config.IOThread {
+			cephDiskOpts += ",iothread=1"
+		}
+		options = append(options, proxmox.VirtualMachineOption{Name: "scsi2", Value: cephDiskOpts})
+	}
+
+	// Boot order: Flatcar boots straight from the imported disk (no install ISO).
+	bootOrder := config.BootMode
+	if bootOrder == "" {
+		bootOrder = "order=scsi0"
+	}
+	options = append(options, proxmox.VirtualMachineOption{Name: "boot", Value: bootOrder})
+
+	// Network configuration (identical to Talos: MAC + jumbo MTU + queues + VLAN)
+	netConfig := fmt.Sprintf("virtio=%s,bridge=%s", config.MacAddress, config.NetworkBridge)
+	if config.MacAddress == "" {
+		netConfig = fmt.Sprintf("virtio,bridge=%s", config.NetworkBridge)
+	}
+	if config.NetworkMTU > 0 {
+		netConfig += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
+	}
+	if config.NetworkQueues > 0 {
+		netConfig += fmt.Sprintf(",queues=%d", config.NetworkQueues)
+	}
+	if config.VLANID > 0 {
+		netConfig += fmt.Sprintf(",tag=%d", config.VLANID)
+	}
+	options = append(options, proxmox.VirtualMachineOption{Name: "net0", Value: netConfig})
+
+	// Watchdog
+	if config.WatchdogModel != "" {
+		watchdogOpts := fmt.Sprintf("model=%s", config.WatchdogModel)
+		if config.WatchdogAction != "" {
+			watchdogOpts += fmt.Sprintf(",action=%s", config.WatchdogAction)
+		}
+		options = append(options, proxmox.VirtualMachineOption{Name: "watchdog", Value: watchdogOpts})
+	}
+
+	// QEMU agent
+	if config.AgentEnabled {
+		options = append(options, proxmox.VirtualMachineOption{Name: "agent", Value: "enabled=1"})
+	}
+
+	// Auto-start configuration
+	if config.StartOnBoot {
+		options = append(options, proxmox.VirtualMachineOption{Name: "onboot", Value: 1})
+	}
+
+	// Ignition injection via fw_cfg. Flatcar reads the Ignition config from the
+	// qemu fw_cfg blob opt/org.flatcar-linux/config. The file must live somewhere
+	// the Proxmox node can read (e.g. the snippets dir); IgnitionPath carries that
+	// absolute path on the Proxmox host.
+	if config.IgnitionPath != "" {
+		args := fmt.Sprintf("-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
+		options = append(options, proxmox.VirtualMachineOption{Name: "args", Value: args})
+	}
+
+	return options
+}
+
+// flatcarBootDiskOpts builds the scsi0 value for a Flatcar node. Preference order:
+//  1. ImageVolume: attach an existing storage volume directly.
+//  2. ImageDiskPath: import a disk image into BootStorage (import-from=).
+//  3. fallback: a blank boot disk of BootDiskSize on BootStorage.
+func (vm *VMManager) flatcarBootDiskOpts(config VMConfig) string {
+	var opts string
+	switch {
+	case config.ImageVolume != "":
+		opts = config.ImageVolume
+	case config.ImageDiskPath != "":
+		size := config.BootDiskSize
+		if size <= 0 {
+			size = 200
+		}
+		opts = fmt.Sprintf("%s:%d,import-from=%s", config.BootStorage, size, config.ImageDiskPath)
+	default:
+		size := config.BootDiskSize
+		if size <= 0 {
+			size = 200
+		}
+		opts = fmt.Sprintf("%s:%d", config.BootStorage, size)
+	}
+	if config.Discard {
+		opts += ",discard=on"
+	}
+	if config.IOThread {
+		opts += ",iothread=1"
+	}
+	return opts
 }
 
 // ListVMs lists all VMs

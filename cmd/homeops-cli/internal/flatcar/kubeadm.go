@@ -1,0 +1,252 @@
+package flatcar
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/ssh"
+)
+
+// commandRunner is the minimal SSH surface kubeadm orchestration needs. The real
+// implementation is *ssh.SSHClient; tests inject a fake.
+type commandRunner interface {
+	Connect() error
+	Close() error
+	ExecuteCommand(command string) (string, error)
+}
+
+// newCommandRunnerFn builds a commandRunner for a node. Swappable for tests.
+var newCommandRunnerFn = func(config ssh.SSHConfig) commandRunner {
+	return ssh.NewSSHClient(config)
+}
+
+// writeFileFn writes a rendered config to a remote path over the runner before
+// kubeadm consumes it. Kept as a var so tests can assert on it. The default uses a
+// heredoc via the runner's shell.
+var writeRemoteFileFn = func(runner commandRunner, remotePath, content string) error {
+	// Use a quoted heredoc so the content is written verbatim (no shell expansion).
+	cmd := fmt.Sprintf("sudo mkdir -p %s && sudo tee %s > /dev/null <<'HOMEOPS_EOF'\n%s\nHOMEOPS_EOF",
+		shellDir(remotePath), remotePath, content)
+	_, err := runner.ExecuteCommand(cmd)
+	return err
+}
+
+func shellDir(p string) string {
+	idx := strings.LastIndex(p, "/")
+	if idx <= 0 {
+		return "/"
+	}
+	return p[:idx]
+}
+
+// KubeadmResult carries the join material extracted from `kubeadm init`.
+type KubeadmResult struct {
+	BootstrapToken string
+	CACertHash     string
+	CertificateKey string
+}
+
+// Orchestrator drives kubeadm over SSH against the Flatcar control-plane nodes.
+type Orchestrator struct {
+	sshUser    string
+	sshItemRef string
+	port       string
+	logger     *common.ColorLogger
+}
+
+// OrchestratorConfig configures an Orchestrator.
+type OrchestratorConfig struct {
+	SSHUser    string // username for node SSH
+	SSHItemRef string // 1Password SSH item reference (op:// path)
+	Port       string // SSH port (default 22)
+}
+
+// NewOrchestrator builds an Orchestrator.
+func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
+	port := cfg.Port
+	if port == "" {
+		port = "22"
+	}
+	return &Orchestrator{
+		sshUser:    cfg.SSHUser,
+		sshItemRef: cfg.SSHItemRef,
+		port:       port,
+		logger:     common.NewColorLogger(),
+	}
+}
+
+func (o *Orchestrator) runnerFor(host string) commandRunner {
+	return newCommandRunnerFn(ssh.SSHConfig{
+		Host:       host,
+		Username:   o.sshUser,
+		Port:       o.port,
+		SSHItemRef: o.sshItemRef,
+	})
+}
+
+// remoteInitConfigPath / remoteJoinConfigPath are where rendered configs land on nodes.
+const (
+	remoteInitConfigPath = "/etc/kubernetes/homeops/kubeadm-init.yaml"
+	remoteJoinConfigPath = "/etc/kubernetes/homeops/kubeadm-join.yaml"
+	remoteAdminConfPath  = "/etc/kubernetes/admin.conf"
+)
+
+// InitFirstControlPlane stages the init config on node0, runs `kubeadm init
+// --upload-certs`, and extracts the bootstrap token, CA cert hash and certificate
+// key for subsequent joins. skipPhases is forwarded to --skip-phases when non-empty
+// (the templates already skip kube-proxy/coredns, so this is usually empty).
+func (o *Orchestrator) InitFirstControlPlane(node0IP, initConfig string, skipPhases []string) (*KubeadmResult, error) {
+	runner := o.runnerFor(node0IP)
+	if err := runner.Connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect to node0 %s: %w", node0IP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	if err := writeRemoteFileFn(runner, remoteInitConfigPath, initConfig); err != nil {
+		return nil, fmt.Errorf("failed to stage kubeadm init config on %s: %w", node0IP, err)
+	}
+
+	cmd := fmt.Sprintf("sudo kubeadm init --config %s --upload-certs --ignore-preflight-errors=DirAvailable--etc-kubernetes-manifests", remoteInitConfigPath)
+	if len(skipPhases) > 0 {
+		cmd += " --skip-phases=" + strings.Join(skipPhases, ",")
+	}
+	o.logger.Info("Running kubeadm init on %s", node0IP)
+	out, err := runner.ExecuteCommand(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("kubeadm init failed on %s: %w\n%s", node0IP, err, common.RedactCommandOutput(out))
+	}
+
+	result, parseErr := ParseKubeadmInitOutput(out)
+	if result == nil {
+		result = &KubeadmResult{}
+	}
+
+	// Token and CA hash are mandatory and only come from init output.
+	if parseErr != nil && (result.BootstrapToken == "" || result.CACertHash == "") {
+		return nil, fmt.Errorf("kubeadm init output missing token/CA hash: %w", parseErr)
+	}
+
+	// The control-plane certificate key is only printed when --upload-certs runs; if
+	// init output didn't surface it (newer/older formats vary), recover it via the
+	// dedicated upload-certs phase.
+	if result.CertificateKey == "" {
+		key, kerr := o.uploadCerts(runner)
+		if kerr != nil {
+			return nil, fmt.Errorf("failed to obtain control-plane certificate key: %w", kerr)
+		}
+		result.CertificateKey = key
+	}
+
+	return result, nil
+}
+
+// uploadCerts re-runs the upload-certs phase to obtain a fresh certificate key.
+func (o *Orchestrator) uploadCerts(runner commandRunner) (string, error) {
+	out, err := runner.ExecuteCommand("sudo kubeadm init phase upload-certs --upload-certs")
+	if err != nil {
+		return "", fmt.Errorf("kubeadm upload-certs failed: %w\n%s", err, common.RedactCommandOutput(out))
+	}
+	key := parseCertificateKey(out)
+	if key == "" {
+		return "", fmt.Errorf("could not parse certificate key from upload-certs output")
+	}
+	return key, nil
+}
+
+// JoinControlPlane stages the join config on a node and runs `kubeadm join`.
+func (o *Orchestrator) JoinControlPlane(nodeIP, joinConfig string) error {
+	runner := o.runnerFor(nodeIP)
+	if err := runner.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to node %s: %w", nodeIP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	if err := writeRemoteFileFn(runner, remoteJoinConfigPath, joinConfig); err != nil {
+		return fmt.Errorf("failed to stage kubeadm join config on %s: %w", nodeIP, err)
+	}
+
+	cmd := fmt.Sprintf("sudo kubeadm join --config %s", remoteJoinConfigPath)
+	o.logger.Info("Running kubeadm join on %s", nodeIP)
+	out, err := runner.ExecuteCommand(cmd)
+	if err != nil {
+		return fmt.Errorf("kubeadm join failed on %s: %w\n%s", nodeIP, err, common.RedactCommandOutput(out))
+	}
+	return nil
+}
+
+// FetchAdminKubeconfig reads /etc/kubernetes/admin.conf from node0.
+func (o *Orchestrator) FetchAdminKubeconfig(node0IP string) (string, error) {
+	runner := o.runnerFor(node0IP)
+	if err := runner.Connect(); err != nil {
+		return "", fmt.Errorf("failed to connect to node0 %s: %w", node0IP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	out, err := runner.ExecuteCommand(fmt.Sprintf("sudo cat %s", remoteAdminConfPath))
+	if err != nil {
+		return "", fmt.Errorf("failed to read admin.conf from %s: %w", node0IP, err)
+	}
+	if !strings.Contains(out, "apiVersion") || !strings.Contains(out, "clusters") {
+		return "", fmt.Errorf("admin.conf from %s does not look like a kubeconfig", node0IP)
+	}
+	return out, nil
+}
+
+// --- output parsing ---
+
+var (
+	// Matches: --discovery-token-ca-cert-hash sha256:<hex>
+	caCertHashRe = regexp.MustCompile(`--discovery-token-ca-cert-hash\s+(sha256:[0-9a-f]{64})`)
+	// Matches: --token <token>  (kubeadm token format: [a-z0-9]{6}\.[a-z0-9]{16})
+	tokenRe = regexp.MustCompile(`--token\s+([a-z0-9]{6}\.[a-z0-9]{16})`)
+	// The certificate key is printed on its own line after the upload-certs notice.
+	certKeyRe = regexp.MustCompile(`(?m)^\s*([0-9a-f]{64})\s*$`)
+)
+
+// ParseKubeadmInitOutput extracts the bootstrap token, CA cert hash and (if
+// present) the control-plane certificate key from `kubeadm init` stdout.
+func ParseKubeadmInitOutput(output string) (*KubeadmResult, error) {
+	res := &KubeadmResult{}
+
+	if m := tokenRe.FindStringSubmatch(output); len(m) == 2 {
+		res.BootstrapToken = m[1]
+	}
+	if m := caCertHashRe.FindStringSubmatch(output); len(m) == 2 {
+		res.CACertHash = m[1]
+	}
+	res.CertificateKey = parseCertificateKey(output)
+
+	var missing []string
+	if res.BootstrapToken == "" {
+		missing = append(missing, "bootstrap token")
+	}
+	if res.CACertHash == "" {
+		missing = append(missing, "CA cert hash")
+	}
+	if len(missing) > 0 {
+		return res, fmt.Errorf("kubeadm init output missing: %s", strings.Join(missing, ", "))
+	}
+	return res, nil
+}
+
+// parseCertificateKey pulls the control-plane certificate key. kubeadm prints it
+// in a stanza like:
+//
+//	[upload-certs] Using certificate key:
+//	<64-hex>
+//
+// We anchor on that stanza first, then fall back to the first bare 64-hex line.
+func parseCertificateKey(output string) string {
+	if idx := strings.Index(output, "Using certificate key:"); idx >= 0 {
+		tail := output[idx:]
+		if m := certKeyRe.FindStringSubmatch(tail); len(m) == 2 {
+			return m[1]
+		}
+	}
+	if m := certKeyRe.FindStringSubmatch(output); len(m) == 2 {
+		return m[1]
+	}
+	return ""
+}

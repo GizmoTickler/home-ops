@@ -26,6 +26,11 @@ const (
 	OpProxmoxTokenID     = "op://Infrastructure/PVE-API/TOKENID"
 	OpProxmoxTokenSecret = "op://Infrastructure/PVE-API/SECRET"
 	OpProxmoxNode        = "op://Infrastructure/PVE-API/node"
+
+	// Flatcar/kubeadm SSH credentials (node access for kubeadm orchestration).
+	// The SSH user/key the homeops-cli uses to reach the k8s-* Flatcar nodes.
+	OpFlatcarSSHUser       = "op://Infrastructure/flatcar/SSH_USER"
+	OpFlatcarSSHPrivateKey = "op://Infrastructure/flatcar/private key"
 )
 
 // Environment variable names
@@ -51,6 +56,23 @@ const (
 	EnvDebug             = "DEBUG"
 	EnvLogLevel          = "LOG_LEVEL"
 	EnvHomeOpsNoInteract = "HOMEOPS_NO_INTERACTIVE"
+
+	// Flatcar / kubeadm template substitution variable names. These are the keys
+	// expected by the embedded flatcar templates ({{ ENV.<NAME> }}).
+	EnvKubernetesMinor = "KUBERNETES_MINOR"
+	EnvFlatcarVersion  = "FLATCAR_VERSION"
+	EnvControlPlaneVIP = "CONTROL_PLANE_VIP"
+	EnvPauseImage      = "PAUSE_IMAGE"
+	EnvKubeVipVersion  = "KUBE_VIP_VERSION"
+	EnvNodeInterface   = "NODE_INTERFACE"
+	EnvNodeName        = "NODE_NAME"
+	EnvNodeIP          = "NODE_IP"
+	EnvNode0IP         = "NODE0_IP"
+	EnvNode1IP         = "NODE1_IP"
+	EnvNode2IP         = "NODE2_IP"
+	EnvCertificateKey  = "CERTIFICATE_KEY"
+	EnvBootstrapToken  = "BOOTSTRAP_TOKEN"
+	EnvCACertHash      = "CA_CERT_HASH"
 )
 
 // Kubernetes namespaces commonly used
@@ -121,6 +143,30 @@ const (
 // Talos Factory API
 const (
 	TalosFactoryBaseURL = "https://factory.talos.dev"
+)
+
+// Flatcar / kubeadm cluster design constants. These mirror the migration design
+// (k8s-0/1/2 control-plane, kube-vip ARP VIP, Cilium BGP external API LB).
+const (
+	// FlatcarReleaseBaseURL is the base for stable-channel Flatcar images.
+	FlatcarReleaseBaseURL = "https://stable.release.flatcar-linux.net/amd64-usr"
+	// FlatcarSysextBaseURL is where the Kubernetes systemd-sysext bundles live.
+	FlatcarSysextBaseURL = "https://extensions.flatcar.org/extensions"
+
+	// Defaults for the configurable knobs (overridable via flags/env).
+	DefaultControlPlaneVIP = "192.168.123.253"
+	DefaultPauseImage      = "registry.k8s.io/pause:3.10"
+	DefaultKubeVipVersion  = "v0.8.9"
+	DefaultNodeInterface   = "eth0"
+	DefaultFlatcarChannel  = "stable"
+
+	// Node IPs for the 3 control-plane nodes.
+	FlatcarNode0IP = "192.168.122.10"
+	FlatcarNode1IP = "192.168.122.11"
+	FlatcarNode2IP = "192.168.122.12"
+
+	// K8sEndpoint is the external API DNS name (-> 192.168.255.10 via Cilium BGP).
+	FlatcarK8sEndpoint = "k8s.${SECRET_DOMAIN}"
 )
 
 // TrueNAS storage paths
