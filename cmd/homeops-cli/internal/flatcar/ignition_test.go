@@ -1,0 +1,120 @@
+package flatcar
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func sampleEnv() NodeEnv {
+	return NodeEnv{
+		NodeName:          "k8s-0",
+		NodeIP:            "192.168.122.10",
+		Node0IP:           "192.168.122.10",
+		Node1IP:           "192.168.122.11",
+		Node2IP:           "192.168.122.12",
+		KubernetesVersion: "v1.36.1",
+		KubernetesMinor:   "v1.36",
+		ControlPlaneVIP:   "192.168.123.253",
+		PauseImage:        "registry.k8s.io/pause:3.10",
+		KubeVipVersion:    "v0.8.9",
+		NodeInterface:     "ens18",
+	}
+}
+
+func TestRenderIgnitionProducesValidJSON(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	require.NotEmpty(t, ign)
+
+	// Must be valid JSON.
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(ign, &doc), "ignition output must be valid JSON")
+
+	// Ignition documents carry an "ignition" key with a version.
+	_, ok := doc["ignition"]
+	assert.True(t, ok, "ignition output must contain an 'ignition' section")
+
+	s := string(ign)
+	// No unresolved {{ ENV.NAME }} placeholders should survive (descriptive
+	// "{{ ENV.* }}" comments are stripped during transpile, not flagged).
+	assert.NotContains(t, s, "{{ ENV.NODE_NAME }}")
+	assert.NotContains(t, s, "{{ ENV.KUBERNETES_VERSION }}")
+	// The sysext source (un-compressed) carries the substituted k8s version.
+	assert.Contains(t, s, "kubernetes-v1.36.1-x86-64.raw")
+	// The hostname file is an inline data URL: data:,k8s-0 (NODE_NAME substituted).
+	assert.Contains(t, s, "data:,k8s-0")
+}
+
+func TestRenderIgnitionSubstitutesLocalFiles(t *testing.T) {
+	// Capture which files were rendered and that substitution reached them.
+	var renderedFiles []string
+	origRender := renderFlatcarTemplateFn
+	defer func() { renderFlatcarTemplateFn = origRender }()
+	renderFlatcarTemplateFn = func(name string, env map[string]string) (string, error) {
+		renderedFiles = append(renderedFiles, name)
+		return origRender(name, env)
+	}
+
+	_, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+
+	assert.Contains(t, renderedFiles, "butane/controlplane.bu")
+	assert.Contains(t, renderedFiles, "files/containerd-config.toml")
+	assert.Contains(t, renderedFiles, "manifests/kube-vip.yaml")
+}
+
+func TestRenderIgnitionTranspileError(t *testing.T) {
+	orig := translateButaneFn
+	defer func() { translateButaneFn = orig }()
+	translateButaneFn = func(input []byte, dir string) ([]byte, error) {
+		return nil, assertErr{}
+	}
+	_, err := RenderIgnition(sampleEnv())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transpile")
+}
+
+type assertErr struct{}
+
+func (assertErr) Error() string { return "boom" }
+
+func TestRenderKubeadmInitConfig(t *testing.T) {
+	out, err := RenderKubeadmInitConfig(sampleEnv())
+	require.NoError(t, err)
+	assert.Contains(t, out, "kind: InitConfiguration")
+	assert.Contains(t, out, "advertiseAddress: \"192.168.122.10\"")
+	assert.Contains(t, out, "kubernetesVersion: \"v1.36.1\"")
+	assert.Contains(t, out, "192.168.123.253")
+	// No real {{ ENV.NAME }} placeholders remain (the descriptive "{{ ENV.* }}"
+	// comment is allowed and not treated as unresolved).
+	assert.NotRegexp(t, `{{ ENV\.[A-Z0-9_]+ }}`, out)
+}
+
+func TestRenderKubeadmJoinConfig(t *testing.T) {
+	env := sampleEnv()
+	env.NodeName = "k8s-1"
+	env.NodeIP = "192.168.122.11"
+	env.CertificateKey = "deadbeef"
+	env.BootstrapToken = "abcdef.0123456789abcdef"
+	env.CACertHash = "sha256:" + strings.Repeat("a", 64)
+
+	out, err := RenderKubeadmJoinConfig(env)
+	require.NoError(t, err)
+	assert.Contains(t, out, "kind: JoinConfiguration")
+	assert.Contains(t, out, "certificateKey: \"deadbeef\"")
+	assert.Contains(t, out, "token: \"abcdef.0123456789abcdef\"")
+	assert.Contains(t, out, "sha256:")
+	assert.NotRegexp(t, `{{ ENV\.[A-Z0-9_]+ }}`, out)
+}
+
+func TestRenderKubeadmJoinConfigMissingMaterial(t *testing.T) {
+	// Without cert key/token/hash, placeholders remain and we must error.
+	env := sampleEnv()
+	_, err := RenderKubeadmJoinConfig(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unresolved")
+}
