@@ -3,7 +3,6 @@
 # Rendered with {{ ENV.* }} substitution; PKI is generated fresh by kubeadm (new cluster),
 # so no Talos CA reuse. CoreDNS + kube-proxy are skipped (CoreDNS via Flux, kube-proxy
 # replaced by Cilium).
----
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 localAPIEndpoint:
