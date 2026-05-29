@@ -12,6 +12,7 @@ import (
 
 	"homeops-cli/cmd/bootstrap"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/cmd/flatcar"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
@@ -89,6 +90,7 @@ Talos clusters, Kubernetes applications, VolSync backups, and more.`,
 	rootCmd.AddCommand(
 		bootstrap.NewCommand(),
 		completion.NewCommand(),
+		flatcar.NewCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
 		volsync.NewCommand(),

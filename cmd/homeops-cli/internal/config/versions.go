@@ -16,7 +16,22 @@ import (
 type VersionConfig struct {
 	KubernetesVersion string
 	TalosVersion      string
+
+	// Flatcar/kubeadm migration knobs. These are not sourced from tuppr (which is
+	// Talos-specific); they carry sensible defaults and may be overridden by the
+	// caller (CLI flags/env). KubernetesVersion above is reused for Flatcar too.
+	FlatcarVersion string // Flatcar stable release version (e.g. "current" or "4152.2.0")
+	KubeVipVersion string // kube-vip image tag (e.g. "v0.8.9")
+	PauseImage     string // sandbox/pause image (e.g. "registry.k8s.io/pause:3.10")
 }
+
+// FlatcarDefaults holds the default Flatcar-related versions, separated so callers
+// can apply them without re-deriving the constants.
+const (
+	defaultFlatcarVersion = "current"
+	defaultKubeVipVersion = "v0.8.9"
+	defaultPauseImage     = "registry.k8s.io/pause:3.10"
+)
 
 // SystemUpgradePlan represents the structure of system-upgrade controller plans
 type SystemUpgradePlan struct {
@@ -72,6 +87,7 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	}
 
 	config := &VersionConfig{}
+	applyFlatcarDefaults(config)
 	var loadErrors []string
 
 	// Load Kubernetes version from kubernetesupgrade.yaml
@@ -195,12 +211,28 @@ func isValidVersionFormat(version string) bool {
 	return versionRegex.MatchString(version)
 }
 
+// applyFlatcarDefaults fills in any unset Flatcar/kubeadm knobs with their defaults.
+// It never overrides values that are already set, so callers can pre-seed overrides.
+func applyFlatcarDefaults(c *VersionConfig) {
+	if c.FlatcarVersion == "" {
+		c.FlatcarVersion = defaultFlatcarVersion
+	}
+	if c.KubeVipVersion == "" {
+		c.KubeVipVersion = defaultKubeVipVersion
+	}
+	if c.PauseImage == "" {
+		c.PauseImage = defaultPauseImage
+	}
+}
+
 // getDefaultVersions returns hardcoded fallback versions
 func getDefaultVersions() *VersionConfig {
-	return &VersionConfig{
+	c := &VersionConfig{
 		KubernetesVersion: "v1.34.0",
 		TalosVersion:      "v1.11.0",
 	}
+	applyFlatcarDefaults(c)
+	return c
 }
 
 // GetVersions is a convenience function that loads versions from tuppr upgrades as primary source.
