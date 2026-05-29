@@ -7,11 +7,22 @@
 # config files staged. homeops-cli then runs `kubeadm init` (node0) / `kubeadm join`
 # (node1/2) over SSH so the dynamic join token / cert key / CA hash are handled at runtime.
 #
-# Verify before lab: that extensions.flatcar.org publishes the pinned k8s version sysext
-# (else build from flatcar/sysext-bundles), and the containerd config plugin keys match the
-# containerd version on the target Flatcar release.
+# All files set overwrite:true — several target paths (/etc/hostname, /etc/nfsmount.conf,
+# /etc/systemd/timesyncd.conf, /etc/containerd/config.toml) already exist in the Flatcar
+# base image, and Ignition aborts the files stage on a pre-existing file unless overwrite is
+# set (proven in the P2 lab).
 variant: flatcar
 version: 1.1.0
+
+passwd:
+  users:
+    - name: core
+      # Node access key. Matching PRIVATE key lives in op://Infrastructure/flatcar
+      # (used by homeops-cli kubeadm-over-SSH + operators). A public key is non-secret,
+      # so it's fine to keep here. TODO: have render-ignition source this from
+      # op://Infrastructure/flatcar/"public key" instead of hardcoding.
+      ssh_authorized_keys:
+        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH7I1l7OfqOmaCDcXVxGA873//kL8tBINlORZaHtHA8F"
 
 storage:
   links:
@@ -19,31 +30,32 @@ storage:
     - target: /opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
       path: /etc/extensions/kubernetes.raw
       hard: false
+      overwrite: true
   files:
-    # --- Kubernetes sysext bundle + auto-update wiring ---
-    - path: /opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
-      contents:
-        source: https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
-    - path: /etc/sysupdate.kubernetes.d/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf
-      contents:
-        source: https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf
-    - path: /etc/sysupdate.d/noop.conf
-      contents:
-        source: https://extensions.flatcar.org/extensions/noop.conf
+    # NOTE: the Kubernetes sysext .raw + sysupdate .conf files are intentionally NOT fetched
+    # here. Downloading a large sysext during initramfs Ignition fails because networking is
+    # not up yet in the initramfs (proven in the P2 lab: DHCP only succeeds in real-root, by
+    # which point ignition-files has already failed). install-k8s-sysext.service (below)
+    # downloads them on first boot After=network-online.target and merges the sysext. The
+    # /etc/extensions/kubernetes.raw symlink (above) points at the path it writes.
 
     # --- identity ---
     - path: /etc/hostname
       mode: 0644
+      overwrite: true
       contents:
         inline: "{{ ENV.NODE_NAME }}"
 
-    # --- networking: DHCP-by-MAC, jumbo frames (MTU 9000) on ens18 ---
+    # --- networking: jumbo frames (MTU 9000) on the primary NIC.
+    # Flatcar names the virtio NIC eth0 (NOT ens18 like Talos) — confirmed in the P2 lab.
+    # Kea also hands MTU 9000 via DHCP, but we set it explicitly here too. ---
     - path: /etc/systemd/network/10-k8s.network
       mode: 0644
+      overwrite: true
       contents:
         inline: |
           [Match]
-          Name=ens18
+          Name=eth0
           [Link]
           MTUBytes=9000
           [Network]
@@ -55,6 +67,7 @@ storage:
     # --- NTP: the 5 homelab NTP servers (port of Talos machine.time.servers) ---
     - path: /etc/systemd/timesyncd.conf
       mode: 0644
+      overwrite: true
       contents:
         inline: |
           [Time]
@@ -63,36 +76,43 @@ storage:
     # --- OS tuning ported from Talos (ENV-substituted by the renderer where needed) ---
     - path: /etc/sysctl.d/99-homeops.conf
       mode: 0644
+      overwrite: true
       contents:
         local: files/sysctl-99-homeops.conf
     - path: /etc/modules-load.d/homeops.conf
       mode: 0644
+      overwrite: true
       contents:
         local: files/modules-load-homeops.conf
     - path: /etc/nfsmount.conf
       mode: 0644
+      overwrite: true
       contents:
         local: files/nfsmount.conf
 
     # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause) ---
     - path: /etc/containerd/config.toml
       mode: 0644
+      overwrite: true
       contents:
         local: files/containerd-config.toml
 
     # --- kube-vip static pod (ARP control-plane VIP); kubelet starts it post-init ---
     - path: /etc/kubernetes/manifests/kube-vip.yaml
       mode: 0644
+      overwrite: true
       contents:
         local: manifests/kube-vip.yaml
 
     # --- apiserver audit policy + scheduler config (mounted into static pods) ---
     - path: /etc/kubernetes/audit/policy.yaml
       mode: 0644
+      overwrite: true
       contents:
         local: files/audit-policy.yaml
     - path: /etc/kubernetes/scheduler/config.yaml
       mode: 0644
+      overwrite: true
       contents:
         local: files/scheduler-config.yaml
 
@@ -116,6 +136,28 @@ systemd:
     # No automatic OS reboots; Kured coordinates (kubernetes app handles node drain/reboot)
     - name: locksmithd.service
       mask: true
+    # First boot: fetch the Kubernetes sysext + sysupdate configs AFTER networking is up
+    # (initramfs Ignition can't fetch reliably), then merge so kubeadm/kubelet binaries exist
+    # before homeops-cli runs `kubeadm init/join`. Idempotent via ConditionPathExists.
+    - name: install-k8s-sysext.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Download + activate Kubernetes systemd-sysext (first boot)
+        After=network-online.target nss-lookup.target
+        Wants=network-online.target
+        ConditionPathExists=!/opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStartPre=/usr/bin/mkdir -p /opt/extensions/kubernetes /etc/sysupdate.kubernetes.d /etc/sysupdate.d
+        ExecStart=/usr/bin/curl --fail --location --retry 6 --retry-delay 5 --retry-connrefused -o /opt/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_VERSION }}-x86-64.raw
+        ExecStart=/usr/bin/curl --fail --location --retry 6 --retry-delay 5 -o /etc/sysupdate.kubernetes.d/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf https://extensions.flatcar.org/extensions/kubernetes/kubernetes-{{ ENV.KUBERNETES_MINOR }}.conf
+        ExecStart=/usr/bin/curl --fail --location --retry 6 --retry-delay 5 -o /etc/sysupdate.d/noop.conf https://extensions.flatcar.org/extensions/noop.conf
+        ExecStart=/usr/bin/systemd-sysext refresh
+        ExecStart=/usr/bin/systemctl daemon-reload
+        [Install]
+        WantedBy=multi-user.target
     # systemd-sysext + sysupdate for the Kubernetes bundle
     - name: systemd-sysext.service
       enabled: true

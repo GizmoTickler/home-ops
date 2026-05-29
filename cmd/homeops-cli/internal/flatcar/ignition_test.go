@@ -21,7 +21,7 @@ func sampleEnv() NodeEnv {
 		ControlPlaneVIP:   "192.168.123.253",
 		PauseImage:        "registry.k8s.io/pause:3.10",
 		KubeVipVersion:    "v0.8.9",
-		NodeInterface:     "ens18",
+		NodeInterface:     "eth0",
 	}
 }
 

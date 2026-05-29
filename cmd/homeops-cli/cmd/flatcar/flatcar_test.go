@@ -49,7 +49,7 @@ func TestBuildNodeEnv(t *testing.T) {
 	assert.Equal(t, "v1.36", env.KubernetesMinor)
 	assert.Equal(t, "v0.8.9", env.KubeVipVersion)
 	assert.Equal(t, "registry.k8s.io/pause:3.10", env.PauseImage)
-	assert.Equal(t, "ens18", env.NodeInterface)
+	assert.Equal(t, "eth0", env.NodeInterface)
 
 	_, err = buildNodeEnv("nope", "", "", "", "")
 	require.Error(t, err)

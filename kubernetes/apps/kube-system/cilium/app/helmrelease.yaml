@@ -29,7 +29,8 @@ spec:
       exclusive: false
     dashboards:
       enabled: false
-    devices: ens18
+    # Flatcar names the virtio NIC eth0 (Talos used ens18) — confirmed in the P2 lab.
+    devices: eth0
     enableIPv4BIGTCP: true
     endpointRoutes:
       enabled: true

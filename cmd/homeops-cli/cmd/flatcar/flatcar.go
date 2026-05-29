@@ -158,7 +158,7 @@ func newRenderIgnitionCommand() *cobra.Command {
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
-	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default ens18)")
+	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
 	cmd.Flags().StringVar(&outFile, "out", "", "Write Ignition JSON to file instead of stdout")
 
 	return cmd
@@ -217,7 +217,7 @@ func newGenKubeadmCommand() *cobra.Command {
 	cmd.Flags().StringVar(&caCertHash, "ca-cert-hash", "", "CA cert hash (join mode)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
-	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default ens18)")
+	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
 
 	return cmd
 }
@@ -270,7 +270,7 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
-	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default ens18)")
+	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 1, "Max concurrent deployments")
 	cmd.Flags().BoolVar(&powerOn, "power-on", false, "Power on VMs after creation")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render and build configs but do not create VMs")
