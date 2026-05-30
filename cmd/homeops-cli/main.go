@@ -110,71 +110,59 @@ VolSync backups, and more.`,
 
 func showInteractiveMenu(rootCmd *cobra.Command) error {
 	for {
-		// Build list of available commands
-		commands := []string{
-			"bootstrap - Bootstrap the cluster (Flatcar/kubeadm) and cluster applications",
-			"flatcar - Manage Flatcar Container Linux nodes (kubeadm)",
-			"k8s - Kubernetes cluster management",
-			"talos - Manage (legacy) Talos Linux nodes and clusters",
-			"volsync - Manage VolSync backup and restore operations",
-			"workstation - Setup workstation tools",
-			"Exit - Exit the application",
+		// Build the menu from the live command tree so it never drifts from the
+		// registered subcommands. Skip hidden + non-interactive helpers.
+		var labels []string
+		for _, c := range rootCmd.Commands() {
+			if c.Hidden || c.Name() == "completion" || c.Name() == "help" {
+				continue
+			}
+			label := c.Name()
+			if c.Short != "" {
+				label += " - " + c.Short
+			}
+			labels = append(labels, label)
 		}
+		labels = append(labels, "Exit - Exit the application")
 
-		selected, err := chooseFn("Select a command to run:", commands)
+		selected, err := chooseFn("Select a command to run:", labels)
 		if err != nil {
 			// User cancelled (Ctrl+C) - exit cleanly
 			return nil
 		}
-
 		if strings.HasPrefix(selected, "Exit") {
 			return nil
 		}
 
-		// Extract command name from selection using HasPrefix to avoid panic on short strings
-		var cmdName string
-		switch {
-		case strings.HasPrefix(selected, "bootstrap"):
-			cmdName = "bootstrap"
-		case strings.HasPrefix(selected, "flatcar"):
-			cmdName = "flatcar"
-		case strings.HasPrefix(selected, "k8s"):
-			cmdName = "k8s"
-		case strings.HasPrefix(selected, "talos"):
-			cmdName = "talos"
-		case strings.HasPrefix(selected, "volsync"):
-			cmdName = "volsync"
-		case strings.HasPrefix(selected, "workstation"):
-			cmdName = "workstation"
-		default:
+		// Resolve the command name = the token before " - " (label format above).
+		cmdName := selected
+		if i := strings.Index(selected, " - "); i >= 0 {
+			cmdName = selected[:i]
+		}
+		var target *cobra.Command
+		for _, c := range rootCmd.Commands() {
+			if c.Name() == cmdName {
+				target = c
+				break
+			}
+		}
+		if target == nil {
 			return rootCmd.Help()
 		}
 
-		// Find the selected command
-		for _, cmd := range rootCmd.Commands() {
-			if cmd.Name() == cmdName {
-				// If command has subcommands, show interactive submenu
-				if cmd.HasSubCommands() {
-					if err := showSubcommandMenu(cmd); err != nil {
-						return err
-					}
-					continue // Return to main menu after submenu returns
-				}
-				// If no subcommands, call RunE directly
-				if cmd.RunE != nil {
-					if err := cmd.RunE(cmd, []string{}); err != nil {
-						return err
-					}
-					continue // Return to main menu after command returns
-				}
-				if cmd.Run != nil {
-					cmd.Run(cmd, []string{})
-					continue // Return to main menu after command returns
-				}
-				// If neither exists, show help
-				_ = cmd.Help()
-				continue
+		switch {
+		case target.HasSubCommands():
+			if err := showSubcommandMenu(target); err != nil {
+				return err
 			}
+		case target.RunE != nil:
+			if err := target.RunE(target, []string{}); err != nil {
+				return err
+			}
+		case target.Run != nil:
+			target.Run(target, []string{})
+		default:
+			_ = target.Help()
 		}
 	}
 }

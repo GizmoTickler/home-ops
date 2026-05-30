@@ -151,7 +151,9 @@ func (l *ColorLogger) Warn(msg string, args ...interface{}) {
 	}
 	if l.Level <= WarnLevel {
 		timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-		color.Yellow("%s WARN %s", timestamp, fmt.Sprintf(msg, args...))
+		// Warnings go to stderr (color.Error = stderr) so stdout stays clean for
+		// piped/captured output. color.Error is overridable for tests.
+		_, _ = color.New(color.FgYellow).Fprintf(color.Error, "%s WARN %s\n", timestamp, fmt.Sprintf(msg, args...))
 	}
 }
 
@@ -161,7 +163,8 @@ func (l *ColorLogger) Error(msg string, args ...interface{}) {
 		return
 	}
 	timestamp := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	color.Red("%s ERROR %s", timestamp, fmt.Sprintf(msg, args...))
+	// Errors go to stderr (consistent with the final error printed by main).
+	_, _ = color.New(color.FgRed).Fprintf(color.Error, "%s ERROR %s\n", timestamp, fmt.Sprintf(msg, args...))
 }
 
 // Success logs success messages (always shown)
