@@ -10,6 +10,10 @@ It is intentionally structured around the live Cobra command tree in `main.go` a
 homeops-cli
 ├── bootstrap
 ├── completion [bash|zsh|fish|powershell]
+├── flatcar                  # current provider (Flatcar Container Linux + kubeadm)
+│   ├── render-ignition
+│   ├── gen-kubeadm
+│   └── deploy-vm
 ├── k8s
 │   ├── browse-pvc
 │   ├── node-shell
@@ -22,7 +26,7 @@ homeops-cli
 │   ├── render-ks <ks.yaml>
 │   ├── apply-ks [ks.yaml]
 │   └── delete-ks <ks.yaml>
-├── talos
+├── talos                    # legacy provider (retained for reference/rollback)
 │   ├── apply-node
 │   ├── upgrade-node
 │   ├── upgrade-k8s
@@ -68,22 +72,28 @@ If you run `homeops-cli` with no subcommand, it opens the interactive command me
 
 ## Bootstrap
 
-Bootstraps the Talos cluster and cluster applications.
+Bootstraps the cluster and cluster applications. Defaults to the Flatcar
+Container Linux + kubeadm provider (`--provider flatcar`); pass
+`--provider talos` for the legacy Talos path.
 
 ```bash
-homeops-cli bootstrap
+homeops-cli bootstrap                       # Flatcar/kubeadm (default)
 homeops-cli bootstrap --dry-run
 homeops-cli bootstrap --skip-preflight --skip-crds
 homeops-cli bootstrap --verbose
+homeops-cli bootstrap --skip-kubeadm        # Flatcar: post-CNI bootstrap only
+homeops-cli bootstrap --provider talos      # legacy Talos path
 ```
 
 Key flags:
 
+- `--provider` (`flatcar` default, or `talos`)
 - `--root-dir`
 - `--kubeconfig`
-- `--talosconfig`
 - `--k8s-version`
-- `--talos-version`
+- `--skip-kubeadm` (Flatcar: skip kubeadm init/join; run only post-CNI bootstrap)
+- `--talosconfig` (legacy Talos provider only)
+- `--talos-version` (legacy Talos provider only)
 - `--dry-run`
 - `--skip-crds`
 - `--skip-resources`
@@ -91,7 +101,34 @@ Key flags:
 - `--skip-preflight`
 - `--verbose`
 
-## Talos
+## Flatcar
+
+Manages Flatcar Container Linux nodes (the **current** cluster provider, using
+kubeadm). For the full flag surface use `homeops-cli flatcar <command> --help`.
+
+```bash
+# Render a node's Butane → Ignition config (1Password secrets injected)
+homeops-cli flatcar render-ignition
+
+# Generate the kubeadm init/join config
+homeops-cli flatcar gen-kubeadm
+
+# Deploy Flatcar VM(s) on Proxmox (uploads Ignition to the PVE snippets store
+# over SSH, then kubeadm init/join runs on first boot)
+homeops-cli flatcar deploy-vm --node k8s-0
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+```
+
+Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrent`, `--init`,
+`--token`, `--ca-cert-hash`, `--cert-key`, `--vip`, `--kube-vip-version`,
+`--pause-image`, `--pve-ssh-host`/`--pve-ssh-port`, `--snippets-dir`,
+`--image-path`/`--image-volume`, `--interface`, `--power-on`, `--dry-run`.
+
+## Talos (legacy)
+
+> **Legacy provider.** The cluster runs Flatcar + kubeadm (see **Flatcar**
+> above). The `talos` command group is retained for reference/rollback; the
+> commands below operate on Talos nodes only.
 
 ### Node and Cluster Operations
 
@@ -340,7 +377,13 @@ For shell-specific setup, see [`COMPLETION.md`](./COMPLETION.md).
 
 ## Practical Workflows
 
-### Prepare and Deploy Talos VMs on Proxmox
+### Deploy Flatcar nodes on Proxmox (current)
+
+```bash
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+```
+
+### Prepare and Deploy Talos VMs on Proxmox (legacy)
 
 ```bash
 homeops-cli talos prepare-iso

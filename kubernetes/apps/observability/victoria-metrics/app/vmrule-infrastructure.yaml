@@ -260,8 +260,10 @@ spec:
             severity: warning
             component: kubernetes
 
-        # Note: Talos Linux does not expose controller-manager and scheduler metrics
-        # by default for security reasons. Monitor via pod status instead.
+        # kubeadm runs kube-controller-manager and kube-scheduler as static pods
+        # that can expose metrics (e.g. :10257/:10259). We keep this pod-status
+        # alert as a provider-agnostic baseline; add metrics-based rules if/when
+        # those endpoints are scraped.
         - alert: KubernetesControlPlanePodsDown
           expr: |-
             kube_pod_status_phase{namespace="kube-system",pod=~"kube-(controller-manager|scheduler).*",phase!="Running"} == 1
@@ -277,9 +279,10 @@ spec:
             severity: critical
             component: kubernetes
 
-      # Note: Talos Linux embeds etcd and doesn't expose metrics by default.
-      # Monitor etcd health indirectly via API server and node status.
-      # If API server is up and nodes are Ready, etcd is functioning.
+      # kubeadm runs etcd as a static pod that can expose metrics on :2381.
+      # We currently monitor etcd health indirectly via API server and node
+      # status (if the API server is up and nodes are Ready, etcd is
+      # functioning); add etcd metrics rules if that endpoint is scraped.
 
     # Storage Alerts
     - name: kubernetes-storage.rules
@@ -355,7 +358,7 @@ spec:
       rules:
         - alert: ExternalHostDown
           expr: |-
-            up{job="node-exporter", instance!~".*talos.*|.*k8s.*"} == 0
+            up{job="node-exporter", instance!~".*k8s.*"} == 0
           for: 3m
           keep_firing_for: 5m
           annotations:

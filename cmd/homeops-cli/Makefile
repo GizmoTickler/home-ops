@@ -99,7 +99,7 @@ test-specific:
 	@echo "$(GREEN)Running specific test: $(TEST)$(RESET)"
 	go test -v -race -run $(TEST) ./...
 
-## test-package: Test a specific package (usage: make test-package PKG=./cmd/talos)
+## test-package: Test a specific package (usage: make test-package PKG=./cmd/flatcar)
 test-package:
 	@echo "$(GREEN)Testing package: $(PKG)$(RESET)"
 	go test -v -race $(PKG)
@@ -254,7 +254,10 @@ demo: build
 	@echo "$(BLUE)Available commands:$(RESET)"
 	./$(BINARY_NAME) --help
 	@echo ""
-	@echo "$(BLUE)Talos commands:$(RESET)"
+	@echo "$(BLUE)Flatcar commands (current provider):$(RESET)"
+	./$(BINARY_NAME) flatcar --help
+	@echo ""
+	@echo "$(BLUE)Talos commands (legacy provider):$(RESET)"
 	./$(BINARY_NAME) talos --help
 	@echo ""
 	@echo "$(BLUE)Kubernetes commands:$(RESET)"

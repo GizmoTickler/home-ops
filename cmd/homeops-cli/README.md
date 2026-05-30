@@ -14,18 +14,42 @@ make check
 ## Core Commands
 
 ```bash
-homeops-cli bootstrap
-homeops-cli talos --help
+homeops-cli bootstrap            # defaults to the Flatcar/kubeadm provider
+homeops-cli flatcar --help       # current provider (Flatcar Container Linux + kubeadm)
+homeops-cli talos --help         # legacy provider (retained for reference/rollback)
 homeops-cli k8s --help
 homeops-cli volsync --help
 homeops-cli workstation --help
 ```
 
-## Talos VM Workflows
+## Flatcar VM Workflows (current)
+
+The cluster runs **Flatcar Container Linux + kubeadm**. `flatcar deploy-vm`
+renders a Butane → Ignition config (injecting 1Password secrets), uploads it to
+the Proxmox snippets store over SSH, and creates the VM; kubeadm init/join runs
+on first boot and Cilium is then installed.
+
+```bash
+# Deploy the control-plane / all nodes on Proxmox
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+
+# Render just the Ignition or kubeadm config
+homeops-cli flatcar render-ignition
+homeops-cli flatcar gen-kubeadm
+```
+
+Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade
+Controller Plan (`kubernetes/apps/system-upgrade/kubeadm-upgrade/`), not a CLI
+command.
+
+## Talos VM Workflows (legacy)
+
+> **Legacy provider.** Retained for reference/rollback; the current cluster uses
+> Flatcar + kubeadm (see above).
 
 ### Proxmox-first deployment
 
-`talos deploy-vm` now defaults to `proxmox`. If you run it with no flags, it opens the interactive flow and lets you choose provider, VM name, resource profile, and ISO behavior.
+`talos deploy-vm` defaults to `proxmox`. If you run it with no flags, it opens the interactive flow and lets you choose provider, VM name, resource profile, and ISO behavior.
 
 ```bash
 # Interactive deploy with Proxmox as the default provider
@@ -114,8 +138,8 @@ homeops-cli volsync resume --all -n default
 ## Development Notes
 
 - `make build` outputs `homeops-cli` in this directory.
-- The CLI expects core environment such as `KUBECONFIG`, `TALOSCONFIG`, `KUBERNETES_VERSION`, and `TALOS_VERSION`.
-- For Talos/vSphere/TrueNAS credentials, the code prefers 1Password and falls back to environment variables.
+- The CLI expects core environment such as `KUBECONFIG` and `KUBERNETES_VERSION`. `TALOSCONFIG` and `TALOS_VERSION` are needed only for the legacy Talos provider.
+- For provider/hypervisor credentials (Proxmox/vSphere/TrueNAS, and Talos for the legacy path), the code prefers 1Password and falls back to environment variables.
 - For Kubernetes GitOps changes, commit and push changes before reconciling Flux.
 
 ## Pre-commit
