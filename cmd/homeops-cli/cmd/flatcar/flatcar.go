@@ -4,6 +4,7 @@
 package flatcar
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"sort"
@@ -15,22 +16,59 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/ssh"
 
 	"github.com/spf13/cobra"
 )
 
 // Swappable function vars for testability (mirrors cmd/talos patterns).
 var (
-	getVersionsFn            = versionconfig.GetVersions
-	workingDirectoryFn       = common.GetWorkingDirectory
-	renderIgnitionFn         = flatcar.RenderIgnition
-	renderKubeadmInitFn      = flatcar.RenderKubeadmInitConfig
-	renderKubeadmJoinFn      = flatcar.RenderKubeadmJoinConfig
-	getFlatcarNodeConfigFn   = proxmox.GetFlatcarNodeConfig
-	getProxmoxCredentialsFn  = proxmox.GetCredentials
-	proxmoxDefaultVMConfig   = proxmox.DefaultVMConfig
-	newProxmoxVMManagerFn    = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
+	getVersionsFn           = versionconfig.GetVersions
+	workingDirectoryFn      = common.GetWorkingDirectory
+	renderIgnitionFn        = flatcar.RenderIgnition
+	renderKubeadmInitFn     = flatcar.RenderKubeadmInitConfig
+	renderKubeadmJoinFn     = flatcar.RenderKubeadmJoinConfig
+	getFlatcarNodeConfigFn  = proxmox.GetFlatcarNodeConfig
+	getProxmoxCredentialsFn = proxmox.GetCredentials
+	proxmoxDefaultVMConfig  = proxmox.DefaultVMConfig
+	newProxmoxVMManagerFn   = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
 		return proxmox.NewVMManager(host, tokenID, secret, nodeName, insecure)
+	}
+	// uploadIgnitionToPVEFn writes the rendered Ignition to the snippets dir ON the
+	// Proxmox node over SSH. The fw_cfg file= path is read by qemu on that host, so the
+	// file must live there — not on whatever box runs this CLI (e.g. varunlnx0).
+	// Swappable for tests. Auth is via the ambient ssh-agent (sshArgs sets no -i);
+	// SSHItemRef is the 1Password key used by the macOS 1Password SSH agent.
+	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+		client := ssh.NewSSHClient(ssh.SSHConfig{
+			Host:       sshHost,
+			Username:   sshUser,
+			Port:       sshPort,
+			SSHItemRef: constants.OpProxmoxSSHKey,
+		})
+		if err := client.Connect(); err != nil {
+			return fmt.Errorf("connect to Proxmox host %s@%s:%s: %w", sshUser, sshHost, sshPort, err)
+		}
+		defer func() { _ = client.Close() }()
+
+		dir := remotePath[:strings.LastIndex(remotePath, "/")]
+		if dir == "" {
+			dir = "/"
+		}
+		// base64-encode so the JSON travels safely inside the remote shell command.
+		b64 := base64.StdEncoding.EncodeToString(content)
+		cmd := fmt.Sprintf("mkdir -p %s && printf %%s %s | base64 -d > %s", dir, b64, remotePath)
+		if _, err := client.ExecuteCommand(cmd); err != nil {
+			return fmt.Errorf("write ignition to %s on %s: %w", remotePath, sshHost, err)
+		}
+		ok, size, err := client.VerifyFile(remotePath)
+		if err != nil {
+			return fmt.Errorf("verify ignition on %s: %w", sshHost, err)
+		}
+		if !ok || size == 0 {
+			return fmt.Errorf("ignition not present/empty on %s after upload (path=%s, size=%d)", sshHost, remotePath, size)
+		}
+		return nil
 	}
 )
 
@@ -228,6 +266,9 @@ func newDeployVMCommand() *cobra.Command {
 		imagePath      string
 		imageVolume    string
 		snippetsDir    string
+		pveSSHHost     string
+		pveSSHUser     string
+		pveSSHPort     string
 		vip            string
 		pauseImage     string
 		kubeVipVersion string
@@ -252,6 +293,9 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 				imagePath:      imagePath,
 				imageVolume:    imageVolume,
 				snippetsDir:    snippetsDir,
+				pveSSHHost:     pveSSHHost,
+				pveSSHUser:     pveSSHUser,
+				pveSSHPort:     pveSSHPort,
 				vip:            vip,
 				pauseImage:     pauseImage,
 				kubeVipVersion: kubeVipVersion,
@@ -266,7 +310,10 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
 	cmd.Flags().StringVar(&imagePath, "image-path", "", "Path on Proxmox to import the Flatcar disk image from (import-from)")
 	cmd.Flags().StringVar(&imageVolume, "image-volume", "", "Existing storage volume to attach as scsi0 (alternative to --image-path)")
-	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "Proxmox snippets dir for Ignition files")
+	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "Proxmox snippets dir for Ignition files (on the Proxmox node)")
+	cmd.Flags().StringVar(&pveSSHHost, "pve-ssh-host", "", "Proxmox host to SSH the Ignition to (default: the Proxmox API host)")
+	cmd.Flags().StringVar(&pveSSHUser, "pve-ssh-user", "root", "SSH user on the Proxmox host for Ignition upload")
+	cmd.Flags().StringVar(&pveSSHPort, "pve-ssh-port", "22", "SSH port on the Proxmox host")
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
@@ -283,6 +330,9 @@ type deployVMOptions struct {
 	imagePath      string
 	imageVolume    string
 	snippetsDir    string
+	pveSSHHost     string
+	pveSSHUser     string
+	pveSSHPort     string
 	vip            string
 	pauseImage     string
 	kubeVipVersion string
@@ -297,6 +347,31 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 
 	if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun {
 		return fmt.Errorf("one of --image-path or --image-volume is required")
+	}
+
+	// Resolve Proxmox credentials up front. The rendered Ignition must be written to
+	// the snippets dir ON the Proxmox node (qemu reads the fw_cfg file= path on that
+	// host), so we upload it over SSH rather than writing it wherever this CLI runs.
+	// The SSH host defaults to the Proxmox API host.
+	var pveHost, tokenID, secret, pveNode string
+	var err error
+	if !opts.dryRun {
+		pveHost, tokenID, secret, pveNode, err = getProxmoxCredentialsFn()
+		if err != nil {
+			return err
+		}
+	}
+	sshHost := opts.pveSSHHost
+	if sshHost == "" {
+		sshHost = pveHost
+	}
+	sshUser := opts.pveSSHUser
+	if sshUser == "" {
+		sshUser = "root"
+	}
+	sshPort := opts.pveSSHPort
+	if sshPort == "" {
+		sshPort = "22"
 	}
 
 	configs := make([]proxmox.VMConfig, 0, len(opts.nodes))
@@ -316,15 +391,20 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 			return fmt.Errorf("failed to render ignition for %s: %w", nodeName, err)
 		}
 
-		// Write Ignition to the snippets dir so Proxmox can read it for fw_cfg.
+		// Upload Ignition to the snippets dir ON the Proxmox node so qemu can read it
+		// for the fw_cfg file= attach (works when this CLI runs off-host, e.g. varunlnx0).
 		ignPath := fmt.Sprintf("%s/ignition-%s.json", strings.TrimRight(opts.snippetsDir, "/"), nodeName)
 		if opts.dryRun {
-			logger.Info("[DRY RUN] would write %d bytes of Ignition to %s for %s", len(ign), ignPath, nodeName)
-		} else {
-			if err := os.WriteFile(ignPath, ign, 0o644); err != nil {
-				return fmt.Errorf("failed to write ignition file %s (must be a Proxmox-readable path): %w", ignPath, err)
+			dst := sshHost
+			if dst == "" {
+				dst = "<proxmox-host>"
 			}
-			logger.Info("Wrote Ignition for %s to %s", nodeName, ignPath)
+			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s@%s:%s for %s", len(ign), sshUser, dst, ignPath, nodeName)
+		} else {
+			logger.Info("Uploading Ignition for %s to %s@%s:%s", nodeName, sshUser, sshHost, ignPath)
+			if uerr := uploadIgnitionToPVEFn(sshHost, sshUser, sshPort, ignPath, ign); uerr != nil {
+				return fmt.Errorf("failed to upload ignition for %s to Proxmox host %s: %w", nodeName, sshHost, uerr)
+			}
 		}
 
 		vmConfig := proxmoxDefaultVMConfig
@@ -352,12 +432,7 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 		return nil
 	}
 
-	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
-	if err != nil {
-		return err
-	}
-
-	return deployConcurrently(logger, host, tokenID, secret, nodeName, configs, opts.concurrent)
+	return deployConcurrently(logger, pveHost, tokenID, secret, pveNode, configs, opts.concurrent)
 }
 
 func deployBootSource(c proxmox.VMConfig) string {

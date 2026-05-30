@@ -164,7 +164,15 @@ func TestDeployVMRealPath(t *testing.T) {
 		return mgr, nil
 	}
 
-	// Use a temp snippets dir so the real os.WriteFile succeeds.
+	var uploadedTo string
+	origUpload := uploadIgnitionToPVEFn
+	defer func() { uploadIgnitionToPVEFn = origUpload }()
+	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+		uploadedTo = sshHost + ":" + remotePath
+		return nil
+	}
+
+	// Use a temp snippets dir; the Ignition upload to Proxmox is stubbed above.
 	snip := t.TempDir()
 
 	cmd := newDeployVMCommand()
@@ -174,6 +182,8 @@ func TestDeployVMRealPath(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	require.Len(t, mgr.deployed, 1)
 	assert.Equal(t, "k8s-0", mgr.deployed[0])
+	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
+	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
 }
 
 var _ = cobra.Command{}
