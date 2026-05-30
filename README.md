@@ -4,7 +4,7 @@
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes on Talos Linux &middot; Rook Ceph storage &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
+_Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 <br/>
 
@@ -24,9 +24,9 @@ _Kubernetes on Talos Linux &middot; Rook Ceph storage &middot; GitOps managed_ <
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4a1/512.gif" alt="💡" width="20" height="20"> Overview
 
-This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Talos Linux](https://www.talos.dev/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
+This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Flatcar Container Linux](https://www.flatcar.org/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Talos VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
+**Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
 
 ---
 
@@ -40,10 +40,9 @@ The built binary and CLI command name are `homeops-cli`.
 
 | Command | What it does |
 |---------|-------------|
-| `homeops-cli bootstrap` | End-to-end cluster initialization with preflight checks and 1Password secret injection |
-| `homeops-cli talos deploy-vm` | Provisions Talos VMs with Proxmox as the default provider and supports batch deployment |
-| `homeops-cli talos apply-node` | Renders and applies Talos machine configs with Jinja2 templating ([minijinja](https://github.com/mitsuhiko/minijinja)) |
-| `homeops-cli talos upgrade-k8s` | Orchestrated Kubernetes version upgrades across the cluster |
+| `homeops-cli bootstrap --provider flatcar` | End-to-end Flatcar/kubeadm cluster init: `kubeadm init`/`join` over SSH, then Cilium + CRDs + Flux, with preflight checks and 1Password secret injection |
+| `homeops-cli flatcar deploy-vm` | Provisions Flatcar Container Linux VMs on Proxmox (Ignition via fw_cfg) with batch/concurrent deployment |
+| `homeops-cli flatcar render-ignition` | Renders the Butane→Ignition config for a node (debug/inspection) |
 | `homeops-cli k8s view-secret` | Decodes secret data with interactive secret and namespace selection |
 | `homeops-cli volsync snapshot` | Triggers Kopia-backed PVC snapshots via VolSync |
 | `homeops-cli volsync restore` | Point-in-time PVC recovery from Kopia repository |
@@ -51,9 +50,9 @@ The built binary and CLI command name are `homeops-cli`.
 
 **Key internals:**
 
-- **Native API clients** for Proxmox VE, TrueNAS Scale, and Talos Factory — no shelling out
+- **Native API clients** for Proxmox VE and TrueNAS Scale, plus Flatcar release-image resolution — no shelling out
 - **1Password CLI integration** for zero-plaintext secret management
-- **Embedded Jinja2 templates** via minijinja for Talos machine config rendering
+- **Embedded Butane→Ignition transpilation** (CoreOS Butane library) + kubeadm v1beta4 config rendering for Flatcar nodes (minijinja still renders the legacy Talos path)
 - **Interactive TUI** with rich prompts, spinners, and progress indicators
 - **Full test suite** with unit and integration tests
 
@@ -61,37 +60,38 @@ See the dedicated CLI guide at [`cmd/homeops-cli/README.md`](./cmd/homeops-cli/R
 
 ```
 cmd/homeops-cli/
-├── cmd/           # CLI commands (bootstrap, talos, volsync, kubernetes, workstation)
-├── internal/      # 19 packages: proxmox, truenas, talos, ssh, iso, config, security, ui, ...
+├── cmd/           # CLI commands (bootstrap, flatcar, talos, volsync, kubernetes, workstation)
+├── internal/      # packages: proxmox, truenas, flatcar, talos, ssh, iso, config, security, ui, ...
 ├── main.go        # Cobra root command with signal handling
 └── Makefile       # Build, test, lint, coverage
 ```
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on Proxmox VE 9.1 VMs with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
+The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.1 VMs, with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
 
 ### Infrastructure Details
 
 - **Hypervisor**: Proxmox VE 9.1 with KVM/QEMU virtualization
-- **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Talos VM
+- **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Flatcar VM
 - **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
 - **Network Infrastructure**:
   - 40Gbps LACP link aggregation between Proxmox host and TrueNAS Scale
   - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP
   - Cisco switch providing high-speed interconnect
   - Jumbo frames (MTU 9000) enabled end-to-end
-- **Kubernetes Distribution**: Talos Linux v1.12.2 (immutable, minimal, secure)
+- **OS / Distribution**: Flatcar Container Linux (immutable, auto-updating) bootstrapped with **kubeadm** (v1beta4); Kubernetes **v1.36.1**. The kubelet/kubeadm/kubectl/CNI binaries are delivered as a **systemd-sysext** image and version-managed by systemd-sysupdate.
+- **Control-plane endpoint**: kube-vip (ARP/L2) VIP `192.168.123.253:6443` — CNI-independent, so it is usable as the `kubeadm` control-plane endpoint during init/join.
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 96GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
-  - **Boot Disk**: 200GB VirtIO SCSI disk for Talos OS (`/dev/sda`)
+  - **Boot Disk**: 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS (`/dev/sda`)
   - **Ceph OSD**: Dedicated 1TB SSD passthrough via disk-by-id for Rook Ceph distributed storage (`/dev/sdc`)
   - **Local Storage**: 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads (`/dev/sdb`)
 - **Networking**:
   - Cilium CNI with eBPF datapath
   - kgateway (Gateway API) for ingress with L2/BGP announcements
   - VirtIO network adapters with multi-queue (8 queues)
-  - Network interface: `ens18` (Proxmox VirtIO)
+  - Network interface: `eth0` (Flatcar names the Proxmox VirtIO NIC `eth0`, not `ens18`)
 - **Guest Integration**: QEMU Guest Agent for enhanced VM management
 - **Ingress**: kgateway (Gateway API) with Cilium L2/BGP LoadBalancer services
 - **DNS**: external-dns for Cloudflare (public) and PowerDNS via RFC2136 (internal) DNS management
@@ -111,7 +111,7 @@ The Kubernetes cluster is deployed using [Talos Linux](https://www.talos.dev) on
 - [scale-csi](https://github.com/gizmotickler/scale-csi): TrueNAS Scale CSI driver for iSCSI, NVMe-oF, and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
-- [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller): Automated Kubernetes and Talos Linux upgrades.
+- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator (it replaces what `tuppr` did on Talos).
 - [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Kopia.
 
 ### GitOps
@@ -164,9 +164,10 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   └── 📁 flux          # Flux system configuration
 ├── 📁 cmd               # HomeOps CLI source code
 │   └── 📁 homeops-cli   # Go-based automation tool
-├── 📁 scripts           # Automation and utility scripts
-└── 📁 talos             # Talos Linux configuration templates
+└── 📁 scripts           # Automation and utility scripts
 ```
+
+> Node OS + kubeadm configuration (Butane/Ignition, kubeadm v1beta4, kube-vip) lives as **embedded templates inside `cmd/homeops-cli`**, not a top-level directory.
 
 ### Flux Workflow
 
@@ -190,9 +191,9 @@ The repository includes comprehensive automation for cluster management through 
 A purpose-built Go application that provides complete infrastructure automation:
 
 **Core Capabilities:**
-- **Bootstrap**: Complete cluster initialization with preflight checks and 1Password integration
-- **Talos Operations**: Node configuration, VM deployment, ISO generation, and Kubernetes upgrades
-- **VM Management**: Proxmox VE 9.1 VM creation with custom Talos ISOs via Factory API
+- **Bootstrap**: Complete cluster initialization (`--provider flatcar`: kubeadm init/join over SSH, then Cilium/CRDs/Flux) with preflight checks and 1Password integration
+- **Flatcar Provisioning**: Butane→Ignition rendering, kubeadm config generation, and `kubeadm init`/`join` orchestration over SSH
+- **VM Management**: Proxmox VE 9.1 VM creation booting Flatcar images with Ignition injected via qemu fw_cfg
 - **Volume Operations**: VolSync-based backup and restore with Kopia integration
 - **Kubernetes Management**: Deployment restarts, PVC browsing, and maintenance operations
 
@@ -201,11 +202,10 @@ A purpose-built Go application that provides complete infrastructure automation:
 # Bootstrap entire cluster
 homeops-cli bootstrap
 
-# Talos node and VM operations
-homeops-cli talos apply-node --ip 192.168.122.10
-homeops-cli talos deploy-vm --name test --generate-iso
-homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
-homeops-cli talos upgrade-k8s
+# Flatcar node provisioning + cluster bootstrap (kubeadm)
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --image-path /var/lib/vz/template/flatcar.img --concurrent 3
+homeops-cli flatcar render-ignition --node k8s-0      # inspect rendered Ignition
+homeops-cli bootstrap --provider flatcar              # kubeadm init/join + Cilium/CRDs/Flux
 
 # Kubernetes and Flux operations
 homeops-cli k8s view-secret
@@ -217,7 +217,7 @@ homeops-cli volsync restore --pvc data-pvc --namespace default
 ```
 
 **Supporting Tools:**
-- **Template Rendering**: Embedded Jinja2 templates with [minijinja](https://github.com/mitsuhiko/minijinja)
+- **Template Rendering**: Embedded Butane→Ignition transpilation (CoreOS Butane) + kubeadm v1beta4 configs for Flatcar; [minijinja](https://github.com/mitsuhiko/minijinja) Jinja2 templates for the legacy Talos path
 - **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) integration for secure secret management
 - **Environment Management**: [mise](https://github.com/jdx/mise) for tool and environment variable management
 - **Configuration Validation**: Pre-commit hooks with kubeconform and YAML linting
@@ -385,7 +385,7 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 
 ### Rook Ceph Configuration
 
-[Rook Ceph](https://rook.io/) provides the primary distributed storage using dedicated SSDs passed through to each Talos VM on Proxmox VE:
+[Rook Ceph](https://rook.io/) provides the primary distributed storage using dedicated SSDs passed through to each Flatcar VM on Proxmox VE:
 
 - **Ceph Version**: v19.2.3 (Squid)
 - **OSD Configuration**: Dedicated 1TB SSD per node passed through via disk-by-id for direct hardware access
@@ -439,7 +439,7 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
-| └─ **Storage**              | 2x NVMe SSDs (local storage) + 3x 1TB SSD (Ceph passthrough) | Boot, VM storage, and Ceph OSDs |
+| └─ **Storage**              | 2x NVMe SSDs (ZFS RAID1 mirror — VM boot, 30GB/drive over-provisioned) + 3x 1TB SSD (Ceph passthrough) | VM boot mirror + Ceph OSDs |
 | **Storage Server**          | TrueNAS Scale                                       | iSCSI, NVMe-oF & NFS storage     |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
 | ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
@@ -464,16 +464,16 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 200GB boot + 1TB SSD passthrough (Ceph OSD) + 800GB local (OpenEBS) | Talos Linux v1.12.2 |
+| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 100GB boot (nvme-mirror RAID1) + 1TB SSD passthrough (Ceph OSD) + 800GB local (OpenEBS) | Flatcar Container Linux + kubeadm (k8s v1.36.1) |
 
 **Storage Details**:
-- **Boot Disk** (`scsi0`, `/dev/sda`): 200GB VirtIO SCSI disk for Talos OS
+- **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS
 - **Ceph OSD** (`scsi2`, `/dev/sdc`): Dedicated 1TB SSD passed through via disk-by-id for Rook Ceph distributed storage
 - **Local Storage** (`scsi1`, `/dev/sdb`): 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads
 - **External Storage**: scale-csi provides TrueNAS iSCSI/NVMe-oF/NFS for additional capacity
 
 **VM Configuration**:
-- **Platform**: `nocloud` (Proxmox/KVM/QEMU)
+- **Provisioning**: Ignition via qemu **fw_cfg** (`opt/org.flatcar-linux/config`) — the rendered Ignition is attached at VM create; the disk imports a Flatcar image (no install ISO)
 - **BIOS**: OVMF (UEFI)
 - **CPU Type**: `host,flags=+pdpe1gb;-spec-ctrl`
 - **Network**: VirtIO with multi-queue (8 queues), MTU 9000, bridge `vmbr0`, VLAN 999
