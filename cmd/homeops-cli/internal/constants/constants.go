@@ -31,6 +31,11 @@ const (
 	// The SSH user/key the homeops-cli uses to reach the k8s-* Flatcar nodes.
 	OpFlatcarSSHUser       = "op://Infrastructure/flatcar/SSH_USER"
 	OpFlatcarSSHPrivateKey = "op://Infrastructure/flatcar/private key"
+
+	// Proxmox node SSH key (root@pve) — used to upload Flatcar Ignition to the
+	// Proxmox snippets dir for the fw_cfg attach. Auth is via the ambient ssh-agent;
+	// this op ref is the macOS 1Password SSH-agent identity.
+	OpProxmoxSSHKey = "op://Infrastructure/proxmox-ssh/private key"
 )
 
 // Environment variable names
