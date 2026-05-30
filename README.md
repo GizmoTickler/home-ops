@@ -26,7 +26,7 @@ _Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &mid
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Flatcar Container Linux](https://www.flatcar.org/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.1 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
+**Architecture**: The cluster runs on Proxmox VE 9.2 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
 
 ---
 
