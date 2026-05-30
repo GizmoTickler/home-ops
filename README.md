@@ -52,7 +52,7 @@ The built binary and CLI command name are `homeops-cli`.
 
 - **Native API clients** for Proxmox VE and TrueNAS Scale, plus Flatcar release-image resolution — no shelling out
 - **1Password CLI integration** for zero-plaintext secret management
-- **Embedded Butane→Ignition transpilation** (CoreOS Butane library) + kubeadm v1beta4 config rendering for Flatcar nodes (minijinja still renders the legacy Talos path)
+- **Embedded Butane→Ignition transpilation** (CoreOS Butane library) + kubeadm v1beta4 config rendering for Flatcar nodes
 - **Interactive TUI** with rich prompts, spinners, and progress indicators
 - **Full test suite** with unit and integration tests
 
@@ -60,8 +60,8 @@ See the dedicated CLI guide at [`cmd/homeops-cli/README.md`](./cmd/homeops-cli/R
 
 ```
 cmd/homeops-cli/
-├── cmd/           # CLI commands (bootstrap, flatcar, talos, volsync, kubernetes, workstation)
-├── internal/      # packages: proxmox, truenas, flatcar, talos, ssh, iso, config, security, ui, ...
+├── cmd/           # CLI commands (bootstrap, flatcar, volsync, kubernetes, workstation)
+├── internal/      # packages: proxmox, truenas, flatcar, ssh, iso, config, security, ui, ...
 ├── main.go        # Cobra root command with signal handling
 └── Makefile       # Build, test, lint, coverage
 ```
@@ -111,7 +111,7 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - [scale-csi](https://github.com/gizmotickler/scale-csi): TrueNAS Scale CSI driver for iSCSI, NVMe-oF, and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
-- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator (it replaces what `tuppr` did on Talos).
+- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator. Minor Kubernetes upgrades are driven via [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) (see `apps/system-upgrade`).
 - [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Kopia.
 
 ### GitOps
@@ -217,7 +217,7 @@ homeops-cli volsync restore --pvc data-pvc --namespace default
 ```
 
 **Supporting Tools:**
-- **Template Rendering**: Embedded Butane→Ignition transpilation (CoreOS Butane) + kubeadm v1beta4 configs for Flatcar; [minijinja](https://github.com/mitsuhiko/minijinja) Jinja2 templates for the legacy Talos path
+- **Template Rendering**: Embedded Butane→Ignition transpilation (CoreOS Butane) + kubeadm v1beta4 configs for Flatcar
 - **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) integration for secure secret management
 - **Environment Management**: [mise](https://github.com/jdx/mise) for tool and environment variable management
 - **Configuration Validation**: Pre-commit hooks with kubeconform and YAML linting
