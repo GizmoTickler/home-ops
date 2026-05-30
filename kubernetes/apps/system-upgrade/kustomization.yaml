@@ -11,3 +11,5 @@ components:
 resources:
   - ./namespace.yaml
   - ./kured/ks.yaml
+  - ./system-upgrade-controller/ks.yaml
+  - ./kubeadm-upgrade/ks.yaml
