@@ -75,7 +75,10 @@ func (c *SSHClient) Close() error {
 
 // ExecuteCommand executes a command on the remote server using SSH
 func (c *SSHClient) ExecuteCommand(command string) (string, error) {
-	c.logger.Debug("Executing command via SSH: %s", command)
+	// NOTE: never log the command body — Flatcar bootstrap routes kubeadm join
+	// material (token/cert-key/CA hash) and base64 cluster PKI private keys
+	// through here; logging the string would leak them at debug level.
+	c.logger.Debug("Executing SSH command (%d bytes)", len(command))
 
 	result, err := c.runSSHCommand(command)
 	if err != nil {

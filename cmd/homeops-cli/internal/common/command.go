@@ -38,6 +38,11 @@ type CommandResult struct {
 var (
 	privateKeyBlockPattern = regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`)
 	secretLabelPattern     = regexp.MustCompile(`(?i)\b((?:access|refresh|id)[_-]?token|client[_-]?secret|api[_-]?key|private[_ -]?key|password|passwd|token|secret)(\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
+	// kubeadm join material printed in init/join output (and any error that echoes it).
+	kubeadmFlagSecretPattern = regexp.MustCompile(`(--(?:token|certificate-key|discovery-token-ca-cert-hash))([ =])(\S+)`)
+	kubeadmTokenPattern      = regexp.MustCompile(`\b[a-z0-9]{6}\.[a-z0-9]{16}\b`)          // bootstrap token
+	caCertHashPattern        = regexp.MustCompile(`sha256:[0-9a-f]{64}`)                     // discovery CA hash
+	certificateKeyPattern    = regexp.MustCompile(`(?i)(certificate key:\s*)([0-9a-f]{64})`) // upload-certs key line
 )
 
 // Command creates a command using the shared command factory.
@@ -140,5 +145,12 @@ func redactCommandOutput(output string, redactor Redactor) string {
 // RedactCommandOutput conservatively masks obvious secret-labeled values.
 func RedactCommandOutput(output string) string {
 	output = privateKeyBlockPattern.ReplaceAllString(output, "<redacted private key>")
-	return secretLabelPattern.ReplaceAllString(output, "${1}${2}<redacted>")
+	output = secretLabelPattern.ReplaceAllString(output, "${1}${2}<redacted>")
+	// kubeadm join material (token / cert-key / CA hash) — space- or =-separated
+	// flags and the standalone forms kubeadm prints in init/join output.
+	output = kubeadmFlagSecretPattern.ReplaceAllString(output, "${1}${2}<redacted>")
+	output = caCertHashPattern.ReplaceAllString(output, "sha256:<redacted>")
+	output = certificateKeyPattern.ReplaceAllString(output, "${1}<redacted>")
+	output = kubeadmTokenPattern.ReplaceAllString(output, "<redacted-token>")
+	return output
 }

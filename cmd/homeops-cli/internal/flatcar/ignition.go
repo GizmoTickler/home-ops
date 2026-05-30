@@ -110,6 +110,13 @@ func RenderIgnition(env NodeEnv) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to render Butane controlplane: %w", err)
 	}
+	// Fail loudly on an unresolved placeholder rather than baking a literal
+	// "{{ ENV.X }}" into Ignition. envMap() omits empty values, so a silent
+	// 1Password miss for SSH_AUTHORIZED_KEY/K8S_ENDPOINT would otherwise produce
+	// a node with a garbage SSH key (unreachable -> bootstrap silently fails).
+	if m := unresolvedPlaceholderRe.FindString(butaneDoc); m != "" {
+		return nil, fmt.Errorf("Butane controlplane has unresolved placeholder %s: missing required ENV value (1Password miss for SSH key / domain?)", m)
+	}
 
 	// 2. Materialize local: files into a temp FilesDir, layout mirroring the
 	//    local: paths in the Butane doc (files/..., manifests/...).
@@ -151,6 +158,9 @@ func materializeFlatcarSubdir(baseDir, subdir string, envVars map[string]string)
 		rendered, err := renderFlatcarTemplateFn(name, envVars)
 		if err != nil {
 			return fmt.Errorf("failed to render flatcar file %s: %w", name, err)
+		}
+		if m := unresolvedPlaceholderRe.FindString(rendered); m != "" {
+			return fmt.Errorf("flatcar file %s has unresolved placeholder %s: missing required ENV value", name, m)
 		}
 		// name is "<subdir>/<file>"; preserve only the basename under targetDir.
 		dest := filepath.Join(targetDir, filepath.Base(name))

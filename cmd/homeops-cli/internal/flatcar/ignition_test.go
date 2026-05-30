@@ -27,6 +27,18 @@ func sampleEnv() NodeEnv {
 	}
 }
 
+func TestRenderIgnitionRejectsUnresolvedPlaceholder(t *testing.T) {
+	// A silent 1Password miss leaves SSHAuthorizedKey empty; envMap() omits it, so
+	// the Butane keeps a literal {{ ENV.SSH_AUTHORIZED_KEY }}. Rendering MUST fail
+	// loudly rather than bake a garbage SSH key into Ignition (unreachable node).
+	env := sampleEnv()
+	env.SSHAuthorizedKey = ""
+	_, err := RenderIgnition(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unresolved placeholder")
+	assert.Contains(t, err.Error(), "SSH_AUTHORIZED_KEY")
+}
+
 func TestRenderIgnitionProducesValidJSON(t *testing.T) {
 	ign, err := RenderIgnition(sampleEnv())
 	require.NoError(t, err)

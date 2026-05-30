@@ -4,7 +4,9 @@
 package flatcar
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -38,6 +40,16 @@ var (
 	runOpFn = func(args ...string) error {
 		c := common.Command("op", args...)
 		c.Stdin = nil
+		if out, err := c.CombinedOutput(); err != nil {
+			return fmt.Errorf("op %s: %w\n%s", args[0], err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	// runOpStdinFn runs op with `stdin` piped in (an item template), so secret
+	// field values travel via stdin and never appear in argv / /proc/<pid>/cmdline.
+	runOpStdinFn = func(stdin []byte, args ...string) error {
+		c := common.Command("op", args...)
+		c.Stdin = bytes.NewReader(stdin)
 		if out, err := c.CombinedOutput(); err != nil {
 			return fmt.Errorf("op %s: %w\n%s", args[0], err, strings.TrimSpace(string(out)))
 		}
@@ -192,14 +204,31 @@ func kubernetesMinor(version string) string {
 	return version
 }
 
-// savePKIToOp persists captured PKI (1Password field -> base64) to
-// op://Infrastructure/kubernetes-pki, replacing any existing item. *.key fields
-// are stored concealed. Field order is deterministic.
-func savePKIToOp(fields map[string]string) error {
-	_ = runOpFn("item", "delete", "kubernetes-pki", "--vault", "Infrastructure") // ignore if absent
-	args := []string{
-		"item", "create", "--vault", "Infrastructure", "--category", "Secure Note", "--title", "kubernetes-pki",
-		"notesPlain[text]=kubeadm cluster PKI (base64). Restored by homeops-cli before kubeadm init for a stable cluster identity across rebuilds. Managed by 'flatcar save-pki'.",
+// opField / opItemTemplate model the `op item create` JSON template piped on stdin.
+type opField struct {
+	ID      string `json:"id,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
+	Type    string `json:"type"`
+	Value   string `json:"value"`
+}
+
+type opItemTemplate struct {
+	Title    string    `json:"title"`
+	Category string    `json:"category"`
+	Fields   []opField `json:"fields"`
+}
+
+// buildPKITemplate turns captured PKI (1Password field -> base64) into an op item
+// template. *.key fields are CONCEALED. Field order is deterministic.
+func buildPKITemplate(fields map[string]string) opItemTemplate {
+	t := opItemTemplate{
+		Title:    "kubernetes-pki",
+		Category: "SECURE_NOTE",
+		Fields: []opField{{
+			ID: "notesPlain", Type: "STRING", Purpose: "NOTES",
+			Value: "kubeadm cluster PKI (base64). Restored by homeops-cli before kubeadm init for a stable cluster identity across rebuilds. Managed by 'flatcar save-pki'.",
+		}},
 	}
 	keys := make([]string, 0, len(fields))
 	for k := range fields {
@@ -207,13 +236,25 @@ func savePKIToOp(fields map[string]string) error {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		typ := "text"
+		typ := "STRING"
 		if strings.HasSuffix(k, "_key") {
-			typ = "password"
+			typ = "CONCEALED"
 		}
-		args = append(args, fmt.Sprintf("%s[%s]=%s", k, typ, fields[k]))
+		t.Fields = append(t.Fields, opField{Label: k, Type: typ, Value: fields[k]})
 	}
-	return runOpFn(args...)
+	return t
+}
+
+// savePKIToOp persists captured PKI to op://Infrastructure/kubernetes-pki,
+// replacing any existing item. The base64 CA/SA/etcd PRIVATE keys are passed via
+// an item template on STDIN (never argv), so they don't appear in /proc/<pid>/cmdline.
+func savePKIToOp(fields map[string]string) error {
+	_ = runOpFn("item", "delete", "kubernetes-pki", "--vault", "Infrastructure") // ignore if absent
+	doc, err := json.Marshal(buildPKITemplate(fields))
+	if err != nil {
+		return fmt.Errorf("marshal op item template: %w", err)
+	}
+	return runOpStdinFn(doc, "item", "create", "--vault", "Infrastructure")
 }
 
 // newSavePKICommand captures the live cluster PKI into 1Password so bootstrap can

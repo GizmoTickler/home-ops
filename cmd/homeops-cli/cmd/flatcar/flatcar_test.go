@@ -58,21 +58,39 @@ func TestNewCommandStructure(t *testing.T) {
 	assert.True(t, subs["save-pki"])
 }
 
-func TestSavePKIToOpBuildsArgs(t *testing.T) {
-	var calls [][]string
-	orig := runOpFn
-	runOpFn = func(args ...string) error { calls = append(calls, args); return nil }
-	defer func() { runOpFn = orig }()
+func TestBuildPKITemplate(t *testing.T) {
+	// *.key fields must be CONCEALED; others STRING; deterministic order; notes first.
+	tmpl := buildPKITemplate(map[string]string{"ca_crt": "AAA", "ca_key": "BBB", "etcd_ca_key": "CCC"})
+	assert.Equal(t, "kubernetes-pki", tmpl.Title)
+	assert.Equal(t, "SECURE_NOTE", tmpl.Category)
+	require.Len(t, tmpl.Fields, 4) // notesPlain + 3
+	assert.Equal(t, "notesPlain", tmpl.Fields[0].ID)
+	got := map[string]opField{}
+	for _, f := range tmpl.Fields[1:] {
+		got[f.Label] = f
+	}
+	assert.Equal(t, "STRING", got["ca_crt"].Type)
+	assert.Equal(t, "AAA", got["ca_crt"].Value)
+	assert.Equal(t, "CONCEALED", got["ca_key"].Type)      // *.key concealed
+	assert.Equal(t, "CONCEALED", got["etcd_ca_key"].Type) // *.key concealed
+}
 
-	require.NoError(t, savePKIToOp(map[string]string{"ca_crt": "AAA", "ca_key": "BBB", "etcd_ca_key": "CCC"}))
-	require.Len(t, calls, 2) // delete then create
-	assert.Equal(t, "delete", calls[0][1])
-	create := strings.Join(calls[1], " ")
-	assert.Contains(t, create, "item create")
-	assert.Contains(t, create, "--vault Infrastructure")
-	assert.Contains(t, create, "ca_crt[text]=AAA")
-	assert.Contains(t, create, "ca_key[password]=BBB")      // *.key concealed
-	assert.Contains(t, create, "etcd_ca_key[password]=CCC") // *.key concealed
+func TestSavePKIToOpUsesStdinNotArgv(t *testing.T) {
+	// The base64 keys must travel via stdin (template), never argv (/proc leak).
+	var deleteArgs []string
+	var createStdin []byte
+	var createArgs []string
+	origDel, origStdin := runOpFn, runOpStdinFn
+	runOpFn = func(args ...string) error { deleteArgs = args; return nil }
+	runOpStdinFn = func(stdin []byte, args ...string) error { createStdin = stdin; createArgs = args; return nil }
+	defer func() { runOpFn, runOpStdinFn = origDel, origStdin }()
+
+	require.NoError(t, savePKIToOp(map[string]string{"ca_crt": "AAA", "ca_key": "BBB"}))
+	assert.Equal(t, "delete", deleteArgs[1])
+	assert.Equal(t, []string{"item", "create", "--vault", "Infrastructure"}, createArgs)
+	// secret values present in stdin payload, absent from argv
+	assert.Contains(t, string(createStdin), "BBB")
+	assert.NotContains(t, strings.Join(createArgs, " "), "BBB")
 }
 
 func TestSavePKICommand(t *testing.T) {

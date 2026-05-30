@@ -61,6 +61,7 @@ func TestCompletionFallbacks(t *testing.T) {
 	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 
 	vms, directive := ValidVMNames(nil, nil, "")
-	assert.Contains(t, vms, "k8s_0")
+	assert.Contains(t, vms, "k8s-0") // hyphenated to match real node names
+	assert.NotContains(t, vms, "k8s_0")
 	assert.Equal(t, cobra.ShellCompDirectiveNoFileComp, directive)
 }

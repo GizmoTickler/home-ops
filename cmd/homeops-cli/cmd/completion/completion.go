@@ -235,11 +235,12 @@ func ValidVMNames(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return vmNames, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Fallback to static VM names (current Flatcar/kubeadm node names)
+	// Fallback to static VM names (current Flatcar/kubeadm node names).
+	// Hyphens to match the real node names used everywhere else (k8s-0/1/2).
 	vmNames := []string{
-		"k8s_0",
-		"k8s_1",
-		"k8s_2",
+		"k8s-0",
+		"k8s-1",
+		"k8s-2",
 	}
 	return vmNames, cobra.ShellCompDirectiveNoFileComp
 }
