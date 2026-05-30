@@ -68,13 +68,30 @@ spec:
   monitoring:
     enablePodMonitor: true
 
-  # Bootstrap a new cluster
+  # Bootstrap by RECOVERING from the barman object store.
+  # After the Talos->Flatcar cluster rebuild, an initdb bootstrap created an EMPTY
+  # netbox DB. The real pre-migration data lives in s3://cnpg-backups/netbox-postgres
+  # (serverName netbox-postgres). Recovery restores it and reuses the same systemid,
+  # so the cluster can resume archiving to the same store (no \"expected empty archive\"
+  # conflict the way a fresh initdb hit). This is also the steady-state DR config.
   bootstrap:
-    initdb:
-      database: netbox
-      owner: netbox
-      secret:
-        name: netbox-postgres-app-secret
+    recovery:
+      source: netbox-postgres-backup
+  externalClusters:
+    - name: netbox-postgres-backup
+      barmanObjectStore:
+        destinationPath: s3://cnpg-backups/netbox-postgres
+        endpointURL: https://s3.${SECRET_DOMAIN}
+        serverName: netbox-postgres
+        s3Credentials:
+          accessKeyId:
+            name: netbox-postgres-s3-secret
+            key: ACCESS_KEY_ID
+          secretAccessKey:
+            name: netbox-postgres-s3-secret
+            key: ACCESS_SECRET_KEY
+        wal:
+          maxParallel: 2
 
   # Anti-affinity for HA across nodes
   affinity:
