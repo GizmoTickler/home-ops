@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a comprehensive home infrastructure repository containing:
 - **Kubernetes cluster configuration** using GitOps with Flux
-- **Talos Linux** cluster management on TrueNAS VMs
+- **Flatcar Container Linux + kubeadm** cluster management (a legacy Talos provider is retained for reference/rollback)
 - **HomeOps CLI** (Go-based) for infrastructure automation
 - **Kubernetes applications** deployed via Helm and Kustomize
 
@@ -53,15 +53,15 @@ make deps-update  # Update all dependencies
 
 The CLI relies on several environment variables. The following must be set globally:
 - `KUBECONFIG` - Path to your Kubernetes config file
-- `TALOSCONFIG` - Path to your Talos config file
 - `SOPS_AGE_KEY_FILE` - Path to your SOPS age key file
+- `TALOSCONFIG` - Path to your Talos config file (legacy Talos provider only; not used by the Flatcar/kubeadm path)
 
 The following is automatically set by main.go if not already defined:
 - `MINIJINJA_CONFIG_FILE=./.minijinja.toml`
 
 Required environment variables:
-- `KUBERNETES_VERSION` - Current Kubernetes version
-- `TALOS_VERSION` - Current Talos Linux version
+- `KUBERNETES_VERSION` - Current Kubernetes version (Flatcar clusters resolve this from the kubeadm System Upgrade Controller Plan)
+- `TALOS_VERSION` - Talos version (legacy Talos provider only)
 
 ### Kubernetes Management
 
@@ -80,13 +80,17 @@ flux <command>
 ### CLI Usage Examples
 
 ```bash
-# Bootstrap entire cluster
+# Bootstrap entire cluster (defaults to the Flatcar/kubeadm provider)
 ./homeops-cli bootstrap
 
-# Talos operations
+# Flatcar Container Linux operations (current cluster provider)
+./homeops-cli flatcar deploy-vm --name k8s-test
+# (Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade Controller Plan)
+
+# Legacy Talos operations (retained provider; not the current cluster OS)
+./homeops-cli bootstrap --provider talos
 ./homeops-cli talos apply-node --ip 192.168.122.10
 ./homeops-cli talos deploy-vm --name test_node --generate-iso
-./homeops-cli talos upgrade-k8s
 
 # Kubernetes operations
 ./homeops-cli k8s browse-pvc --namespace default
@@ -105,16 +109,18 @@ flux <command>
 The HomeOps CLI is structured as a Cobra-based application with the following key components:
 
 **Main Commands:**
-- `bootstrap/` - Complete cluster bootstrap with preflight checks
-- `talos/` - Talos Linux node and VM management
+- `bootstrap/` - Complete cluster bootstrap with preflight checks (defaults to the Flatcar/kubeadm provider; `--provider talos` for the legacy path)
+- `flatcar/` - Flatcar Container Linux node and VM management (kubeadm; current provider)
+- `talos/` - Talos Linux node and VM management (legacy; retained for reference/rollback)
 - `kubernetes/` - Kubernetes cluster operations
 - `volsync/` - Volume backup and restore operations
 - `workstation/` - Local development environment setup
 - `completion/` - Shell completion support
 
 **Internal Packages:**
-- `internal/templates/` - Embedded Jinja2 templates for Talos configs
-- `internal/talos/` - Talos factory API integration for custom ISOs
+- `internal/templates/` - Embedded templates: `flatcar/` (Butane/Ignition + kubeadm configs, current) and `talos/` (legacy Talos machine config)
+- `internal/flatcar/` - Ignition rendering for the Flatcar/kubeadm provider
+- `internal/talos/` - Talos factory API integration for custom ISOs (legacy)
 - `internal/truenas/` - TrueNAS API client for VM management
 - `internal/yaml/` - YAML processing and merging utilities
 - `internal/ssh/` - SSH client for remote operations
@@ -122,15 +128,18 @@ The HomeOps CLI is structured as a Cobra-based application with the following ke
 
 **Template System:**
 - Templates are embedded in the binary via go:embed
-- Jinja2 templates for Talos configurations in `internal/templates/talos/`
+- Flatcar/kubeadm: Butane → Ignition + kubeadm init/join configs in `internal/templates/flatcar/`
+- Legacy Talos machine-config templates in `internal/templates/talos/`
 - Bootstrap templates for initial cluster resources
 - 1Password integration for secret injection during template rendering
 
-**VM Deployment Flow:**
-1. Generate custom Talos ISO using factory API and schematic.yaml
-2. Download ISO to TrueNAS storage
-3. Create VM with proper ZVol naming convention
-4. Apply Talos configuration using embedded templates
+**VM Deployment Flow (Flatcar/kubeadm, current):**
+1. Render the Butane → Ignition config (with 1Password secret injection)
+2. Upload the Ignition config to the Proxmox snippets store over SSH
+3. Create the VM referencing the Ignition config (`--name`, no dashes in ZVol/VM names)
+4. kubeadm init/join runs on first boot; Cilium CNI is then installed
+
+Legacy Talos flow: generate a custom Talos ISO via the factory API + schematic.yaml, download to storage, create the VM, then apply Talos machine config.
 
 ### Kubernetes GitOps Structure
 
@@ -569,8 +578,9 @@ serviceMonitor:
 
 ### Template Development
 
-When working with Talos configuration templates:
-- Templates are located in `cmd/homeops-cli/internal/templates/talos/`
+When working with node configuration templates:
+- Flatcar/kubeadm templates (current): `cmd/homeops-cli/internal/templates/flatcar/`
+- Legacy Talos templates: `cmd/homeops-cli/internal/templates/talos/`
 - Use Jinja2 syntax with environment variable substitution
 - Test template rendering with `make dev` before deployment
 - 1Password references use format: `op://vault/item/field`
@@ -608,8 +618,8 @@ For restoring application data with VolSync and Longhorn v2, see the detailed gu
 
 **Bootstrap Failures:**
 - Ensure 1Password CLI is authenticated: `op signin`
-- Verify all required tools are installed: `talosctl`, `kubectl`, `kustomize`, `op`, `helmfile`
-- Check versions.env file exists and contains required versions
+- Verify all required tools are installed: `kubectl`, `kustomize`, `op`, `helmfile` (plus `talosctl` only for the legacy `--provider talos` path)
+- Check that the kubeadm System Upgrade Controller Plan provides the target Kubernetes version
 - Run with `--skip-preflight` only for debugging
 
 **Template Rendering Issues:**
@@ -619,9 +629,9 @@ For restoring application data with VolSync and Longhorn v2, see the detailed gu
 - Ensure 1Password references are accessible
 
 **VM Deployment Problems:**
-- Always use `--generate-iso` flag for custom Talos ISOs
-- Verify TrueNAS credentials are configured
+- Flatcar: ensure the Ignition config uploads to the Proxmox snippets store (SSH reachable) before VM creation
+- Legacy Talos: use the `--generate-iso` flag for custom Talos ISOs and ensure the ISO is downloaded before VM creation
+- Verify hypervisor (Proxmox/TrueNAS) credentials are configured
 - Check ZVol naming conventions (no dashes in VM names)
-- Ensure ISO is downloaded before VM creation
 
 This CLI tool is designed for infrastructure automation and requires careful attention to the order of operations, especially during bootstrap and VM deployment processes.
