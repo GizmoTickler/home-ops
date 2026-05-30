@@ -101,8 +101,9 @@ Once installed, you can use tab completion with any HomeOps command:
 
 ### Basic Command Completion
 ```bash
-homeops-cli <TAB>                    # Shows: bootstrap, completion, k8s, talos, volsync, workstation
-homeops-cli talos <TAB>              # Shows: apply-node, deploy-vm, kubeconfig, etc.
+homeops-cli <TAB>                    # Shows: bootstrap, completion, flatcar, k8s, talos, volsync, workstation
+homeops-cli flatcar <TAB>            # Shows: deploy-vm, etc. (current Flatcar/kubeadm provider)
+homeops-cli talos <TAB>              # Shows: apply-node, deploy-vm, kubeconfig, etc. (legacy provider)
 ```
 
 ### Smart Parameter Completion

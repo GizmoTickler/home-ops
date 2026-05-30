@@ -235,13 +235,11 @@ func ValidVMNames(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return vmNames, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Fallback to static VM names (common Talos node names)
+	// Fallback to static VM names (current Flatcar/kubeadm node names)
 	vmNames := []string{
 		"k8s_0",
 		"k8s_1",
 		"k8s_2",
-		"talos_master",
-		"talos_worker",
 	}
 	return vmNames, cobra.ShellCompDirectiveNoFileComp
 }
