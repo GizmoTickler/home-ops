@@ -66,7 +66,8 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 		Use:   "homeops-cli",
 		Short: "HomeOps Infrastructure Management CLI",
 		Long: `A comprehensive CLI tool for managing home infrastructure including
-Talos clusters, Kubernetes applications, VolSync backups, and more.`,
+Flatcar/kubeadm (and legacy Talos) clusters, Kubernetes applications,
+VolSync backups, and more.`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			// Set global log level from flag (if provided) before any command runs
@@ -110,9 +111,10 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 	for {
 		// Build list of available commands
 		commands := []string{
-			"bootstrap - Bootstrap Talos nodes and cluster applications",
+			"bootstrap - Bootstrap the cluster (Flatcar/kubeadm) and cluster applications",
+			"flatcar - Manage Flatcar Container Linux nodes (kubeadm)",
 			"k8s - Kubernetes cluster management",
-			"talos - Manage Talos Linux nodes and clusters",
+			"talos - Manage (legacy) Talos Linux nodes and clusters",
 			"volsync - Manage VolSync backup and restore operations",
 			"workstation - Setup workstation tools",
 			"Exit - Exit the application",
@@ -133,6 +135,8 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 		switch {
 		case strings.HasPrefix(selected, "bootstrap"):
 			cmdName = "bootstrap"
+		case strings.HasPrefix(selected, "flatcar"):
+			cmdName = "flatcar"
 		case strings.HasPrefix(selected, "k8s"):
 			cmdName = "k8s"
 		case strings.HasPrefix(selected, "talos"):
