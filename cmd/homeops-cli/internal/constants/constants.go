@@ -36,6 +36,14 @@ const (
 	// Proxmox snippets dir for the fw_cfg attach. Auth is via the ambient ssh-agent;
 	// this op ref is the macOS 1Password SSH-agent identity.
 	OpProxmoxSSHKey = "op://Infrastructure/proxmox-ssh/private key"
+
+	// Flatcar node SSH public key (non-secret) injected into the Ignition
+	// ssh_authorized_keys at render time. Matches OpFlatcarSSHPrivateKey.
+	OpFlatcarPublicKey = "op://Infrastructure/flatcar/public key"
+
+	// Cluster base domain — kept out of this (public) repo. The Flatcar kubeadm
+	// apiserver certSAN is derived as "k8s." + this value at render time.
+	OpSecretDomain = "op://Infrastructure/cluster-config/SECRET_DOMAIN"
 )
 
 // Environment variable names
@@ -64,20 +72,22 @@ const (
 
 	// Flatcar / kubeadm template substitution variable names. These are the keys
 	// expected by the embedded flatcar templates ({{ ENV.<NAME> }}).
-	EnvKubernetesMinor = "KUBERNETES_MINOR"
-	EnvFlatcarVersion  = "FLATCAR_VERSION"
-	EnvControlPlaneVIP = "CONTROL_PLANE_VIP"
-	EnvPauseImage      = "PAUSE_IMAGE"
-	EnvKubeVipVersion  = "KUBE_VIP_VERSION"
-	EnvNodeInterface   = "NODE_INTERFACE"
-	EnvNodeName        = "NODE_NAME"
-	EnvNodeIP          = "NODE_IP"
-	EnvNode0IP         = "NODE0_IP"
-	EnvNode1IP         = "NODE1_IP"
-	EnvNode2IP         = "NODE2_IP"
-	EnvCertificateKey  = "CERTIFICATE_KEY"
-	EnvBootstrapToken  = "BOOTSTRAP_TOKEN"
-	EnvCACertHash      = "CA_CERT_HASH"
+	EnvKubernetesMinor  = "KUBERNETES_MINOR"
+	EnvFlatcarVersion   = "FLATCAR_VERSION"
+	EnvControlPlaneVIP  = "CONTROL_PLANE_VIP"
+	EnvPauseImage       = "PAUSE_IMAGE"
+	EnvKubeVipVersion   = "KUBE_VIP_VERSION"
+	EnvNodeInterface    = "NODE_INTERFACE"
+	EnvNodeName         = "NODE_NAME"
+	EnvNodeIP           = "NODE_IP"
+	EnvNode0IP          = "NODE0_IP"
+	EnvNode1IP          = "NODE1_IP"
+	EnvNode2IP          = "NODE2_IP"
+	EnvCertificateKey   = "CERTIFICATE_KEY"
+	EnvBootstrapToken   = "BOOTSTRAP_TOKEN"
+	EnvCACertHash       = "CA_CERT_HASH"
+	EnvK8sEndpoint      = "K8S_ENDPOINT"
+	EnvSSHAuthorizedKey = "SSH_AUTHORIZED_KEY"
 )
 
 // Kubernetes namespaces commonly used
@@ -169,9 +179,6 @@ const (
 	FlatcarNode0IP = "192.168.122.10"
 	FlatcarNode1IP = "192.168.122.11"
 	FlatcarNode2IP = "192.168.122.12"
-
-	// K8sEndpoint is the external API DNS name (-> 192.168.255.10 via Cilium BGP).
-	FlatcarK8sEndpoint = "k8s.${SECRET_DOMAIN}"
 )
 
 // TrueNAS storage paths

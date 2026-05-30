@@ -17,12 +17,10 @@ version: 1.1.0
 passwd:
   users:
     - name: core
-      # Node access key. Matching PRIVATE key lives in op://Infrastructure/flatcar
-      # (used by homeops-cli kubeadm-over-SSH + operators). A public key is non-secret,
-      # so it's fine to keep here. TODO: have render-ignition source this from
-      # op://Infrastructure/flatcar/"public key" instead of hardcoding.
+      # Node access key, sourced at render time from op://Infrastructure/flatcar/"public key"
+      # (matching PRIVATE key in the same item, used by homeops-cli kubeadm-over-SSH).
       ssh_authorized_keys:
-        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH7I1l7OfqOmaCDcXVxGA873//kL8tBINlORZaHtHA8F"
+        - "{{ ENV.SSH_AUTHORIZED_KEY }}"
 
 storage:
   links:

@@ -47,6 +47,13 @@ var (
 		return common.Get1PasswordSecret(constants.OpFlatcarSSHUser)
 	}
 
+	// flatcarGetSecretDomain resolves the cluster base domain from 1Password
+	// (kept out of this public repo). The apiserver certSAN is derived as
+	// "k8s." + this value. Swappable so tests don't touch 1Password.
+	flatcarGetSecretDomain = func() string {
+		return common.Get1PasswordSecretSilent(constants.OpSecretDomain)
+	}
+
 	// flatcarNewOrchestrator builds the kubeadm SSH orchestrator. Swappable so
 	// tests can supply a fake that records init/join calls.
 	flatcarNewOrchestrator = func(sshUser string) flatcarOrchestrator {
@@ -110,6 +117,10 @@ func flatcarNodes() ([]flatcarBootstrapNode, error) {
 
 // buildFlatcarNodeEnv assembles the per-node template env for the kubeadm flow.
 func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.VersionConfig) flatcar.NodeEnv {
+	k8sEndpoint := ""
+	if domain := strings.TrimSpace(flatcarGetSecretDomain()); domain != "" {
+		k8sEndpoint = "k8s." + domain
+	}
 	return flatcar.NodeEnv{
 		NodeName:          node.Name,
 		NodeIP:            node.IP,
@@ -122,6 +133,7 @@ func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.Vers
 		PauseImage:        versions.PauseImage,
 		KubeVipVersion:    versions.KubeVipVersion,
 		NodeInterface:     constants.DefaultNodeInterface,
+		K8sEndpoint:       k8sEndpoint,
 	}
 }
 

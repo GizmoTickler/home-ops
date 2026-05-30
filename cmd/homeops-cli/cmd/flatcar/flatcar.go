@@ -25,6 +25,7 @@ import (
 var (
 	getVersionsFn           = versionconfig.GetVersions
 	workingDirectoryFn      = common.GetWorkingDirectory
+	get1PasswordSecretFn    = common.Get1PasswordSecretSilent
 	renderIgnitionFn        = flatcar.RenderIgnition
 	renderKubeadmInitFn     = flatcar.RenderKubeadmInitConfig
 	renderKubeadmJoinFn     = flatcar.RenderKubeadmJoinConfig
@@ -138,6 +139,15 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		nodeInterface = constants.DefaultNodeInterface
 	}
 
+	// Non-secret node identifiers sourced from 1Password (kept out of the repo):
+	// the apiserver cert SAN DNS (k8s.<SECRET_DOMAIN>) and the node SSH public key.
+	domain := strings.TrimSpace(get1PasswordSecretFn(constants.OpSecretDomain))
+	k8sEndpoint := ""
+	if domain != "" {
+		k8sEndpoint = "k8s." + domain
+	}
+	sshKey := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarPublicKey))
+
 	return flatcar.NodeEnv{
 		NodeName:          nodeConfig.Name,
 		NodeIP:            nodeConfig.NodeIP,
@@ -150,6 +160,8 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		PauseImage:        pauseImage,
 		KubeVipVersion:    kubeVipVersion,
 		NodeInterface:     nodeInterface,
+		K8sEndpoint:       k8sEndpoint,
+		SSHAuthorizedKey:  sshKey,
 	}, nil
 }
 

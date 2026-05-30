@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	versionconfig "homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 
@@ -26,6 +27,23 @@ func stubVersions(t *testing.T) func() {
 	return func() { getVersionsFn = orig }
 }
 
+// stubSecrets makes the op-sourced node identifiers deterministic (no real
+// 1Password access) so buildNodeEnv is hermetic.
+func stubSecrets(t *testing.T) func() {
+	t.Helper()
+	orig := get1PasswordSecretFn
+	get1PasswordSecretFn = func(ref string) string {
+		switch ref {
+		case constants.OpSecretDomain:
+			return "example.test"
+		case constants.OpFlatcarPublicKey:
+			return "ssh-ed25519 AAAATESTKEY"
+		}
+		return ""
+	}
+	return func() { get1PasswordSecretFn = orig }
+}
+
 func TestNewCommandStructure(t *testing.T) {
 	cmd := NewCommand()
 	assert.Equal(t, "flatcar", cmd.Name())
@@ -40,6 +58,7 @@ func TestNewCommandStructure(t *testing.T) {
 
 func TestBuildNodeEnv(t *testing.T) {
 	defer stubVersions(t)()
+	defer stubSecrets(t)()
 
 	env, err := buildNodeEnv("k8s-0", "", "", "", "")
 	require.NoError(t, err)
@@ -50,6 +69,8 @@ func TestBuildNodeEnv(t *testing.T) {
 	assert.Equal(t, "v0.8.9", env.KubeVipVersion)
 	assert.Equal(t, "registry.k8s.io/pause:3.10", env.PauseImage)
 	assert.Equal(t, "eth0", env.NodeInterface)
+	assert.Equal(t, "k8s.example.test", env.K8sEndpoint)
+	assert.Equal(t, "ssh-ed25519 AAAATESTKEY", env.SSHAuthorizedKey)
 
 	_, err = buildNodeEnv("nope", "", "", "", "")
 	require.Error(t, err)
