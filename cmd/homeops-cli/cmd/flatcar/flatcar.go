@@ -56,8 +56,12 @@ var (
 			dir = "/"
 		}
 		// base64-encode so the JSON travels safely inside the remote shell command.
+		// Use a heredoc so the base64 payload is never interpolated by the shell.
+		// Paths are single-quoted to survive spaces (though they are fixed deploy-time
+		// paths from --snippets-dir + --node, which are both validated and alphanumeric).
 		b64 := base64.StdEncoding.EncodeToString(content)
-		cmd := fmt.Sprintf("mkdir -p %s && printf %%s %s | base64 -d > %s", dir, b64, remotePath)
+		cmd := fmt.Sprintf("mkdir -p '%s' && base64 -d <<'HOMEOPS_EOF' > '%s'\n%s\nHOMEOPS_EOF",
+			dir, remotePath, b64)
 		if _, err := client.ExecuteCommand(cmd); err != nil {
 			return fmt.Errorf("write ignition to %s on %s: %w", remotePath, sshHost, err)
 		}
