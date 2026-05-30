@@ -1,0 +1,92 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/upgrade.cattle.io/plan_v1.json
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: kubeadm-control-plane
+  namespace: system-upgrade
+  labels:
+    app.kubernetes.io/name: kubeadm-upgrade
+spec:
+  # ── HOW TO TRIGGER A MINOR UPGRADE (e.g. v1.36 -> v1.37) ───────────────────────────
+  #   1. Bump `version` below to the target (e.g. v1.37.4) and commit.
+  #   2. Arm the nodes one at a time or all at once:
+  #        kubectl label node k8s-0 k8s-1 k8s-2 homeops.io/kubeadm-upgrade=enabled
+  #   SUC then drains + upgrades one node at a time (concurrency: 1). Remove the label
+  #   to disarm. ⚠️ UNVALIDATED on this cluster — see ./README.md. Watch the first run.
+  #
+  # `version` is the explicit target. It is NOT a "current version" pin: SUC would run
+  # the Plan once to baseline a selected node even if versions matched, so dormancy is
+  # enforced by the `homeops.io/kubeadm-upgrade` node-label gate below (no node carries
+  # it by default => SUC selects nothing => no Jobs).
+  version: v1.36.1
+  concurrency: 1
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      # Gate: only nodes explicitly labelled homeops.io/kubeadm-upgrade=enabled are touched.
+      - key: homeops.io/kubeadm-upgrade
+        operator: In
+        values: ["enabled"]
+  serviceAccountName: system-upgrade
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+  cordon: true
+  drain:
+    force: true
+    ignoreDaemonSets: true
+    deleteEmptydirData: true
+    skipWaitForDeleteTimeout: 60
+  upgrade:
+    # busybox only provides `chroot`; the real work runs against the HOST (Flatcar) via
+    # `chroot /host`, using the host's kubeadm/kubectl/systemctl/systemd-sysupdate.
+    image: docker.io/library/busybox:1.37.0
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        chroot /host /usr/bin/bash -euo pipefail <<'HOSTEOF'
+        TARGET="${SYSTEM_UPGRADE_PLAN_LATEST_VERSION:?missing target version}"
+        MINOR="$(printf '%s' "$TARGET" | sed -E 's/^(v[0-9]+\.[0-9]+).*/\1/')"
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        echo "[kubeadm-upgrade] node=$(hostname) target=${TARGET} minor=${MINOR}"
+
+        # 1) Repoint the Kubernetes systemd-sysext at the new minor and pull it.
+        curl --fail --location --retry 6 --retry-delay 5 \
+          -o "/etc/sysupdate.kubernetes.d/kubernetes-${MINOR}.conf" \
+          "https://extensions.flatcar.org/extensions/kubernetes/kubernetes-${MINOR}.conf"
+        find /etc/sysupdate.kubernetes.d -maxdepth 1 -name 'kubernetes-v*.conf' \
+          ! -name "kubernetes-${MINOR}.conf" -delete
+        # Update only the kubernetes sysext (its own definitions dir), then merge it.
+        systemd-sysupdate --definitions=/etc/sysupdate.kubernetes.d update
+        systemd-sysext refresh
+
+        # FAIL-SAFE: if the new kubeadm isn't active, stop BEFORE touching the cluster.
+        # The node is drained but otherwise intact + recoverable (fix + uncordon/retry).
+        if ! kubeadm version -o short | grep -q "^${TARGET}$"; then
+          echo "[kubeadm-upgrade] FATAL: kubeadm is $(kubeadm version -o short 2>&1), expected ${TARGET}; aborting before cluster changes"
+          exit 1
+        fi
+
+        # 2) First control-plane node runs `upgrade apply`; the rest run `upgrade node`.
+        #    Detect via the kubeadm-config ClusterConfiguration.kubernetesVersion.
+        CFG_VER="$(kubectl -n kube-system get configmap kubeadm-config \
+          -o jsonpath='{.data.ClusterConfiguration}' \
+          | sed -n 's/^kubernetesVersion:[[:space:]]*//p' | tr -d '"' | head -1)"
+        if [ "${CFG_VER}" != "${TARGET}" ]; then
+          echo "[kubeadm-upgrade] cluster at ${CFG_VER}; running: kubeadm upgrade apply -y ${TARGET}"
+          kubeadm upgrade apply -y "${TARGET}"
+        else
+          echo "[kubeadm-upgrade] cluster already at ${TARGET}; running: kubeadm upgrade node"
+          kubeadm upgrade node
+        fi
+
+        # 3) Restart kubelet onto the new sysext binary. If the sysext flagged a reboot,
+        #    kured coordinates it; SUC uncordons this node once the Job succeeds.
+        systemctl restart kubelet
+        echo "[kubeadm-upgrade] completed on $(hostname)"
+        HOSTEOF
