@@ -4,6 +4,13 @@ apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
   name: netbox-postgres
+  annotations:
+    # Allow a recovered cluster to archive back to its own (non-empty) serverName.
+    # Safe for our DR model: a full rebuild destroys the old cluster BEFORE recovery,
+    # so there is never a second writer to this barman store. Without this, a future
+    # rebuild recovering from + archiving to netbox-postgres-v2 would fail the
+    # restore-time empty-archive check.
+    cnpg.io/skipEmptyWalArchiveCheck: "enabled"
 spec:
   # PostgreSQL 16 with 3 instances for HA
   instances: 3
@@ -86,7 +93,9 @@ spec:
       barmanObjectStore:
         destinationPath: s3://cnpg-backups/netbox-postgres
         endpointURL: https://s3.${SECRET_DOMAIN}
-        serverName: netbox-postgres
+        # Recover from the LIVE backup lineage (netbox-postgres-v2). The original
+        # pre-migration archive at serverName netbox-postgres is frozen/historical.
+        serverName: netbox-postgres-v2
         s3Credentials:
           accessKeyId:
             name: netbox-postgres-s3-secret
