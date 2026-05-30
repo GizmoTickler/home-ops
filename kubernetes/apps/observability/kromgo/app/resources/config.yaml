@@ -6,9 +6,9 @@ badge:
 
 metrics:
   - name: talos_version
-    query: label_replace(node_os_info{name="Talos"}, "version_id", "$1", "version_id", "v(.+)")
+    query: label_replace(max by (os_image) (kube_node_info), "version_id", "$1", "os_image", "Flatcar Container Linux by Kinvolk ([0-9.]+).*")
     label: version_id
-    title: Talos
+    title: Flatcar
 
   - name: kubernetes_version
     query: label_replace(kubernetes_build_info{service="kubernetes"}, "git_version", "$1", "git_version", "v(.+)")
