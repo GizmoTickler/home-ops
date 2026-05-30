@@ -11,6 +11,10 @@ spec:
   interval: 1h
   values:
     configuration:
+      # Use the command sentinel (run on the host via nsenter) rather than the
+      # mounted /sentinel hostPath file checker, so it can also see update_engine.
+      # The chart only emits --reboot-sentinel-command when this is false.
+      useRebootSentinelHostPath: false
       # Check for pending reboots every 10 minutes.
       period: 10m0s
       # Reboot only one node at a time. With a 3-node control plane this keeps
