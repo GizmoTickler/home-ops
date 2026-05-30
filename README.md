@@ -68,11 +68,11 @@ cmd/homeops-cli/
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.1 VMs, with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
+The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.2 VMs, with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
 
 ### Infrastructure Details
 
-- **Hypervisor**: Proxmox VE 9.1 with KVM/QEMU virtualization
+- **Hypervisor**: Proxmox VE 9.2 with KVM/QEMU virtualization
 - **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Flatcar VM
 - **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
 - **Network Infrastructure**:
@@ -193,7 +193,7 @@ A purpose-built Go application that provides complete infrastructure automation:
 **Core Capabilities:**
 - **Bootstrap**: Complete cluster initialization (`--provider flatcar`: kubeadm init/join over SSH, then Cilium/CRDs/Flux) with preflight checks and 1Password integration
 - **Flatcar Provisioning**: Butane→Ignition rendering, kubeadm config generation, and `kubeadm init`/`join` orchestration over SSH
-- **VM Management**: Proxmox VE 9.1 VM creation booting Flatcar images with Ignition injected via qemu fw_cfg
+- **VM Management**: Proxmox VE 9.2 VM creation booting Flatcar images with Ignition injected via qemu fw_cfg
 - **Volume Operations**: VolSync-based backup and restore with Kopia integration
 - **Kubernetes Management**: Deployment restarts, PVC browsing, and maintenance operations
 
@@ -435,7 +435,7 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 
 | Component                   | Specifications                                      | Function                          |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **Proxmox Host**            | Proxmox VE 9.1 (KVM/QEMU)                          | VM compute & management           |
+| **Proxmox Host**            | Proxmox VE 9.2 (KVM/QEMU)                          | VM compute & management           |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
