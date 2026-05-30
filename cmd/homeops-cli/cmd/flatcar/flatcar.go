@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
@@ -283,6 +284,7 @@ Leaf certs are not captured (kubeadm regenerates them off the CAs).`,
 		},
 	}
 	cmd.Flags().StringVar(&node, "node", "k8s-0", "control-plane node to read the PKI from")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	return cmd
 }
 
@@ -321,6 +323,7 @@ func newRenderIgnitionCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&nodeName, "node", "k8s-0", "Flatcar node name")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
@@ -376,6 +379,7 @@ func newGenKubeadmCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&nodeName, "node", "k8s-0", "Flatcar node name")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&mode, "mode", "init", "Config to render: init or join")
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&certKey, "cert-key", "", "Certificate key (join mode)")
@@ -436,6 +440,7 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 	}
 
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
+	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&imagePath, "image-path", "", "Path on Proxmox to import the Flatcar disk image from (import-from)")
 	cmd.Flags().StringVar(&imageVolume, "image-volume", "", "Existing storage volume to attach as scsi0 (alternative to --image-path)")
 	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "Proxmox snippets dir for Ignition files (on the Proxmox node)")
@@ -446,7 +451,9 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
 	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 1, "Max concurrent deployments")
+	cmd.Flags().IntVar(&concurrent, "concurrency", 1, "Max concurrent deployments")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 1, "Max concurrent deployments (deprecated: use --concurrency)")
+	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")
 	cmd.Flags().BoolVar(&powerOn, "power-on", false, "Power on VMs after creation")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render and build configs but do not create VMs")
 

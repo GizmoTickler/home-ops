@@ -1608,7 +1608,9 @@ If no flags are provided, presents an interactive menu with default and custom p
 	// vSphere specific flags
 	cmd.Flags().StringVar(&datastore, "datastore", "truenas-iscsi", "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
 	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (Proxmox and vSphere)")
+	cmd.Flags().IntVar(&concurrent, "concurrency", 3, "Number of concurrent VM deployments (Proxmox and vSphere)")
+	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (deprecated: use --concurrency)")
+	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")
 	cmd.Flags().IntVar(&nodeCount, "node-count", 1, "Number of VMs to deploy (Proxmox and vSphere)")
 	cmd.Flags().IntVar(&startIndex, "start-index", 0, "Starting index for generated VM names in batch deployments")
 
