@@ -7,212 +7,89 @@ import (
 	"regexp"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 )
 
-// VersionConfig holds version information extracted from system-upgrade plans
-
+// VersionConfig holds version information extracted from the kubeadm
+// System Upgrade Controller Plan (Flatcar/kubeadm clusters).
+// TalosVersion is zeroed — Flatcar clusters use kubeadm, not Talos.
+// Flatcar/kube-vip/pause defaults are applied on top of the loaded
+// Kubernetes version. Callers that need Talos version resolution
+// should continue to use the tuppr path (which is separate).
 type VersionConfig struct {
 	KubernetesVersion string
 	TalosVersion      string
 
-	// Flatcar/kubeadm migration knobs. These are not sourced from tuppr (which is
-	// Talos-specific); they carry sensible defaults and may be overridden by the
-	// caller (CLI flags/env). KubernetesVersion above is reused for Flatcar too.
+	// Flatcar/kubeadm migration knobs.
 	FlatcarVersion string // Flatcar stable release version (e.g. "current" or "4152.2.0")
 	KubeVipVersion string // kube-vip image tag (e.g. "v0.8.9")
 	PauseImage     string // sandbox/pause image (e.g. "registry.k8s.io/pause:3.10")
 }
 
-// FlatcarDefaults holds the default Flatcar-related versions, separated so callers
-// can apply them without re-deriving the constants.
 const (
 	defaultFlatcarVersion = "current"
 	defaultKubeVipVersion = "v0.8.9"
 	defaultPauseImage     = "registry.k8s.io/pause:3.10"
 )
 
-// SystemUpgradePlan represents the structure of system-upgrade controller plans
-type SystemUpgradePlan struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Version string `yaml:"version"`
-	} `yaml:"spec"`
-}
-
-// TupprTalosUpgrade represents the structure of tuppr TalosUpgrade CRD
-type TupprTalosUpgrade struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Talos struct {
-			Version string `yaml:"version"`
-		} `yaml:"talos"`
-	} `yaml:"spec"`
-}
-
-// TupprKubernetesUpgrade represents the structure of tuppr KubernetesUpgrade CRD
-type TupprKubernetesUpgrade struct {
-	APIVersion string `yaml:"apiVersion"`
-	Kind       string `yaml:"kind"`
-	Metadata   struct {
-		Name string `yaml:"name"`
-	} `yaml:"metadata"`
-	Spec struct {
-		Kubernetes struct {
-			Version string `yaml:"version"`
-		} `yaml:"kubernetes"`
-	} `yaml:"spec"`
-}
-
-// LoadVersionsFromSystemUpgrade extracts version information from system-upgrade controller plans
-// LoadVersionsFromSystemUpgrade dynamically loads versions from tuppr upgrade plans
-// This is the primary source of truth for versions in the cluster
+// LoadVersionsFromSystemUpgrade loads the Kubernetes target version from
+// the kubeadm System Upgrade Controller Plan (kubernetes/apps/system-upgrade/
+// kubeadm-upgrade/app/plan.yaml) and applies Flatcar defaults.
 func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	logger := common.NewColorLogger()
 
-	// Updated path to use tuppr instead of system-upgrade-controller
-	plansDir := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade", "tuppr", "upgrades")
-
-	if _, err := os.Stat(plansDir); os.IsNotExist(err) {
-		return nil, fmt.Errorf("tuppr upgrades directory not found: %s", plansDir)
+	k8sVersion, err := loadKubernetesVersionFromPlan(rootDir)
+	if err != nil {
+		logger.Debug("Failed to load Kubernetes version from kubeadm Plan: %v", err)
+		return nil, fmt.Errorf("kubeadm Plan version load failed: %w", err)
 	}
 
-	config := &VersionConfig{}
+	config := &VersionConfig{
+		KubernetesVersion: k8sVersion,
+		// TalosVersion intentionally left empty — Flatcar clusters don't use Talos.
+	}
 	applyFlatcarDefaults(config)
-	var loadErrors []string
 
-	// Load Kubernetes version from kubernetesupgrade.yaml
-	k8sVersion, err := loadVersionFromTuppr(filepath.Join(plansDir, "kubernetesupgrade.yaml"), "kubernetes")
-	if err != nil {
-		loadErrors = append(loadErrors, fmt.Sprintf("kubernetes: %v", err))
-		config.KubernetesVersion = "v1.34.0" // emergency fallback
-		logger.Debug("Using fallback Kubernetes version due to load error: %v", err)
-	} else {
-		config.KubernetesVersion = k8sVersion
-		logger.Debug("✅ Loaded Kubernetes version from tuppr upgrade: %s", k8sVersion)
-	}
-
-	// Load Talos version from talosupgrade.yaml
-	talosVersion, err := loadVersionFromTuppr(filepath.Join(plansDir, "talosupgrade.yaml"), "talos")
-	if err != nil {
-		loadErrors = append(loadErrors, fmt.Sprintf("talos: %v", err))
-		config.TalosVersion = "v1.11.0" // emergency fallback
-		logger.Debug("Using fallback Talos version due to load error: %v", err)
-	} else {
-		config.TalosVersion = talosVersion
-		logger.Debug("✅ Loaded Talos version from tuppr upgrade: %s", talosVersion)
-	}
-
-	// If we had any load errors but managed to get at least some versions, warn but continue
-	if len(loadErrors) > 0 {
-		logger.Warn("Some versions could not be loaded from tuppr upgrades: %v", strings.Join(loadErrors, ", "))
-		logger.Warn("Using emergency fallbacks for failed versions")
-	}
+	logger.Debug("Loaded versions from kubeadm Plan:")
+	logger.Debug("  - Kubernetes: %s", config.KubernetesVersion)
+	logger.Debug("  - Flatcar: %s  kube-vip: %s  pause: %s",
+		config.FlatcarVersion, config.KubeVipVersion, config.PauseImage)
 
 	return config, nil
 }
 
-// loadVersionFromPlan loads version from a specific system-upgrade plan file
-// loadVersionFromPlan loads version from a specific system-upgrade plan file
-// DEPRECATED: This is kept for backward compatibility but should not be used for new code
-func loadVersionFromPlan(planPath, expectedComponent string) (string, error) {
+// loadKubernetesVersionFromPlan reads the kubeadm Plan and extracts
+// spec.version. Uses minimal string scraping rather than YAML
+// unmarshalling so it survives apiVersion/kind drift over time.
+func loadKubernetesVersionFromPlan(rootDir string) (string, error) {
+	planPath := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade",
+		"kubeadm-upgrade", "app", "plan.yaml")
 	data, err := os.ReadFile(planPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read plan file %s: %w", planPath, err)
+		return "", fmt.Errorf("failed to read kubeadm upgrade plan %s: %w", planPath, err)
 	}
-
-	// Parse YAML
-	var plan SystemUpgradePlan
-	if err := yaml.Unmarshal(data, &plan); err != nil {
-		return "", fmt.Errorf("failed to parse plan YAML: %w", err)
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "version:") {
+			ver := strings.TrimSpace(strings.TrimPrefix(trimmed, "version:"))
+			ver = strings.Trim(ver, "\"'")
+			if !isValidVersionFormat(ver) {
+				return "", fmt.Errorf("kubeadm plan version %q does not look like a Kubernetes version", ver)
+			}
+			return ver, nil
+		}
 	}
-
-	// Validate it's a system-upgrade plan
-	if plan.APIVersion != "upgrade.cattle.io/v1" || plan.Kind != "Plan" {
-		return "", fmt.Errorf("invalid system-upgrade plan format")
-	}
-
-	// Validate the component matches expected (basic sanity check)
-	planContent := string(data)
-	if !strings.Contains(planContent, expectedComponent) {
-		return "", fmt.Errorf("plan does not contain expected component %s", expectedComponent)
-	}
-
-	// Validate version format
-	version := plan.Spec.Version
-	if !isValidVersionFormat(version) {
-		return "", fmt.Errorf("invalid version format: %s", version)
-	}
-
-	return version, nil
+	return "", fmt.Errorf("kubeadm plan %s does not contain a 'version:' field", planPath)
 }
 
-// loadVersionFromTuppr loads version from a tuppr upgrade file
-func loadVersionFromTuppr(upgradePath, upgradeType string) (string, error) {
-	data, err := os.ReadFile(upgradePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read upgrade file %s: %w", upgradePath, err)
-	}
-
-	var version string
-
-	switch upgradeType {
-	case "talos":
-		var upgrade TupprTalosUpgrade
-		if err := yaml.Unmarshal(data, &upgrade); err != nil {
-			return "", fmt.Errorf("failed to parse Talos upgrade YAML: %w", err)
-		}
-
-		// Validate it's a tuppr TalosUpgrade
-		if upgrade.APIVersion != "tuppr.home-operations.com/v1alpha1" || upgrade.Kind != "TalosUpgrade" {
-			return "", fmt.Errorf("invalid tuppr TalosUpgrade format")
-		}
-
-		version = upgrade.Spec.Talos.Version
-
-	case "kubernetes":
-		var upgrade TupprKubernetesUpgrade
-		if err := yaml.Unmarshal(data, &upgrade); err != nil {
-			return "", fmt.Errorf("failed to parse Kubernetes upgrade YAML: %w", err)
-		}
-
-		// Validate it's a tuppr KubernetesUpgrade
-		if upgrade.APIVersion != "tuppr.home-operations.com/v1alpha1" || upgrade.Kind != "KubernetesUpgrade" {
-			return "", fmt.Errorf("invalid tuppr KubernetesUpgrade format")
-		}
-
-		version = upgrade.Spec.Kubernetes.Version
-
-	default:
-		return "", fmt.Errorf("unknown upgrade type: %s", upgradeType)
-	}
-
-	// Validate version format
-	if !isValidVersionFormat(version) {
-		return "", fmt.Errorf("invalid version format: %s", version)
-	}
-
-	return version, nil
-}
-
-// isValidVersionFormat validates that the version string looks like a semantic version
+// isValidVersionFormat validates that the version string looks like a semantic version.
 func isValidVersionFormat(version string) bool {
-	// Match patterns like v1.33.4, v1.11.0-rc.0, etc.
 	versionRegex := regexp.MustCompile(`^v\d+\.\d+\.\d+(?:-[\w\.]+)?$`)
 	return versionRegex.MatchString(version)
 }
 
 // applyFlatcarDefaults fills in any unset Flatcar/kubeadm knobs with their defaults.
-// It never overrides values that are already set, so callers can pre-seed overrides.
 func applyFlatcarDefaults(c *VersionConfig) {
 	if c.FlatcarVersion == "" {
 		c.FlatcarVersion = defaultFlatcarVersion
@@ -225,23 +102,25 @@ func applyFlatcarDefaults(c *VersionConfig) {
 	}
 }
 
-// getDefaultVersions returns hardcoded fallback versions
+// getDefaultVersions returns hardcoded fallback versions.
 func getDefaultVersions() *VersionConfig {
 	c := &VersionConfig{
-		KubernetesVersion: "v1.34.0",
-		TalosVersion:      "v1.11.0",
+		KubernetesVersion: "v1.36.1",
+		// Flatcar clusters use kubeadm — TalosVersion is not applicable.
+		// Keep a valid stub here so the shared Config struct (which still
+		// carries a TalosVersion field) passes format validation.
+		TalosVersion: "v0.0.0",
 	}
 	applyFlatcarDefaults(c)
 	return c
 }
 
-// GetVersions is a convenience function that loads versions from tuppr upgrades as primary source.
-// This function automatically finds the git repository root regardless of where it's called from.
-// This is the main entry point for the CLI.
+// GetVersions loads versions from the kubeadm Plan (primary source).
+// This function automatically finds the git repository root regardless
+// of where it's called from.
 func GetVersions(rootDir string) *VersionConfig {
 	logger := common.NewColorLogger()
 
-	// Try to find the git repository root if rootDir is "." (default)
 	actualRootDir := rootDir
 	if rootDir == "." {
 		gitRoot, err := common.FindGitRoot(".")
@@ -253,18 +132,15 @@ func GetVersions(rootDir string) *VersionConfig {
 		}
 	}
 
-	// Always try to load from tuppr upgrades first (primary source)
 	config, err := LoadVersionsFromSystemUpgrade(actualRootDir)
 	if err != nil {
-		logger.Warn("Failed to load versions from tuppr upgrades: %v", err)
-		logger.Warn("Using hardcoded fallback versions - this should not happen in production")
+		logger.Warn("Failed to load versions from kubeadm Plan: %v", err)
+		logger.Warn("Using hardcoded fallback versions — this should not happen in production")
 		return getDefaultVersions()
 	}
 
-	// Log what we're using for transparency
-	logger.Debug("Loaded versions from tuppr upgrade configurations:")
+	logger.Debug("Loaded versions from kubeadm Plan:")
 	logger.Debug("  - Kubernetes: %s", config.KubernetesVersion)
-	logger.Debug("  - Talos: %s", config.TalosVersion)
 
 	return config
 }

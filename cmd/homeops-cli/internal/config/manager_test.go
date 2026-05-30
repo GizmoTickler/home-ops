@@ -13,8 +13,15 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
 	// Check that values are set (don't hardcode versions as they're dynamic)
-	assert.NotEmpty(t, cfg.TalosVersion)
 	assert.NotEmpty(t, cfg.KubernetesVersion)
+	// TalosVersion is a backward-compatible field; Flatcar clusters report
+	// a stub (fallback) or empty string depending on whether the loader
+	// found the kubeadm Plan. Don't assert on the exact value — it is
+	// either valid or empty (and we verify format below when it is set).
+	if cfg.TalosVersion != "" {
+		assert.Regexp(t, `^v\d+\.\d+\.\d+$`, cfg.TalosVersion)
+		assert.Regexp(t, `^v\d+\.\d+\.\d+$`, cfg.KubernetesVersion)
+	}
 	assert.Equal(t, "homeops", cfg.OnePasswordVault)
 	assert.Equal(t, "", cfg.TrueNASHost)
 	assert.Equal(t, "info", cfg.LogLevel)
@@ -22,7 +29,6 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, 300, cfg.SecretCacheTTL)
 
 	// Verify version format
-	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, cfg.TalosVersion)
 	assert.Regexp(t, `^v\d+\.\d+\.\d+$`, cfg.KubernetesVersion)
 }
 
