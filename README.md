@@ -26,7 +26,7 @@ _Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &mid
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Flatcar Container Linux](https://www.flatcar.org/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.2 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM. Additional storage is provided by [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS via iSCSI, NVMe-oF, and NFS over 40Gbps LACP link aggregation (4x 10Gbps Intel X540 NICs).
+**Architecture**: The cluster runs on Proxmox VE 9.2 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM, plus node-local volumes via the OpenEBS hostpath provisioner.
 
 ---
 
@@ -74,10 +74,9 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 
 - **Hypervisor**: Proxmox VE 9.2 with KVM/QEMU virtualization
 - **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Flatcar VM
-- **Secondary Storage**: [scale-csi](https://github.com/gizmotickler/scale-csi) connecting to TrueNAS Scale via iSCSI, NVMe-oF, and NFS
+- **Local Storage**: OpenEBS hostpath provisioner for node-local volumes
 - **Network Infrastructure**:
-  - 40Gbps LACP link aggregation between Proxmox host and TrueNAS Scale
-  - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP
+  - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP (40Gbps) on the Proxmox host
   - Cisco switch providing high-speed interconnect
   - Jumbo frames (MTU 9000) enabled end-to-end
 - **OS / Distribution**: Flatcar Container Linux (immutable, auto-updating) bootstrapped with **kubeadm** (v1beta4); Kubernetes **v1.36.1**. The kubelet/kubeadm/kubectl/CNI binaries are delivered as a **systemd-sysext** image and version-managed by systemd-sysupdate.
@@ -108,7 +107,6 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
 - [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
 - [rook-ceph](https://github.com/rook/rook): Primary distributed storage using Ceph on dedicated 1TB SSDs passed through via disk-by-id.
-- [scale-csi](https://github.com/gizmotickler/scale-csi): TrueNAS Scale CSI driver for iSCSI, NVMe-oF, and NFS with metrics and Grafana dashboards.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator. Minor Kubernetes upgrades are driven via [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) (see `apps/system-upgrade`).
@@ -152,7 +150,6 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 observability  # Monitoring and logging
 │   │   ├── 📁 openebs-system # Local storage provisioner
 │   │   ├── 📁 rook-ceph      # Distributed Ceph storage
-│   │   ├── 📁 scale-csi      # TrueNAS Scale iSCSI/NVMe-oF/NFS storage
 │   │   ├── 📁 self-hosted    # Productivity and tools
 │   │   ├── 📁 system-upgrade # Automated upgrades
 │   │   └── 📁 volsync-system # Volume backup and recovery
@@ -361,7 +358,6 @@ Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single ve
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Rook Ceph](https://github.com/rook/rook) | Primary distributed storage (block + filesystem) | Internal only |
-| [scale-csi](https://github.com/gizmotickler/scale-csi) | TrueNAS Scale iSCSI/NVMe-oF/NFS storage | Internal only |
 | [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
 
 All applications use kgateway (Gateway API) for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
@@ -378,8 +374,6 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 |------|----------|--------------|----------|
 | **Distributed Block** | Rook Ceph | `ceph-block` (default) | Application PVCs with replication |
 | **Distributed Filesystem** | Rook Ceph | `ceph-filesystem` | Shared storage across pods |
-| **External Block** | scale-csi | `scale-iscsi`, `scale-nvmeof` | TrueNAS iSCSI/NVMe-oF volumes |
-| **External NFS** | scale-csi | `scale-nfs` | Media files, shared data |
 | **Local Storage** | OpenEBS | `openebs-hostpath` | High-performance local workloads |
 | **Backup** | VolSync + Kopia | — | Automated PVC backup and restore |
 
@@ -398,26 +392,6 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
   - Disk failure prediction (local mode)
   - TRIM/discard support enabled
   - Integrated Prometheus metrics and Grafana dashboards
-
-### scale-csi Configuration
-
-The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides additional storage from TrueNAS Scale:
-
-- **Protocols**: iSCSI, NVMe-oF, and NFS
-- **Network**: 40Gbps LACP link aggregation (4x 10GbE Intel X540 NICs) between TrueNAS and Proxmox host
-- **Configuration**:
-  - Jumbo frames (MTU 9000) enabled across all network interfaces
-  - NFS optimized with `nconnect=16` for parallel connections
-  - TCP congestion control: BBR (Better Congestion Control)
-  - Socket buffer sizes: 128MB for receive/send
-- **StorageClasses**:
-  - `scale-iscsi`: iSCSI block volumes
-  - `scale-nvmeof`: NVMe over Fabrics for high-performance workloads
-  - `scale-nfs`: NFSv4 shared volumes with optimized parameters
-- **Features**:
-  - Volume snapshots via CSI snapshot controller
-  - Metrics exporting with Grafana dashboards
-  - Node-level metrics scraping for performance monitoring
 
 ### Backup Strategy
 
@@ -446,7 +420,7 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 | ├─ **L2ARC**                | 2x 1TB NVMe (1.8TB read cache)                     | Extended read cache               |
 | ├─ **SLOG**                 | 2x 60GB NVMe (mirrored)                            | Synchronous write log             |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | Storage network        |
-| └─ **Protocols**            | iSCSI (block) + NVMe-oF (block) + NFS 4.2 (file)  | Kubernetes storage access         |
+| └─ **Protocols**            | iSCSI (block) + NVMe-oF (block) + NFS 4.2 (file)  | NAS file/block services (not used by k8s) |
 | **Network Switch**          | Cisco C9300                                         | Infrastructure interconnect       |
 | ├─ **LACP Configuration**   | IEEE 802.3ad Link Aggregation (40Gbps total)      | High-bandwidth storage path       |
 | ├─ **BGP Peering**          | AS 64541 (peering with Cilium AS 64550)           | LoadBalancer IP advertisement     |
@@ -470,7 +444,6 @@ The [scale-csi](https://github.com/gizmotickler/scale-csi) driver provides addit
 - **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS
 - **Ceph OSD** (`scsi2`, `/dev/sdc`): Dedicated 1TB SSD passed through via disk-by-id for Rook Ceph distributed storage
 - **Local Storage** (`scsi1`, `/dev/sdb`): 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads
-- **External Storage**: scale-csi provides TrueNAS iSCSI/NVMe-oF/NFS for additional capacity
 
 **VM Configuration**:
 - **Provisioning**: Ignition via qemu **fw_cfg** (`opt/org.flatcar-linux/config`) — the rendered Ignition is attached at VM create; the disk imports a Flatcar image (no install ISO)
