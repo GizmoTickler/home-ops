@@ -304,12 +304,16 @@ func NewCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "Bootstrap Talos nodes and Cluster applications",
-		Long: `Bootstrap a complete Talos cluster including:
-- Applying Talos configuration to all nodes
-- Bootstrapping the cluster
+		Short: "Bootstrap the cluster (Flatcar/kubeadm) and cluster applications",
+		Long: `Bootstrap a complete cluster. Defaults to the Flatcar Container Linux +
+kubeadm provider:
+- Delivering Ignition + running kubeadm init/join on all nodes
+- Installing the Cilium CNI and waiting for nodes to be Ready
 - Installing CRDs and resources
-- Syncing Helm releases`,
+- Syncing Helm releases
+
+Pass --provider talos to run the legacy Talos path (apply machine config,
+talosctl bootstrap) instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBootstrap(&config)
 		},
@@ -329,7 +333,7 @@ func NewCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
 	cmd.Flags().BoolVar(&config.SkipKubeadm, "skip-kubeadm", false, "Flatcar: skip kubeadm init/join; run only post-CNI bootstrap against an existing control plane")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
-	cmd.Flags().StringVar(&config.Provider, "provider", "talos", "Node provisioning provider: talos (default) or flatcar (kubeadm)")
+	cmd.Flags().StringVar(&config.Provider, "provider", "flatcar", "Node provisioning provider: flatcar (kubeadm, default) or talos (legacy)")
 
 	return cmd
 }
@@ -404,8 +408,12 @@ func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
 
-	// Provider dispatch: the Flatcar/kubeadm path replaces the Talos-specific
-	// pre-CNI steps but reuses the generic post-CNI steps. Talos remains default.
+	// Provider dispatch: Flatcar/kubeadm is the default for the CLI (the
+	// `--provider` flag defaults to "flatcar", so a bare `homeops-cli bootstrap`
+	// runs this path). It replaces the Talos-specific pre-CNI steps but reuses
+	// the generic post-CNI steps. The legacy Talos path is reached via an
+	// explicit `--provider talos` — and, for tests that build a config struct
+	// directly, by leaving Provider empty.
 	if strings.EqualFold(config.Provider, "flatcar") {
 		return bootstrapRunFlatcar(config)
 	}
