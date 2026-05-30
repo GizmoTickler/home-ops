@@ -13,7 +13,8 @@ homeops-cli
 ├── flatcar                  # current provider (Flatcar Container Linux + kubeadm)
 │   ├── render-ignition
 │   ├── gen-kubeadm
-│   └── deploy-vm
+│   ├── deploy-vm
+│   └── save-pki
 ├── k8s
 │   ├── browse-pvc
 │   ├── node-shell
@@ -92,6 +93,7 @@ Key flags:
 - `--kubeconfig`
 - `--k8s-version`
 - `--skip-kubeadm` (Flatcar: skip kubeadm init/join; run only post-CNI bootstrap)
+- `--fresh-pki` (Flatcar: mint a NEW cluster CA instead of restoring the persisted PKI from 1Password; breaks existing kubeconfigs)
 - `--talosconfig` (legacy Talos provider only)
 - `--talos-version` (legacy Talos provider only)
 - `--dry-run`
@@ -117,6 +119,13 @@ homeops-cli flatcar gen-kubeadm
 # over SSH, then kubeadm init/join runs on first boot)
 homeops-cli flatcar deploy-vm --node k8s-0
 homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+
+# Capture the live cluster PKI (CA/SA/front-proxy/etcd CA) into
+# op://Infrastructure/kubernetes-pki so bootstrap can restore it for a STABLE
+# cluster identity across rebuilds. Run after the cluster is up + after any CA
+# rotation. `bootstrap` restores it by default (opt out with --fresh-pki).
+homeops-cli flatcar save-pki                # reads from k8s-0 by default
+homeops-cli flatcar save-pki --node k8s-1
 ```
 
 Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrent`, `--init`,

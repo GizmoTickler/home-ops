@@ -91,6 +91,25 @@ func TestProvisionPKIRestoresAllFiles(t *testing.T) {
 	assert.Contains(t, joined, "chmod 0644 /etc/kubernetes/pki/ca.crt")
 }
 
+func TestCapturePKI(t *testing.T) {
+	r := &fakeRunner{
+		responder: func(cmd string) (string, error) { return "QkFTRTY0\n", nil }, // "BASE64" + trailing newline -> TrimSpace
+	}
+	defer withFakeRunner(t, r)()
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	got, err := o.CapturePKI("192.168.122.10")
+	require.NoError(t, err)
+	require.Len(t, got, 8)
+	for _, f := range []string{"ca_crt", "ca_key", "sa_key", "sa_pub", "front_proxy_ca_crt", "front_proxy_ca_key", "etcd_ca_crt", "etcd_ca_key"} {
+		assert.Equal(t, "QkFTRTY0", got[f], "field %s", f)
+	}
+	joined := strings.Join(r.commands, "\n")
+	assert.Contains(t, joined, "base64 -w0 /etc/kubernetes/pki/ca.key")
+	assert.Contains(t, joined, "base64 -w0 /etc/kubernetes/pki/etcd/ca.crt")
+	assert.True(t, r.closed)
+}
+
 func TestProvisionPKIFreshSkips(t *testing.T) {
 	r := &fakeRunner{}
 	defer withFakeRunner(t, r)()

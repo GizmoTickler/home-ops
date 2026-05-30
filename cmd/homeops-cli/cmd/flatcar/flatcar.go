@@ -23,9 +23,26 @@ import (
 
 // Swappable function vars for testability (mirrors cmd/talos patterns).
 var (
-	getVersionsFn           = versionconfig.GetVersions
-	workingDirectoryFn      = common.GetWorkingDirectory
-	get1PasswordSecretFn    = common.Get1PasswordSecretSilent
+	getVersionsFn        = versionconfig.GetVersions
+	workingDirectoryFn   = common.GetWorkingDirectory
+	get1PasswordSecretFn = common.Get1PasswordSecretSilent
+	// capturePKIFn reads the cluster PKI from node0 over SSH (swappable for tests).
+	capturePKIFn = func(sshUser, node0IP string) (map[string]string, error) {
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		return orch.CapturePKI(node0IP)
+	}
+	// savePKIToOpFn persists captured PKI fields to 1Password (swappable for tests).
+	savePKIToOpFn = savePKIToOp
+	// runOpFn runs the op CLI with NO stdin so op never tries to read a JSON
+	// template from a pipe (the trap that bites interactive/over-ssh op invocations).
+	runOpFn = func(args ...string) error {
+		c := common.Command("op", args...)
+		c.Stdin = nil
+		if out, err := c.CombinedOutput(); err != nil {
+			return fmt.Errorf("op %s: %w\n%s", args[0], err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
 	renderIgnitionFn        = flatcar.RenderIgnition
 	renderKubeadmInitFn     = flatcar.RenderKubeadmInitConfig
 	renderKubeadmJoinFn     = flatcar.RenderKubeadmJoinConfig
@@ -100,6 +117,7 @@ Subcommands:
 		newRenderIgnitionCommand(),
 		newGenKubeadmCommand(),
 		newDeployVMCommand(),
+		newSavePKICommand(),
 	)
 
 	return cmd
@@ -172,6 +190,68 @@ func kubernetesMinor(version string) string {
 		return parts[0] + "." + parts[1]
 	}
 	return version
+}
+
+// savePKIToOp persists captured PKI (1Password field -> base64) to
+// op://Infrastructure/kubernetes-pki, replacing any existing item. *.key fields
+// are stored concealed. Field order is deterministic.
+func savePKIToOp(fields map[string]string) error {
+	_ = runOpFn("item", "delete", "kubernetes-pki", "--vault", "Infrastructure") // ignore if absent
+	args := []string{
+		"item", "create", "--vault", "Infrastructure", "--category", "Secure Note", "--title", "kubernetes-pki",
+		"notesPlain[text]=kubeadm cluster PKI (base64). Restored by homeops-cli before kubeadm init for a stable cluster identity across rebuilds. Managed by 'flatcar save-pki'.",
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		typ := "text"
+		if strings.HasSuffix(k, "_key") {
+			typ = "password"
+		}
+		args = append(args, fmt.Sprintf("%s[%s]=%s", k, typ, fields[k]))
+	}
+	return runOpFn(args...)
+}
+
+// newSavePKICommand captures the live cluster PKI into 1Password so bootstrap can
+// restore it for a stable identity across rebuilds.
+func newSavePKICommand() *cobra.Command {
+	var node string
+	cmd := &cobra.Command{
+		Use:   "save-pki",
+		Short: "Capture the live cluster PKI into op://Infrastructure/kubernetes-pki",
+		Long: `Read /etc/kubernetes/pki (cluster CA, ServiceAccount keys, front-proxy CA, etcd
+CA) from a control-plane node over SSH and store it in 1Password, so 'bootstrap'
+restores it before 'kubeadm init' and the cluster keeps a STABLE identity across
+nuke/pave. Run once after the cluster is up, and again after any CA rotation.
+Leaf certs are not captured (kubeadm regenerates them off the CAs).`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			nodeConfig, ok := getFlatcarNodeConfigFn(node)
+			if !ok {
+				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
+			}
+			sshUser := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser))
+			if sshUser == "" {
+				sshUser = "core"
+			}
+			logger.Info("Capturing cluster PKI from %s (%s) over SSH...", node, nodeConfig.NodeIP)
+			fields, err := capturePKIFn(sshUser, nodeConfig.NodeIP)
+			if err != nil {
+				return fmt.Errorf("capture PKI: %w", err)
+			}
+			if err := savePKIToOpFn(fields); err != nil {
+				return fmt.Errorf("persist PKI to 1Password: %w", err)
+			}
+			logger.Success("Persisted %d PKI fields to op://Infrastructure/kubernetes-pki (bootstrap restores them; --fresh-pki opts out)", len(fields))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "k8s-0", "control-plane node to read the PKI from")
+	return cmd
 }
 
 func newRenderIgnitionCommand() *cobra.Command {

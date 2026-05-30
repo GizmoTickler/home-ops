@@ -2,6 +2,7 @@ package flatcar
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	versionconfig "homeops-cli/internal/config"
@@ -54,6 +55,42 @@ func TestNewCommandStructure(t *testing.T) {
 	assert.True(t, subs["deploy-vm"])
 	assert.True(t, subs["render-ignition"])
 	assert.True(t, subs["gen-kubeadm"])
+	assert.True(t, subs["save-pki"])
+}
+
+func TestSavePKIToOpBuildsArgs(t *testing.T) {
+	var calls [][]string
+	orig := runOpFn
+	runOpFn = func(args ...string) error { calls = append(calls, args); return nil }
+	defer func() { runOpFn = orig }()
+
+	require.NoError(t, savePKIToOp(map[string]string{"ca_crt": "AAA", "ca_key": "BBB", "etcd_ca_key": "CCC"}))
+	require.Len(t, calls, 2) // delete then create
+	assert.Equal(t, "delete", calls[0][1])
+	create := strings.Join(calls[1], " ")
+	assert.Contains(t, create, "item create")
+	assert.Contains(t, create, "--vault Infrastructure")
+	assert.Contains(t, create, "ca_crt[text]=AAA")
+	assert.Contains(t, create, "ca_key[password]=BBB")      // *.key concealed
+	assert.Contains(t, create, "etcd_ca_key[password]=CCC") // *.key concealed
+}
+
+func TestSavePKICommand(t *testing.T) {
+	defer stubSecrets(t)() // OpFlatcarSSHUser -> "" so sshUser defaults to "core"
+	var saved map[string]string
+	origCap, origSave := capturePKIFn, savePKIToOpFn
+	capturePKIFn = func(sshUser, ip string) (map[string]string, error) {
+		assert.Equal(t, "core", sshUser)
+		assert.Equal(t, "192.168.122.10", ip)
+		return map[string]string{"ca_crt": "X", "ca_key": "Y"}, nil
+	}
+	savePKIToOpFn = func(f map[string]string) error { saved = f; return nil }
+	defer func() { capturePKIFn = origCap; savePKIToOpFn = origSave }()
+
+	cmd := newSavePKICommand()
+	cmd.SetArgs([]string{"--node", "k8s-0"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, map[string]string{"ca_crt": "X", "ca_key": "Y"}, saved)
 }
 
 func TestBuildNodeEnv(t *testing.T) {

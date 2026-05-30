@@ -15,17 +15,45 @@ import (
 // down first yields a stable cluster identity across rebuilds. *.key are 0600.
 var pkiBlobs = []struct {
 	path  string // relative to /etc/kubernetes/pki
-	opRef string
-	mode  string
+	field string // 1Password field label
+	opRef string // op:// reference for that field
+	mode  string // file mode when restored
 }{
-	{"ca.crt", constants.OpPKICACrt, "0644"},
-	{"ca.key", constants.OpPKICAKey, "0600"},
-	{"sa.pub", constants.OpPKISAPub, "0644"},
-	{"sa.key", constants.OpPKISAKey, "0600"},
-	{"front-proxy-ca.crt", constants.OpPKIFrontProxyCACrt, "0644"},
-	{"front-proxy-ca.key", constants.OpPKIFrontProxyCAKey, "0600"},
-	{"etcd/ca.crt", constants.OpPKIEtcdCACrt, "0644"},
-	{"etcd/ca.key", constants.OpPKIEtcdCAKey, "0600"},
+	{"ca.crt", "ca_crt", constants.OpPKICACrt, "0644"},
+	{"ca.key", "ca_key", constants.OpPKICAKey, "0600"},
+	{"sa.pub", "sa_pub", constants.OpPKISAPub, "0644"},
+	{"sa.key", "sa_key", constants.OpPKISAKey, "0600"},
+	{"front-proxy-ca.crt", "front_proxy_ca_crt", constants.OpPKIFrontProxyCACrt, "0644"},
+	{"front-proxy-ca.key", "front_proxy_ca_key", constants.OpPKIFrontProxyCAKey, "0600"},
+	{"etcd/ca.crt", "etcd_ca_crt", constants.OpPKIEtcdCACrt, "0644"},
+	{"etcd/ca.key", "etcd_ca_key", constants.OpPKIEtcdCAKey, "0600"},
+}
+
+// CapturePKI reads the cluster PKI identity set (CA/SA/front-proxy/etcd CA) from a
+// control-plane node over SSH and returns it as 1Password-field -> base64 content,
+// ready to persist with `flatcar save-pki`. Used to seed/rotate the persisted PKI
+// that provisionPKI restores. Leaf certs are intentionally not captured (kubeadm
+// regenerates them off the CAs).
+func (o *Orchestrator) CapturePKI(node0IP string) (map[string]string, error) {
+	runner := o.runnerFor(node0IP)
+	if err := runner.Connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect to %s: %w", node0IP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	out := make(map[string]string, len(pkiBlobs))
+	for _, b := range pkiBlobs {
+		v, err := runner.ExecuteCommand("sudo base64 -w0 /etc/kubernetes/pki/" + b.path)
+		if err != nil {
+			return nil, fmt.Errorf("read /etc/kubernetes/pki/%s on %s: %w", b.path, node0IP, err)
+		}
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return nil, fmt.Errorf("PKI file /etc/kubernetes/pki/%s on %s came back empty", b.path, node0IP)
+		}
+		out[b.field] = v
+	}
+	return out, nil
 }
 
 // pkiSecretFn fetches a base64 PKI blob from 1Password (silent ""-on-miss).
