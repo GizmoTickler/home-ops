@@ -75,11 +75,13 @@ curl https://kromgo-proxy.<your-username>.workers.dev/talos_version
 # Expected response format (shields.io endpoint):
 {
   "schemaVersion": 1,
-  "label": "Talos",
-  "message": "1.8.3",
+  "label": "Flatcar",
+  "message": "4593.2.1",
   "color": "blue"
 }
 ```
+
+> The endpoint path is still `/talos_version` (the kromgo metric name is retained), but it now renders the Flatcar version + logo.
 
 ### Verify No Domain Leakage
 
@@ -98,7 +100,7 @@ done
 Use the shields.io dynamic endpoint badge format:
 
 ```markdown
-[![Talos](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.<your-username>.workers.dev%2Ftalos_version&style=for-the-badge&logo=talos&logoColor=white&color=blue&label=%20)](https://talos.dev)
+[![Flatcar](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.<your-username>.workers.dev%2Ftalos_version&style=for-the-badge&logo=flatcar&logoColor=white&color=blue&label=%20)](https://flatcar.org)
 ```
 
 **Note**: URL must be URL-encoded for shields.io. Use this format:
@@ -114,7 +116,7 @@ https%3A%2F%2Fkromgo-proxy.user.workers.dev%2Ftalos_version
 
 The worker exposes these metrics (defined in your kromgo config):
 
-- `talos_version` - Talos Linux version
+- `talos_version` - cluster OS version (metric name retained; renders the Flatcar Container Linux version)
 - `kubernetes_version` - Kubernetes version
 - `flux_version` - Flux version
 - `cluster_node_count` - Number of nodes

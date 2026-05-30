@@ -77,8 +77,8 @@ Expected response:
 ```json
 {
   "schemaVersion": 1,
-  "label": "Talos",
-  "message": "1.8.3",
+  "label": "Flatcar",
+  "message": "4593.2.1",
   "color": "blue"
 }
 ```
@@ -107,7 +107,7 @@ Follow the prompts and ensure all tests pass.
 Example badge:
 
 ```markdown
-[![Talos](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.YOUR-USERNAME.workers.dev%2Ftalos_version&style=for-the-badge&logo=talos&logoColor=white&color=blue&label=%20)](https://talos.dev)
+[![Flatcar](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo-proxy.YOUR-USERNAME.workers.dev%2Ftalos_version&style=for-the-badge&logo=flatcar&logoColor=white&color=blue&label=%20)](https://flatcar.org)
 ```
 
 ## Troubleshooting
