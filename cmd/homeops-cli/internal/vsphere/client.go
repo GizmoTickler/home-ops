@@ -152,6 +152,10 @@ func NewClientWithConnect(host, username, password string, insecure bool) (*Clie
 func (c *Client) Connect(host, username, password string, insecure bool) error {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
+	if insecure {
+		common.NewColorLogger().Warn("vSphere TLS verification disabled (set %s=false to enable)", constants.EnvVSphereInsecure)
+	}
+
 	// Parse URL
 	u, err := url.Parse(fmt.Sprintf("https://%s/sdk", host))
 	if err != nil {

@@ -132,8 +132,8 @@ var (
 		return ssh.NewSSHClient(config)
 	}
 	newVSphereDeployerFn = func(host, username, password string) (vsphereVMDeployer, error) {
-		client := vsphere.NewClient(host, username, password, true)
-		if err := client.Connect(host, username, password, true); err != nil {
+		client := vsphere.NewClient(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, true))
+		if err := client.Connect(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, true)); err != nil {
 			return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
 		}
 		return &defaultVSphereDeployer{client: client}, nil
@@ -388,7 +388,7 @@ func withProxmoxVMManager(logger *common.ColorLogger, fn func(proxmoxVMManager) 
 		return err
 	}
 
-	vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+	vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, true))
 	if err != nil {
 		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
 	}
@@ -408,7 +408,7 @@ func withVSphereClient(logger *common.ColorLogger, fn func(vsphereClient) error)
 	}
 
 	client := newVSphereClientFn(host, username, password, true)
-	if err := client.Connect(host, username, password, true); err != nil {
+	if err := client.Connect(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, true)); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
 	defer func() {
@@ -756,7 +756,7 @@ func getProxmoxVMNames() ([]string, error) {
 	}
 
 	// Create Proxmox client and connect
-	client, err := proxmox.NewClient(host, tokenID, secret, true)
+	client, err := proxmox.NewClient(host, tokenID, secret, common.EnvBool(constants.EnvProxmoxInsecure, true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Proxmox client: %w", err)
 	}
@@ -2208,7 +2208,7 @@ func resolveTrueNASISOSelection(logger *common.ColorLogger, host string, generat
 
 func executeProxmoxDeploymentPlan(logger *common.ColorLogger, host, tokenID, secret, nodeName string, plan *proxmoxDeploymentPlan) error {
 	if len(plan.Configs) == 1 || plan.Concurrent == 1 {
-		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, true))
 		if err != nil {
 			return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
 		}
@@ -2459,7 +2459,7 @@ func deployProxmoxVMsConcurrently(host, tokenID, secret, nodeName string, config
 			defer func() { <-sem }()
 
 			logger.Info("Starting Proxmox deployment worker for %s", cfg.Name)
-			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, true))
 			if err != nil {
 				mu.Lock()
 				failures = append(failures, fmt.Sprintf("%s: failed to create Proxmox VM manager: %v", cfg.Name, err))

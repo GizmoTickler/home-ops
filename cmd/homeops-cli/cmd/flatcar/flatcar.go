@@ -607,7 +607,7 @@ func deployConcurrently(logger *common.ColorLogger, host, tokenID, secret, nodeN
 			defer func() { <-sem }()
 
 			logger.Info("Deploying Flatcar VM %s", cfg.Name)
-			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, true)
+			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, true))
 			if err != nil {
 				mu.Lock()
 				failures = append(failures, fmt.Sprintf("%s: failed to create Proxmox VM manager: %v", cfg.Name, err))

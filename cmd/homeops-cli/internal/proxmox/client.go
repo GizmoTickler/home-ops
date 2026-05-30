@@ -33,6 +33,7 @@ func NewClient(host, tokenID, secret string, insecure bool) (*Client, error) {
 	// Create HTTP client with optional insecure TLS
 	httpClient := http.DefaultClient
 	if insecure {
+		common.NewColorLogger().Warn("Proxmox TLS verification disabled (set %s=false to enable)", constants.EnvProxmoxInsecure)
 		httpClient = &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},

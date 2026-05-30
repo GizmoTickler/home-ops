@@ -66,11 +66,17 @@ const (
 	EnvVSphereHost     = "VSPHERE_HOST"
 	EnvVSphereUsername = "VSPHERE_USERNAME"
 	EnvVSpherePassword = "VSPHERE_PASSWORD"
+	// EnvVSphereInsecure: set to "false" to enable TLS verification of the
+	// vSphere endpoint. Defaults to insecure (true) for self-signed homelab certs.
+	EnvVSphereInsecure = "VSPHERE_INSECURE"
 
 	EnvProxmoxHost        = "PROXMOX_HOST"
 	EnvProxmoxTokenID     = "PROXMOX_TOKEN_ID"
 	EnvProxmoxTokenSecret = "PROXMOX_TOKEN_SECRET"
 	EnvProxmoxNode        = "PROXMOX_NODE"
+	// EnvProxmoxInsecure: set to "false" to enable TLS verification of the
+	// Proxmox endpoint. Defaults to insecure (true) for self-signed homelab certs.
+	EnvProxmoxInsecure = "PROXMOX_INSECURE"
 
 	EnvKubeconfig        = "KUBECONFIG"
 	EnvTalosconfig       = "TALOSCONFIG"

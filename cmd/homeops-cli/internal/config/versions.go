@@ -30,6 +30,10 @@ const (
 	defaultFlatcarVersion = "current"
 	defaultKubeVipVersion = "v0.8.9"
 	defaultPauseImage     = "registry.k8s.io/pause:3.10"
+	// defaultTalosVersion is the version used by the LEGACY `--provider talos`
+	// path (bootstrap preflight + Talos ISO generation). Flatcar ignores it.
+	// Tracks the install.image tag in internal/templates/talos/controlplane.yaml.
+	defaultTalosVersion = "v1.13.3"
 )
 
 // LoadVersionsFromSystemUpgrade loads the Kubernetes target version from
@@ -46,7 +50,9 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 
 	config := &VersionConfig{
 		KubernetesVersion: k8sVersion,
-		// TalosVersion intentionally left empty — Flatcar clusters don't use Talos.
+		// Flatcar ignores TalosVersion; populate the legacy-talos default so a
+		// `--provider talos` bootstrap (preflight + ISO naming) still resolves.
+		TalosVersion: defaultTalosVersion,
 	}
 	applyFlatcarDefaults(config)
 
@@ -106,10 +112,9 @@ func applyFlatcarDefaults(c *VersionConfig) {
 func getDefaultVersions() *VersionConfig {
 	c := &VersionConfig{
 		KubernetesVersion: "v1.36.1",
-		// Flatcar clusters use kubeadm — TalosVersion is not applicable.
-		// Keep a valid stub here so the shared Config struct (which still
-		// carries a TalosVersion field) passes format validation.
-		TalosVersion: "v0.0.0",
+		// Flatcar ignores TalosVersion; use the legacy-talos default (not a
+		// v0.0.0 stub) so the `--provider talos` path resolves a real version.
+		TalosVersion: defaultTalosVersion,
 	}
 	applyFlatcarDefaults(c)
 	return c
