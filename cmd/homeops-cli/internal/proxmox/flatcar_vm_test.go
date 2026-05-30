@@ -29,7 +29,9 @@ func TestFlatcarNodeConfigsMatchTalosSlots(t *testing.T) {
 		assert.Equal(t, tc.MacAddress, fc.MacAddress, "MAC mismatch for %s", name)
 		assert.Equal(t, tc.CPUAffinity, fc.CPUAffinity, "affinity mismatch for %s", name)
 		assert.Equal(t, tc.NUMANode, fc.NUMANode, "NUMA mismatch for %s", name)
-		assert.Equal(t, tc.BootStorage, fc.BootStorage, "boot storage mismatch for %s", name)
+		// Boot storage INTENTIONALLY differs from Talos: Flatcar boots from the
+		// nvme-mirror ZFS RAID1 built during the cutover, not per-node nvme1/nvme2.
+		assert.Equal(t, "nvme-mirror", fc.BootStorage, "flatcar should boot from nvme-mirror for %s", name)
 		assert.Equal(t, tc.CephDiskByID, fc.CephDiskByID, "ceph disk mismatch for %s", name)
 	}
 }

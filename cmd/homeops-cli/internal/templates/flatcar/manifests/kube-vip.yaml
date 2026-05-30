@@ -33,7 +33,7 @@ spec:
         - name: address
           value: "{{ ENV.CONTROL_PLANE_VIP }}"   # 192.168.123.253
         - name: vip_interface
-          value: "{{ ENV.NODE_INTERFACE }}"       # ens18
+          value: "{{ ENV.NODE_INTERFACE }}"       # eth0 (Flatcar virtio NIC; see DefaultNodeInterface)
         - name: port
           value: "6443"
         # --- ARP (layer 2), BGP disabled ---

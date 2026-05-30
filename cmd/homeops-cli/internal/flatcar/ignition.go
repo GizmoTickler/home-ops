@@ -56,7 +56,7 @@ type NodeEnv struct {
 	ControlPlaneVIP   string // CONTROL_PLANE_VIP
 	PauseImage        string // PAUSE_IMAGE
 	KubeVipVersion    string // KUBE_VIP_VERSION
-	NodeInterface     string // NODE_INTERFACE (e.g. ens18)
+	NodeInterface     string // NODE_INTERFACE (e.g. eth0)
 
 	// Runtime join material (only set for join configs, after `kubeadm init`).
 	CertificateKey string // CERTIFICATE_KEY
