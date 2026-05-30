@@ -30,8 +30,4 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, 3, MaxRetryAttempts)
 	assert.Greater(t, BootstrapFluxMaxWait, BootstrapCheckIntervalSlow)
 	assert.Greater(t, BootstrapNodeMaxWait, BootstrapCheckIntervalNormal)
-
-	assert.Equal(t, "app.kubernetes.io/name", LabelAppName)
-	assert.Equal(t, "app.kubernetes.io/instance", LabelAppInstance)
-	assert.Equal(t, "app.kubernetes.io/version", LabelAppVersion)
 }

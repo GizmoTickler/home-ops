@@ -180,17 +180,10 @@ const (
 // Flatcar / kubeadm cluster design constants. These mirror the migration design
 // (k8s-0/1/2 control-plane, kube-vip ARP VIP, Cilium BGP external API LB).
 const (
-	// FlatcarReleaseBaseURL is the base for stable-channel Flatcar images.
-	FlatcarReleaseBaseURL = "https://stable.release.flatcar-linux.net/amd64-usr"
-	// FlatcarSysextBaseURL is where the Kubernetes systemd-sysext bundles live.
-	FlatcarSysextBaseURL = "https://extensions.flatcar.org/extensions"
-
 	// Defaults for the configurable knobs (overridable via flags/env).
+	// PauseImage / KubeVipVersion defaults live in internal/config/versions.go.
 	DefaultControlPlaneVIP = "192.168.123.253"
-	DefaultPauseImage      = "registry.k8s.io/pause:3.10"
-	DefaultKubeVipVersion  = "v0.8.9"
 	DefaultNodeInterface   = "eth0"
-	DefaultFlatcarChannel  = "stable"
 
 	// Node IPs for the 3 control-plane nodes.
 	FlatcarNode0IP = "192.168.122.10"
@@ -201,11 +194,4 @@ const (
 // TrueNAS storage paths
 const (
 	TrueNASStandardISOPath = "/mnt/flashstor/ISO/metal-amd64.iso"
-)
-
-// Application labels used for Kubernetes resources
-const (
-	LabelAppName     = "app.kubernetes.io/name"
-	LabelAppInstance = "app.kubernetes.io/instance"
-	LabelAppVersion  = "app.kubernetes.io/version"
 )

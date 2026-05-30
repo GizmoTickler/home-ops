@@ -185,7 +185,7 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		Node1IP:           constants.FlatcarNode1IP,
 		Node2IP:           constants.FlatcarNode2IP,
 		KubernetesVersion: versions.KubernetesVersion,
-		KubernetesMinor:   kubernetesMinor(versions.KubernetesVersion),
+		KubernetesMinor:   flatcar.KubernetesMinor(versions.KubernetesVersion),
 		ControlPlaneVIP:   vip,
 		PauseImage:        pauseImage,
 		KubeVipVersion:    kubeVipVersion,
@@ -193,15 +193,6 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		K8sEndpoint:       k8sEndpoint,
 		SSHAuthorizedKey:  sshKey,
 	}, nil
-}
-
-// kubernetesMinor derives "vX.Y" from "vX.Y.Z".
-func kubernetesMinor(version string) string {
-	parts := strings.SplitN(version, ".", 3)
-	if len(parts) >= 2 {
-		return parts[0] + "." + parts[1]
-	}
-	return version
 }
 
 // opField / opItemTemplate model the `op item create` JSON template piped on stdin.

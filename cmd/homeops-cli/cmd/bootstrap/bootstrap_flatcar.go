@@ -135,28 +135,13 @@ func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.Vers
 		Node1IP:           constants.FlatcarNode1IP,
 		Node2IP:           constants.FlatcarNode2IP,
 		KubernetesVersion: versions.KubernetesVersion,
-		KubernetesMinor:   kubernetesMinor(versions.KubernetesVersion),
+		KubernetesMinor:   flatcar.KubernetesMinor(versions.KubernetesVersion),
 		ControlPlaneVIP:   constants.DefaultControlPlaneVIP,
 		PauseImage:        versions.PauseImage,
 		KubeVipVersion:    versions.KubeVipVersion,
 		NodeInterface:     constants.DefaultNodeInterface,
 		K8sEndpoint:       k8sEndpoint,
 	}
-}
-
-// kubernetesMinor derives "vX.Y" from "vX.Y.Z" (local copy; the flatcar cmd has
-// its own, but cross-package use would create a cycle).
-func kubernetesMinor(version string) string {
-	for i := 0; i < len(version); i++ {
-		if version[i] == '.' {
-			for j := i + 1; j < len(version); j++ {
-				if version[j] == '.' {
-					return version[:j]
-				}
-			}
-		}
-	}
-	return version
 }
 
 // runBootstrapFlatcar executes the Flatcar/kubeadm bootstrap in order:

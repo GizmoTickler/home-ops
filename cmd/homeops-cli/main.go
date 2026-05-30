@@ -18,6 +18,7 @@ import (
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ui"
 
 	"github.com/spf13/cobra"
@@ -251,7 +252,7 @@ func setEnvironment() {
 	}
 
 	envDefaults := map[string]string{
-		"MINIJINJA_CONFIG_FILE": minijinjaConfig,
+		constants.EnvMiniJinjaConfig: minijinjaConfig,
 	}
 
 	for key, defaultValue := range envDefaults {

@@ -300,19 +300,7 @@ func TestRunBootstrapDispatchesToFlatcar(t *testing.T) {
 	}
 }
 
-func TestKubernetesMinor(t *testing.T) {
-	cases := map[string]string{
-		"v1.36.1": "v1.36",
-		"v1.36":   "v1.36",
-		"1.34.0":  "1.34",
-		"garbage": "garbage",
-	}
-	for in, want := range cases {
-		if got := kubernetesMinor(in); got != want {
-			t.Fatalf("kubernetesMinor(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
+// TestKubernetesMinor moved to internal/flatcar (KubernetesMinor now lives there).
 
 func TestCheckFlatcarNodeReady(t *testing.T) {
 	oldNewRunner := flatcarNewSSHRunner
