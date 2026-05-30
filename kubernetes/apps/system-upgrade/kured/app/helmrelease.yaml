@@ -1,0 +1,27 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kured
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: kured
+  interval: 1h
+  values:
+    configuration:
+      # Check for pending reboots every 10 minutes.
+      period: 10m0s
+      # Reboot only one node at a time. With a 3-node control plane this keeps
+      # etcd quorum (2/3) and lets kube-vip fail the API VIP over cleanly.
+      concurrency: 1
+      # Auto-expire a stale reboot lock after 30m so a wedged node can't block forever.
+      lockTtl: 30m0s
+      # Reboot when EITHER the Kubernetes systemd-sysext update flagged a reboot
+      # (/run/reboot-required, touched by systemd-sysupdate) OR Flatcar's update_engine
+      # has staged an OS update (locksmithd is masked, so nothing else reboots).
+      # kured prepends `nsenter -m/proc/1/ns/mnt --`, so this runs in the host mount ns.
+      rebootSentinelCommand: '/usr/bin/sh -c "test -f /run/reboot-required || /usr/bin/update_engine_client -status | /usr/bin/grep -q UPDATE_STATUS_UPDATED_NEED_REBOOT"'
+      rebootMethod: command
+      rebootCommand: /usr/bin/systemctl reboot
