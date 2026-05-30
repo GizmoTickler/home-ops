@@ -50,6 +50,10 @@ spec:
     barmanObjectStore:
       destinationPath: s3://cnpg-backups/netbox-postgres
       endpointURL: https://s3.${SECRET_DOMAIN}
+      # Ongoing backups go to a NEW serverName (empty) so CNPG's restore-time
+      # "expected empty archive" check passes; recovery SOURCE below reads the old
+      # serverName (netbox-postgres) where the pre-migration data lives.
+      serverName: netbox-postgres-v2
       s3Credentials:
         accessKeyId:
           name: netbox-postgres-s3-secret
