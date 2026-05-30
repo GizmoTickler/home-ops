@@ -126,7 +126,7 @@ Secret keys containing special characters could break the command or cause secur
 **Location**: `bootstrap.go:403`
 
 **Problem**:
-The namespace list includes `truenas-csi` but this has been replaced with `scale-csi` in the repository.
+The hardcoded namespace list referenced a storage-CSI namespace that no longer matched the repository's namespaces.
 
 **Fix**: Update the namespace list to reflect current infrastructure.
 
