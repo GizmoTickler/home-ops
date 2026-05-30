@@ -45,7 +45,7 @@ spec:
   upgrade:
     # busybox only provides `chroot`; the real work runs against the HOST (Flatcar) via
     # `chroot /host`, using the host's kubeadm/kubectl/systemctl/systemd-sysupdate.
-    image: docker.io/library/busybox:1.37.0
+    image: docker.io/library/busybox:1.38.0
     command: ["/bin/sh", "-c"]
     args:
       - |
