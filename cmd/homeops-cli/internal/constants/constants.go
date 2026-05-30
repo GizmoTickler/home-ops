@@ -44,6 +44,17 @@ const (
 	// Cluster base domain — kept out of this (public) repo. The Flatcar kubeadm
 	// apiserver certSAN is derived as "k8s." + this value at render time.
 	OpSecretDomain = "op://Infrastructure/cluster-config/SECRET_DOMAIN"
+
+	// Persisted kubeadm cluster PKI (base64-encoded), restored onto node0 before
+	// `kubeadm init` so the cluster keeps a stable identity across nuke/pave.
+	OpPKICACrt           = "op://Infrastructure/kubernetes-pki/ca_crt"
+	OpPKICAKey           = "op://Infrastructure/kubernetes-pki/ca_key"
+	OpPKISAKey           = "op://Infrastructure/kubernetes-pki/sa_key"
+	OpPKISAPub           = "op://Infrastructure/kubernetes-pki/sa_pub"
+	OpPKIFrontProxyCACrt = "op://Infrastructure/kubernetes-pki/front_proxy_ca_crt"
+	OpPKIFrontProxyCAKey = "op://Infrastructure/kubernetes-pki/front_proxy_ca_key"
+	OpPKIEtcdCACrt       = "op://Infrastructure/kubernetes-pki/etcd_ca_crt"
+	OpPKIEtcdCAKey       = "op://Infrastructure/kubernetes-pki/etcd_ca_key"
 )
 
 // Environment variable names

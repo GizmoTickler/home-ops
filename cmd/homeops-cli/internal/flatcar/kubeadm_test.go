@@ -67,7 +67,47 @@ func withFakeRunner(t *testing.T, r *fakeRunner) func() {
 	t.Helper()
 	orig := newCommandRunnerFn
 	newCommandRunnerFn = func(_ ssh.SSHConfig) commandRunner { return r }
-	return func() { newCommandRunnerFn = orig }
+	// No persisted PKI in tests -> provisionPKI is a no-op (hermetic; no real op).
+	origPKI := pkiSecretFn
+	pkiSecretFn = func(string) string { return "" }
+	return func() { newCommandRunnerFn = orig; pkiSecretFn = origPKI }
+}
+
+func TestProvisionPKIRestoresAllFiles(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+	pkiSecretFn = func(string) string { return "QUJD" } // base64("ABC"), non-empty for every ref
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core", SSHItemRef: "op://x/y/key"})
+	require.NoError(t, o.provisionPKI(r))
+
+	joined := strings.Join(r.commands, "\n")
+	assert.Contains(t, joined, "mkdir -p /etc/kubernetes/pki/etcd")
+	for _, p := range []string{"ca.crt", "ca.key", "sa.key", "sa.pub", "front-proxy-ca.crt", "front-proxy-ca.key", "etcd/ca.crt", "etcd/ca.key"} {
+		assert.Contains(t, joined, "/etc/kubernetes/pki/"+p)
+	}
+	assert.Contains(t, joined, "base64 -d")
+	assert.Contains(t, joined, "chmod 0600 /etc/kubernetes/pki/ca.key")
+	assert.Contains(t, joined, "chmod 0644 /etc/kubernetes/pki/ca.crt")
+}
+
+func TestProvisionPKIFreshSkips(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+	pkiSecretFn = func(string) string { return "QUJD" }
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core", FreshPKI: true})
+	require.NoError(t, o.provisionPKI(r))
+	assert.Empty(t, r.commands, "--fresh-pki must not touch the node")
+}
+
+func TestProvisionPKINoMaterialSkips(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)() // stubs pkiSecretFn -> "" (no persisted PKI)
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.provisionPKI(r))
+	assert.Empty(t, r.commands, "no persisted PKI -> no node changes (fresh CA)")
 }
 
 func TestInitFirstControlPlane(t *testing.T) {

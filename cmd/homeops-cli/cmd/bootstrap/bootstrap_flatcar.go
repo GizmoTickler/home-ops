@@ -54,12 +54,19 @@ var (
 		return common.Get1PasswordSecretSilent(constants.OpSecretDomain)
 	}
 
+	// flatcarFreshPKI mirrors BootstrapConfig.FreshPKI into the orchestrator
+	// factory (set at the top of runBootstrapFlatcar). When false (default), the
+	// orchestrator restores the persisted cluster PKI from 1Password before
+	// `kubeadm init`; when true (--fresh-pki), kubeadm mints a new CA.
+	flatcarFreshPKI = false
+
 	// flatcarNewOrchestrator builds the kubeadm SSH orchestrator. Swappable so
 	// tests can supply a fake that records init/join calls.
 	flatcarNewOrchestrator = func(sshUser string) flatcarOrchestrator {
 		return flatcar.NewOrchestrator(flatcar.OrchestratorConfig{
 			SSHUser:    sshUser,
 			SSHItemRef: constants.OpFlatcarSSHPrivateKey,
+			FreshPKI:   flatcarFreshPKI,
 		})
 	}
 
@@ -162,6 +169,10 @@ func kubernetesMinor(version string) string {
 func runBootstrapFlatcar(config *BootstrapConfig) error {
 	logger := common.NewColorLogger()
 	logger.Info("🚀 Starting Flatcar/kubeadm cluster bootstrap process")
+
+	// Default: restore the persisted cluster PKI before kubeadm init (stable
+	// identity across rebuilds). --fresh-pki opts out and mints a new CA.
+	flatcarFreshPKI = config.FreshPKI
 
 	if !filepath.IsAbs(config.RootDir) {
 		absPath, err := filepath.Abs(config.RootDir)

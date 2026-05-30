@@ -44,6 +44,10 @@ type BootstrapConfig struct {
 	// control plane; the kubeconfig is still fetched from node0 (step 2).
 	SkipKubeadm bool
 	Verbose     bool
+	// FreshPKI (flatcar provider) skips restoring the persisted cluster PKI from
+	// 1Password before `kubeadm init`, so kubeadm mints a NEW cluster CA. Default
+	// (false) reuses the persisted PKI for a stable identity across rebuilds.
+	FreshPKI bool
 	// Provider selects the node-provisioning path: "talos" (default, existing
 	// behavior) or "flatcar" (kubeadm-over-SSH). Only the pre-CNI steps differ;
 	// the generic post-CNI steps are shared.
@@ -332,6 +336,7 @@ talosctl bootstrap) instead.`,
 	cmd.Flags().BoolVar(&config.SkipHelmfile, "skip-helmfile", false, "Skip Helmfile sync")
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
 	cmd.Flags().BoolVar(&config.SkipKubeadm, "skip-kubeadm", false, "Flatcar: skip kubeadm init/join; run only post-CNI bootstrap against an existing control plane")
+	cmd.Flags().BoolVar(&config.FreshPKI, "fresh-pki", false, "Flatcar: mint a NEW cluster CA instead of restoring the persisted PKI from 1Password (breaks existing kubeconfigs)")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
 	cmd.Flags().StringVar(&config.Provider, "provider", "flatcar", "Node provisioning provider: flatcar (kubeadm, default) or talos (legacy)")
 

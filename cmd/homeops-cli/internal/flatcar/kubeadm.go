@@ -6,8 +6,31 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ssh"
 )
+
+// pkiBlobs are the kubeadm CA/identity files restored onto node0 before
+// `kubeadm init`. kubeadm reuses any CA it finds in --cert-dir, so laying these
+// down first yields a stable cluster identity across rebuilds. *.key are 0600.
+var pkiBlobs = []struct {
+	path  string // relative to /etc/kubernetes/pki
+	opRef string
+	mode  string
+}{
+	{"ca.crt", constants.OpPKICACrt, "0644"},
+	{"ca.key", constants.OpPKICAKey, "0600"},
+	{"sa.pub", constants.OpPKISAPub, "0644"},
+	{"sa.key", constants.OpPKISAKey, "0600"},
+	{"front-proxy-ca.crt", constants.OpPKIFrontProxyCACrt, "0644"},
+	{"front-proxy-ca.key", constants.OpPKIFrontProxyCAKey, "0600"},
+	{"etcd/ca.crt", constants.OpPKIEtcdCACrt, "0644"},
+	{"etcd/ca.key", constants.OpPKIEtcdCAKey, "0600"},
+}
+
+// pkiSecretFn fetches a base64 PKI blob from 1Password (silent ""-on-miss).
+// Swappable for tests.
+var pkiSecretFn = common.Get1PasswordSecretSilent
 
 // commandRunner is the minimal SSH surface kubeadm orchestration needs. The real
 // implementation is *ssh.SSHClient; tests inject a fake.
@@ -53,6 +76,7 @@ type Orchestrator struct {
 	sshUser    string
 	sshItemRef string
 	port       string
+	freshPKI   bool // when true, skip the persisted-PKI restore (generate a new CA)
 	logger     *common.ColorLogger
 }
 
@@ -61,6 +85,7 @@ type OrchestratorConfig struct {
 	SSHUser    string // username for node SSH
 	SSHItemRef string // 1Password SSH item reference (op:// path)
 	Port       string // SSH port (default 22)
+	FreshPKI   bool   // skip the persisted-PKI restore and let kubeadm mint a new CA
 }
 
 // NewOrchestrator builds an Orchestrator.
@@ -73,8 +98,50 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		sshUser:    cfg.SSHUser,
 		sshItemRef: cfg.SSHItemRef,
 		port:       port,
+		freshPKI:   cfg.FreshPKI,
 		logger:     common.NewColorLogger(),
 	}
+}
+
+// provisionPKI restores the persisted cluster PKI (CA + SA + front-proxy + etcd CA)
+// from 1Password onto node0 BEFORE `kubeadm init`, so a rebuilt cluster keeps a
+// stable identity (existing kubeconfigs + ServiceAccount tokens stay valid).
+// kubeadm reuses any CA present in /etc/kubernetes/pki. No-op when --fresh-pki is
+// set or 1Password holds no material (first-ever bootstrap) — kubeadm then mints
+// a fresh CA. base64 is decoded on the node.
+func (o *Orchestrator) provisionPKI(runner commandRunner) error {
+	if o.freshPKI {
+		o.logger.Warn("--fresh-pki: skipping PKI restore; kubeadm will generate a NEW cluster CA (existing kubeconfigs will break)")
+		return nil
+	}
+	blobs := make(map[string]string, len(pkiBlobs))
+	for _, b := range pkiBlobs {
+		if v := strings.TrimSpace(pkiSecretFn(b.opRef)); v != "" {
+			blobs[b.path] = v
+		}
+	}
+	if blobs["ca.crt"] == "" || blobs["ca.key"] == "" {
+		o.logger.Warn("No persisted cluster PKI in 1Password (%s) — kubeadm will generate a fresh CA", constants.OpPKICACrt)
+		return nil
+	}
+	o.logger.Info("Restoring persisted cluster PKI to /etc/kubernetes/pki (stable identity across rebuilds)")
+	if _, err := runner.ExecuteCommand("sudo mkdir -p /etc/kubernetes/pki/etcd"); err != nil {
+		return fmt.Errorf("mkdir /etc/kubernetes/pki: %w", err)
+	}
+	for _, b := range pkiBlobs {
+		v, ok := blobs[b.path]
+		if !ok {
+			continue
+		}
+		dst := "/etc/kubernetes/pki/" + b.path
+		// base64 alphabet has no shell metacharacters; single-quote defensively.
+		cmd := fmt.Sprintf("printf '%%s' '%s' | base64 -d | sudo tee %s >/dev/null && sudo chmod %s %s && sudo chown root:root %s",
+			v, dst, b.mode, dst, dst)
+		if _, err := runner.ExecuteCommand(cmd); err != nil {
+			return fmt.Errorf("restore %s: %w", dst, err)
+		}
+	}
+	return nil
 }
 
 func (o *Orchestrator) runnerFor(host string) commandRunner {
@@ -103,6 +170,12 @@ func (o *Orchestrator) InitFirstControlPlane(node0IP, initConfig string, skipPha
 		return nil, fmt.Errorf("failed to connect to node0 %s: %w", node0IP, err)
 	}
 	defer func() { _ = runner.Close() }()
+
+	// Restore the persisted cluster PKI before init so the cluster identity is
+	// stable across rebuilds (kubeadm reuses an existing CA). No-op for fresh-pki.
+	if err := o.provisionPKI(runner); err != nil {
+		return nil, fmt.Errorf("failed to restore cluster PKI on %s: %w", node0IP, err)
+	}
 
 	if err := writeRemoteFileFn(runner, remoteInitConfigPath, initConfig); err != nil {
 		return nil, fmt.Errorf("failed to stage kubeadm init config on %s: %w", node0IP, err)
