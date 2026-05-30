@@ -10,7 +10,7 @@ After deploying your Cloudflare Worker, use these badge examples in your README.
 <div align="center">
 
 [![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
-[![Talos](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Ftalos_version&style=for-the-badge&logo=talos&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://talos.dev)&nbsp;&nbsp;
+[![Flatcar](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Ftalos_version&style=for-the-badge&logo=flatcar&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://flatcar.org)&nbsp;&nbsp;
 [![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Fkubernetes_version&style=for-the-badge&logo=kubernetes&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://kubernetes.io)&nbsp;&nbsp;
 [![Flux](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Fflux_version&style=for-the-badge&logo=flux&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://fluxcd.io)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/github/actions/workflow/status/GizmoTickler/home-ops/renovate.yaml?branch=main&label=&logo=renovatebot&style=for-the-badge&color=blue)](https://github.com/GizmoTickler/home-ops/actions/workflows/renovate.yaml)
@@ -102,7 +102,8 @@ Change the `style` parameter:
 ### Logos
 
 Add logo with `logo` parameter:
-- `talos` - Talos Linux
+- `flatcar` - Flatcar Container Linux (current cluster OS)
+- `talos` - Talos Linux (legacy)
 - `kubernetes` - Kubernetes
 - `flux` - Flux
 - `prometheus` - Prometheus
@@ -135,13 +136,16 @@ Here's the complete section you can add after deploying:
 
 ### 🚀 Home Operations Repository 🚧
 
-_Kubernetes cluster running on ESXi VMs with TrueNAS storage, managed with Talos, Flux, and GitOps_ 🤖
+_Kubernetes cluster running on Proxmox VMs, managed with Flatcar Container Linux + kubeadm, Flux, and GitOps_ 🤖
+
+<!-- Note: the version badge endpoint is still served at /talos_version (kromgo metric name retained), but renders the Flatcar version + logo. -->
+
 
 </div>
 
 <div align="center">
 
-[![Talos](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Ftalos_version&style=for-the-badge&logo=talos&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://www.talos.dev/)&nbsp;&nbsp;
+[![Flatcar](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Ftalos_version&style=for-the-badge&logo=flatcar&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://www.flatcar.org/)&nbsp;&nbsp;
 [![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Fkubernetes_version&style=for-the-badge&logo=kubernetes&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://kubernetes.io/)&nbsp;&nbsp;
 [![Flux](https://img.shields.io/endpoint?url=https%3A%2F%2F<WORKER_URL>%2Fflux_version&style=for-the-badge&logo=flux&logoColor=white&color=blue&label=%20&cacheSeconds=60)](https://fluxcd.io/)&nbsp;&nbsp;
 [![Renovate](https://img.shields.io/badge/Renovate-enabled-blue?style=for-the-badge&logo=renovatebot&logoColor=white)](https://renovatebot.com/)
