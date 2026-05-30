@@ -143,11 +143,96 @@ jobs:
     env:
       MATRIX_IMAGE: ${{ matrix.image }}
     steps:
-      - name: Install talosctl
-        run: curl -fsSL https://raw.githubusercontent.com/siderolabs/talos/b412ffdbc29d77a81aed88be62f21bc2999afcde/website/static/install | sh
+      - name: Install kubectl
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o "$HOME/.local/bin/kubectl"
+          chmod +x "$HOME/.local/bin/kubectl"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - name: Pull Image
-        run: talosctl --nodes $NODE image pull "${MATRIX_IMAGE}"
+      # Flatcar+kubeadm replacement for `talosctl image pull`: kubelet on every node
+      # pulls the image into containerd via a short-lived DaemonSet (spegel then
+      # mirrors it across peers). Driven by the in-cluster home-ops-runner SA
+      # (cluster-admin); no kubeconfig/talosctl/Talos machine API needed.
+      - name: Pre-pull image on all nodes via transient DaemonSet
+        env:
+          NAMESPACE: actions-runner-system
+        run: |
+          set -euo pipefail
+          NAME="image-pull-$(printf '%s' "$MATRIX_IMAGE" | sha256sum | cut -c1-12)"
+          echo "Pre-pulling $MATRIX_IMAGE as DaemonSet $NAME in $NAMESPACE"
+
+          cleanup() {
+            kubectl -n "$NAMESPACE" delete daemonset "$NAME" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          # We do NOT override the image's command: the pull is proven by the absence
+          # of an image-pull error regardless of whether the entrypoint runs/exits/crashes
+          # (distroless-safe). Tolerate all taints so it warms control-plane nodes too.
+          kubectl apply --server-side -f - <<EOF
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: ${NAME}
+            namespace: ${NAMESPACE}
+            labels:
+              app.kubernetes.io/managed-by: image-pull-workflow
+          spec:
+            selector:
+              matchLabels:
+                app: ${NAME}
+            template:
+              metadata:
+                labels:
+                  app: ${NAME}
+              spec:
+                terminationGracePeriodSeconds: 0
+                automountServiceAccountToken: false
+                tolerations:
+                  - operator: Exists
+                containers:
+                  - name: prepull
+                    image: "${MATRIX_IMAGE}"
+                    imagePullPolicy: IfNotPresent
+                    resources:
+                      requests:
+                        cpu: 5m
+                        memory: 16Mi
+                      limits:
+                        memory: 64Mi
+          EOF
+
+          DESIRED=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          echo "Expecting image present on $DESIRED node(s)"
+
+          deadline=$(( $(date +%s) + 480 ))
+          while :; do
+            states=$(kubectl -n "$NAMESPACE" get pods -l "app=${NAME}" \
+              -o jsonpath='{range .items[*]}{.status.containerStatuses[0].state.waiting.reason}{"|"}{.status.containerStatuses[0].ready}{"|"}{.status.containerStatuses[0].state.running.startedAt}{"|"}{.status.containerStatuses[0].state.terminated.reason}{"\n"}{end}' 2>/dev/null || true)
+
+            # Hard-fail on a genuine pull error (bad tag / nonexistent image).
+            if printf '%s\n' "$states" | grep -Eq 'ErrImagePull|ImagePullBackOff|InvalidImageName|RegistryUnavailable'; then
+              echo "::error::Image pull FAILED for ${MATRIX_IMAGE}"
+              kubectl -n "$NAMESPACE" describe pods -l "app=${NAME}" || true
+              exit 1
+            fi
+
+            # A node is warm once its pod is past the pull stage (running/terminated/
+            # crashlooping = image present; only a pull-reason waiting state isn't).
+            warmed=$(printf '%s\n' "$states" | grep -Ev '^\|' | grep -Ec 'true|[0-9]{4}-[0-9]{2}-[0-9]{2}T|Completed|Error|CrashLoopBackOff|RunContainerError|StartError' || true)
+            echo "Warm nodes: ${warmed}/${DESIRED}"
+            if [ "${warmed:-0}" -ge "$DESIRED" ] && [ "$DESIRED" -gt 0 ]; then
+              echo "Image ${MATRIX_IMAGE} present on all ${DESIRED} node(s)"
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::Timed out warming ${MATRIX_IMAGE} (${warmed:-0}/${DESIRED} nodes)"
+              kubectl -n "$NAMESPACE" describe pods -l "app=${NAME}" || true
+              exit 1
+            fi
+            sleep 5
+          done
 
   success:
     if: ${{ !cancelled() }}
