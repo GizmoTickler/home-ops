@@ -55,7 +55,7 @@ jobs:
           additional_permissions: |
             actions: read
           custom_instructions: |-
-            This is a Kubernetes GitOps repository using Flux CD, Helm, and Talos Linux.
+            This is a Kubernetes GitOps repository using Flux CD, Helm, and Flatcar Container Linux + kubeadm.
             Key patterns: HelmRelease + OCIRepository per app, SOPS/age for secrets,
             External Secrets from 1Password, Cilium CNI, Rook Ceph storage.
             When suggesting changes, follow existing patterns in the repository.
