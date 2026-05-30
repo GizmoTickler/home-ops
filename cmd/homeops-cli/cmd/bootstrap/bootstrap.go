@@ -39,7 +39,11 @@ type BootstrapConfig struct {
 	SkipResources bool
 	SkipHelmfile  bool
 	SkipPreflight bool
-	Verbose       bool
+	// SkipKubeadm (flatcar provider) skips kubeadm init/join (steps 1+3) and runs
+	// only the post-CNI bootstrap (Cilium/helmfile/Flux) against an already-built
+	// control plane; the kubeconfig is still fetched from node0 (step 2).
+	SkipKubeadm bool
+	Verbose     bool
 	// Provider selects the node-provisioning path: "talos" (default, existing
 	// behavior) or "flatcar" (kubeadm-over-SSH). Only the pre-CNI steps differ;
 	// the generic post-CNI steps are shared.
@@ -323,6 +327,7 @@ func NewCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&config.SkipResources, "skip-resources", false, "Skip resource creation")
 	cmd.Flags().BoolVar(&config.SkipHelmfile, "skip-helmfile", false, "Skip Helmfile sync")
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
+	cmd.Flags().BoolVar(&config.SkipKubeadm, "skip-kubeadm", false, "Flatcar: skip kubeadm init/join; run only post-CNI bootstrap against an existing control plane")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
 	cmd.Flags().StringVar(&config.Provider, "provider", "talos", "Node provisioning provider: talos (default) or flatcar (kubeadm)")
 

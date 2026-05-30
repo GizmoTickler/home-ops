@@ -195,62 +195,74 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 1: Init first control-plane (node0).
 	var kubeadmResult *flatcar.KubeadmResult
-	if err := bootstrapRunWithSpinner(fmt.Sprintf("🎯 Step 1: kubeadm init on %s (%s)", node0.Name, node0.IP), config.Verbose, logger, func() error {
-		if config.DryRun {
-			logger.Info("[DRY RUN] Would render kubeadm init config and run kubeadm init on %s", node0.IP)
-			kubeadmResult = &flatcar.KubeadmResult{}
-			return nil
-		}
-		initEnv := buildFlatcarNodeEnv(node0, versions)
-		initConfig, rErr := flatcarRenderKubeadmInit(initEnv)
-		if rErr != nil {
-			return fmt.Errorf("failed to render kubeadm init config: %w", rErr)
-		}
-		res, iErr := orch.InitFirstControlPlane(node0.IP, initConfig, nil)
-		if iErr != nil {
-			return fmt.Errorf("kubeadm init failed: %w", iErr)
-		}
-		if res == nil || res.BootstrapToken == "" || res.CACertHash == "" || res.CertificateKey == "" {
-			return fmt.Errorf("kubeadm init did not return complete join material (token/ca-hash/cert-key)")
-		}
-		kubeadmResult = res
-		return nil
-	}); err != nil {
-		return err
+	if config.SkipKubeadm {
+		logger.Warn("⚠️  Skipping kubeadm init/join (--skip-kubeadm): using existing control plane")
 	}
-
-	// Step 2: Fetch + save + validate kubeconfig (reuse 1Password save +
-	// validate helpers from bootstrap.go).
-	if err := bootstrapRunWithSpinner("🔑 Step 2: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
-		return fetchFlatcarKubeconfig(config, orch, node0, logger)
-	}); err != nil {
-		return err
-	}
-
-	// Step 3: Join the remaining control-plane nodes (via the VIP).
-	for _, node := range nodes[1:] {
-		node := node
-		if err := bootstrapRunWithSpinner(fmt.Sprintf("➕ Step 3: kubeadm join %s (%s) as control-plane", node.Name, node.IP), config.Verbose, logger, func() error {
+	if !config.SkipKubeadm {
+		if err := bootstrapRunWithSpinner(fmt.Sprintf("🎯 Step 1: kubeadm init on %s (%s)", node0.Name, node0.IP), config.Verbose, logger, func() error {
 			if config.DryRun {
-				logger.Info("[DRY RUN] Would render kubeadm join config and join %s via VIP %s", node.IP, constants.DefaultControlPlaneVIP)
+				logger.Info("[DRY RUN] Would render kubeadm init config and run kubeadm init on %s", node0.IP)
+				kubeadmResult = &flatcar.KubeadmResult{}
 				return nil
 			}
-			joinEnv := buildFlatcarNodeEnv(node, versions)
-			joinEnv.BootstrapToken = kubeadmResult.BootstrapToken
-			joinEnv.CACertHash = kubeadmResult.CACertHash
-			joinEnv.CertificateKey = kubeadmResult.CertificateKey
-			joinConfig, rErr := flatcarRenderKubeadmJoin(joinEnv)
+			initEnv := buildFlatcarNodeEnv(node0, versions)
+			initConfig, rErr := flatcarRenderKubeadmInit(initEnv)
 			if rErr != nil {
-				return fmt.Errorf("failed to render kubeadm join config for %s: %w", node.Name, rErr)
+				return fmt.Errorf("failed to render kubeadm init config: %w", rErr)
 			}
-			if jErr := orch.JoinControlPlane(node.IP, joinConfig); jErr != nil {
-				return fmt.Errorf("kubeadm join failed for %s: %w", node.Name, jErr)
+			res, iErr := orch.InitFirstControlPlane(node0.IP, initConfig, nil)
+			if iErr != nil {
+				return fmt.Errorf("kubeadm init failed: %w", iErr)
 			}
+			if res == nil || res.BootstrapToken == "" || res.CACertHash == "" || res.CertificateKey == "" {
+				return fmt.Errorf("kubeadm init did not return complete join material (token/ca-hash/cert-key)")
+			}
+			kubeadmResult = res
 			return nil
 		}); err != nil {
 			return err
 		}
+	} // end if !SkipKubeadm (step 1 init)
+
+	// Step 2: Fetch + save + validate kubeconfig (reuse 1Password save +
+	// validate helpers from bootstrap.go). Skipped with --skip-kubeadm; the
+	// caller must pass --kubeconfig for an already-built control plane.
+	if !config.SkipKubeadm {
+		if err := bootstrapRunWithSpinner("🔑 Step 2: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
+			return fetchFlatcarKubeconfig(config, orch, node0, logger)
+		}); err != nil {
+			return err
+		}
+	} else {
+		logger.Info("Using provided --kubeconfig: %s", config.KubeConfig)
 	}
+
+	// Step 3: Join the remaining control-plane nodes (via the VIP).
+	if !config.SkipKubeadm {
+		for _, node := range nodes[1:] {
+			node := node
+			if err := bootstrapRunWithSpinner(fmt.Sprintf("➕ Step 3: kubeadm join %s (%s) as control-plane", node.Name, node.IP), config.Verbose, logger, func() error {
+				if config.DryRun {
+					logger.Info("[DRY RUN] Would render kubeadm join config and join %s via VIP %s", node.IP, constants.DefaultControlPlaneVIP)
+					return nil
+				}
+				joinEnv := buildFlatcarNodeEnv(node, versions)
+				joinEnv.BootstrapToken = kubeadmResult.BootstrapToken
+				joinEnv.CACertHash = kubeadmResult.CACertHash
+				joinEnv.CertificateKey = kubeadmResult.CertificateKey
+				joinConfig, rErr := flatcarRenderKubeadmJoin(joinEnv)
+				if rErr != nil {
+					return fmt.Errorf("failed to render kubeadm join config for %s: %w", node.Name, rErr)
+				}
+				if jErr := orch.JoinControlPlane(node.IP, joinConfig); jErr != nil {
+					return fmt.Errorf("kubeadm join failed for %s: %w", node.Name, jErr)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+	} // end if !SkipKubeadm (step 3 joins)
 	logger.Info("Nodes will report NotReady until the CNI is installed (expected)")
 
 	// Step 4: Install Cilium (CNI) BEFORE Flux so nodes go Ready and the
