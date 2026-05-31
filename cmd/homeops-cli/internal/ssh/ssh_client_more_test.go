@@ -26,26 +26,26 @@ case "$last" in
   "echo test")
     printf 'ran-command'
     ;;
-  "sudo mkdir -p /remote")
+  "sudo mkdir -p '/remote'")
     exit 0
     ;;
-  "sudo wget -O /remote/file.iso https://example.com/file.iso")
+  "sudo wget -O '/remote/file.iso' 'https://example.com/file.iso'")
     echo 'wget failed' >&2
     exit 1
     ;;
-  "sudo curl -L -o /remote/file.iso https://example.com/file.iso")
+  "sudo curl -L -o '/remote/file.iso' 'https://example.com/file.iso'")
     printf 'curl-ok'
     ;;
-  "stat -c '%s' /remote/existing.iso 2>/dev/null || echo 'FILE_NOT_FOUND'")
+  "stat -c '%s' '/remote/existing.iso' 2>/dev/null || echo 'FILE_NOT_FOUND'")
     printf '1234'
     ;;
-  "stat -c '%s' /remote/missing.iso 2>/dev/null || echo 'FILE_NOT_FOUND'")
+  "stat -c '%s' '/remote/missing.iso' 2>/dev/null || echo 'FILE_NOT_FOUND'")
     printf 'FILE_NOT_FOUND'
     ;;
-  "stat -c '%s' /remote/bad.iso 2>/dev/null || echo 'FILE_NOT_FOUND'")
+  "stat -c '%s' '/remote/bad.iso' 2>/dev/null || echo 'FILE_NOT_FOUND'")
     printf 'not-a-number'
     ;;
-  "sudo rm -f /remote/file.iso")
+  "sudo rm -f '/remote/file.iso'")
     printf 'removed'
     ;;
   *)

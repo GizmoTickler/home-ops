@@ -104,12 +104,13 @@ var (
 			dir = "/"
 		}
 		// base64-encode so the JSON travels safely inside the remote shell command.
-		// Use a heredoc so the base64 payload is never interpolated by the shell.
-		// Paths are single-quoted to survive spaces (though they are fixed deploy-time
-		// paths from --snippets-dir + --node, which are both validated and alphanumeric).
+		// Use a heredoc so the base64 payload is never interpolated by the shell, and
+		// ShellQuote the paths. runDeployVM already rejects snippets-dir/image paths
+		// containing shell metacharacters or commas (common.ValidateProxmoxOptValue),
+		// so this is defense-in-depth rather than the only guard.
 		b64 := base64.StdEncoding.EncodeToString(content)
-		cmd := fmt.Sprintf("mkdir -p '%s' && base64 -d <<'HOMEOPS_EOF' > '%s'\n%s\nHOMEOPS_EOF",
-			dir, remotePath, b64)
+		cmd := fmt.Sprintf("mkdir -p %s && base64 -d <<'HOMEOPS_EOF' > %s\n%s\nHOMEOPS_EOF",
+			common.ShellQuote(dir), common.ShellQuote(remotePath), b64)
 		if _, err := client.ExecuteCommand(cmd); err != nil {
 			return fmt.Errorf("write ignition to %s on %s: %w", remotePath, sshHost, err)
 		}
@@ -673,6 +674,26 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 
 	if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun {
 		return fmt.Errorf("one of --image-path or --image-volume is required")
+	}
+
+	// Validate every value that gets interpolated into a Proxmox option string
+	// (import-from=, fw_cfg file=) or a remote shell command. Proxmox options are
+	// comma-separated key=val pairs, so a comma/space/quote/metacharacter here
+	// would break parsing or inject a command. (This is the validation the
+	// uploadIgnitionToPVEFn comment refers to — node names are separately gated
+	// to a predefined set by getFlatcarNodeConfigFn.)
+	if err := common.ValidateProxmoxOptValue("--snippets-dir", opts.snippetsDir); err != nil {
+		return err
+	}
+	if opts.imagePath != "" {
+		if err := common.ValidateProxmoxOptValue("--image-path", opts.imagePath); err != nil {
+			return err
+		}
+	}
+	if opts.imageVolume != "" {
+		if err := common.ValidateProxmoxOptValue("--image-volume", opts.imageVolume); err != nil {
+			return err
+		}
 	}
 
 	// Resolve Proxmox credentials up front. The rendered Ignition must be written to

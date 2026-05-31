@@ -1170,8 +1170,10 @@ func resolveVSphereCredentials() (host, username, password string, usedEnvFallba
 	return host, username, password, usedEnvFallback
 }
 
+// shellQuote delegates to common.ShellQuote — the single source of truth for
+// POSIX single-quote escaping shared with the ssh package.
 func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
+	return common.ShellQuote(value)
 }
 
 func parseRegisteredVMID(output string) (string, error) {

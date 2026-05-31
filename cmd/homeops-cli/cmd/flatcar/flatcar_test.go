@@ -357,4 +357,41 @@ func TestDeployVMRealPath(t *testing.T) {
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
 }
 
+// TestRunDeployVMRejectsUnsafeProxmoxOpts asserts deploy-vm refuses values that
+// would break a Proxmox option string (import-from=, fw_cfg file=) or inject a
+// shell command. Validation runs before any credential/render call, so these
+// failure cases need no stubbing.
+func TestRunDeployVMRejectsUnsafeProxmoxOpts(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+
+	base := deployVMOptions{
+		nodes:       []string{"k8s-0"},
+		snippetsDir: "/var/lib/vz/snippets",
+		imagePath:   "/mnt/flashstor/images/flatcar.raw",
+		dryRun:      true,
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*deployVMOptions)
+		want   string
+	}{
+		{"comma in image-path", func(o *deployVMOptions) { o.imagePath = "/mnt/a,b.raw" }, "--image-path"},
+		{"semicolon in snippets-dir", func(o *deployVMOptions) { o.snippetsDir = "/var/lib/vz/snippets;reboot" }, "--snippets-dir"},
+		{"space in image-volume", func(o *deployVMOptions) { o.imagePath = ""; o.imageVolume = "local-zfs:vm 1" }, "--image-volume"},
+		{"command substitution in image-path", func(o *deployVMOptions) { o.imagePath = "/mnt/$(reboot).raw" }, "--image-path"},
+		{"empty snippets-dir", func(o *deployVMOptions) { o.snippetsDir = "" }, "--snippets-dir"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			opts := base
+			c.mutate(&opts)
+			err := runDeployVM(cmd, opts)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), c.want)
+		})
+	}
+}
+
 var _ = cobra.Command{}

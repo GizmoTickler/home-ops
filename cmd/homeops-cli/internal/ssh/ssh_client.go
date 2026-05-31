@@ -115,22 +115,25 @@ func combinedCommandOutput(result common.CommandResult) string {
 func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
 	c.logger.Info("Downloading ISO from %s to %s", isoURL, remotePath)
 
-	// Create the directory if it doesn't exist (using sudo for permissions)
+	// Create the directory if it doesn't exist (using sudo for permissions).
+	// remotePath/isoURL are single-quoted: they may contain spaces or shell
+	// metacharacters, and an unquoted interpolation here is a command-injection
+	// (and wrong-file) vector.
 	dirPath := filepath.Dir(remotePath)
-	mkdirCmd := fmt.Sprintf("sudo mkdir -p %s", dirPath)
+	mkdirCmd := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(dirPath))
 	if _, err := c.ExecuteCommand(mkdirCmd); err != nil {
 		c.logger.Warn("Failed to create directory (may already exist): %v", err)
 	}
 
 	// Download the ISO using wget or curl (using sudo for write permissions)
-	downloadCmd := fmt.Sprintf("sudo wget -O %s %s", remotePath, isoURL)
+	downloadCmd := fmt.Sprintf("sudo wget -O %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL))
 	c.logger.Debug("Download command: %s", downloadCmd)
 
 	_, err := c.ExecuteCommand(downloadCmd)
 	if err != nil {
 		// Try with curl as fallback (using sudo for write permissions)
 		c.logger.Debug("wget failed, trying curl: %v", err)
-		curlCmd := fmt.Sprintf("sudo curl -L -o %s %s", remotePath, isoURL)
+		curlCmd := fmt.Sprintf("sudo curl -L -o %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL))
 		output, err := c.ExecuteCommand(curlCmd)
 		if err != nil {
 			return fmt.Errorf("failed to download ISO with both wget and curl: %w\nOutput: %s", err, output)
@@ -145,8 +148,9 @@ func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
 func (c *SSHClient) VerifyFile(remotePath string) (bool, int64, error) {
 	c.logger.Debug("Verifying file: %s", remotePath)
 
-	// Check if file exists and get its size
-	statCmd := fmt.Sprintf("stat -c '%%s' %s 2>/dev/null || echo 'FILE_NOT_FOUND'", remotePath)
+	// Check if file exists and get its size. remotePath is single-quoted to
+	// neutralize spaces and shell metacharacters.
+	statCmd := fmt.Sprintf("stat -c '%%s' %s 2>/dev/null || echo 'FILE_NOT_FOUND'", common.ShellQuote(remotePath))
 	output, err := c.ExecuteCommand(statCmd)
 	if err != nil {
 		return false, 0, fmt.Errorf("failed to check file: %w", err)
@@ -171,7 +175,9 @@ func (c *SSHClient) VerifyFile(remotePath string) (bool, int64, error) {
 func (c *SSHClient) RemoveFile(remotePath string) error {
 	c.logger.Debug("Removing file: %s", remotePath)
 
-	removeCmd := fmt.Sprintf("sudo rm -f %s", remotePath)
+	// remotePath is single-quoted so a value containing whitespace or shell
+	// metacharacters cannot expand into "rm -f" of the wrong target.
+	removeCmd := fmt.Sprintf("sudo rm -f %s", common.ShellQuote(remotePath))
 	_, err := c.ExecuteCommand(removeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove file: %w", err)
