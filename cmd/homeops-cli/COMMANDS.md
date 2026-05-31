@@ -142,6 +142,27 @@ Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrency`, `--init`,
 `--pause-image`, `--pve-ssh-host`/`--pve-ssh-port`, `--snippets-dir`,
 `--image-path`/`--image-volume`, `--interface`, `--power-on`, `--dry-run`.
 
+### Flatcar lifecycle vs the legacy Talos verbs
+
+Some operations the `talos` group exposes as imperative verbs are handled
+differently on Flatcar/kubeadm and intentionally have **no `flatcar` verb**:
+
+- **Kubernetes upgrades** — GitOps-driven by the System Upgrade Controller Plan
+  (`kubernetes/apps/system-upgrade/kubeadm-upgrade/`); bump the Plan version in
+  Git rather than running an imperative `upgrade-k8s`. (Node-level changes ship
+  via Ignition/sysext.)
+- **Node reboots** — orchestrated by `kured` (drains + reboots one node at a time
+  when a sysext/OS update stages `/run/reboot-required`); no manual `reboot-node`.
+- **VM lifecycle** (list/start/stop/poweron/poweroff/info/delete) — use
+  `homeops-cli talos manage-vm …`, which drives the **shared, provider-agnostic**
+  Proxmox VM manager by VM name and therefore manages the `k8s-0/1/2` Flatcar VMs
+  too. (The command lives under `talos` for historical reasons; the underlying
+  manager is not Talos-specific.)
+
+The `flatcar` verbs that *do* exist — `bootstrap --provider flatcar`, `deploy-vm`,
+`render-ignition`, `gen-kubeadm`, `save-pki`, `kubeconfig`, `reset-node`,
+`reset-cluster` — cover the operations without a GitOps/shared-tool equivalent.
+
 ## Talos (legacy)
 
 > **Legacy provider.** The cluster runs Flatcar + kubeadm (see **Flatcar**

@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -301,6 +303,65 @@ func TestRunBootstrapDispatchesToFlatcar(t *testing.T) {
 }
 
 // TestKubernetesMinor moved to internal/flatcar (KubernetesMinor now lives there).
+
+func TestFetchFlatcarKubeconfig(t *testing.T) {
+	oldSave, oldPatch, oldValidate := bootstrapSaveKubeconfig, bootstrapPatchKubeconfig, bootstrapValidateKubeconfig
+	var saved, validated bool
+	var patchedPath, patchedIP string
+	bootstrapSaveKubeconfig = func([]byte, *common.ColorLogger) error { saved = true; return nil }
+	bootstrapPatchKubeconfig = func(path, ip string, _ *common.ColorLogger) error { patchedPath, patchedIP = path, ip; return nil }
+	bootstrapValidateKubeconfig = func(*BootstrapConfig, *common.ColorLogger) error { validated = true; return nil }
+	defer func() {
+		bootstrapSaveKubeconfig, bootstrapPatchKubeconfig, bootstrapValidateKubeconfig = oldSave, oldPatch, oldValidate
+	}()
+
+	kcPath := filepath.Join(t.TempDir(), "kubeconfig")
+	cfg := &BootstrapConfig{KubeConfig: kcPath}
+	orch := &fakeOrchestrator{fetchKubeconfig: "apiVersion: v1\nkind: Config\nclusters: []\n"}
+	node0 := flatcarBootstrapNode{Name: "k8s-0", IP: "192.168.122.10"}
+
+	if err := fetchFlatcarKubeconfig(cfg, orch, node0, common.NewColorLogger()); err != nil {
+		t.Fatalf("fetchFlatcarKubeconfig: %v", err)
+	}
+	if orch.fetchCalledWith != "192.168.122.10" {
+		t.Errorf("fetched from %q, want 192.168.122.10", orch.fetchCalledWith)
+	}
+	data, err := os.ReadFile(kcPath)
+	if err != nil {
+		t.Fatalf("read kubeconfig: %v", err)
+	}
+	if !strings.Contains(string(data), "apiVersion: v1") {
+		t.Errorf("kubeconfig content missing apiVersion: %q", string(data))
+	}
+	if info, sErr := os.Stat(kcPath); sErr != nil {
+		t.Fatalf("stat kubeconfig: %v", sErr)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Errorf("kubeconfig mode = %v, want 0600", info.Mode().Perm())
+	}
+	if !saved {
+		t.Error("expected kubeconfig saved to 1Password")
+	}
+	if patchedPath != kcPath || patchedIP != "192.168.122.10" {
+		t.Errorf("patch called with (%q,%q), want (%q, 192.168.122.10)", patchedPath, patchedIP, kcPath)
+	}
+	if !validated {
+		t.Error("expected kubeconfig validated")
+	}
+}
+
+func TestFetchFlatcarKubeconfigDryRun(t *testing.T) {
+	orch := &fakeOrchestrator{fetchKubeconfig: "nope"}
+	cfg := &BootstrapConfig{DryRun: true, KubeConfig: filepath.Join(t.TempDir(), "kc")}
+	if err := fetchFlatcarKubeconfig(cfg, orch, flatcarBootstrapNode{Name: "k8s-0", IP: "1.2.3.4"}, common.NewColorLogger()); err != nil {
+		t.Fatalf("dry-run fetchFlatcarKubeconfig: %v", err)
+	}
+	if orch.fetchCalledWith != "" {
+		t.Error("dry-run must not fetch from a node")
+	}
+	if _, err := os.Stat(cfg.KubeConfig); !os.IsNotExist(err) {
+		t.Error("dry-run must not write a kubeconfig file")
+	}
+}
 
 func TestCheckFlatcarNodeReady(t *testing.T) {
 	oldNewRunner := flatcarNewSSHRunner
