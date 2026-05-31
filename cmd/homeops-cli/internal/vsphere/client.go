@@ -362,6 +362,54 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 	return vm, nil
 }
 
+// CloneFlatcarVM clones a pre-staged Flatcar template VM (booting from the
+// template's existing OS disk) and injects the per-node Ignition via guestinfo
+// ExtraConfig. This is the canonical Flatcar-on-vSphere provisioning path: the
+// official Flatcar OVA is imported once as a template (config.TemplateName) and
+// each node is a clone of it with its own guestinfo + CPU/memory. Unlike CreateVM
+// (Talos: fresh NVMe disks + ISO boot), no install ISO is attached.
+func (c *Client) CloneFlatcarVM(config VMConfig) (*object.VirtualMachine, error) {
+	if config.TemplateName == "" {
+		return nil, fmt.Errorf("vSphere Flatcar deploy requires a template name (the imported Flatcar OVA)")
+	}
+	if config.IgnitionData == "" {
+		return nil, fmt.Errorf("vSphere Flatcar deploy requires base64 Ignition data for guestinfo")
+	}
+
+	tmpl, err := findVirtualMachineFn(c.finder, c.ctx, config.TemplateName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find Flatcar template %q: %w", config.TemplateName, err)
+	}
+	pool, err := c.finder.DefaultResourcePool(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find resource pool: %w", err)
+	}
+	datastore, err := c.finder.Datastore(c.ctx, config.Datastore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find datastore %s: %w", config.Datastore, err)
+	}
+	folders, err := c.datacenter.Folders(c.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get folders: %w", err)
+	}
+
+	spec := buildFlatcarCloneSpec(config, pool.Reference(), datastore.Reference())
+
+	c.logger.Info("Cloning Flatcar VM %s from template %s...", config.Name, config.TemplateName)
+	task, err := tmpl.Clone(c.ctx, folders.VmFolder, config.Name, spec)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clone Flatcar VM %s: %w", config.Name, err)
+	}
+	info, err := task.WaitForResult(c.ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to clone Flatcar VM %s: %w", config.Name, err)
+	}
+
+	vm := object.NewVirtualMachine(c.vim, info.Result.(types.ManagedObjectReference))
+	c.logger.Success("Flatcar VM %s cloned from template %s", config.Name, config.TemplateName)
+	return vm, nil
+}
+
 // PowerOnVM powers on a VM
 func (c *Client) PowerOnVM(vm *object.VirtualMachine) error {
 	return c.powerOnVM(objectVMLifecycle{vm: vm})
@@ -899,7 +947,42 @@ func buildExtraConfig(config VMConfig) []types.BaseOptionValue {
 	if config.ExposeCounters {
 		extraConfig = append(extraConfig, &types.OptionValue{Key: "monitor.phys_bits_used", Value: "45"})
 	}
+	// Flatcar Ignition delivery via VMware guestinfo. Ignition's VMware provider
+	// reads these keys on first boot; the config MUST be base64-encoded (unencoded
+	// data leads to Ignition failures), so the encoding key is always set.
+	if config.IgnitionData != "" {
+		extraConfig = append(extraConfig,
+			&types.OptionValue{Key: "guestinfo.ignition.config.data", Value: config.IgnitionData},
+			&types.OptionValue{Key: "guestinfo.ignition.config.data.encoding", Value: "base64"},
+		)
+	}
 	return extraConfig
+}
+
+// buildFlatcarCloneSpec builds the CloneSpec for one Flatcar node: relocate into
+// the target pool/datastore, override CPU/memory, inject the Ignition guestinfo
+// via ExtraConfig, and power on if requested. Pure (no I/O) so it is unit-tested
+// directly; CloneFlatcarVM wraps it with the live govmomi calls.
+func buildFlatcarCloneSpec(config VMConfig, pool, datastore types.ManagedObjectReference) types.VirtualMachineCloneSpec {
+	configSpec := &types.VirtualMachineConfigSpec{
+		ExtraConfig: buildExtraConfig(config),
+	}
+	if config.VCPUs > 0 {
+		configSpec.NumCPUs = int32(config.VCPUs)
+	}
+	if config.Memory > 0 {
+		configSpec.MemoryMB = int64(config.Memory)
+	}
+	poolRef := pool
+	dsRef := datastore
+	return types.VirtualMachineCloneSpec{
+		Location: types.VirtualMachineRelocateSpec{
+			Pool:      &poolRef,
+			Datastore: &dsRef,
+		},
+		Config:  configSpec,
+		PowerOn: config.PowerOn,
+	}
 }
 
 func buildInitialDeviceChanges(config VMConfig, datastoreRef types.ManagedObjectReference, backing types.BaseVirtualDeviceBackingInfo) []types.BaseVirtualDeviceConfigSpec {

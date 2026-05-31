@@ -50,6 +50,14 @@ type VMConfig struct {
 	// Talos specific
 	SchematicID  string // Optional: Talos factory schematic ID
 	TalosVersion string // Optional: Talos version
+
+	// Flatcar specific (Ignition via VMware guestinfo, clone-from-OVA-template).
+	// Flatcar does not boot an install ISO: the official Flatcar OVA is imported
+	// once as a template, each node is a clone of it, and the per-node Ignition is
+	// injected through guestinfo ExtraConfig (read by Ignition's VMware provider on
+	// first boot). See buildExtraConfig / buildFlatcarCloneSpec.
+	IgnitionData string // base64-encoded Ignition JSON (guestinfo.ignition.config.data)
+	TemplateName string // name of the imported Flatcar OVA template to clone
 }
 
 // VMDeploymentConfig represents configuration for batch VM deployment
