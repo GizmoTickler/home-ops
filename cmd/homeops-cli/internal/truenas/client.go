@@ -4,12 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/constants"
 
 	"github.com/truenas/api_client_golang/truenas_api"
 )
+
+// connectRetrySleep is the backoff used between TrueNAS connect attempts
+// (injectable in tests so they don't actually sleep).
+var connectRetrySleep = time.Sleep
 
 // VM represents a virtual machine
 type VM struct {
@@ -89,23 +94,28 @@ func (c *WorkingClient) Connect() error {
 	serverURL := fmt.Sprintf("%s://%s:%d/api/current", protocol, c.host, c.port)
 	common.NewColorLogger().Debug("Connecting to TrueNAS at %s", serverURL)
 
-	// Create client using official TrueNAS API client
-	client, err := truenas_api.NewClient(serverURL, !c.useSSL) // tlsSkipVerify is opposite of useSSL
-	if err != nil {
-		return fmt.Errorf("failed to create TrueNAS client: %w", err)
-	}
+	// Retry the websocket dial + login on transient failures. A wrong API key
+	// surfaces as a non-transient "authentication failed" and is not retried.
+	return common.Retry(common.RetryConfig{
+		Attempts:  4,
+		BaseDelay: time.Second,
+		MaxDelay:  8 * time.Second,
+		Sleep:     connectRetrySleep,
+	}, func() error {
+		client, err := truenas_api.NewClient(serverURL, !c.useSSL) // tlsSkipVerify is opposite of useSSL
+		if err != nil {
+			return fmt.Errorf("failed to create TrueNAS client: %w", err)
+		}
+		c.client = client
 
-	c.client = client
-
-	// Authenticate using the working pattern: empty username/password, API key only
-	common.NewColorLogger().Debug("Authenticating with API key...")
-	err = c.client.Login("", "", c.apiKey)
-	if err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
-
-	common.NewColorLogger().Debug("Successfully connected to TrueNAS")
-	return nil
+		// Authenticate using the working pattern: empty username/password, API key only.
+		common.NewColorLogger().Debug("Authenticating with API key...")
+		if err := c.client.Login("", "", c.apiKey); err != nil {
+			return fmt.Errorf("authentication failed: %w", err)
+		}
+		common.NewColorLogger().Debug("Successfully connected to TrueNAS")
+		return nil
+	})
 }
 
 // Close closes the connection to TrueNAS

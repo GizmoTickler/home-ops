@@ -22,6 +22,10 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 )
 
+// connectRetrySleep is the backoff used between vSphere connect dials (injectable
+// in tests so they don't actually sleep).
+var connectRetrySleep = time.Sleep
+
 // Client represents a vSphere/ESXi client
 type Client struct {
 	client     *govmomi.Client
@@ -163,8 +167,16 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 	}
 	u.User = url.UserPassword(username, password)
 
-	// Create client
-	client, err := newGovmomiClientFn(c.ctx, u, insecure)
+	// Create client, retrying transient dial failures (connection refused / TLS
+	// handshake / i-o timeout) — vCenter/ESXi can be briefly unreachable.
+	client, err := common.RetryValue(common.RetryConfig{
+		Attempts:  4,
+		BaseDelay: time.Second,
+		MaxDelay:  8 * time.Second,
+		Sleep:     connectRetrySleep,
+	}, func() (*govmomi.Client, error) {
+		return newGovmomiClientFn(c.ctx, u, insecure)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create vSphere client: %w", err)
 	}

@@ -147,6 +147,64 @@ func TestSSHCommandTimeoutIsConfigured(t *testing.T) {
 	assert.Greater(t, defaultSSHCommandTimeout, time.Duration(0))
 }
 
+func TestSSHConnectRetriesOnTransientThenSucceeds(t *testing.T) {
+	origSleep := connectRetrySleep
+	connectRetrySleep = func(time.Duration) {}
+	defer func() { connectRetrySleep = origSleep }()
+
+	calls := 0
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		calls++
+		if calls < 3 {
+			// sshd not up yet: transient signal is in stderr, error is generic.
+			return common.CommandResult{Stderr: "ssh: connect to host nas port 22: Connection refused"}, errors.New("exit status 255")
+		}
+		return common.CommandResult{Stdout: "connection_test"}, nil
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "nas", Username: "admin", Port: "22"})
+	require.NoError(t, client.Connect())
+	assert.Equal(t, 3, calls, "should retry the refused connection until sshd answers")
+}
+
+func TestSSHConnectGivesUpAfterTransientFailures(t *testing.T) {
+	origSleep := connectRetrySleep
+	connectRetrySleep = func(time.Duration) {}
+	defer func() { connectRetrySleep = origSleep }()
+
+	calls := 0
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		calls++
+		return common.CommandResult{Stderr: "Connection refused"}, errors.New("exit status 255")
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "nas", Username: "admin", Port: "22"})
+	err := client.Connect()
+	require.Error(t, err)
+	assert.Equal(t, 5, calls, "should exhaust all attempts on a persistently transient failure")
+}
+
+func TestSSHConnectDoesNotRetryNonTransient(t *testing.T) {
+	origSleep := connectRetrySleep
+	connectRetrySleep = func(time.Duration) { t.Fatal("must not sleep on a non-transient connect failure") }
+	defer func() { connectRetrySleep = origSleep }()
+
+	calls := 0
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		calls++
+		// Auth/host-key failure (not transient): no Connection-refused/timeout signal.
+		return common.CommandResult{Stderr: "Permission denied (publickey)"}, errors.New("exit status 255")
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "nas", Username: "admin", Port: "22"})
+	err := client.Connect()
+	require.Error(t, err)
+	assert.Equal(t, 1, calls, "a permission-denied failure must not be retried")
+}
+
 func setCommandRunnerForTesting(runner func(context.Context, common.CommandOptions) (common.CommandResult, error)) func() {
 	old := runCommand
 	runCommand = runner

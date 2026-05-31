@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,10 @@ import (
 )
 
 const defaultSSHCommandTimeout = 2 * time.Minute
+
+// connectRetrySleep is the backoff used between SSH connect probes (injectable in
+// tests so they don't actually sleep).
+var connectRetrySleep = time.Sleep
 
 var runCommand = common.RunCommand
 
@@ -54,7 +59,25 @@ func (c *SSHClient) Connect() error {
 		return fmt.Errorf("SSH username is required")
 	}
 
-	result, err := c.runSSHCommand("echo", "connection_test")
+	// Probe with an idempotent command, retrying transient failures: right after a
+	// VM boots, sshd may not be listening yet (connection refused / timed out). ssh
+	// reports that in stderr while the error itself is a generic "exit status 255",
+	// so classify retryability on the command OUTPUT. ExecuteCommand is deliberately
+	// NOT retried — it may run mutating commands that must not run twice.
+	var result common.CommandResult
+	err := common.Retry(common.RetryConfig{
+		Attempts:  5,
+		BaseDelay: 2 * time.Second,
+		MaxDelay:  10 * time.Second,
+		Sleep:     connectRetrySleep,
+		Retryable: func(error) bool {
+			return common.IsRetryableError(errors.New(result.Stdout + result.Stderr))
+		},
+	}, func() error {
+		var e error
+		result, e = c.runSSHCommand("echo", "connection_test")
+		return e
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect via SSH to %s@%s:%s: %w\nOutput: %s", c.username, c.host, c.port, err, combinedCommandOutput(result))
 	}
