@@ -123,6 +123,68 @@ func TestVMManagerDeployVMValidation(t *testing.T) {
 	})
 }
 
+func TestVMManagerDeployFlatcarVM(t *testing.T) {
+	manager := NewVMManager("nas", "key", 443, true)
+
+	var createdVMs, createdDevices []map[string]interface{}
+	manager.client.callFn = func(method string, params interface{}, timeoutSeconds int64) (json.RawMessage, error) {
+		switch method {
+		case "vm.query":
+			return mustJSON(map[string]any{"result": []map[string]any{}}), nil
+		case "pool.dataset.query":
+			// Only the pre-staged Flatcar boot image exists.
+			args := params.([]interface{})
+			filters := args[0].([][]interface{})
+			target := filters[0][2].(string)
+			if target == "flashstor/VM/flatcar-cp-boot" {
+				return mustJSON(map[string]any{"result": []map[string]any{{"name": target, "type": "VOLUME"}}}), nil
+			}
+			return mustJSON(map[string]any{"result": []map[string]any{}}), nil
+		case "vm.create":
+			cfg := params.([]interface{})[0].(map[string]interface{})
+			createdVMs = append(createdVMs, cfg)
+			return mustJSON(map[string]any{"result": map[string]any{"id": 7, "name": cfg["name"]}}), nil
+		case "vm.device.create":
+			device := params.([]interface{})[0].(map[string]interface{})
+			createdDevices = append(createdDevices, device)
+			return mustJSON(map[string]any{"result": true}), nil
+		default:
+			return nil, fmt.Errorf("unexpected method %s", method)
+		}
+	}
+
+	err := manager.DeployVM(VMConfig{
+		Name:           "flatcar-cp",
+		Memory:         8192,
+		VCPUs:          4,
+		StoragePool:    "flashstor",
+		NetworkBridge:  "br0",
+		BootZVol:       "flashstor/VM/flatcar-cp-boot",
+		SkipZVolCreate: true,
+		Flatcar:        true,
+		IgnitionPath:   "/mnt/flashstor/VM/flatcar-cp.ign",
+	})
+	require.NoError(t, err)
+
+	require.Len(t, createdVMs, 1)
+	assert.Equal(t,
+		"-fw_cfg name=opt/org.flatcar-linux/config,file=/mnt/flashstor/VM/flatcar-cp.ign",
+		createdVMs[0]["command_line_args"], "Ignition delivered via fw_cfg command_line_args")
+	assert.Contains(t, createdVMs[0]["description"], "Flatcar")
+
+	// No install CD-ROM; just the pre-staged boot disk + NIC.
+	require.Len(t, createdDevices, 2)
+	dtypes := map[string]bool{}
+	for _, d := range createdDevices {
+		attrs := d["attributes"].(map[string]interface{})
+		dt := attrs["dtype"].(string)
+		assert.NotEqual(t, "CDROM", dt, "flatcar must not attach an install CD-ROM")
+		dtypes[dt] = true
+	}
+	assert.True(t, dtypes["DISK"], "boot disk attached")
+	assert.True(t, dtypes["NIC"], "NIC attached")
+}
+
 func TestVMManagerListAndInfoOutput(t *testing.T) {
 	manager := NewVMManager("nas", "key", 443, true)
 	manager.client.callFn = func(method string, params interface{}, timeoutSeconds int64) (json.RawMessage, error) {

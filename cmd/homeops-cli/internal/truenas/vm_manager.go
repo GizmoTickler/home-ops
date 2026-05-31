@@ -36,6 +36,14 @@ type VMConfig struct {
 	SchematicID  string // Optional: Talos factory schematic ID for custom ISOs
 	TalosVersion string // Optional: Specific Talos version for custom ISOs
 	CustomISO    bool   // Flag indicating if using a custom generated ISO
+
+	// Flatcar specific. A Flatcar node boots from a pre-staged image zvol
+	// (BootZVol, with SkipZVolCreate=true) instead of an install ISO; the rendered
+	// Ignition is written to IgnitionPath on the NAS and attached to qemu via
+	// command_line_args (-fw_cfg name=opt/org.flatcar-linux/config,file=...), which
+	// Ignition reads on first boot. Setting Flatcar selects this create path.
+	Flatcar      bool
+	IgnitionPath string // host path on the NAS to the rendered Ignition (.ign) file
 }
 
 // VMManager handles VM operations
@@ -388,6 +396,12 @@ func (vm *VMManager) getZVolPaths(config VMConfig) map[string]string {
 		}
 	}
 
+	// Flatcar nodes boot from a single pre-staged image disk; only attach (and
+	// verify) an OpenEBS disk if one was explicitly provided, never a derived path.
+	if config.Flatcar && config.OpenEBSZVol == "" {
+		return paths
+	}
+
 	if config.OpenEBSZVol != "" {
 		paths["openebs"] = config.OpenEBSZVol
 	} else {
@@ -507,6 +521,17 @@ func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 		"arch_type":                     nil,
 	}
 
+	// Flatcar: boot a pre-staged image and deliver Ignition through qemu fw_cfg.
+	// TrueNAS appends command_line_args to the qemu invocation (libvirt
+	// <qemu:commandline> passthrough), so this is the same mechanism Proxmox uses.
+	if config.Flatcar {
+		vmConfig["description"] = fmt.Sprintf("Flatcar Linux VM - %s", config.Name)
+		if config.IgnitionPath != "" {
+			vmConfig["command_line_args"] = fmt.Sprintf(
+				"-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
+		}
+	}
+
 	return vmConfig
 }
 
@@ -528,6 +553,10 @@ func (vm *VMManager) generateRandomSerial() string {
 }
 
 func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
+	if config.Flatcar {
+		return vm.createFlatcarVMDevices(vmID, config)
+	}
+
 	vm.logger.Info("Creating VM devices...")
 
 	// Generate MAC address if not provided
@@ -607,6 +636,53 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	}
 
 	vm.logger.Success("All VM devices created successfully")
+	return nil
+}
+
+// createFlatcarVMDevices attaches the devices for a Flatcar node: the pre-staged
+// boot image disk and a NIC (plus an OpenEBS disk if one was provided). Unlike the
+// Talos path there is no install CD-ROM — Flatcar boots the image disk and reads
+// its Ignition from fw_cfg (wired via command_line_args in buildVMConfig).
+func (vm *VMManager) createFlatcarVMDevices(vmID int, config VMConfig) error {
+	vm.logger.Info("Creating Flatcar VM devices...")
+
+	zvolPaths := vm.getZVolPaths(config)
+	bootPath := zvolPaths["boot"]
+	if bootPath == "" {
+		return fmt.Errorf("flatcar deploy requires a pre-staged boot zvol (set BootZVol)")
+	}
+
+	// Boot disk (order 1001) from the pre-staged Flatcar image.
+	if err := vm.createVMDevice(vmID, 1001, vm.buildDiskDeviceAttributes(bootPath)); err != nil {
+		return fmt.Errorf("failed to create boot disk device: %w", err)
+	}
+	vm.logger.Info("Created Flatcar boot disk device: /dev/zvol/%s", bootPath)
+
+	// Network device (order 1002).
+	macAddress := config.MacAddress
+	if macAddress == "" {
+		macAddress = vm.generateRandomMAC()
+	}
+	if err := vm.createVMDevice(vmID, 1002, map[string]interface{}{
+		"dtype":                  "NIC",
+		"type":                   "VIRTIO",
+		"mac":                    macAddress,
+		"nic_attach":             config.NetworkBridge,
+		"trust_guest_rx_filters": false,
+	}); err != nil {
+		return fmt.Errorf("failed to create NIC device: %w", err)
+	}
+	vm.logger.Info("Created NIC device with MAC %s on bridge %s", macAddress, config.NetworkBridge)
+
+	// Optional OpenEBS disk (order 1004), only if explicitly provided.
+	if openebsPath, ok := zvolPaths["openebs"]; ok && openebsPath != "" {
+		if err := vm.createVMDevice(vmID, 1004, vm.buildDiskDeviceAttributes(openebsPath)); err != nil {
+			return fmt.Errorf("failed to create OpenEBS disk device: %w", err)
+		}
+		vm.logger.Info("Created OpenEBS disk device: /dev/zvol/%s", openebsPath)
+	}
+
+	vm.logger.Success("All Flatcar VM devices created successfully")
 	return nil
 }
 
