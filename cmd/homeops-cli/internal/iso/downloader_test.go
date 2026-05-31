@@ -152,7 +152,7 @@ func TestDownloaderValidateConfig(t *testing.T) {
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.iso",
 			},
-			wantErr: "ISO URL must start with http:// or https://",
+			wantErr: "ISO URL must start with https://",
 		},
 		{
 			name: "invalid filename suffix",

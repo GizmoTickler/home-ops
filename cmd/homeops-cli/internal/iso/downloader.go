@@ -142,9 +142,10 @@ func (d *Downloader) validateConfig(config DownloadConfig) error {
 		return fmt.Errorf("ISO filename is required")
 	}
 
-	// Validate URL format
-	if !strings.HasPrefix(config.ISOURL, "http://") && !strings.HasPrefix(config.ISOURL, "https://") {
-		return fmt.Errorf("ISO URL must start with http:// or https://")
+	// Require HTTPS — an ISO is booted as a node image, so an unencrypted fetch is
+	// a tamper vector. (Talos Factory + Flatcar release URLs are HTTPS.)
+	if !strings.HasPrefix(config.ISOURL, "https://") {
+		return fmt.Errorf("ISO URL must start with https:// (got %q)", config.ISOURL)
 	}
 
 	// Validate filename

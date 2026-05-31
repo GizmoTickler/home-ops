@@ -3,7 +3,6 @@ package truenas
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 
 	"homeops-cli/internal/common"
@@ -88,7 +87,7 @@ func (c *WorkingClient) Connect() error {
 	}
 
 	serverURL := fmt.Sprintf("%s://%s:%d/api/current", protocol, c.host, c.port)
-	log.Printf("Connecting to TrueNAS at %s", serverURL)
+	common.NewColorLogger().Debug("Connecting to TrueNAS at %s", serverURL)
 
 	// Create client using official TrueNAS API client
 	client, err := truenas_api.NewClient(serverURL, !c.useSSL) // tlsSkipVerify is opposite of useSSL
@@ -99,13 +98,13 @@ func (c *WorkingClient) Connect() error {
 	c.client = client
 
 	// Authenticate using the working pattern: empty username/password, API key only
-	log.Printf("Authenticating with API key...")
+	common.NewColorLogger().Debug("Authenticating with API key...")
 	err = c.client.Login("", "", c.apiKey)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
 
-	log.Printf("Successfully connected to TrueNAS")
+	common.NewColorLogger().Debug("Successfully connected to TrueNAS")
 	return nil
 }
 
@@ -168,7 +167,7 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 		devices, err := c.QueryVMDevices(vms[i].ID)
 		if err != nil {
 			// Log error but don't fail the entire query
-			log.Printf("Warning: failed to query devices for VM %s: %v", vms[i].Name, err)
+			common.NewColorLogger().Warn("failed to query devices for VM %s: %v", vms[i].Name, err)
 			continue
 		}
 
@@ -243,14 +242,14 @@ func (c *WorkingClient) DeleteVM(vmID int) error {
 func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, error) {
 	params := []interface{}{[]interface{}{[]interface{}{"vm", "=", vmID}}}
 
-	log.Printf("DEBUG: Querying VM devices for VM ID %d with params: %+v", vmID, params)
+	common.NewColorLogger().Debug("Querying VM devices for VM ID %d with params: %+v", vmID, params)
 
 	result, err := c.Call("vm.device.query", params, 30)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query VM devices: %w", err)
 	}
 
-	log.Printf("DEBUG: Raw vm.device.query response: %s", string(result))
+	common.NewColorLogger().Debug("Raw vm.device.query response: %s", string(result))
 
 	// Parse JSON-RPC response
 	var jsonRPCResponse map[string]interface{}
@@ -258,7 +257,7 @@ func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, erro
 		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
 	}
 
-	log.Printf("DEBUG: Parsed JSON-RPC response: %+v", jsonRPCResponse)
+	common.NewColorLogger().Debug("Parsed JSON-RPC response: %+v", jsonRPCResponse)
 
 	// Extract the result field
 	resultField, exists := jsonRPCResponse["result"]
@@ -266,7 +265,7 @@ func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, erro
 		return nil, fmt.Errorf("no result field in response")
 	}
 
-	log.Printf("DEBUG: Result field: %+v", resultField)
+	common.NewColorLogger().Debug("Result field: %+v", resultField)
 
 	// Convert result to JSON and then unmarshal as device array
 	resultJSON, err := json.Marshal(resultField)
@@ -279,7 +278,7 @@ func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, erro
 		return nil, fmt.Errorf("failed to unmarshal VM device data: %w", err)
 	}
 
-	log.Printf("DEBUG: Final devices array: %+v", devices)
+	common.NewColorLogger().Debug("Final devices array: %+v", devices)
 	return devices, nil
 }
 
@@ -350,15 +349,15 @@ func (c *WorkingClient) DeleteDataset(name string, recursive bool) error {
 		"force":     true, // Force deletion even if dataset is busy
 	}
 
-	log.Printf("Attempting to delete dataset: %s with params: %+v", name, params)
+	common.NewColorLogger().Debug("Attempting to delete dataset: %s with params: %+v", name, params)
 
 	result, err := c.Call("pool.dataset.delete", []interface{}{name, params}, 120) // Increase timeout for large datasets
 	if err != nil {
-		log.Printf("Failed to delete dataset %s: %v", name, err)
+		common.NewColorLogger().Warn("failed to delete dataset %s: %v", name, err)
 		return fmt.Errorf("failed to delete dataset %s: %w", name, err)
 	}
 
-	log.Printf("Dataset deletion result for %s: %s", name, string(result))
+	common.NewColorLogger().Debug("Dataset deletion result for %s: %s", name, string(result))
 	return nil
 }
 
