@@ -23,6 +23,7 @@ import (
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/ui"
+	"homeops-cli/internal/vsphere"
 
 	"github.com/spf13/cobra"
 )
@@ -228,6 +229,126 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 }
 
 func (d *proxmoxFlatcarDeployer) Close() error { return nil }
+
+// vsphereFlatcarClient is the subset of internal/vsphere the flatcar deployer
+// needs. Kept govmomi-free (CloneFlatcarVM returns only error) so cmd/flatcar
+// imports no VMware types and the deployer is testable with a fake.
+type vsphereFlatcarClient interface {
+	CloneFlatcarVM(vsphere.VMConfig) error
+	Close() error
+}
+
+// vsphereClientAdapter adapts *vsphere.Client (whose CloneFlatcarVM returns the
+// created VM) to the error-only vsphereFlatcarClient interface.
+type vsphereClientAdapter struct{ client *vsphere.Client }
+
+func (a *vsphereClientAdapter) CloneFlatcarVM(c vsphere.VMConfig) error {
+	_, err := a.client.CloneFlatcarVM(c)
+	return err
+}
+
+func (a *vsphereClientAdapter) Close() error { return a.client.Close() }
+
+var newVSphereFlatcarClientFn = func(host, username, password string, insecure bool) (vsphereFlatcarClient, error) {
+	c, err := vsphere.NewClientWithConnect(host, username, password, insecure)
+	if err != nil {
+		return nil, err
+	}
+	return &vsphereClientAdapter{client: c}, nil
+}
+
+// vsphereFlatcarDeployer provisions Flatcar nodes on vSphere/ESXi by cloning a
+// pre-imported Flatcar OVA template and injecting Ignition via guestinfo. Unlike
+// Proxmox there is no upload step: StageIgnition just base64-encodes the config.
+type vsphereFlatcarDeployer struct {
+	host, username, password string
+	insecure                 bool
+	template, datastore      string
+	network                  string
+	vcpus, memory            int
+	powerOn                  bool
+	logger                   *common.ColorLogger
+
+	mu     sync.Mutex
+	client vsphereFlatcarClient
+}
+
+var _ flatcarDeployer = (*vsphereFlatcarDeployer)(nil)
+
+// StageIgnition base64-encodes the Ignition; the encoded string IS the handle
+// (guestinfo carries it inline, so there is nothing to upload).
+func (d *vsphereFlatcarDeployer) StageIgnition(node flatcarNode) (string, error) {
+	return base64.StdEncoding.EncodeToString(node.ignition), nil
+}
+
+// connect lazily establishes (and caches) the vSphere client. Mutex-guarded so it
+// is safe whether called once up front or from concurrent DeployNode goroutines.
+func (d *vsphereFlatcarDeployer) connect() (vsphereFlatcarClient, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.client != nil {
+		return d.client, nil
+	}
+	c, err := newVSphereFlatcarClientFn(d.host, d.username, d.password, d.insecure)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
+	}
+	d.client = c
+	return c, nil
+}
+
+func (d *vsphereFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle string) error {
+	client, err := d.connect()
+	if err != nil {
+		return err
+	}
+	cfg := vsphere.VMConfig{
+		Name:         node.name,
+		TemplateName: d.template,
+		Datastore:    d.datastore,
+		Network:      d.network,
+		VCPUs:        d.vcpus,
+		Memory:       d.memory,
+		IgnitionData: ignitionHandle,
+		PowerOn:      d.powerOn,
+	}
+	d.logger.Info("Cloning Flatcar VM %s on vSphere from template %s", node.name, d.template)
+	return client.CloneFlatcarVM(cfg)
+}
+
+func (d *vsphereFlatcarDeployer) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.client != nil {
+		return d.client.Close()
+	}
+	return nil
+}
+
+// getVSphereCredentialsFn resolves vSphere/ESXi credentials (swappable for tests).
+var getVSphereCredentialsFn = resolveVSphereCredentials
+
+// resolveVSphereCredentials reads the ESXi host/username/password from 1Password
+// (constants.OpESXi*) with environment-variable fallback (constants.EnvVSphere*).
+func resolveVSphereCredentials() (host, username, password string, err error) {
+	host = get1PasswordSecretFn(constants.OpESXiHost)
+	if host == "" {
+		host = os.Getenv(constants.EnvVSphereHost)
+	}
+	username = get1PasswordSecretFn(constants.OpESXiUsername)
+	if username == "" {
+		username = os.Getenv(constants.EnvVSphereUsername)
+	}
+	password = get1PasswordSecretFn(constants.OpESXiPassword)
+	if password == "" {
+		password = os.Getenv(constants.EnvVSpherePassword)
+	}
+	if host == "" || username == "" || password == "" {
+		return "", "", "", fmt.Errorf("vSphere credentials not found: set %s/%s/%s or configure 1Password",
+			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
+	}
+	return host, username, password, nil
+}
 
 // NewCommand builds the `flatcar` command group.
 func NewCommand() *cobra.Command {
@@ -684,59 +805,81 @@ func newGenKubeadmCommand() *cobra.Command {
 
 func newDeployVMCommand() *cobra.Command {
 	var (
-		nodes          []string
-		imagePath      string
-		imageVolume    string
-		snippetsDir    string
-		pveSSHHost     string
-		pveSSHUser     string
-		pveSSHPort     string
-		vip            string
-		pauseImage     string
-		kubeVipVersion string
-		nodeInterface  string
-		concurrent     int
-		powerOn        bool
-		dryRun         bool
+		provider        string
+		nodes           []string
+		imagePath       string
+		imageVolume     string
+		snippetsDir     string
+		pveSSHHost      string
+		pveSSHUser      string
+		pveSSHPort      string
+		vsphereTemplate string
+		datastore       string
+		vsphereNetwork  string
+		vcpus           int
+		memory          int
+		vip             string
+		pauseImage      string
+		kubeVipVersion  string
+		nodeInterface   string
+		concurrent      int
+		powerOn         bool
+		dryRun          bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
-		Short: "Deploy Flatcar k8s VM(s) on Proxmox with Ignition",
-		Long: `Deploy one or more Flatcar control-plane VMs on Proxmox.
+		Short: "Deploy Flatcar k8s VM(s) on Proxmox or vSphere with Ignition",
+		Long: `Deploy one or more Flatcar control-plane VMs on the chosen hypervisor.
 
-Each VM boots from a pre-staged Flatcar image (--image-path to import, or
---image-volume to attach an existing volume) and receives its rendered Ignition
-config via fw_cfg. The Ignition JSON is written to the Proxmox snippets directory
-(--snippets-dir) so the Proxmox node can read it for the fw_cfg file= attach.`,
+--provider proxmox (default): each VM boots from a pre-staged Flatcar image
+(--image-path to import, or --image-volume to attach an existing volume) and
+receives its Ignition via fw_cfg. The Ignition JSON is written to the Proxmox
+snippets directory (--snippets-dir) for the fw_cfg file= attach.
+
+--provider vsphere (alias esxi): each VM is cloned from a pre-imported Flatcar
+OVA template (--vsphere-template) onto --datastore, and receives its Ignition via
+VMware guestinfo (base64). No install ISO and no SSH upload are involved.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDeployVM(cmd, deployVMOptions{
-				nodes:          nodes,
-				imagePath:      imagePath,
-				imageVolume:    imageVolume,
-				snippetsDir:    snippetsDir,
-				pveSSHHost:     pveSSHHost,
-				pveSSHUser:     pveSSHUser,
-				pveSSHPort:     pveSSHPort,
-				vip:            vip,
-				pauseImage:     pauseImage,
-				kubeVipVersion: kubeVipVersion,
-				nodeInterface:  nodeInterface,
-				concurrent:     concurrent,
-				powerOn:        powerOn,
-				dryRun:         dryRun,
+				provider:        provider,
+				nodes:           nodes,
+				imagePath:       imagePath,
+				imageVolume:     imageVolume,
+				snippetsDir:     snippetsDir,
+				pveSSHHost:      pveSSHHost,
+				pveSSHUser:      pveSSHUser,
+				pveSSHPort:      pveSSHPort,
+				vsphereTemplate: vsphereTemplate,
+				datastore:       datastore,
+				vsphereNetwork:  vsphereNetwork,
+				vcpus:           vcpus,
+				memory:          memory,
+				vip:             vip,
+				pauseImage:      pauseImage,
+				kubeVipVersion:  kubeVipVersion,
+				nodeInterface:   nodeInterface,
+				concurrent:      concurrent,
+				powerOn:         powerOn,
+				dryRun:          dryRun,
 			})
 		},
 	}
 
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi)")
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
 	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
-	cmd.Flags().StringVar(&imagePath, "image-path", "", "Path on Proxmox to import the Flatcar disk image from (import-from)")
-	cmd.Flags().StringVar(&imageVolume, "image-volume", "", "Existing storage volume to attach as scsi0 (alternative to --image-path)")
-	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "Proxmox snippets dir for Ignition files (on the Proxmox node)")
-	cmd.Flags().StringVar(&pveSSHHost, "pve-ssh-host", "", "Proxmox host to SSH the Ignition to (default: the Proxmox API host)")
-	cmd.Flags().StringVar(&pveSSHUser, "pve-ssh-user", "root", "SSH user on the Proxmox host for Ignition upload")
-	cmd.Flags().StringVar(&pveSSHPort, "pve-ssh-port", "22", "SSH port on the Proxmox host")
+	cmd.Flags().StringVar(&imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
+	cmd.Flags().StringVar(&imageVolume, "image-volume", "", "[proxmox] Existing storage volume to attach as scsi0 (alternative to --image-path)")
+	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "[proxmox] snippets dir for Ignition files (on the Proxmox node)")
+	cmd.Flags().StringVar(&pveSSHHost, "pve-ssh-host", "", "[proxmox] host to SSH the Ignition to (default: the Proxmox API host)")
+	cmd.Flags().StringVar(&pveSSHUser, "pve-ssh-user", "root", "[proxmox] SSH user on the Proxmox host for Ignition upload")
+	cmd.Flags().StringVar(&pveSSHPort, "pve-ssh-port", "22", "[proxmox] SSH port on the Proxmox host")
+	cmd.Flags().StringVar(&vsphereTemplate, "vsphere-template", "", "[vsphere] name of the imported Flatcar OVA template to clone")
+	cmd.Flags().StringVar(&datastore, "datastore", "", "[vsphere] datastore to clone the VM onto")
+	cmd.Flags().StringVar(&vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
+	cmd.Flags().IntVar(&memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
@@ -751,6 +894,7 @@ config via fw_cfg. The Ignition JSON is written to the Proxmox snippets director
 }
 
 type deployVMOptions struct {
+	provider       string
 	nodes          []string
 	imagePath      string
 	imageVolume    string
@@ -758,6 +902,13 @@ type deployVMOptions struct {
 	pveSSHHost     string
 	pveSSHUser     string
 	pveSSHPort     string
+	// vSphere
+	vsphereTemplate string
+	datastore       string
+	vsphereNetwork  string
+	vcpus           int
+	memory          int
+	// common
 	vip            string
 	pauseImage     string
 	kubeVipVersion string
@@ -770,34 +921,114 @@ type deployVMOptions struct {
 func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 	logger := common.NewColorLogger()
 
-	if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun {
-		return fmt.Errorf("one of --image-path or --image-volume is required")
-	}
-
-	// Validate every value that gets interpolated into a Proxmox option string
-	// (import-from=, fw_cfg file=) or a remote shell command. Proxmox options are
-	// comma-separated key=val pairs, so a comma/space/quote/metacharacter here
-	// would break parsing or inject a command. (This is the validation the
-	// uploadIgnitionToPVEFn comment refers to — node names are separately gated
-	// to a predefined set by getFlatcarNodeConfigFn.)
-	if err := common.ValidateProxmoxOptValue("--snippets-dir", opts.snippetsDir); err != nil {
+	provider, err := normalizeFlatcarProvider(opts.provider)
+	if err != nil {
 		return err
 	}
-	if opts.imagePath != "" {
-		if err := common.ValidateProxmoxOptValue("--image-path", opts.imagePath); err != nil {
-			return err
-		}
-	}
-	if opts.imageVolume != "" {
-		if err := common.ValidateProxmoxOptValue("--image-volume", opts.imageVolume); err != nil {
-			return err
-		}
+
+	// Provider-specific input validation BEFORE any Ignition rendering or mutation,
+	// so a bad flag fails fast (and without touching 1Password / the hypervisor).
+	if err := validateDeployVMOptions(provider, opts); err != nil {
+		return err
 	}
 
-	// Resolve Proxmox credentials up front. The rendered Ignition must be written to
-	// the snippets dir ON the Proxmox node (qemu reads the fw_cfg file= path on that
-	// host), so we upload it over SSH rather than writing it wherever this CLI runs.
-	// The SSH host defaults to the Proxmox API host.
+	// Build the provider-neutral node list (render Ignition per node). Node names
+	// are validated against the predefined set so we fail before any mutation.
+	nodes, err := buildFlatcarNodes(opts)
+	if err != nil {
+		return err
+	}
+
+	switch provider {
+	case providerVSphere:
+		return deployVSphere(cmd, opts, logger, nodes)
+	default: // providerProxmox
+		return deployProxmox(cmd, opts, logger, nodes)
+	}
+}
+
+// provider identifiers for flatcar deploy-vm.
+const (
+	providerProxmox = "proxmox"
+	providerVSphere = "vsphere"
+	providerTrueNAS = "truenas"
+)
+
+// normalizeFlatcarProvider canonicalizes the --provider value. "esxi" is an alias
+// for vsphere; "truenas" is recognized but not yet wired (#14).
+func normalizeFlatcarProvider(p string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(p)) {
+	case "", providerProxmox:
+		return providerProxmox, nil
+	case providerVSphere, "esxi":
+		return providerVSphere, nil
+	case providerTrueNAS:
+		return "", fmt.Errorf("provider %q is not yet supported for flatcar deploy-vm (coming in a later change)", p)
+	default:
+		return "", fmt.Errorf("unknown provider %q (valid: proxmox, vsphere, esxi)", p)
+	}
+}
+
+// validateDeployVMOptions runs the provider-specific input checks.
+func validateDeployVMOptions(provider string, opts deployVMOptions) error {
+	switch provider {
+	case providerVSphere:
+		if opts.vsphereTemplate == "" {
+			return fmt.Errorf("--vsphere-template is required for --provider vsphere (the imported Flatcar OVA)")
+		}
+		if opts.datastore == "" {
+			return fmt.Errorf("--datastore is required for --provider vsphere")
+		}
+		return nil
+	default: // providerProxmox
+		if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun {
+			return fmt.Errorf("one of --image-path or --image-volume is required")
+		}
+		// Every value interpolated into a Proxmox option string (import-from=,
+		// fw_cfg file=) or a remote shell command must be free of commas/whitespace/
+		// metacharacters, else it breaks option parsing or injects a command.
+		if err := common.ValidateProxmoxOptValue("--snippets-dir", opts.snippetsDir); err != nil {
+			return err
+		}
+		if opts.imagePath != "" {
+			if err := common.ValidateProxmoxOptValue("--image-path", opts.imagePath); err != nil {
+				return err
+			}
+		}
+		if opts.imageVolume != "" {
+			if err := common.ValidateProxmoxOptValue("--image-volume", opts.imageVolume); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+// buildFlatcarNodes renders the Ignition for each requested node, returning the
+// provider-neutral node list. Node names are validated against the predefined set.
+func buildFlatcarNodes(opts deployVMOptions) ([]flatcarNode, error) {
+	nodes := make([]flatcarNode, 0, len(opts.nodes))
+	for _, nodeName := range opts.nodes {
+		if _, ok := getFlatcarNodeConfigFn(nodeName); !ok {
+			return nil, fmt.Errorf("unknown flatcar node %q (known: %s)", nodeName, strings.Join(nodeNames(), ", "))
+		}
+		env, err := buildNodeEnv(nodeName, opts.vip, opts.pauseImage, opts.kubeVipVersion, opts.nodeInterface)
+		if err != nil {
+			return nil, err
+		}
+		ign, err := renderIgnitionFn(env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render ignition for %s: %w", nodeName, err)
+		}
+		nodes = append(nodes, flatcarNode{name: nodeName, ignition: ign})
+	}
+	return nodes, nil
+}
+
+// deployProxmox resolves Proxmox credentials and deploys via the fw_cfg path. The
+// rendered Ignition is uploaded to the snippets dir ON the Proxmox node (qemu reads
+// the fw_cfg file= path there); the SSH host defaults to the Proxmox API host.
+func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.ColorLogger, nodes []flatcarNode) error {
 	var pveHost, tokenID, secret, pveNode string
 	var err error
 	if !opts.dryRun {
@@ -819,30 +1050,6 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 		sshPort = "22"
 	}
 
-	// Build the provider-neutral node list (render Ignition per node). Node names
-	// are validated against the predefined set here so we fail before any mutation.
-	nodes := make([]flatcarNode, 0, len(opts.nodes))
-	for _, nodeName := range opts.nodes {
-		if _, ok := getFlatcarNodeConfigFn(nodeName); !ok {
-			return fmt.Errorf("unknown flatcar node %q (known: %s)", nodeName, strings.Join(nodeNames(), ", "))
-		}
-
-		env, err := buildNodeEnv(nodeName, opts.vip, opts.pauseImage, opts.kubeVipVersion, opts.nodeInterface)
-		if err != nil {
-			return err
-		}
-
-		ign, err := renderIgnitionFn(env)
-		if err != nil {
-			return fmt.Errorf("failed to render ignition for %s: %w", nodeName, err)
-		}
-
-		nodes = append(nodes, flatcarNode{name: nodeName, ignition: ign})
-	}
-
-	// Select the deployer for the target hypervisor. Today only Proxmox is wired;
-	// the vSphere (guestinfo) and TrueNAS (command_line_args fw_cfg) deployers will
-	// be selected here once they land (#13/#14).
 	deployer := &proxmoxFlatcarDeployer{
 		host:        pveHost,
 		tokenID:     tokenID,
@@ -872,6 +1079,45 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
 		return nil
+	}
+
+	return deployFlatcarNodes(logger, deployer, nodes, opts.concurrent)
+}
+
+// deployVSphere resolves vSphere credentials and deploys by cloning the Flatcar
+// OVA template, injecting Ignition via guestinfo (base64, no upload).
+func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.ColorLogger, nodes []flatcarNode) error {
+	if opts.dryRun {
+		for _, n := range nodes {
+			logger.Info("[DRY RUN] would clone Flatcar VM %s from template %s onto datastore %s (Ignition via guestinfo, %d bytes)",
+				n.name, opts.vsphereTemplate, opts.datastore, len(n.ignition))
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		return nil
+	}
+
+	host, username, password, err := getVSphereCredentialsFn()
+	if err != nil {
+		return err
+	}
+
+	deployer := &vsphereFlatcarDeployer{
+		host:      host,
+		username:  username,
+		password:  password,
+		insecure:  common.EnvBool(constants.EnvVSphereInsecure, true),
+		template:  opts.vsphereTemplate,
+		datastore: opts.datastore,
+		network:   opts.vsphereNetwork,
+		vcpus:     opts.vcpus,
+		memory:    opts.memory,
+		powerOn:   opts.powerOn,
+		logger:    logger,
+	}
+	// Connect once before the concurrent deploy phase so all DeployNode goroutines
+	// share one ready client (and we fail fast on a bad connection).
+	if _, err := deployer.connect(); err != nil {
+		return err
 	}
 
 	return deployFlatcarNodes(logger, deployer, nodes, opts.concurrent)

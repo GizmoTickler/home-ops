@@ -2,6 +2,7 @@ package flatcar
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/vsphere"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -468,6 +470,111 @@ func TestDeployFlatcarNodes(t *testing.T) {
 		assert.ElementsMatch(t, []string{"b=handle:b"}, f.deployed) // b still succeeds
 		assert.True(t, f.closed)
 	})
+}
+
+func TestNormalizeFlatcarProvider(t *testing.T) {
+	ok := map[string]string{
+		"":         "proxmox",
+		"proxmox":  "proxmox",
+		"Proxmox":  "proxmox",
+		"vsphere":  "vsphere",
+		"esxi":     "vsphere",
+		" VSPHERE ": "vsphere",
+	}
+	for in, want := range ok {
+		got, err := normalizeFlatcarProvider(in)
+		require.NoError(t, err, in)
+		assert.Equal(t, want, got, in)
+	}
+	for _, bad := range []string{"truenas", "aws", "xen"} {
+		_, err := normalizeFlatcarProvider(bad)
+		assert.Error(t, err, bad)
+	}
+}
+
+// fakeVSphereClient records the CloneFlatcarVM calls so the deployer can be tested
+// without a live vCenter.
+type fakeVSphereClient struct {
+	cloned []vsphere.VMConfig
+	closed bool
+	err    error
+}
+
+func (f *fakeVSphereClient) CloneFlatcarVM(c vsphere.VMConfig) error {
+	f.cloned = append(f.cloned, c)
+	return f.err
+}
+
+func (f *fakeVSphereClient) Close() error { f.closed = true; return nil }
+
+func TestVSphereFlatcarDeployer(t *testing.T) {
+	fake := &fakeVSphereClient{}
+	d := &vsphereFlatcarDeployer{
+		template:  "flatcar-ova",
+		datastore: "ds1",
+		network:   "vl999",
+		vcpus:     8,
+		memory:    16384,
+		powerOn:   true,
+		logger:    common.NewColorLogger(),
+		client:    fake, // pre-connected, bypassing newVSphereFlatcarClientFn
+	}
+
+	ign := []byte(`{"ignition":{"version":"3.4.0"}}`)
+	handle, err := d.StageIgnition(flatcarNode{name: "k8s-0", ignition: ign})
+	require.NoError(t, err)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(ign), handle, "vSphere handle is the base64 Ignition (no upload)")
+
+	require.NoError(t, d.DeployNode(flatcarNode{name: "k8s-0", ignition: ign}, handle))
+	require.Len(t, fake.cloned, 1)
+	got := fake.cloned[0]
+	assert.Equal(t, "k8s-0", got.Name)
+	assert.Equal(t, "flatcar-ova", got.TemplateName)
+	assert.Equal(t, "ds1", got.Datastore)
+	assert.Equal(t, "vl999", got.Network)
+	assert.Equal(t, 8, got.VCPUs)
+	assert.Equal(t, 16384, got.Memory)
+	assert.True(t, got.PowerOn)
+	assert.Equal(t, handle, got.IgnitionData) // base64 handle flows straight into guestinfo
+
+	require.NoError(t, d.Close())
+	assert.True(t, fake.closed)
+}
+
+func TestDeployVMVSphereRequiresTemplateAndDatastore(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := runDeployVM(cmd, deployVMOptions{provider: "vsphere", nodes: []string{"k8s-0"}, datastore: "ds1", dryRun: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--vsphere-template")
+
+	err = runDeployVM(cmd, deployVMOptions{provider: "esxi", nodes: []string{"k8s-0"}, vsphereTemplate: "t", dryRun: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--datastore")
+}
+
+func TestDeployVMVSphereDryRun(t *testing.T) {
+	defer stubVersions(t)()
+	origIgn := renderIgnitionFn
+	defer func() { renderIgnitionFn = origIgn }()
+	renderIgnitionFn = func(env flatcar.NodeEnv) ([]byte, error) {
+		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
+	}
+	// Dry-run must neither connect to vSphere nor resolve credentials.
+	origClient := newVSphereFlatcarClientFn
+	defer func() { newVSphereFlatcarClientFn = origClient }()
+	newVSphereFlatcarClientFn = func(string, string, string, bool) (vsphereFlatcarClient, error) {
+		t.Fatal("dry-run must not connect to vSphere")
+		return nil, nil
+	}
+
+	cmd := newDeployVMCommand()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"--provider", "vsphere", "--nodes", "k8s-0", "--vsphere-template", "flatcar-ova", "--datastore", "ds1", "--dry-run"})
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "DRY RUN")
 }
 
 var _ = cobra.Command{}
