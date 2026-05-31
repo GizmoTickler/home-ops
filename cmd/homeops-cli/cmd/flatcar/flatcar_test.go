@@ -2,9 +2,11 @@ package flatcar
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"homeops-cli/internal/common"
@@ -392,6 +394,80 @@ func TestRunDeployVMRejectsUnsafeProxmoxOpts(t *testing.T) {
 			assert.Contains(t, err.Error(), c.want)
 		})
 	}
+}
+
+// fakeDeployer records the flatcarDeployer contract calls so deployFlatcarNodes
+// can be tested independently of any hypervisor.
+type fakeDeployer struct {
+	mu        sync.Mutex
+	staged    []string
+	deployed  []string
+	closed    bool
+	stageErr  map[string]error
+	deployErr map[string]error
+}
+
+func (f *fakeDeployer) StageIgnition(n flatcarNode) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.stageErr[n.name]; err != nil {
+		return "", err
+	}
+	f.staged = append(f.staged, n.name)
+	return "handle:" + n.name, nil
+}
+
+func (f *fakeDeployer) DeployNode(n flatcarNode, handle string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.deployErr[n.name]; err != nil {
+		return err
+	}
+	f.deployed = append(f.deployed, n.name+"="+handle)
+	return nil
+}
+
+func (f *fakeDeployer) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
+	return nil
+}
+
+func TestDeployFlatcarNodes(t *testing.T) {
+	logger := common.NewColorLogger()
+	nodes := []flatcarNode{
+		{name: "a", ignition: []byte("x")},
+		{name: "b", ignition: []byte("y")},
+	}
+
+	t.Run("happy path wires staged handle into deploy and closes", func(t *testing.T) {
+		f := &fakeDeployer{}
+		require.NoError(t, deployFlatcarNodes(logger, f, nodes, 2))
+		assert.Equal(t, []string{"a", "b"}, f.staged) // staging is sequential, in order
+		assert.ElementsMatch(t, []string{"a=handle:a", "b=handle:b"}, f.deployed)
+		assert.True(t, f.closed)
+	})
+
+	t.Run("a staging failure aborts before any deploy", func(t *testing.T) {
+		f := &fakeDeployer{stageErr: map[string]error{"b": errors.New("upload boom")}}
+		err := deployFlatcarNodes(logger, f, nodes, 2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "upload boom")
+		assert.Equal(t, []string{"a"}, f.staged) // a staged, then b failed
+		assert.Empty(t, f.deployed)              // no VM created when staging is incomplete
+		assert.True(t, f.closed)
+	})
+
+	t.Run("deploy failures are aggregated", func(t *testing.T) {
+		f := &fakeDeployer{deployErr: map[string]error{"a": errors.New("create boom")}}
+		err := deployFlatcarNodes(logger, f, nodes, 2)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "a: create boom")
+		assert.Contains(t, err.Error(), "1/2")
+		assert.ElementsMatch(t, []string{"b=handle:b"}, f.deployed) // b still succeeds
+		assert.True(t, f.closed)
+	})
 }
 
 var _ = cobra.Command{}

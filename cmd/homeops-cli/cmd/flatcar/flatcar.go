@@ -131,6 +131,104 @@ type proxmoxVMManager interface {
 	DeployVM(proxmox.VMConfig) error
 }
 
+// flatcarNode is the provider-neutral spec for one Flatcar k8s node: its name
+// and the rendered Ignition JSON. The Ignition is hypervisor-agnostic; per-node
+// placement (storage, MAC, CPU pinning) is resolved by the deployer from the
+// node name, so this DTO carries no hypervisor-specific fields.
+type flatcarNode struct {
+	name     string
+	ignition []byte
+}
+
+// flatcarDeployer abstracts how a Flatcar node is provisioned on a hypervisor.
+// The rendered Ignition is identical across hypervisors; only the transport
+// (StageIgnition) and the create-time attach (DeployNode) differ:
+//   - Proxmox: upload to the snippets dir on the PVE host; attach via fw_cfg.
+//   - vSphere: base64 the config; attach via guestinfo ExtraConfig.        (planned, #13)
+//   - TrueNAS: write to a dataset on nas01; attach via command_line_args
+//     fw_cfg file=.                                                        (planned, #14)
+//
+// This is the seam the provider×hypervisor matrix plugs into — deployFlatcarNodes
+// drives it without knowing which hypervisor it is talking to.
+type flatcarDeployer interface {
+	// StageIgnition makes the rendered Ignition readable by the guest at first
+	// boot and returns an opaque handle the deployer embeds at create time
+	// (Proxmox: the snippets path; vSphere: the base64 guestinfo value; TrueNAS:
+	// the dataset path).
+	StageIgnition(node flatcarNode) (handle string, err error)
+	// DeployNode creates (and optionally powers on) one Flatcar VM, wiring in the
+	// staged Ignition via the hypervisor's mechanism.
+	DeployNode(node flatcarNode, ignitionHandle string) error
+	// Close releases any hypervisor connection the deployer holds.
+	Close() error
+}
+
+// proxmoxFlatcarDeployer provisions Flatcar nodes on Proxmox: it uploads the
+// rendered Ignition to the snippets dir on the PVE host (qemu reads the fw_cfg
+// file= path there) and creates each VM via the Proxmox API, attaching the
+// Ignition through fw_cfg. It keeps no long-lived connection — a VM manager is
+// created per node (mirroring the prior concurrent-deploy behavior).
+type proxmoxFlatcarDeployer struct {
+	host, tokenID, secret, node string // Proxmox API creds + target PVE node
+	sshHost, sshUser, sshPort   string // where the Ignition snippet is written
+	snippetsDir                 string
+	imagePath, imageVolume      string
+	powerOn                     bool
+	logger                      *common.ColorLogger
+}
+
+var _ flatcarDeployer = (*proxmoxFlatcarDeployer)(nil)
+
+// ignitionPath is the snippets-dir path the Ignition for a node is written to and
+// later attached via fw_cfg file=.
+func (d *proxmoxFlatcarDeployer) ignitionPath(nodeName string) string {
+	return fmt.Sprintf("%s/ignition-%s.json", strings.TrimRight(d.snippetsDir, "/"), nodeName)
+}
+
+func (d *proxmoxFlatcarDeployer) StageIgnition(node flatcarNode) (string, error) {
+	ignPath := d.ignitionPath(node.name)
+	d.logger.Info("Uploading Ignition for %s to %s@%s:%s", node.name, d.sshUser, d.sshHost, ignPath)
+	if err := uploadIgnitionToPVEFn(d.sshHost, d.sshUser, d.sshPort, ignPath, node.ignition); err != nil {
+		return "", fmt.Errorf("failed to upload ignition for %s to Proxmox host %s: %w", node.name, d.sshHost, err)
+	}
+	return ignPath, nil
+}
+
+func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle string) error {
+	nodeConfig, ok := getFlatcarNodeConfigFn(node.name)
+	if !ok {
+		return fmt.Errorf("unknown flatcar node %q (known: %s)", node.name, strings.Join(nodeNames(), ", "))
+	}
+
+	vmConfig := proxmoxDefaultVMConfig
+	vmConfig.Name = node.name
+	vmConfig.BootStorage = nodeConfig.BootStorage
+	vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+	vmConfig.CephDiskByID = nodeConfig.CephDiskByID
+	vmConfig.CPUAffinity = nodeConfig.CPUAffinity
+	vmConfig.NUMANode = nodeConfig.NUMANode
+	vmConfig.MacAddress = nodeConfig.MacAddress
+	vmConfig.IgnitionConfig = string(node.ignition)
+	vmConfig.IgnitionPath = ignitionHandle
+	vmConfig.ImageDiskPath = d.imagePath
+	vmConfig.ImageVolume = d.imageVolume
+	vmConfig.PowerOn = d.powerOn
+
+	d.logger.Info("Deploying Flatcar VM %s", node.name)
+	vmManager, err := newProxmoxVMManagerFn(d.host, d.tokenID, d.secret, d.node, common.EnvBool(constants.EnvProxmoxInsecure, true))
+	if err != nil {
+		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+	}
+	defer func() {
+		if closeErr := vmManager.Close(); closeErr != nil {
+			d.logger.Warn("Failed to close Proxmox VM manager for %s: %v", node.name, closeErr)
+		}
+	}()
+	return vmManager.DeployVM(vmConfig)
+}
+
+func (d *proxmoxFlatcarDeployer) Close() error { return nil }
+
 // NewCommand builds the `flatcar` command group.
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -721,10 +819,11 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 		sshPort = "22"
 	}
 
-	configs := make([]proxmox.VMConfig, 0, len(opts.nodes))
+	// Build the provider-neutral node list (render Ignition per node). Node names
+	// are validated against the predefined set here so we fail before any mutation.
+	nodes := make([]flatcarNode, 0, len(opts.nodes))
 	for _, nodeName := range opts.nodes {
-		nodeConfig, ok := getFlatcarNodeConfigFn(nodeName)
-		if !ok {
+		if _, ok := getFlatcarNodeConfigFn(nodeName); !ok {
 			return fmt.Errorf("unknown flatcar node %q (known: %s)", nodeName, strings.Join(nodeNames(), ", "))
 		}
 
@@ -738,64 +837,81 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 			return fmt.Errorf("failed to render ignition for %s: %w", nodeName, err)
 		}
 
-		// Upload Ignition to the snippets dir ON the Proxmox node so qemu can read it
-		// for the fw_cfg file= attach (works when this CLI runs off-host, e.g. varunlnx0).
-		ignPath := fmt.Sprintf("%s/ignition-%s.json", strings.TrimRight(opts.snippetsDir, "/"), nodeName)
-		if opts.dryRun {
-			dst := sshHost
-			if dst == "" {
-				dst = "<proxmox-host>"
-			}
-			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s@%s:%s for %s", len(ign), sshUser, dst, ignPath, nodeName)
-		} else {
-			logger.Info("Uploading Ignition for %s to %s@%s:%s", nodeName, sshUser, sshHost, ignPath)
-			if uerr := uploadIgnitionToPVEFn(sshHost, sshUser, sshPort, ignPath, ign); uerr != nil {
-				return fmt.Errorf("failed to upload ignition for %s to Proxmox host %s: %w", nodeName, sshHost, uerr)
-			}
-		}
+		nodes = append(nodes, flatcarNode{name: nodeName, ignition: ign})
+	}
 
-		vmConfig := proxmoxDefaultVMConfig
-		vmConfig.Name = nodeName
-		vmConfig.BootStorage = nodeConfig.BootStorage
-		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
-		vmConfig.CephDiskByID = nodeConfig.CephDiskByID
-		vmConfig.CPUAffinity = nodeConfig.CPUAffinity
-		vmConfig.NUMANode = nodeConfig.NUMANode
-		vmConfig.MacAddress = nodeConfig.MacAddress
-		vmConfig.IgnitionConfig = string(ign)
-		vmConfig.IgnitionPath = ignPath
-		vmConfig.ImageDiskPath = opts.imagePath
-		vmConfig.ImageVolume = opts.imageVolume
-		vmConfig.PowerOn = opts.powerOn
-
-		configs = append(configs, vmConfig)
+	// Select the deployer for the target hypervisor. Today only Proxmox is wired;
+	// the vSphere (guestinfo) and TrueNAS (command_line_args fw_cfg) deployers will
+	// be selected here once they land (#13/#14).
+	deployer := &proxmoxFlatcarDeployer{
+		host:        pveHost,
+		tokenID:     tokenID,
+		secret:      secret,
+		node:        pveNode,
+		sshHost:     sshHost,
+		sshUser:     sshUser,
+		sshPort:     sshPort,
+		snippetsDir: opts.snippetsDir,
+		imagePath:   opts.imagePath,
+		imageVolume: opts.imageVolume,
+		powerOn:     opts.powerOn,
+		logger:      logger,
 	}
 
 	if opts.dryRun {
-		for _, c := range configs {
-			logger.Info("[DRY RUN] would deploy %s (boot=%s, mac=%s, vmid via predefined)", c.Name, deployBootSource(c), c.MacAddress)
+		dst := sshHost
+		if dst == "" {
+			dst = "<proxmox-host>"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(configs))
+		for _, n := range nodes {
+			cfg, _ := getFlatcarNodeConfigFn(n.name)
+			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s@%s:%s for %s",
+				len(n.ignition), sshUser, dst, deployer.ignitionPath(n.name), n.name)
+			logger.Info("[DRY RUN] would deploy %s (boot=%s, mac=%s, vmid via predefined)",
+				n.name, deployBootSource(opts.imagePath, opts.imageVolume), cfg.MacAddress)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
 		return nil
 	}
 
-	return deployConcurrently(logger, pveHost, tokenID, secret, pveNode, configs, opts.concurrent)
+	return deployFlatcarNodes(logger, deployer, nodes, opts.concurrent)
 }
 
-func deployBootSource(c proxmox.VMConfig) string {
-	if c.ImageVolume != "" {
-		return "volume:" + c.ImageVolume
+func deployBootSource(imagePath, imageVolume string) string {
+	if imageVolume != "" {
+		return "volume:" + imageVolume
 	}
-	return "import:" + c.ImageDiskPath
+	return "import:" + imagePath
 }
 
-// deployConcurrently mirrors the Talos proxmox concurrent deploy pattern.
-func deployConcurrently(logger *common.ColorLogger, host, tokenID, secret, nodeName string, configs []proxmox.VMConfig, concurrent int) error {
+// deployFlatcarNodes stages each node's Ignition (sequentially) then creates the
+// VMs concurrently, aggregating failures. All staging/attach mechanics live in
+// the flatcarDeployer, so this driver is hypervisor-agnostic — the same loop will
+// drive the vSphere (guestinfo) and TrueNAS (command_line_args fw_cfg) deployers
+// once they land (#13/#14). Concurrency semantics mirror the prior Proxmox path.
+func deployFlatcarNodes(logger *common.ColorLogger, deployer flatcarDeployer, nodes []flatcarNode, concurrent int) error {
+	defer func() {
+		if err := deployer.Close(); err != nil {
+			logger.Warn("Failed to close deployer: %v", err)
+		}
+	}()
+
+	// Stage Ignition for every node before creating any VM: a partially staged set
+	// would leave VMs that cannot boot. Abort the whole deploy on the first failure.
+	handles := make([]string, len(nodes))
+	for i, n := range nodes {
+		h, err := deployer.StageIgnition(n)
+		if err != nil {
+			return err
+		}
+		handles[i] = h
+	}
+
 	if concurrent <= 0 {
 		concurrent = 1
 	}
-	if concurrent > len(configs) {
-		concurrent = len(configs)
+	if concurrent > len(nodes) {
+		concurrent = len(nodes)
 	}
 	if concurrent == 0 {
 		concurrent = 1
@@ -808,31 +924,17 @@ func deployConcurrently(logger *common.ColorLogger, host, tokenID, secret, nodeN
 		failures []string
 	)
 
-	for _, cfg := range configs {
-		cfg := cfg
+	for i, n := range nodes {
+		i, n := i, n
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			logger.Info("Deploying Flatcar VM %s", cfg.Name)
-			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, true))
-			if err != nil {
+			if err := deployer.DeployNode(n, handles[i]); err != nil {
 				mu.Lock()
-				failures = append(failures, fmt.Sprintf("%s: failed to create Proxmox VM manager: %v", cfg.Name, err))
-				mu.Unlock()
-				return
-			}
-			defer func() {
-				if closeErr := vmManager.Close(); closeErr != nil {
-					logger.Warn("Failed to close Proxmox VM manager for %s: %v", cfg.Name, closeErr)
-				}
-			}()
-
-			if err := vmManager.DeployVM(cfg); err != nil {
-				mu.Lock()
-				failures = append(failures, fmt.Sprintf("%s: %v", cfg.Name, err))
+				failures = append(failures, fmt.Sprintf("%s: %v", n.name, err))
 				mu.Unlock()
 			}
 		}()
@@ -840,7 +942,7 @@ func deployConcurrently(logger *common.ColorLogger, host, tokenID, secret, nodeN
 
 	wg.Wait()
 	if len(failures) > 0 {
-		return fmt.Errorf("failed to deploy %d/%d Flatcar VMs: %s", len(failures), len(configs), strings.Join(failures, "; "))
+		return fmt.Errorf("failed to deploy %d/%d Flatcar VMs: %s", len(failures), len(nodes), strings.Join(failures, "; "))
 	}
 	return nil
 }
