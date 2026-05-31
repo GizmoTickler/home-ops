@@ -22,6 +22,7 @@ import (
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/ui"
 
 	"github.com/spf13/cobra"
 )
@@ -43,6 +44,13 @@ var (
 	}
 	saveKubeconfigFn = common.SaveKubeconfigTo1Password
 	pullKubeconfigFn = common.PullKubeconfigFrom1Password
+	// confirmActionFn is the interactive confirmation prompt (swappable for tests).
+	confirmActionFn = ui.Confirm
+	// resetNodeFn runs `kubeadm reset` on a node over SSH (swappable for tests).
+	resetNodeFn = func(sshUser, nodeIP string) error {
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		return orch.ResetNode(nodeIP)
+	}
 	// savePKIToOpFn persists captured PKI fields to 1Password (swappable for tests).
 	savePKIToOpFn = savePKIToOp
 	// runOpFn runs the op CLI with NO stdin so op never tries to read a JSON
@@ -141,6 +149,8 @@ Subcommands:
 		newDeployVMCommand(),
 		newSavePKICommand(),
 		newKubeconfigCommand(),
+		newResetNodeCommand(),
+		newResetClusterCommand(),
 	)
 
 	return cmd
@@ -257,6 +267,91 @@ func savePKIToOp(fields map[string]string) error {
 		return fmt.Errorf("marshal op item template: %w", err)
 	}
 	return runOpStdinFn(doc, "item", "create", "--vault", "Infrastructure")
+}
+
+// flatcarSSHUser resolves the node SSH username from 1Password, defaulting to "core".
+func flatcarSSHUser() string {
+	if u := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser)); u != "" {
+		return u
+	}
+	return "core"
+}
+
+// newResetNodeCommand runs `kubeadm reset` on a single Flatcar node (destructive).
+func newResetNodeCommand() *cobra.Command {
+	var node string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "reset-node",
+		Short: "Run `kubeadm reset` on a Flatcar node (destructive)",
+		Long: `SSH to a control-plane node and run 'kubeadm reset -f', tearing down its cluster
+state (removes /etc/kubernetes including the PKI). DESTRUCTIVE — prompts for
+confirmation unless --force.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			if node == "" {
+				return fmt.Errorf("--node is required (one of: %s)", strings.Join(nodeNames(), ", "))
+			}
+			nodeConfig, ok := getFlatcarNodeConfigFn(node)
+			if !ok {
+				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
+			}
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Reset node %s (%s)? This runs 'kubeadm reset' and destroys its cluster state.", node, nodeConfig.NodeIP), false)
+				if err != nil || !ok {
+					return fmt.Errorf("reset cancelled")
+				}
+			}
+			logger.Warn("Resetting node %s (%s)...", node, nodeConfig.NodeIP)
+			if err := resetNodeFn(flatcarSSHUser(), nodeConfig.NodeIP); err != nil {
+				return err
+			}
+			logger.Success("Node %s reset", node)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reset (required)")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	return cmd
+}
+
+// newResetClusterCommand runs `kubeadm reset` on every Flatcar node (destructive).
+func newResetClusterCommand() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "reset-cluster",
+		Short: "Run `kubeadm reset` on ALL Flatcar nodes (destructive)",
+		Long: `Reset every control-plane node ('kubeadm reset -f'), tearing down the entire
+cluster. Nodes are reset in reverse order (init node last). DESTRUCTIVE — prompts
+unless --force.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			names := nodeNames()
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Reset the ENTIRE cluster (%s)? This destroys all cluster state.", strings.Join(names, ", ")), false)
+				if err != nil || !ok {
+					return fmt.Errorf("reset cancelled")
+				}
+			}
+			sshUser := flatcarSSHUser()
+			// Reverse order so the init node (k8s-0) is reset last.
+			for i := len(names) - 1; i >= 0; i-- {
+				cfg, ok := getFlatcarNodeConfigFn(names[i])
+				if !ok {
+					continue
+				}
+				logger.Warn("Resetting node %s (%s)...", names[i], cfg.NodeIP)
+				if err := resetNodeFn(sshUser, cfg.NodeIP); err != nil {
+					return fmt.Errorf("reset %s: %w", names[i], err)
+				}
+			}
+			logger.Success("Cluster reset (%d nodes)", len(names))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	return cmd
 }
 
 // patchKubeconfigServer rewrites the cluster server URL to the control-plane VIP

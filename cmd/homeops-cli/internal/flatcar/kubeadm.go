@@ -295,6 +295,23 @@ func (o *Orchestrator) FetchAdminKubeconfig(node0IP string) (string, error) {
 	return out, nil
 }
 
+// ResetNode runs `kubeadm reset -f` on a node over SSH, tearing down its
+// cluster state (removes /etc/kubernetes, including the PKI). DESTRUCTIVE — the
+// caller is responsible for confirmation.
+func (o *Orchestrator) ResetNode(nodeIP string) error {
+	runner := o.runnerFor(nodeIP)
+	if err := runner.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to %s: %w", nodeIP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	out, err := runner.ExecuteCommand("sudo kubeadm reset -f")
+	if err != nil {
+		return fmt.Errorf("kubeadm reset failed on %s: %w\n%s", nodeIP, err, common.RedactCommandOutput(out))
+	}
+	return nil
+}
+
 // --- output parsing ---
 
 var (

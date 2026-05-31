@@ -222,6 +222,16 @@ func TestFetchAdminKubeconfig(t *testing.T) {
 	assert.Contains(t, kc, "apiVersion")
 }
 
+func TestResetNode(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.ResetNode("192.168.122.11"))
+	assert.Contains(t, strings.Join(r.commands, "\n"), "kubeadm reset -f")
+	assert.True(t, r.closed)
+}
+
 func TestConnectErrorPropagates(t *testing.T) {
 	r := &fakeRunner{connectErr: fmt.Errorf("dial fail")}
 	defer withFakeRunner(t, r)()

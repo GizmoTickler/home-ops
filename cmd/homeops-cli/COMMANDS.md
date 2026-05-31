@@ -15,7 +15,9 @@ homeops-cli
 │   ├── gen-kubeadm
 │   ├── deploy-vm
 │   ├── save-pki
-│   └── kubeconfig
+│   ├── kubeconfig
+│   ├── reset-node
+│   └── reset-cluster
 ├── k8s
 │   ├── browse-pvc
 │   ├── node-shell

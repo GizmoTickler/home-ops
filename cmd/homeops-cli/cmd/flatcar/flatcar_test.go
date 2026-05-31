@@ -96,6 +96,50 @@ func TestSavePKIToOpUsesStdinNotArgv(t *testing.T) {
 	assert.NotContains(t, strings.Join(createArgs, " "), "BBB")
 }
 
+func TestResetNodeCommand(t *testing.T) {
+	defer stubSecrets(t)()
+	origConfirm, origReset := confirmActionFn, resetNodeFn
+	var resetIP string
+	confirmActionFn = func(string, bool) (bool, error) { return true, nil }
+	resetNodeFn = func(sshUser, ip string) error { resetIP = ip; return nil }
+	defer func() { confirmActionFn, resetNodeFn = origConfirm, origReset }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reset-node", "--node", "k8s-1", "--force"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, "192.168.122.11", resetIP)
+}
+
+func TestResetNodeCommandCancelled(t *testing.T) {
+	origConfirm, origReset := confirmActionFn, resetNodeFn
+	called := false
+	confirmActionFn = func(string, bool) (bool, error) { return false, nil } // user declines
+	resetNodeFn = func(string, string) error { called = true; return nil }
+	defer func() { confirmActionFn, resetNodeFn = origConfirm, origReset }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reset-node", "--node", "k8s-1"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cancelled")
+	assert.False(t, called, "reset must not run when confirmation is declined")
+}
+
+func TestResetClusterCommand(t *testing.T) {
+	defer stubSecrets(t)()
+	origConfirm, origReset := confirmActionFn, resetNodeFn
+	var order []string
+	confirmActionFn = func(string, bool) (bool, error) { return true, nil }
+	resetNodeFn = func(sshUser, ip string) error { order = append(order, ip); return nil }
+	defer func() { confirmActionFn, resetNodeFn = origConfirm, origReset }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reset-cluster", "--force"})
+	require.NoError(t, cmd.Execute())
+	// reverse node order so the init node (k8s-0) is reset last
+	assert.Equal(t, []string{"192.168.122.12", "192.168.122.11", "192.168.122.10"}, order)
+}
+
 func TestPatchKubeconfigServer(t *testing.T) {
 	in := "clusters:\n- cluster:\n    server: https://192.168.122.10:6443\n    name: x\n"
 	out := patchKubeconfigServer(in, "192.168.123.253")
