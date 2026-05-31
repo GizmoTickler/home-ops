@@ -157,7 +157,7 @@ func (c *Client) Connect(host, username, password string, insecure bool) error {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
 	if insecure {
-		common.NewColorLogger().Warn("vSphere TLS verification disabled (set %s=false to enable)", constants.EnvVSphereInsecure)
+		common.NewColorLogger().Warn("vSphere TLS verification DISABLED via %s=true (unset it to verify the endpoint)", constants.EnvVSphereInsecure)
 	}
 
 	// Parse URL

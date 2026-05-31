@@ -225,7 +225,7 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.PowerOn = d.powerOn
 
 	d.logger.Info("Deploying Flatcar VM %s", node.name)
-	vmManager, err := newProxmoxVMManagerFn(d.host, d.tokenID, d.secret, d.node, common.EnvBool(constants.EnvProxmoxInsecure, true))
+	vmManager, err := newProxmoxVMManagerFn(d.host, d.tokenID, d.secret, d.node, common.EnvBool(constants.EnvProxmoxInsecure, false))
 	if err != nil {
 		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
 	}
@@ -1279,7 +1279,7 @@ func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 		host:      host,
 		username:  username,
 		password:  password,
-		insecure:  common.EnvBool(constants.EnvVSphereInsecure, true),
+		insecure:  common.EnvBool(constants.EnvVSphereInsecure, false),
 		template:  opts.vsphereTemplate,
 		datastore: opts.datastore,
 		network:   opts.vsphereNetwork,

@@ -1735,7 +1735,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 			assert.Equal(t, "token", tokenID)
 			assert.Equal(t, "secret", secret)
 			assert.Equal(t, "pve", nodeName)
-			assert.True(t, insecure)
+			assert.False(t, insecure) // verify-by-default; PROXMOX_INSECURE unset in tests
 			return manager, nil
 		}
 
