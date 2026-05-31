@@ -342,6 +342,7 @@ type VMManager struct {
 	getVMHandleFn   func(int) (vmHandle, error)
 	findVMByNameFn  func(string) (*proxmox.VirtualMachine, error)
 	uploadISOTaskFn func(string, string, string) (taskHandle, error)
+	verifyStorageFn func(string) error
 }
 
 // NewVMManager creates a new VM manager
@@ -416,6 +417,11 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 			return fmt.Errorf("VMID %d is already in use by VM '%s'; delete it or free the VMID before deploying %s",
 				vmid, existingVM.Name, config.Name)
 		}
+	}
+
+	// Preflight: confirm the storage pools resolve on the node before we mutate.
+	if err := vm.preflightStorage(config); err != nil {
+		return err
 	}
 
 	// Build VM options. Flatcar nodes (IgnitionConfig set) use the Ignition/fw_cfg
@@ -893,6 +899,33 @@ func (vm *VMManager) listVMs() (proxmox.VirtualMachines, error) {
 		return vm.listVMsFn()
 	}
 	return vm.client.ListVMs()
+}
+
+// verifyStorage confirms a storage pool resolves on the node. Swappable for tests.
+func (vm *VMManager) verifyStorage(name string) error {
+	if vm.verifyStorageFn != nil {
+		return vm.verifyStorageFn(name)
+	}
+	_, err := vm.client.GetStorage(name)
+	return err
+}
+
+// preflightStorage confirms every storage pool the deploy will use actually exists
+// on the node BEFORE any VM is created, turning an opaque mid-create go-proxmox
+// failure into a clear up-front error. Empty names are skipped (a given path may
+// not use OpenEBS/EFI); each distinct pool is checked once.
+func (vm *VMManager) preflightStorage(config VMConfig) error {
+	seen := make(map[string]bool)
+	for _, name := range []string{config.BootStorage, config.EFIDiskStorage, config.OpenEBSStorage} {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if err := vm.verifyStorage(name); err != nil {
+			return fmt.Errorf("preflight: storage pool %q is not available on the node: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func (vm *VMManager) nextVMID() (int, error) {

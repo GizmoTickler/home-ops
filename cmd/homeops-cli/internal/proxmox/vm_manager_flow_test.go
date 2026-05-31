@@ -40,6 +40,7 @@ func TestVMManagerDeployVM(t *testing.T) {
 				assert.Equal(t, 555, vmid)
 				return startVM, nil
 			},
+			verifyStorageFn: func(string) error { return nil },
 		}
 
 		err := manager.DeployVM(VMConfig{
@@ -115,6 +116,7 @@ func TestVMManagerDeployVM(t *testing.T) {
 			createVMTaskFn: func(vmid int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {
 				return &fakeTaskHandle{waitErr: fmt.Errorf("create failed")}, nil
 			},
+			verifyStorageFn: func(string) error { return nil },
 		}
 
 		err := manager.DeployVM(VMConfig{
@@ -128,6 +130,74 @@ func TestVMManagerDeployVM(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "VM creation task failed")
+	})
+
+	t.Run("preflight fails when a storage pool is missing", func(t *testing.T) {
+		manager := &VMManager{
+			client: &Client{ctx: context.Background()},
+			logger: common.NewColorLogger(),
+			listVMsFn: func() (proxmox.VirtualMachines, error) {
+				return proxmox.VirtualMachines{}, nil
+			},
+			getNextVMIDFn: func() (int, error) { return 600, nil },
+			verifyStorageFn: func(name string) error {
+				if name == "missing-pool" {
+					return fmt.Errorf("storage 'missing-pool' does not exist")
+				}
+				return nil
+			},
+			createVMTaskFn: func(int, ...proxmox.VirtualMachineOption) (taskHandle, error) {
+				t.Fatal("must not create a VM when preflight fails")
+				return nil, nil
+			},
+		}
+
+		err := manager.DeployVM(VMConfig{
+			Name:          "demo",
+			Memory:        4096,
+			Cores:         2,
+			Sockets:       1,
+			BootDiskSize:  32,
+			BootStorage:   "missing-pool",
+			NetworkBridge: "vmbr0",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "preflight")
+		assert.Contains(t, err.Error(), "missing-pool")
+	})
+
+	t.Run("preflight checks every distinct pool once", func(t *testing.T) {
+		checked := map[string]int{}
+		manager := &VMManager{
+			client: &Client{ctx: context.Background()},
+			logger: common.NewColorLogger(),
+			listVMsFn: func() (proxmox.VirtualMachines, error) {
+				return proxmox.VirtualMachines{}, nil
+			},
+			getNextVMIDFn:  func() (int, error) { return 601, nil },
+			createVMTaskFn: func(int, ...proxmox.VirtualMachineOption) (taskHandle, error) { return &fakeTaskHandle{}, nil },
+			verifyStorageFn: func(name string) error {
+				checked[name]++
+				return nil
+			},
+		}
+
+		err := manager.DeployVM(VMConfig{
+			Name:           "demo",
+			Memory:         4096,
+			Cores:          2,
+			Sockets:        1,
+			BootDiskSize:   32,
+			BootStorage:    "pool-a",
+			OpenEBSSize:    16,
+			OpenEBSStorage: "pool-b",
+			NetworkBridge:  "vmbr0",
+		})
+		require.NoError(t, err)
+		// pool-a is BootStorage (and, via normalizeStorageConfig, EFIDiskStorage) but
+		// is checked once; pool-b once.
+		assert.Equal(t, 1, checked["pool-a"])
+		assert.Equal(t, 1, checked["pool-b"])
 	})
 }
 
