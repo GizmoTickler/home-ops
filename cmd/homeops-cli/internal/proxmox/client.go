@@ -61,15 +61,20 @@ func (c *Client) Connect(nodeName string) error {
 		return fmt.Errorf("proxmox client is not initialized")
 	}
 
-	// Verify connection by getting version
-	version, err := c.client.Version(c.ctx)
+	// Verify connection by getting version. Reads are idempotent, so retry on
+	// transient errors (e.g. a momentary 5xx or connection reset).
+	version, err := common.RetryValue(common.DefaultAPIRetry(), func() (*proxmox.Version, error) {
+		return c.client.Version(c.ctx)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to connect to Proxmox: %w", err)
 	}
 	c.logger.Info("Connected to Proxmox VE %s", version.Version)
 
 	// Get the specified node
-	node, err := c.client.Node(c.ctx, nodeName)
+	node, err := common.RetryValue(common.DefaultAPIRetry(), func() (*proxmox.Node, error) {
+		return c.client.Node(c.ctx, nodeName)
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get node %s: %w", nodeName, err)
 	}
@@ -92,11 +97,13 @@ func (c *Client) GetNextVMID() (int, error) {
 	if c.client == nil {
 		return 0, fmt.Errorf("proxmox client is not initialized")
 	}
-	cluster, err := c.client.Cluster(c.ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get cluster: %w", err)
-	}
-	return cluster.NextID(c.ctx)
+	return common.RetryValue(common.DefaultAPIRetry(), func() (int, error) {
+		cluster, err := c.client.Cluster(c.ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get cluster: %w", err)
+		}
+		return cluster.NextID(c.ctx)
+	})
 }
 
 // CreateVM creates a new VM with the specified options
@@ -112,7 +119,9 @@ func (c *Client) GetVM(vmid int) (*proxmox.VirtualMachine, error) {
 	if c.node == nil {
 		return nil, fmt.Errorf("not connected to a node")
 	}
-	return c.node.VirtualMachine(c.ctx, vmid)
+	return common.RetryValue(common.DefaultAPIRetry(), func() (*proxmox.VirtualMachine, error) {
+		return c.node.VirtualMachine(c.ctx, vmid)
+	})
 }
 
 // ListVMs lists all VMs on the node
@@ -120,7 +129,9 @@ func (c *Client) ListVMs() (proxmox.VirtualMachines, error) {
 	if c.node == nil {
 		return nil, fmt.Errorf("not connected to a node")
 	}
-	return c.node.VirtualMachines(c.ctx)
+	return common.RetryValue(common.DefaultAPIRetry(), func() (proxmox.VirtualMachines, error) {
+		return c.node.VirtualMachines(c.ctx)
+	})
 }
 
 // GetStorage retrieves a storage by name
@@ -128,7 +139,9 @@ func (c *Client) GetStorage(storageName string) (*proxmox.Storage, error) {
 	if c.node == nil {
 		return nil, fmt.Errorf("not connected to a node")
 	}
-	return c.node.Storage(c.ctx, storageName)
+	return common.RetryValue(common.DefaultAPIRetry(), func() (*proxmox.Storage, error) {
+		return c.node.Storage(c.ctx, storageName)
+	})
 }
 
 // UploadISO uploads an ISO file to Proxmox storage via URL download
