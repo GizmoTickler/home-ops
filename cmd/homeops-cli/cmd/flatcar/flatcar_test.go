@@ -2,9 +2,12 @@ package flatcar
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
@@ -91,6 +94,54 @@ func TestSavePKIToOpUsesStdinNotArgv(t *testing.T) {
 	// secret values present in stdin payload, absent from argv
 	assert.Contains(t, string(createStdin), "BBB")
 	assert.NotContains(t, strings.Join(createArgs, " "), "BBB")
+}
+
+func TestPatchKubeconfigServer(t *testing.T) {
+	in := "clusters:\n- cluster:\n    server: https://192.168.122.10:6443\n    name: x\n"
+	out := patchKubeconfigServer(in, "192.168.123.253")
+	assert.Contains(t, out, "server: https://192.168.123.253:6443")
+	assert.NotContains(t, out, "192.168.122.10")
+	assert.Contains(t, out, "name: x") // non-server lines untouched
+}
+
+func TestKubeconfigCommandFetchAndPush(t *testing.T) {
+	defer stubSecrets(t)() // OpFlatcarSSHUser -> "" -> sshUser defaults "core"
+	origFetch, origSave := fetchAdminKubeconfigFn, saveKubeconfigFn
+	var saved []byte
+	fetchAdminKubeconfigFn = func(sshUser, ip string) (string, error) {
+		assert.Equal(t, "core", sshUser)
+		assert.Equal(t, "192.168.122.10", ip)
+		return "apiVersion: v1\nclusters:\n- cluster:\n    server: https://1.2.3.4:6443\n", nil
+	}
+	saveKubeconfigFn = func(b []byte, _ *common.ColorLogger) error { saved = b; return nil }
+	defer func() { fetchAdminKubeconfigFn, saveKubeconfigFn = origFetch, origSave }()
+
+	out := filepath.Join(t.TempDir(), "kubeconfig")
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"kubeconfig", "--node", "k8s-0", "--output", out, "--push"})
+	require.NoError(t, cmd.Execute())
+
+	data, err := os.ReadFile(out)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "server: https://192.168.123.253:6443", "server patched to VIP")
+	assert.Contains(t, string(saved), "192.168.123.253", "pushed content is the patched kubeconfig")
+}
+
+func TestKubeconfigCommandPull(t *testing.T) {
+	origPull, origFetch := pullKubeconfigFn, fetchAdminKubeconfigFn
+	var pulledTo string
+	pullKubeconfigFn = func(dest string, _ *common.ColorLogger) error { pulledTo = dest; return nil }
+	fetchAdminKubeconfigFn = func(string, string) (string, error) {
+		t.Fatal("--pull must not fetch from a node")
+		return "", nil
+	}
+	defer func() { pullKubeconfigFn, fetchAdminKubeconfigFn = origPull, origFetch }()
+
+	out := filepath.Join(t.TempDir(), "kc")
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"kubeconfig", "--output", out, "--pull"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, out, pulledTo)
 }
 
 func TestSavePKICommand(t *testing.T) {

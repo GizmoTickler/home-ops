@@ -14,7 +14,8 @@ homeops-cli
 │   ├── render-ignition
 │   ├── gen-kubeadm
 │   ├── deploy-vm
-│   └── save-pki
+│   ├── save-pki
+│   └── kubeconfig
 ├── k8s
 │   ├── browse-pvc
 │   ├── node-shell
@@ -118,7 +119,7 @@ homeops-cli flatcar gen-kubeadm
 # Deploy Flatcar VM(s) on Proxmox (uploads Ignition to the PVE snippets store
 # over SSH, then kubeadm init/join runs on first boot)
 homeops-cli flatcar deploy-vm --node k8s-0
-homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
 
 # Capture the live cluster PKI (CA/SA/front-proxy/etcd CA) into
 # op://Infrastructure/kubernetes-pki so bootstrap can restore it for a STABLE
@@ -126,9 +127,15 @@ homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
 # rotation. `bootstrap` restores it by default (opt out with --fresh-pki).
 homeops-cli flatcar save-pki                # reads from k8s-0 by default
 homeops-cli flatcar save-pki --node k8s-1
+
+# Fetch the cluster kubeconfig (admin.conf) from a node, point the server at the
+# VIP, write it locally; --push also stores it in 1Password, --pull retrieves it.
+homeops-cli flatcar kubeconfig                       # -> $KUBECONFIG or ~/.kube/config
+homeops-cli flatcar kubeconfig --push                # also save to op://Infrastructure/kubeconfig
+homeops-cli flatcar kubeconfig --pull --output ./kc  # retrieve from 1Password
 ```
 
-Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrent`, `--init`,
+Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrency`, `--init`,
 `--token`, `--ca-cert-hash`, `--cert-key`, `--vip`, `--kube-vip-version`,
 `--pause-image`, `--pve-ssh-host`/`--pve-ssh-port`, `--snippets-dir`,
 `--image-path`/`--image-volume`, `--interface`, `--power-on`, `--dry-run`.

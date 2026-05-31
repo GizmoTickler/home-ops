@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -34,6 +36,13 @@ var (
 		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
 		return orch.CapturePKI(node0IP)
 	}
+	// fetchAdminKubeconfigFn reads /etc/kubernetes/admin.conf from a node over SSH.
+	fetchAdminKubeconfigFn = func(sshUser, node0IP string) (string, error) {
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		return orch.FetchAdminKubeconfig(node0IP)
+	}
+	saveKubeconfigFn = common.SaveKubeconfigTo1Password
+	pullKubeconfigFn = common.PullKubeconfigFrom1Password
 	// savePKIToOpFn persists captured PKI fields to 1Password (swappable for tests).
 	savePKIToOpFn = savePKIToOp
 	// runOpFn runs the op CLI with NO stdin so op never tries to read a JSON
@@ -131,6 +140,7 @@ Subcommands:
 		newGenKubeadmCommand(),
 		newDeployVMCommand(),
 		newSavePKICommand(),
+		newKubeconfigCommand(),
 	)
 
 	return cmd
@@ -247,6 +257,92 @@ func savePKIToOp(fields map[string]string) error {
 		return fmt.Errorf("marshal op item template: %w", err)
 	}
 	return runOpStdinFn(doc, "item", "create", "--vault", "Infrastructure")
+}
+
+// patchKubeconfigServer rewrites the cluster server URL to the control-plane VIP
+// (the stable endpoint for ongoing use, unlike the bootstrap-time node-IP patch).
+func patchKubeconfigServer(kubeconfig, vip string) string {
+	re := regexp.MustCompile(`(?m)^(\s*server:\s+).*$`)
+	return re.ReplaceAllString(kubeconfig, "${1}https://"+vip+":6443")
+}
+
+// newKubeconfigCommand fetches the cluster kubeconfig from a node (parity with
+// `talos kubeconfig`): SSH admin.conf, point server at the VIP, push/pull op.
+func newKubeconfigCommand() *cobra.Command {
+	var node, output, vip string
+	var push, pull bool
+	cmd := &cobra.Command{
+		Use:   "kubeconfig",
+		Short: "Fetch the cluster kubeconfig from a node (with --push/--pull 1Password)",
+		Long: `Fetch /etc/kubernetes/admin.conf from a control-plane node over SSH, point its
+server at the control-plane VIP, and write it locally (0600). --push also stores
+it in 1Password (op://Infrastructure/kubeconfig); --pull retrieves it from there
+instead of contacting a node.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			if output == "" {
+				output = os.Getenv(constants.EnvKubeconfig)
+			}
+			if output == "" {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("resolve home dir for default kubeconfig path: %w", err)
+				}
+				output = filepath.Join(home, ".kube", "config")
+			}
+
+			if pull {
+				if err := pullKubeconfigFn(output, logger); err != nil {
+					return fmt.Errorf("pull kubeconfig from 1Password: %w", err)
+				}
+				logger.Success("Kubeconfig written to %s (from 1Password)", output)
+				return nil
+			}
+
+			nodeConfig, ok := getFlatcarNodeConfigFn(node)
+			if !ok {
+				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
+			}
+			sshUser := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser))
+			if sshUser == "" {
+				sshUser = "core"
+			}
+			if vip == "" {
+				vip = constants.DefaultControlPlaneVIP
+			}
+
+			logger.Info("Fetching kubeconfig from %s (%s)...", node, nodeConfig.NodeIP)
+			kc, err := fetchAdminKubeconfigFn(sshUser, nodeConfig.NodeIP)
+			if err != nil {
+				return fmt.Errorf("fetch admin.conf from %s: %w", node, err)
+			}
+			kc = patchKubeconfigServer(kc, vip)
+
+			if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+				return fmt.Errorf("create kubeconfig dir: %w", err)
+			}
+			if err := os.WriteFile(output, []byte(kc), 0o600); err != nil {
+				return fmt.Errorf("write kubeconfig %s: %w", output, err)
+			}
+			logger.Success("Kubeconfig written to %s (server https://%s:6443)", output, vip)
+
+			if push {
+				if err := saveKubeconfigFn([]byte(kc), logger); err != nil {
+					return fmt.Errorf("save kubeconfig to 1Password: %w", err)
+				}
+				logger.Success("Kubeconfig saved to 1Password")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "k8s-0", "control-plane node to fetch the kubeconfig from")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
+	cmd.Flags().StringVar(&output, "output", "", "kubeconfig output path (default $KUBECONFIG or ~/.kube/config)")
+	cmd.Flags().StringVar(&vip, "vip", "", "control-plane VIP for the server field (default from constants)")
+	cmd.Flags().BoolVar(&push, "push", false, "also save the fetched kubeconfig to 1Password")
+	cmd.Flags().BoolVar(&pull, "pull", false, "pull the kubeconfig from 1Password instead of a node")
+	cmd.MarkFlagsMutuallyExclusive("push", "pull")
+	return cmd
 }
 
 // newSavePKICommand captures the live cluster PKI into 1Password so bootstrap can
