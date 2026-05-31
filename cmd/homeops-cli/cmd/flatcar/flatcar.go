@@ -22,6 +22,7 @@ import (
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vsphere"
 
@@ -89,42 +90,50 @@ var (
 	// Swappable for tests. Auth is via the ambient ssh-agent (sshArgs sets no -i);
 	// SSHItemRef is the 1Password key used by the macOS 1Password SSH agent.
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
-		client := ssh.NewSSHClient(ssh.SSHConfig{
-			Host:       sshHost,
-			Username:   sshUser,
-			Port:       sshPort,
-			SSHItemRef: constants.OpProxmoxSSHKey,
-		})
-		if err := client.Connect(); err != nil {
-			return fmt.Errorf("connect to Proxmox host %s@%s:%s: %w", sshUser, sshHost, sshPort, err)
-		}
-		defer func() { _ = client.Close() }()
-
-		dir := remotePath[:strings.LastIndex(remotePath, "/")]
-		if dir == "" {
-			dir = "/"
-		}
-		// base64-encode so the JSON travels safely inside the remote shell command.
-		// Use a heredoc so the base64 payload is never interpolated by the shell, and
-		// ShellQuote the paths. runDeployVM already rejects snippets-dir/image paths
-		// containing shell metacharacters or commas (common.ValidateProxmoxOptValue),
-		// so this is defense-in-depth rather than the only guard.
-		b64 := base64.StdEncoding.EncodeToString(content)
-		cmd := fmt.Sprintf("mkdir -p %s && base64 -d <<'HOMEOPS_EOF' > %s\n%s\nHOMEOPS_EOF",
-			common.ShellQuote(dir), common.ShellQuote(remotePath), b64)
-		if _, err := client.ExecuteCommand(cmd); err != nil {
-			return fmt.Errorf("write ignition to %s on %s: %w", remotePath, sshHost, err)
-		}
-		ok, size, err := client.VerifyFile(remotePath)
-		if err != nil {
-			return fmt.Errorf("verify ignition on %s: %w", sshHost, err)
-		}
-		if !ok || size == 0 {
-			return fmt.Errorf("ignition not present/empty on %s after upload (path=%s, size=%d)", sshHost, remotePath, size)
-		}
-		return nil
+		return uploadIgnitionFile(ssh.SSHConfig{
+			Host: sshHost, Username: sshUser, Port: sshPort, SSHItemRef: constants.OpProxmoxSSHKey,
+		}, remotePath, content)
+	}
+	// uploadIgnitionToNASFn writes the rendered Ignition to a dataset path ON the
+	// TrueNAS host over SSH (qemu reads the fw_cfg file= path there). Same transport
+	// as the Proxmox path, but authenticated with the NAS01 SSH key. Swappable for tests.
+	uploadIgnitionToNASFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+		return uploadIgnitionFile(ssh.SSHConfig{
+			Host: sshHost, Username: sshUser, Port: sshPort, SSHItemRef: constants.OpTrueNASSSHPrivateKey,
+		}, remotePath, content)
 	}
 )
+
+// uploadIgnitionFile writes content to remotePath on the SSH target described by
+// cfg (base64 over a heredoc so the payload is never shell-interpolated; the paths
+// are ShellQuoted), then verifies it is present and non-empty. Shared by the
+// Proxmox (snippets dir) and TrueNAS (dataset) Ignition staging paths.
+func uploadIgnitionFile(cfg ssh.SSHConfig, remotePath string, content []byte) error {
+	client := ssh.NewSSHClient(cfg)
+	if err := client.Connect(); err != nil {
+		return fmt.Errorf("connect to %s@%s:%s: %w", cfg.Username, cfg.Host, cfg.Port, err)
+	}
+	defer func() { _ = client.Close() }()
+
+	dir := remotePath[:strings.LastIndex(remotePath, "/")]
+	if dir == "" {
+		dir = "/"
+	}
+	b64 := base64.StdEncoding.EncodeToString(content)
+	cmd := fmt.Sprintf("mkdir -p %s && base64 -d <<'HOMEOPS_EOF' > %s\n%s\nHOMEOPS_EOF",
+		common.ShellQuote(dir), common.ShellQuote(remotePath), b64)
+	if _, err := client.ExecuteCommand(cmd); err != nil {
+		return fmt.Errorf("write ignition to %s on %s: %w", remotePath, cfg.Host, err)
+	}
+	ok, size, err := client.VerifyFile(remotePath)
+	if err != nil {
+		return fmt.Errorf("verify ignition on %s: %w", cfg.Host, err)
+	}
+	if !ok || size == 0 {
+		return fmt.Errorf("ignition not present/empty on %s after upload (path=%s, size=%d)", cfg.Host, remotePath, size)
+	}
+	return nil
+}
 
 // proxmoxVMManager is the subset of the Proxmox VM manager flatcar deploy needs.
 type proxmoxVMManager interface {
@@ -348,6 +357,125 @@ func resolveVSphereCredentials() (host, username, password string, err error) {
 			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
 	}
 	return host, username, password, nil
+}
+
+// truenasFlatcarClient is the subset of the TrueNAS VM manager the flatcar deployer
+// needs. *truenas.VMManager satisfies it directly.
+type truenasFlatcarClient interface {
+	Connect() error
+	DeployVM(truenas.VMConfig) error
+	Close() error
+}
+
+var newTrueNASFlatcarClientFn = func(host, apiKey string, port int, useSSL bool) (truenasFlatcarClient, error) {
+	m := truenas.NewVMManager(host, apiKey, port, useSSL)
+	if err := m.Connect(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// truenasFlatcarDeployer provisions Flatcar nodes on TrueNAS SCALE libvirt VMs: it
+// stages the rendered Ignition to a dataset on the NAS over SSH (colocated with the
+// VM disk so libvirt-qemu can read it) and creates each VM booting a pre-staged
+// Flatcar image zvol, with Ignition attached via qemu fw_cfg (command_line_args).
+type truenasFlatcarDeployer struct {
+	host, apiKey     string
+	port             int
+	useSSL           bool
+	sshHost, sshUser string
+	ignitionDir      string
+	pool             string
+	networkBridge    string
+	bootZVol         string
+	logger           *common.ColorLogger
+
+	mu     sync.Mutex
+	client truenasFlatcarClient
+}
+
+var _ flatcarDeployer = (*truenasFlatcarDeployer)(nil)
+
+func (d *truenasFlatcarDeployer) ignitionPath(node string) string {
+	return fmt.Sprintf("%s/ignition-%s.json", strings.TrimRight(d.ignitionDir, "/"), node)
+}
+
+// StageIgnition writes the Ignition to a dataset path on the NAS over SSH and
+// returns that host path as the handle (qemu reads it via fw_cfg file=).
+func (d *truenasFlatcarDeployer) StageIgnition(node flatcarNode) (string, error) {
+	remotePath := d.ignitionPath(node.name)
+	d.logger.Info("Uploading Ignition for %s to %s@%s:%s", node.name, d.sshUser, d.sshHost, remotePath)
+	if err := uploadIgnitionToNASFn(d.sshHost, d.sshUser, "22", remotePath, node.ignition); err != nil {
+		return "", fmt.Errorf("failed to upload ignition for %s to TrueNAS host %s: %w", node.name, d.sshHost, err)
+	}
+	return remotePath, nil
+}
+
+// connect lazily establishes (and caches) the TrueNAS client. Mutex-guarded so it
+// is safe whether called once up front or from concurrent DeployNode goroutines.
+func (d *truenasFlatcarDeployer) connect() (truenasFlatcarClient, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.client != nil {
+		return d.client, nil
+	}
+	c, err := newTrueNASFlatcarClientFn(d.host, d.apiKey, d.port, d.useSSL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	d.client = c
+	return c, nil
+}
+
+func (d *truenasFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle string) error {
+	client, err := d.connect()
+	if err != nil {
+		return err
+	}
+	cfg := truenas.VMConfig{
+		Name:           node.name,
+		StoragePool:    d.pool,
+		NetworkBridge:  d.networkBridge,
+		BootZVol:       d.bootZVol, // empty => derived <pool>/VM/<name>-boot
+		SkipZVolCreate: true,       // the Flatcar boot zvol is pre-staged
+		Flatcar:        true,
+		IgnitionPath:   ignitionHandle,
+		TrueNASHost:    d.host,
+		TrueNASPort:    d.port,
+		NoSSL:          !d.useSSL,
+	}
+	d.logger.Info("Deploying Flatcar VM %s on TrueNAS", node.name)
+	return client.DeployVM(cfg)
+}
+
+func (d *truenasFlatcarDeployer) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.client != nil {
+		return d.client.Close()
+	}
+	return nil
+}
+
+// getTrueNASCredentialsFn resolves TrueNAS credentials (swappable for tests).
+var getTrueNASCredentialsFn = resolveTrueNASCredentials
+
+// resolveTrueNASCredentials reads the TrueNAS host + API key from 1Password
+// (constants.OpTrueNAS*) with environment-variable fallback (constants.EnvTrueNAS*).
+func resolveTrueNASCredentials() (host, apiKey string, err error) {
+	host = get1PasswordSecretFn(constants.OpTrueNASHost)
+	if host == "" {
+		host = os.Getenv(constants.EnvTrueNASHost)
+	}
+	apiKey = get1PasswordSecretFn(constants.OpTrueNASAPI)
+	if apiKey == "" {
+		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
+	}
+	if host == "" || apiKey == "" {
+		return "", "", fmt.Errorf("TrueNAS credentials not found: set %s/%s or configure 1Password (%s, %s)",
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+	}
+	return host, apiKey, nil
 }
 
 // NewCommand builds the `flatcar` command group.
@@ -818,6 +946,13 @@ func newDeployVMCommand() *cobra.Command {
 		vsphereNetwork  string
 		vcpus           int
 		memory          int
+		truenasPool     string
+		networkBridge   string
+		bootZVol        string
+		ignitionDir     string
+		truenasSSHHost  string
+		truenasSSHUser  string
+		truenasPort     int
 		vip             string
 		pauseImage      string
 		kubeVipVersion  string
@@ -829,7 +964,7 @@ func newDeployVMCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
-		Short: "Deploy Flatcar k8s VM(s) on Proxmox or vSphere with Ignition",
+		Short: "Deploy Flatcar k8s VM(s) on Proxmox, vSphere, or TrueNAS with Ignition",
 		Long: `Deploy one or more Flatcar control-plane VMs on the chosen hypervisor.
 
 --provider proxmox (default): each VM boots from a pre-staged Flatcar image
@@ -839,7 +974,12 @@ snippets directory (--snippets-dir) for the fw_cfg file= attach.
 
 --provider vsphere (alias esxi): each VM is cloned from a pre-imported Flatcar
 OVA template (--vsphere-template) onto --datastore, and receives its Ignition via
-VMware guestinfo (base64). No install ISO and no SSH upload are involved.`,
+VMware guestinfo (base64). No install ISO and no SSH upload are involved.
+
+--provider truenas: each VM (TrueNAS SCALE libvirt) boots a pre-staged Flatcar
+image zvol (--boot-zvol, or <pool>/VM/<node>-boot under --truenas-pool) and
+receives its Ignition via qemu fw_cfg. The Ignition is staged to a dataset on the
+NAS (--ignition-dir, default /mnt/<pool>/VM) over SSH.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDeployVM(cmd, deployVMOptions{
 				provider:        provider,
@@ -855,6 +995,13 @@ VMware guestinfo (base64). No install ISO and no SSH upload are involved.`,
 				vsphereNetwork:  vsphereNetwork,
 				vcpus:           vcpus,
 				memory:          memory,
+				truenasPool:     truenasPool,
+				networkBridge:   networkBridge,
+				bootZVol:        bootZVol,
+				ignitionDir:     ignitionDir,
+				truenasSSHHost:  truenasSSHHost,
+				truenasSSHUser:  truenasSSHUser,
+				truenasPort:     truenasPort,
 				vip:             vip,
 				pauseImage:      pauseImage,
 				kubeVipVersion:  kubeVipVersion,
@@ -866,7 +1013,7 @@ VMware guestinfo (base64). No install ISO and no SSH upload are involved.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi)")
+	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi) | truenas")
 	cmd.Flags().StringSliceVar(&nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
 	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
@@ -880,6 +1027,13 @@ VMware guestinfo (base64). No install ISO and no SSH upload are involved.`,
 	cmd.Flags().StringVar(&vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
 	cmd.Flags().IntVar(&memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
+	cmd.Flags().StringVar(&truenasPool, "truenas-pool", "", "[truenas] storage pool/dataset for the VM (e.g. flashstor)")
+	cmd.Flags().StringVar(&networkBridge, "network-bridge", "", "[truenas] bridge to attach the VM NIC to")
+	cmd.Flags().StringVar(&bootZVol, "boot-zvol", "", "[truenas] pre-staged Flatcar boot zvol (single-node; else <pool>/VM/<node>-boot)")
+	cmd.Flags().StringVar(&ignitionDir, "ignition-dir", "", "[truenas] dir on the NAS for Ignition files (default /mnt/<pool>/VM)")
+	cmd.Flags().StringVar(&truenasSSHHost, "truenas-ssh-host", "", "[truenas] host to SSH the Ignition to (default: the TrueNAS API host)")
+	cmd.Flags().StringVar(&truenasSSHUser, "truenas-ssh-user", "truenas_admin", "[truenas] SSH user for Ignition upload")
+	cmd.Flags().IntVar(&truenasPort, "truenas-port", 443, "[truenas] TrueNAS API port")
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
@@ -908,6 +1062,14 @@ type deployVMOptions struct {
 	vsphereNetwork  string
 	vcpus           int
 	memory          int
+	// TrueNAS
+	truenasPool    string
+	networkBridge  string
+	bootZVol       string
+	ignitionDir    string
+	truenasSSHHost string
+	truenasSSHUser string
+	truenasPort    int
 	// common
 	vip            string
 	pauseImage     string
@@ -942,6 +1104,8 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 	switch provider {
 	case providerVSphere:
 		return deployVSphere(cmd, opts, logger, nodes)
+	case providerTrueNAS:
+		return deployTrueNAS(cmd, opts, logger, nodes)
 	default: // providerProxmox
 		return deployProxmox(cmd, opts, logger, nodes)
 	}
@@ -963,9 +1127,9 @@ func normalizeFlatcarProvider(p string) (string, error) {
 	case providerVSphere, "esxi":
 		return providerVSphere, nil
 	case providerTrueNAS:
-		return "", fmt.Errorf("provider %q is not yet supported for flatcar deploy-vm (coming in a later change)", p)
+		return providerTrueNAS, nil
 	default:
-		return "", fmt.Errorf("unknown provider %q (valid: proxmox, vsphere, esxi)", p)
+		return "", fmt.Errorf("unknown provider %q (valid: proxmox, vsphere, esxi, truenas)", p)
 	}
 }
 
@@ -978,6 +1142,16 @@ func validateDeployVMOptions(provider string, opts deployVMOptions) error {
 		}
 		if opts.datastore == "" {
 			return fmt.Errorf("--datastore is required for --provider vsphere")
+		}
+		return nil
+	case providerTrueNAS:
+		if opts.truenasPool == "" {
+			return fmt.Errorf("--truenas-pool is required for --provider truenas")
+		}
+		// The boot zvol is per-node; an explicit override only makes sense for a
+		// single node (otherwise pre-stage <pool>/VM/<node>-boot for each node).
+		if opts.bootZVol != "" && len(opts.nodes) > 1 {
+			return fmt.Errorf("--boot-zvol cannot be used with multiple --nodes; pre-stage <pool>/VM/<node>-boot per node instead")
 		}
 		return nil
 	default: // providerProxmox
@@ -1116,6 +1290,68 @@ func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 	}
 	// Connect once before the concurrent deploy phase so all DeployNode goroutines
 	// share one ready client (and we fail fast on a bad connection).
+	if _, err := deployer.connect(); err != nil {
+		return err
+	}
+
+	return deployFlatcarNodes(logger, deployer, nodes, opts.concurrent)
+}
+
+// deployTrueNAS resolves TrueNAS credentials and deploys by creating libvirt VMs
+// that boot a pre-staged Flatcar image zvol; the Ignition is staged to a dataset
+// on the NAS (colocated with the VM disk for libvirt-qemu read access) and
+// attached via qemu fw_cfg (command_line_args).
+func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.ColorLogger, nodes []flatcarNode) error {
+	ignitionDir := opts.ignitionDir
+	if ignitionDir == "" {
+		// Default colocated with the VM disks so libvirt-qemu can read the .ign.
+		ignitionDir = fmt.Sprintf("/mnt/%s/VM", opts.truenasPool)
+	}
+
+	if opts.dryRun {
+		dst := opts.truenasSSHHost
+		if dst == "" {
+			dst = "<truenas-host>"
+		}
+		for _, n := range nodes {
+			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s:%s/ignition-%s.json and create Flatcar VM %s on pool %s (Ignition via fw_cfg)",
+				len(n.ignition), dst, ignitionDir, n.name, n.name, opts.truenasPool)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		return nil
+	}
+
+	host, apiKey, err := getTrueNASCredentialsFn()
+	if err != nil {
+		return err
+	}
+
+	sshHost := opts.truenasSSHHost
+	if sshHost == "" {
+		sshHost = host
+	}
+	sshUser := opts.truenasSSHUser
+	if sshUser == "" {
+		sshUser = "truenas_admin"
+	}
+	port := opts.truenasPort
+	if port == 0 {
+		port = 443
+	}
+
+	deployer := &truenasFlatcarDeployer{
+		host:          host,
+		apiKey:        apiKey,
+		port:          port,
+		useSSL:        true,
+		sshHost:       sshHost,
+		sshUser:       sshUser,
+		ignitionDir:   ignitionDir,
+		pool:          opts.truenasPool,
+		networkBridge: opts.networkBridge,
+		bootZVol:      opts.bootZVol,
+		logger:        logger,
+	}
 	if _, err := deployer.connect(); err != nil {
 		return err
 	}

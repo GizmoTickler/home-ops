@@ -15,6 +15,7 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vsphere"
 
 	"github.com/spf13/cobra"
@@ -474,19 +475,21 @@ func TestDeployFlatcarNodes(t *testing.T) {
 
 func TestNormalizeFlatcarProvider(t *testing.T) {
 	ok := map[string]string{
-		"":         "proxmox",
-		"proxmox":  "proxmox",
-		"Proxmox":  "proxmox",
-		"vsphere":  "vsphere",
-		"esxi":     "vsphere",
+		"":          "proxmox",
+		"proxmox":   "proxmox",
+		"Proxmox":   "proxmox",
+		"vsphere":   "vsphere",
+		"esxi":      "vsphere",
 		" VSPHERE ": "vsphere",
+		"truenas":   "truenas",
+		"TrueNAS":   "truenas",
 	}
 	for in, want := range ok {
 		got, err := normalizeFlatcarProvider(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, got, in)
 	}
-	for _, bad := range []string{"truenas", "aws", "xen"} {
+	for _, bad := range []string{"aws", "xen", "hyperv"} {
 		_, err := normalizeFlatcarProvider(bad)
 		assert.Error(t, err, bad)
 	}
@@ -573,6 +576,103 @@ func TestDeployVMVSphereDryRun(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetArgs([]string{"--provider", "vsphere", "--nodes", "k8s-0", "--vsphere-template", "flatcar-ova", "--datastore", "ds1", "--dry-run"})
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, out.String(), "DRY RUN")
+}
+
+// fakeTrueNASClient records DeployVM calls so the deployer can be tested without
+// a live TrueNAS.
+type fakeTrueNASClient struct {
+	deployed  []truenas.VMConfig
+	connected bool
+	closed    bool
+	err       error
+}
+
+func (f *fakeTrueNASClient) Connect() error { f.connected = true; return nil }
+func (f *fakeTrueNASClient) DeployVM(c truenas.VMConfig) error {
+	f.deployed = append(f.deployed, c)
+	return f.err
+}
+func (f *fakeTrueNASClient) Close() error { f.closed = true; return nil }
+
+func TestTrueNASFlatcarDeployer(t *testing.T) {
+	fake := &fakeTrueNASClient{}
+
+	var uploadedTo string
+	origUpload := uploadIgnitionToNASFn
+	defer func() { uploadIgnitionToNASFn = origUpload }()
+	uploadIgnitionToNASFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+		uploadedTo = sshHost + ":" + remotePath
+		return nil
+	}
+
+	d := &truenasFlatcarDeployer{
+		host:          "nas",
+		apiKey:        "k",
+		port:          443,
+		useSSL:        true,
+		sshHost:       "nas",
+		sshUser:       "truenas_admin",
+		ignitionDir:   "/mnt/flashstor/VM",
+		pool:          "flashstor",
+		networkBridge: "br0",
+		logger:        common.NewColorLogger(),
+		client:        fake, // pre-connected, bypassing newTrueNASFlatcarClientFn
+	}
+
+	ign := []byte(`{"ignition":{"version":"3.4.0"}}`)
+	handle, err := d.StageIgnition(flatcarNode{name: "k8s-0", ignition: ign})
+	require.NoError(t, err)
+	assert.Equal(t, "/mnt/flashstor/VM/ignition-k8s-0.json", handle, "handle is the host path the .ign was written to")
+	assert.Equal(t, "nas:/mnt/flashstor/VM/ignition-k8s-0.json", uploadedTo)
+
+	require.NoError(t, d.DeployNode(flatcarNode{name: "k8s-0", ignition: ign}, handle))
+	require.Len(t, fake.deployed, 1)
+	got := fake.deployed[0]
+	assert.Equal(t, "k8s-0", got.Name)
+	assert.True(t, got.Flatcar)
+	assert.True(t, got.SkipZVolCreate)
+	assert.Equal(t, handle, got.IgnitionPath) // fw_cfg file= path
+	assert.Equal(t, "flashstor", got.StoragePool)
+	assert.Equal(t, "br0", got.NetworkBridge)
+
+	require.NoError(t, d.Close())
+	assert.True(t, fake.closed)
+}
+
+func TestDeployVMTrueNASValidation(t *testing.T) {
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+
+	err := runDeployVM(cmd, deployVMOptions{provider: "truenas", nodes: []string{"k8s-0"}, dryRun: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--truenas-pool")
+
+	err = runDeployVM(cmd, deployVMOptions{provider: "truenas", nodes: []string{"k8s-0", "k8s-1"}, truenasPool: "flashstor", bootZVol: "z", dryRun: true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--boot-zvol")
+}
+
+func TestDeployVMTrueNASDryRun(t *testing.T) {
+	defer stubVersions(t)()
+	origIgn := renderIgnitionFn
+	defer func() { renderIgnitionFn = origIgn }()
+	renderIgnitionFn = func(env flatcar.NodeEnv) ([]byte, error) {
+		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
+	}
+	// Dry-run must neither connect to TrueNAS nor resolve credentials.
+	origClient := newTrueNASFlatcarClientFn
+	defer func() { newTrueNASFlatcarClientFn = origClient }()
+	newTrueNASFlatcarClientFn = func(string, string, int, bool) (truenasFlatcarClient, error) {
+		t.Fatal("dry-run must not connect to TrueNAS")
+		return nil, nil
+	}
+
+	cmd := newDeployVMCommand()
+	out := &bytes.Buffer{}
+	cmd.SetOut(out)
+	cmd.SetArgs([]string{"--provider", "truenas", "--nodes", "k8s-0", "--truenas-pool", "flashstor", "--dry-run"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "DRY RUN")
 }
