@@ -205,6 +205,26 @@ func TestJoinControlPlane(t *testing.T) {
 	assert.True(t, r.closed)
 }
 
+func TestJoinControlPlaneSkipsWhenAlreadyJoined(t *testing.T) {
+	r := &fakeRunner{
+		responder: func(cmd string) (string, error) {
+			if strings.Contains(cmd, "kubelet.conf") {
+				return "JOINED\n", nil // node already a cluster member
+			}
+			return "", nil
+		},
+	}
+	defer withFakeRunner(t, r)()
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.JoinControlPlane("192.168.122.11", "kind: JoinConfiguration\n"))
+
+	for _, c := range r.commands {
+		assert.NotContains(t, c, "kubeadm join --config", "must not re-join an already-joined node")
+	}
+	assert.True(t, r.closed)
+}
+
 func TestFetchAdminKubeconfig(t *testing.T) {
 	r := &fakeRunner{
 		responder: func(cmd string) (string, error) {

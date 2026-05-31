@@ -92,6 +92,18 @@ func shellDir(p string) string {
 	return p[:idx]
 }
 
+// nodeAlreadyJoinedFn reports whether a node is already a kubeadm cluster member.
+// kubeadm writes /etc/kubernetes/kubelet.conf on a successful init/join, so its
+// presence means the node has joined. Swappable for tests. On any probe error it
+// returns false so the join proceeds and kubeadm's own preflight is the backstop.
+var nodeAlreadyJoinedFn = func(runner commandRunner) bool {
+	out, err := runner.ExecuteCommand("sudo test -f /etc/kubernetes/kubelet.conf && echo JOINED || echo ABSENT")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(out, "JOINED")
+}
+
 // KubeadmResult carries the join material extracted from `kubeadm init`.
 type KubeadmResult struct {
 	BootstrapToken string
@@ -263,6 +275,14 @@ func (o *Orchestrator) JoinControlPlane(nodeIP, joinConfig string) error {
 		return fmt.Errorf("failed to connect to node %s: %w", nodeIP, err)
 	}
 	defer func() { _ = runner.Close() }()
+
+	// Idempotency: if the node already joined (kubelet.conf present), re-running
+	// kubeadm join would fail hard ("file already exists" / "port in use"). Treat an
+	// already-joined node as success so the bootstrap is safe to re-run.
+	if nodeAlreadyJoinedFn(runner) {
+		o.logger.Info("Node %s is already a cluster member (kubelet.conf present); skipping kubeadm join", nodeIP)
+		return nil
+	}
 
 	if err := writeRemoteFileFn(runner, remoteJoinConfigPath, joinConfig); err != nil {
 		return fmt.Errorf("failed to stage kubeadm join config on %s: %w", nodeIP, err)

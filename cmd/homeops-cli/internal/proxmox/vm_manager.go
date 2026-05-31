@@ -407,6 +407,17 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		vm.logger.Info("Assigned VMID: %d", vmid)
 	}
 
+	// Fail fast if the target VMID is already taken by a *different* VM. The name
+	// check above misses this (e.g. a leftover VM from a prior deploy, or a
+	// Talos<->Flatcar slot reused under a different name); without this guard
+	// createVMTask would fail partway and leave inconsistent state.
+	for _, existingVM := range existingVMs {
+		if int(existingVM.VMID) == vmid {
+			return fmt.Errorf("VMID %d is already in use by VM '%s'; delete it or free the VMID before deploying %s",
+				vmid, existingVM.Name, config.Name)
+		}
+	}
+
 	// Build VM options. Flatcar nodes (IgnitionConfig set) use the Ignition/fw_cfg
 	// boot path; everything else uses the Talos ISO path. Talos behavior unchanged.
 	var options []proxmox.VirtualMachineOption

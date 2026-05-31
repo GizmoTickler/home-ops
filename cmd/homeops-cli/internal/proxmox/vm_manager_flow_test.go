@@ -76,6 +76,32 @@ func TestVMManagerDeployVM(t *testing.T) {
 		assert.Contains(t, err.Error(), "already exists")
 	})
 
+	t.Run("fails when target VMID is taken by another VM", func(t *testing.T) {
+		manager := &VMManager{
+			client: &Client{ctx: context.Background()},
+			logger: common.NewColorLogger(),
+			listVMsFn: func() (proxmox.VirtualMachines, error) {
+				// A leftover VM occupies k8s-0's predefined VMID (200) under another name.
+				return proxmox.VirtualMachines{
+					&proxmox.VirtualMachine{Name: "leftover", VMID: proxmox.StringOrUint64(200)},
+				}, nil
+			},
+		}
+
+		err := manager.DeployVM(VMConfig{
+			Name:          "k8s-0",
+			Memory:        4096,
+			Cores:         2,
+			Sockets:       1,
+			BootDiskSize:  32,
+			BootStorage:   "local-lvm",
+			NetworkBridge: "vmbr0",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "VMID 200 is already in use")
+		assert.Contains(t, err.Error(), "leftover")
+	})
+
 	t.Run("fails when create task wait fails", func(t *testing.T) {
 		manager := &VMManager{
 			client: &Client{ctx: context.Background()},
