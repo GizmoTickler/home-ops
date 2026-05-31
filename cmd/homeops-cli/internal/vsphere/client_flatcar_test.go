@@ -68,6 +68,18 @@ func TestBuildFlatcarCloneSpec(t *testing.T) {
 	assert.Equal(t, "base64", m["guestinfo.ignition.config.data.encoding"])
 }
 
+func TestCloneFlatcarVMGuards(t *testing.T) {
+	c := &Client{} // guards return before touching the finder/logger
+
+	_, err := c.CloneFlatcarVM(VMConfig{IgnitionData: "x"}) // missing template
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "template name")
+
+	_, err = c.CloneFlatcarVM(VMConfig{TemplateName: "flatcar-ova"}) // missing Ignition
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Ignition")
+}
+
 func TestBuildFlatcarCloneSpecOmitsZeroCPUMem(t *testing.T) {
 	pool := types.ManagedObjectReference{Type: "ResourcePool", Value: "p"}
 	ds := types.ManagedObjectReference{Type: "Datastore", Value: "d"}

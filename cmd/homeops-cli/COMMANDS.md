@@ -118,10 +118,21 @@ homeops-cli flatcar render-ignition
 # Generate the kubeadm init/join config
 homeops-cli flatcar gen-kubeadm
 
-# Deploy Flatcar VM(s) on Proxmox (uploads Ignition to the PVE snippets store
-# over SSH, then kubeadm init/join runs on first boot)
-homeops-cli flatcar deploy-vm --node k8s-0
-homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
+# Deploy Flatcar k8s VM(s). --provider selects the hypervisor (default proxmox);
+# kubeadm init/join runs on first boot once the node reads its Ignition.
+# Proxmox (default): boot a pre-staged image; Ignition uploaded to the PVE
+# snippets store over SSH and attached via fw_cfg.
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3 \
+  --image-volume nvme1:vm-200-disk-0
+
+# vSphere/ESXi: clone a pre-imported Flatcar OVA template; Ignition via guestinfo.
+homeops-cli flatcar deploy-vm --provider vsphere --nodes k8s-0 \
+  --vsphere-template flatcar-prod --datastore local-nvme1 --vsphere-network vl999
+
+# TrueNAS SCALE: boot a pre-staged image zvol; Ignition via qemu fw_cfg
+# (command_line_args), staged to a dataset on the NAS over SSH.
+homeops-cli flatcar deploy-vm --provider truenas --nodes k8s-0 \
+  --truenas-pool flashstor --network-bridge br0
 
 # Capture the live cluster PKI (CA/SA/front-proxy/etcd CA) into
 # op://Infrastructure/kubernetes-pki so bootstrap can restore it for a STABLE
@@ -137,10 +148,22 @@ homeops-cli flatcar kubeconfig --push                # also save to op://Infrast
 homeops-cli flatcar kubeconfig --pull --output ./kc  # retrieve from 1Password
 ```
 
-Selected `deploy-vm` flags: `--node`/`--nodes`, `--concurrency`, `--init`,
-`--token`, `--ca-cert-hash`, `--cert-key`, `--vip`, `--kube-vip-version`,
-`--pause-image`, `--pve-ssh-host`/`--pve-ssh-port`, `--snippets-dir`,
-`--image-path`/`--image-volume`, `--interface`, `--power-on`, `--dry-run`.
+`deploy-vm` flags. `--provider` selects the hypervisor — `proxmox` (default),
+`vsphere` (alias `esxi`), or `truenas`. Common: `--nodes`, `--concurrency`,
+`--vip`, `--kube-vip-version`, `--pause-image`, `--interface`, `--power-on`,
+`--dry-run`. Per-hypervisor (the Ignition transport differs):
+
+- **proxmox** — `--image-path` (import-from) or `--image-volume` (existing
+  volume), `--snippets-dir`, `--pve-ssh-host`/`--pve-ssh-user`/`--pve-ssh-port`.
+  Ignition is written to the PVE snippets dir and attached via **fw_cfg**.
+- **vsphere** (alias **esxi**) — `--vsphere-template` (the imported Flatcar OVA),
+  `--datastore`, `--vsphere-network`, `--vcpus`/`--memory` (0 = inherit template).
+  Ignition is delivered via VMware **guestinfo** (base64); no SSH upload.
+- **truenas** — `--truenas-pool`, `--network-bridge`, `--boot-zvol` (single-node
+  override; otherwise `<pool>/VM/<node>-boot`), `--ignition-dir` (default
+  `/mnt/<pool>/VM`), `--truenas-ssh-host`/`--truenas-ssh-user`, `--truenas-port`.
+  Ignition is staged to a dataset on the NAS and attached via qemu **fw_cfg**
+  (`command_line_args`).
 
 ### Flatcar lifecycle vs the legacy Talos verbs
 
