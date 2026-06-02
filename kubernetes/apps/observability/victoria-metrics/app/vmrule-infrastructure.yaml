@@ -151,8 +151,10 @@ spec:
             component: kubernetes
 
         - alert: KubernetesPodOOMKilled
+          # Exclude the transient image-pull DaemonSet pods (image-pull.yaml workflow):
+          # they fail to start by design, so their churn is not a real fault.
           expr: |-
-            increase(kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}[10m]) > 0
+            increase(kube_pod_container_status_last_terminated_reason{reason="OOMKilled", pod!~"image-pull-.+"}[10m]) > 0
           keep_firing_for: 5m
           annotations:
             summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} was OOM killed"
@@ -165,8 +167,11 @@ spec:
             component: kubernetes
 
         - alert: KubernetesPodCrashLooping
+          # Exclude the transient image-pull DaemonSet pods (image-pull.yaml workflow):
+          # DaemonSet restartPolicy is always Always, so their fast-fail prepull container
+          # restarts by design until the workflow tears the DaemonSet down.
           expr: |-
-            rate(kube_pod_container_status_restarts_total[15m]) > 0.1
+            rate(kube_pod_container_status_restarts_total{pod!~"image-pull-.+"}[15m]) > 0.1
           for: 5m
           keep_firing_for: 5m
           annotations:

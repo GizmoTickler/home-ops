@@ -167,9 +167,14 @@ jobs:
           }
           trap cleanup EXIT
 
-          # We do NOT override the image's command: the pull is proven by the absence
-          # of an image-pull error regardless of whether the entrypoint runs/exits/crashes
-          # (distroless-safe). Tolerate all taints so it warms control-plane nodes too.
+          # kubelet pulls the image BEFORE it tries to exec the container command, so we
+          # override command with a guaranteed-nonexistent path: the pull still happens,
+          # but the container fails to start instantly (StartError) instead of running the
+          # real entrypoint. This is distroless-safe (no shell needed), avoids executing
+          # arbitrary app code on every node (incl. control-plane), and never OOMKills — so
+          # it produces no false KubernetesPodOOMKilled telemetry. The warm-detection below
+          # already treats StartError/RunContainerError as "image present".
+          # Tolerate all taints so it warms control-plane nodes too.
           kubectl apply --server-side -f - <<EOF
           apiVersion: apps/v1
           kind: DaemonSet
@@ -195,12 +200,14 @@ jobs:
                   - name: prepull
                     image: "${MATRIX_IMAGE}"
                     imagePullPolicy: IfNotPresent
+                    # Nonexistent path: kubelet pulls the image, then exec fails with
+                    # StartError. The entrypoint never runs, so nothing to OOM and no
+                    # memory limit needed.
+                    command: ["/__prepull_noop_does_not_exist__"]
                     resources:
                       requests:
                         cpu: 5m
                         memory: 16Mi
-                      limits:
-                        memory: 64Mi
           EOF
 
           DESIRED=$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')
