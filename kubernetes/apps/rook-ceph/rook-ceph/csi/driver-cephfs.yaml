@@ -1,0 +1,34 @@
+---
+# Restore the cephfs kernel mount option that Rook v1.19.6 set via the operator
+# chart value `csi.cephFSKernelMountOptions: ms_mode=prefer-crc`. That value no
+# longer exists in the Rook v1.20 operator chart, so on upgrade (PR #1170) the
+# live cephfs Driver CR was left with an EMPTY kernelMountOptions. Without it the
+# kernel cephfs client cannot negotiate msgr2 to the MDS and mounts fail with
+# "mount error: no mds (Metadata Server) is up" — even though the MDS is healthy.
+# Only CephFS-backed apps (netbox's VolSync mover) are affected; RBD is not.
+#
+# This is a MINIMAL, field-scoped manifest. The Driver CR is otherwise reconciled
+# by the in-cluster ceph-csi-operator (field manager `rook`), which writes every
+# other spec field (controllerPlugin/nodePlugin/imageSet/...). Flux applies this
+# server-side and takes ownership of ONLY .spec.kernelMountOptions; SSA leaves all
+# operator-owned fields intact (it never prunes fields owned by another manager).
+# There is no tug-of-war: the operator loads the Driver into memory, merges the
+# OperatorConfig defaults in-memory, and uses that to render its child Deployments/
+# DaemonSets — it does NOT write the Driver's own spec back, so it will not flap
+# against this field.
+#
+# kernelMountOptions is a map[string]string on the Driver CRD (csi.ceph.io/v1).
+# The operator serialises it as `key=value,key=value` and passes
+# `--kernelmountoptions=ms_mode=prefer-crc` to the cephfs nodeplugin, exactly
+# restoring the v1.19.6 behaviour.
+#
+# The name MUST be the full valid driver name `rook-ceph.cephfs.csi.ceph.com`;
+# the CRD CEL requires `.metadata.name` to match
+# `[<prefix>.](rbd|cephfs|nfs|nvmeof).csi.ceph.com`.
+apiVersion: csi.ceph.io/v1
+kind: Driver
+metadata:
+  name: rook-ceph.cephfs.csi.ceph.com
+spec:
+  kernelMountOptions:
+    ms_mode: prefer-crc
