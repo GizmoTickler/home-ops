@@ -3,10 +3,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  # PR-1: ceph-csi-drivers chart adopts the OperatorConfig + Driver CRs and creates the
-  # plugin ServiceAccounts/RBAC. The vendored rbac.yaml + driver-cephfs.yaml bandaids are
-  # kept here only until adoption is confirmed, then removed in the follow-up PR.
   - ./helmrepository.yaml
   - ./helmrelease.yaml
-  - ./rbac.yaml
-  - ./driver-cephfs.yaml

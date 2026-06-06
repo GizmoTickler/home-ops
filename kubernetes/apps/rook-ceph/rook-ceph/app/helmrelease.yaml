@@ -13,8 +13,9 @@ spec:
   upgrade:
     cleanupOnFail: false
   values:
-    csi:
-      cephFSKernelMountOptions: ms_mode=prefer-crc
+    # CSI settings (incl. cephFSKernelMountOptions) moved out of this chart in
+    # Rook v1.20 — they now live on the Driver CRs managed by the ceph-csi-drivers
+    # HelmRelease (see ../csi/). Custom CSI images, if pinned, still go here.
     image:
       repository: ghcr.io/rook/ceph
     monitoring:
