@@ -36,12 +36,10 @@ spec:
     name: flux-system
     namespace: flux-system
   targetNamespace: rook-ceph
-  wait: false
-  healthChecks:
-    - apiVersion: helm.toolkit.fluxcd.io/v2
-      kind: HelmRelease
-      name: ceph-csi-drivers
-      namespace: rook-ceph
+  # Plain RBAC manifests (ServiceAccounts + Cluster/Roles + Bindings) for the
+  # Ceph CSI plugins — no status-bearing object to health-check. wait: true so
+  # the apply must succeed before rook-ceph-cluster's dependsOn is satisfied.
+  wait: true
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/kustomize.toolkit.fluxcd.io/kustomization_v1.json
 apiVersion: kustomize.toolkit.fluxcd.io/v1
