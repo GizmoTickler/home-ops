@@ -15,8 +15,6 @@ spec:
         kind: HelmRepository
         name: ceph-csi-operator
         namespace: rook-ceph
-  install:
-    cleanupOnFail: false
   upgrade:
     cleanupOnFail: false
   # Rook v1.20 moved CSI plugin RBAC + OperatorConfig/Driver CRs out of the rook-ceph
