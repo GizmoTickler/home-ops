@@ -20,8 +20,11 @@ spec:
       # Reboot only one node at a time. With a 3-node control plane this keeps
       # etcd quorum (2/3) and lets kube-vip fail the API VIP over cleanly.
       concurrency: 1
-      # Auto-expire a stale reboot lock after 30m so a wedged node can't block forever.
-      lockTtl: 30m0s
+      # NO lock auto-expiry: if a rebooted node wedges and never comes back Ready,
+      # an expiring lock would let a SECOND control-plane node reboot — 2/3 down
+      # kills etcd quorum. A stuck lock blocks further reboots (safe) and is
+      # released manually: kubectl -n system-upgrade annotate ds kured weave.works/kured-node-lock-
+      lockTtl: 0
       # Reboot when EITHER the Kubernetes systemd-sysext update flagged a reboot
       # (/run/reboot-required, touched by systemd-sysupdate) OR Flatcar's update_engine
       # has staged an OS update (locksmithd is masked, so nothing else reboots).
