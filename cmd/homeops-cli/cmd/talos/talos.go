@@ -20,6 +20,7 @@ import (
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
 	"homeops-cli/internal/proxmox"
+	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
@@ -91,18 +92,7 @@ var (
 	}
 	pushKubeconfigTo1PasswordFn        = common.PushKubeconfigTo1Password
 	pullKubeconfigFrom1PasswordFn      = common.PullKubeconfigFrom1Password
-	startTrueNASVMFn                   = startVM
-	stopTrueNASVMFn                    = stopVM
-	infoTrueNASVMFn                    = infoVM
-	deleteTrueNASVMFn                  = deleteVM
-	startProxmoxVMFn                   = startVMOnProxmox
-	stopProxmoxVMFn                    = stopVMOnProxmox
-	infoProxmoxVMFn                    = infoVMOnProxmox
-	deleteProxmoxVMFn                  = deleteVMOnProxmox
-	powerOnVSphereVMFn                 = powerOnVMOnVSphere
-	powerOffVSphereVMFn                = powerOffVMOnVSphere
-	infoVSphereVMFn                    = infoVMOnVSphere
-	deleteVSphereVMFn                  = deleteVMOnVSphere
+	newVMLifecycleFn                   = newVMLifecycle
 	prepareISOForTrueNASFn             = prepareISOForTrueNAS
 	prepareISOForProxmoxFn             = prepareISOForProxmox
 	prepareISOForVSphereFn             = prepareISOForVSphere
@@ -124,6 +114,9 @@ var (
 	}
 	newVSphereClientFn = func(host, username, password string, insecure bool) vsphereClient {
 		return vsphere.NewClient(host, username, password, insecure)
+	}
+	newVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
+		return vsphere.NewVMManager(host, username, password, insecure)
 	}
 	newTalosFactoryClientFn = func() talosFactoryClient {
 		return talos.NewFactoryClient()
@@ -418,6 +411,98 @@ func withVSphereClient(logger *common.ColorLogger, fn func(vsphereClient) error)
 	}()
 
 	return fn(client)
+}
+
+// truenasLifecycleAdapter narrows the TrueNAS manager to the shared
+// provider.VMLifecycle contract. TrueNAS deletion takes storage options;
+// they are fixed at construction because the CLI runs one lifecycle
+// operation per invocation.
+type truenasLifecycleAdapter struct {
+	trueNASVMManager
+	deleteZVols bool
+	storagePool string
+}
+
+func (a truenasLifecycleAdapter) DeleteVM(name string) error {
+	return a.trueNASVMManager.DeleteVM(name, a.deleteZVols, a.storagePool)
+}
+
+var _ vmprov.VMLifecycle = truenasLifecycleAdapter{}
+
+// newVMLifecycle builds the lifecycle implementation for a normalized
+// provider name. All VM lifecycle dispatch (list/start/stop/info/delete/
+// poweron/poweroff) funnels through here instead of per-action switches.
+func newVMLifecycle(normalizedProvider string) (vmprov.VMLifecycle, error) {
+	switch normalizedProvider {
+	case "truenas":
+		host, apiKey, err := getTrueNASCredentialsFn()
+		if err != nil {
+			return nil, err
+		}
+		vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
+		if err := vmManager.Connect(); err != nil {
+			return nil, fmt.Errorf("failed to connect to TrueNAS: %w", err)
+		}
+		return truenasLifecycleAdapter{
+			trueNASVMManager: vmManager,
+			deleteZVols:      true,
+			storagePool:      getEnvOrDefault("STORAGE_POOL", "flashstor"),
+		}, nil
+	case "proxmox":
+		host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
+		if err != nil {
+			return nil, err
+		}
+		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Proxmox VM manager: %w", err)
+		}
+		return vmManager, nil
+	case "vsphere":
+		host, username, password, err := getVSphereCredsFn()
+		if err != nil {
+			return nil, err
+		}
+		return newVSphereVMManagerFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
+	}
+	return nil, fmt.Errorf("unsupported provider: %s", normalizedProvider)
+}
+
+// withVMLifecycle runs fn against a freshly constructed provider lifecycle
+// and always closes it afterwards.
+func withVMLifecycle(normalizedProvider string, fn func(vmprov.VMLifecycle) error) error {
+	lifecycle, err := newVMLifecycleFn(normalizedProvider)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if closeErr := lifecycle.Close(); closeErr != nil {
+			common.NewColorLogger().Warn("Failed to close VM manager: %v", closeErr)
+		}
+	}()
+	return fn(lifecycle)
+}
+
+// runVMLifecycleAction normalizes the provider, resolves the VM name
+// (prompting interactively when not given), then runs op against the
+// provider's lifecycle implementation.
+func runVMLifecycleAction(name, providerName, action string, op func(vmprov.VMLifecycle, string) error) error {
+	normalizedProvider, err := normalizeVMProvider(providerName)
+	if err != nil {
+		return err
+	}
+
+	name, err = chooseVMNameForProvider(name, normalizedProvider, action)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		return nil
+	}
+
+	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
+		return op(lifecycle, name)
+	})
 }
 
 type talosConfigInfo struct {
@@ -802,6 +887,7 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate string) ([]byte
 func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, schematicID string) ([]byte, error) {
 	logger := common.NewColorLogger()
 	metricsCollector := metrics.NewPerformanceCollector()
+	defer metricsCollector.LogReport(logger)
 
 	// Create unified template renderer
 	renderer := templates.NewTemplateRenderer(common.GetWorkingDirectory(), logger, metricsCollector)
@@ -866,8 +952,9 @@ func upgradeNode(nodeIP, mode string) error {
 	}
 
 	// Extract factory image using Go YAML processor
-	metrics := metrics.NewPerformanceCollector()
-	processor := localyaml.NewProcessor(nil, metrics)
+	metricsCollector := metrics.NewPerformanceCollector()
+	defer metricsCollector.LogReport(common.NewColorLogger())
+	processor := localyaml.NewProcessor(nil, metricsCollector)
 
 	// Parse YAML content into a map
 	configData, err := processor.ParseString(string(configOutput))
@@ -2652,38 +2739,9 @@ func listVMs(provider string) error {
 		return err
 	}
 
-	logger := common.NewColorLogger()
-
-	switch normalizedProvider {
-	case "truenas":
-		return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
-			return vmManager.ListVMs()
-		})
-
-	case "proxmox":
-		return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
-			return vmManager.ListVMs()
-		})
-
-	case "vsphere":
-		return withVSphereClient(logger, func(client vsphereClient) error {
-			vms, err := client.ListVMs()
-			if err != nil {
-				return fmt.Errorf("failed to list VMs: %w", err)
-			}
-
-			fmt.Println("\nVMs on vSphere:")
-			fmt.Println("================")
-			for _, vm := range vms {
-				fmt.Printf("- %s\n", vm.Name())
-			}
-			fmt.Printf("\nTotal: %d VMs\n", len(vms))
-
-			return nil
-		})
-	}
-
-	return nil
+	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
+		return lifecycle.ListVMs()
+	})
 }
 
 func newStartVMCommand() *cobra.Command {
@@ -2715,121 +2773,22 @@ func newStartVMCommand() *cobra.Command {
 
 // startVMWithProvider starts a VM on the specified provider with interactive selector
 func startVMWithProvider(name, provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "start")
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	// Call appropriate start function based on provider
-	switch normalizedProvider {
-	case "truenas":
-		return startTrueNASVMFn(name)
-	case "proxmox":
-		return startProxmoxVMFn(name)
-	case "vsphere":
-		return powerOnVSphereVMFn(name)
-	}
-
-	return nil
+	return runVMLifecycleAction(name, provider, "start", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		return lifecycle.StartVM(vmName)
+	})
 }
 
 // stopVMWithProvider stops a VM on the specified provider with interactive selector
 func stopVMWithProvider(name, provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "stop")
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	switch normalizedProvider {
-	case "truenas":
-		return stopTrueNASVMFn(name, false)
-	case "proxmox":
-		return stopProxmoxVMFn(name, false)
-	case "vsphere":
-		return powerOffVSphereVMFn(name)
-	}
-
-	return nil
+	return runVMLifecycleAction(name, provider, "stop", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		return lifecycle.StopVM(vmName, false)
+	})
 }
 
 // infoVMWithProvider gets VM info from the specified provider with interactive selector
 func infoVMWithProvider(name, provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "get info")
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	switch normalizedProvider {
-	case "truenas":
-		return infoTrueNASVMFn(name)
-	case "proxmox":
-		return infoProxmoxVMFn(name)
-	case "vsphere":
-		return infoVSphereVMFn(name)
-	}
-
-	return nil
-}
-
-// infoVMOnVSphere gets detailed VM information from vSphere/ESXi
-func infoVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Getting vSphere/ESXi VM info: %s", vmName)
-
-	return withVSphereClient(logger, func(client vsphereClient) error {
-		vm, err := client.FindVM(vmName)
-		if err != nil {
-			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-		}
-
-		vmInfo, err := client.GetVMInfo(vm)
-		if err != nil {
-			return fmt.Errorf("failed to get VM info for %s: %w", vmName, err)
-		}
-
-		logger.Info("VM Information for: %s", vmName)
-		logger.Info("  Power State: %s", vmInfo.Runtime.PowerState)
-		logger.Info("  Guest OS: %s", vmInfo.Config.GuestFullName)
-		logger.Info("  CPUs: %d", vmInfo.Config.Hardware.NumCPU)
-		logger.Info("  Memory: %d MB", vmInfo.Config.Hardware.MemoryMB)
-		logger.Info("  UUID: %s", vmInfo.Config.Uuid)
-
-		if vmInfo.Guest != nil && vmInfo.Guest.IpAddress != "" {
-			logger.Info("  IP Address: %s", vmInfo.Guest.IpAddress)
-		}
-
-		return nil
-	})
-}
-
-func startVM(name string) error {
-	logger := common.NewColorLogger()
-	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
-		return vmManager.StartVM(name)
+	return runVMLifecycleAction(name, provider, "get info", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		return lifecycle.GetVMInfo(vmName)
 	})
 }
 
@@ -2858,13 +2817,6 @@ func newStopVMCommand() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
 
 	return cmd
-}
-
-func stopVM(name string, force bool) error {
-	logger := common.NewColorLogger()
-	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
-		return vmManager.StopVM(name, force)
-	})
 }
 
 func newDeleteVMCommand() *cobra.Command {
@@ -2931,23 +2883,8 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 		}
 	}
 
-	switch normalizedProvider {
-	case "truenas":
-		return deleteTrueNASVMFn(name)
-	case "proxmox":
-		return deleteProxmoxVMFn(name)
-	case "vsphere":
-		return deleteVSphereVMFn(name)
-	}
-
-	return nil
-}
-
-func deleteVM(name string) error {
-	logger := common.NewColorLogger()
-	storagePool := getEnvOrDefault("STORAGE_POOL", "flashstor")
-	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
-		return vmManager.DeleteVM(name, true, storagePool)
+	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
+		return lifecycle.DeleteVM(name)
 	})
 }
 
@@ -2976,13 +2913,6 @@ func newInfoVMCommand() *cobra.Command {
 	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
 
 	return cmd
-}
-
-func infoVM(name string) error {
-	logger := common.NewColorLogger()
-	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
-		return vmManager.GetVMInfo(name)
-	})
 }
 
 // newPrepareISOCommand creates the prepare-iso command
@@ -3465,61 +3395,6 @@ func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskS
 }
 
 // deleteVMOnVSphere deletes a VM from vSphere/ESXi
-func deleteVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting vSphere/ESXi VM deletion for: %s", vmName)
-	return withVSphereClient(logger, func(client vsphereClient) error {
-		vm, err := client.FindVM(vmName)
-		if err != nil {
-			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-		}
-
-		logger.Info("Found VM: %s", vmName)
-		if err := client.DeleteVM(vm); err != nil {
-			return fmt.Errorf("failed to delete VM %s: %w", vmName, err)
-		}
-
-		logger.Success("VM %s deleted successfully!", vmName)
-		return nil
-	})
-}
-
-// startVMOnProxmox starts a VM on Proxmox VE
-func startVMOnProxmox(name string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Starting Proxmox VM: %s", name)
-	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
-		return vmManager.StartVM(name)
-	})
-}
-
-// stopVMOnProxmox stops a VM on Proxmox VE
-func stopVMOnProxmox(name string, force bool) error {
-	logger := common.NewColorLogger()
-	logger.Info("Stopping Proxmox VM: %s", name)
-	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
-		return vmManager.StopVM(name, force)
-	})
-}
-
-// deleteVMOnProxmox deletes a VM on Proxmox VE
-func deleteVMOnProxmox(name string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Deleting Proxmox VM: %s", name)
-	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
-		return vmManager.DeleteVM(name)
-	})
-}
-
-// infoVMOnProxmox gets detailed VM information from Proxmox VE
-func infoVMOnProxmox(name string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Getting Proxmox VM info: %s", name)
-	return withProxmoxVMManager(logger, func(vmManager proxmoxVMManager) error {
-		return vmManager.GetVMInfo(name)
-	})
-}
-
 func newPowerOnVMCommand() *cobra.Command {
 	var (
 		name     string
@@ -3576,91 +3451,14 @@ func newPowerOffVMCommand() *cobra.Command {
 
 // powerOnVM powers on a VM on the specified provider with interactive selector
 func powerOnVM(name, provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "power on")
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	switch normalizedProvider {
-	case "truenas":
-		return startTrueNASVMFn(name)
-	case "proxmox":
-		return startProxmoxVMFn(name)
-	case "vsphere":
-		return powerOnVSphereVMFn(name)
-	}
-
-	return nil
-}
-
-// powerOffVM powers off a VM on the specified provider with interactive selector
-func powerOffVM(name, provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "power off")
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	switch normalizedProvider {
-	case "truenas":
-		return stopTrueNASVMFn(name, true)
-	case "proxmox":
-		return stopProxmoxVMFn(name, true)
-	case "vsphere":
-		return powerOffVSphereVMFn(name)
-	}
-
-	return nil
-}
-
-func powerOnVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Powering on vSphere/ESXi VM: %s", vmName)
-	return withVSphereClient(logger, func(client vsphereClient) error {
-		vm, err := client.FindVM(vmName)
-		if err != nil {
-			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-		}
-
-		if err := client.PowerOnVM(vm); err != nil {
-			return fmt.Errorf("failed to power on VM %s: %w", vmName, err)
-		}
-
-		logger.Success("VM %s powered on successfully!", vmName)
-		return nil
+	return runVMLifecycleAction(name, provider, "power on", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		return lifecycle.StartVM(vmName)
 	})
 }
 
-// powerOffVMOnVSphere powers off a VM on vSphere/ESXi
-func powerOffVMOnVSphere(vmName string) error {
-	logger := common.NewColorLogger()
-	logger.Info("Powering off vSphere/ESXi VM: %s", vmName)
-	return withVSphereClient(logger, func(client vsphereClient) error {
-		vm, err := client.FindVM(vmName)
-		if err != nil {
-			return fmt.Errorf("failed to find VM %s: %w", vmName, err)
-		}
-
-		if err := client.PowerOffVM(vm); err != nil {
-			return fmt.Errorf("failed to power off VM %s: %w", vmName, err)
-		}
-
-		logger.Success("VM %s powered off successfully!", vmName)
-		return nil
+// powerOffVM force-stops a VM on the specified provider with interactive selector
+func powerOffVM(name, provider string) error {
+	return runVMLifecycleAction(name, provider, "power off", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		return lifecycle.StopVM(vmName, true)
 	})
 }

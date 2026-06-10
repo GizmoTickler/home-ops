@@ -17,11 +17,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
-	"github.com/vmware/govmomi/vim25/types"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/proxmox"
+	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/ssh"
 	internaltalos "homeops-cli/internal/talos"
 	"homeops-cli/internal/truenas"
@@ -870,25 +870,70 @@ func TestRootVMLifecycleAliasReturnsManageVMGuidance(t *testing.T) {
 	assert.Contains(t, err.Error(), "--provider truenas")
 }
 
+// fakeVMLifecycle records lifecycle calls for dispatch tests.
+type fakeVMLifecycle struct {
+	provider string
+	calls    *[]string
+	closed   *int
+}
+
+func (f *fakeVMLifecycle) ListVMs() error {
+	*f.calls = append(*f.calls, "list-"+f.provider)
+	return nil
+}
+
+func (f *fakeVMLifecycle) StartVM(name string) error {
+	*f.calls = append(*f.calls, "start-"+f.provider+":"+name)
+	return nil
+}
+
+func (f *fakeVMLifecycle) StopVM(name string, force bool) error {
+	*f.calls = append(*f.calls, fmt.Sprintf("stop-%s:%s:%t", f.provider, name, force))
+	return nil
+}
+
+func (f *fakeVMLifecycle) DeleteVM(name string) error {
+	*f.calls = append(*f.calls, "delete-"+f.provider+":"+name)
+	return nil
+}
+
+func (f *fakeVMLifecycle) GetVMInfo(name string) error {
+	*f.calls = append(*f.calls, "info-"+f.provider+":"+name)
+	return nil
+}
+
+func (f *fakeVMLifecycle) Close() error {
+	if f.closed != nil {
+		*f.closed++
+	}
+	return nil
+}
+
+// injectFakeVMLifecycle swaps the lifecycle factory for one returning fakes
+// that record into the returned slice, restoring it after the test.
+func injectFakeVMLifecycle(t *testing.T) (*[]string, *int) {
+	t.Helper()
+	oldFactory := newVMLifecycleFn
+	t.Cleanup(func() { newVMLifecycleFn = oldFactory })
+
+	calls := &[]string{}
+	closed := new(int)
+	newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls, closed: closed}, nil
+	}
+	return calls, closed
+}
+
 func TestVMLifecycleProviderCapabilityError(t *testing.T) {
-	oldStartTrueNAS := startTrueNASVMFn
-	t.Cleanup(func() {
-		startTrueNASVMFn = oldStartTrueNAS
-	})
+	calls, _ := injectFakeVMLifecycle(t)
 
 	stubUnavailable1PasswordCLI(t)
 	t.Setenv(constants.EnvTrueNASHost, "")
 	t.Setenv(constants.EnvTrueNASAPIKey, "")
 
-	called := false
-	startTrueNASVMFn = func(name string) error {
-		called = true
-		return nil
-	}
-
 	_, err := testutil.ExecuteCommand(newStartVMCommand(), "--provider", "truenas", "--name", "tn-vm")
 	require.Error(t, err)
-	assert.False(t, called, "provider operation should not run when config-level prerequisites are missing")
+	assert.Empty(t, *calls, "provider operation should not run when config-level prerequisites are missing")
 	assert.Contains(t, err.Error(), "TrueNAS VM lifecycle commands require")
 	assert.Contains(t, err.Error(), "homeops-cli talos manage-vm start --provider truenas --name <vm-name>")
 	assert.Contains(t, err.Error(), constants.EnvTrueNASHost)
@@ -896,115 +941,19 @@ func TestVMLifecycleProviderCapabilityError(t *testing.T) {
 }
 
 func TestPowerOffVMDispatchesForceStop(t *testing.T) {
-	oldChoose := chooseVMFunc
-	oldTrueNASGetter := getTrueNASVMNamesFn
-	oldProxmoxGetter := getProxmoxVMNamesFn
-	oldStopTrueNAS := stopTrueNASVMFn
-	oldStopProxmox := stopProxmoxVMFn
-	t.Cleanup(func() {
-		chooseVMFunc = oldChoose
-		getTrueNASVMNamesFn = oldTrueNASGetter
-		getProxmoxVMNamesFn = oldProxmoxGetter
-		stopTrueNASVMFn = oldStopTrueNAS
-		stopProxmoxVMFn = oldStopProxmox
-	})
-
-	var truenasForce, proxmoxForce bool
-	stopTrueNASVMFn = func(name string, force bool) error {
-		assert.Equal(t, "tn-vm", name)
-		truenasForce = force
-		return nil
-	}
-	stopProxmoxVMFn = func(name string, force bool) error {
-		assert.Equal(t, "px-vm", name)
-		proxmoxForce = force
-		return nil
-	}
+	calls, _ := injectFakeVMLifecycle(t)
 
 	require.NoError(t, powerOffVM("tn-vm", "truenas"))
-	assert.True(t, truenasForce)
-
 	require.NoError(t, powerOffVM("px-vm", "proxmox"))
-	assert.True(t, proxmoxForce)
+
+	assert.Equal(t, []string{
+		"stop-truenas:tn-vm:true",
+		"stop-proxmox:px-vm:true",
+	}, *calls)
 }
 
 func TestProviderLifecycleDispatch(t *testing.T) {
-	oldStartTrueNAS := startTrueNASVMFn
-	oldStartProxmox := startProxmoxVMFn
-	oldPowerOnVSphere := powerOnVSphereVMFn
-	oldStopTrueNAS := stopTrueNASVMFn
-	oldStopProxmox := stopProxmoxVMFn
-	oldPowerOffVSphere := powerOffVSphereVMFn
-	oldInfoTrueNAS := infoTrueNASVMFn
-	oldInfoProxmox := infoProxmoxVMFn
-	oldInfoVSphere := infoVSphereVMFn
-	oldDeleteTrueNAS := deleteTrueNASVMFn
-	oldDeleteProxmox := deleteProxmoxVMFn
-	oldDeleteVSphere := deleteVSphereVMFn
-	t.Cleanup(func() {
-		startTrueNASVMFn = oldStartTrueNAS
-		startProxmoxVMFn = oldStartProxmox
-		powerOnVSphereVMFn = oldPowerOnVSphere
-		stopTrueNASVMFn = oldStopTrueNAS
-		stopProxmoxVMFn = oldStopProxmox
-		powerOffVSphereVMFn = oldPowerOffVSphere
-		infoTrueNASVMFn = oldInfoTrueNAS
-		infoProxmoxVMFn = oldInfoProxmox
-		infoVSphereVMFn = oldInfoVSphere
-		deleteTrueNASVMFn = oldDeleteTrueNAS
-		deleteProxmoxVMFn = oldDeleteProxmox
-		deleteVSphereVMFn = oldDeleteVSphere
-	})
-
-	var calls []string
-	startTrueNASVMFn = func(name string) error {
-		calls = append(calls, "start-truenas:"+name)
-		return nil
-	}
-	startProxmoxVMFn = func(name string) error {
-		calls = append(calls, "start-proxmox:"+name)
-		return nil
-	}
-	powerOnVSphereVMFn = func(name string) error {
-		calls = append(calls, "start-vsphere:"+name)
-		return nil
-	}
-	stopTrueNASVMFn = func(name string, force bool) error {
-		calls = append(calls, fmt.Sprintf("stop-truenas:%s:%t", name, force))
-		return nil
-	}
-	stopProxmoxVMFn = func(name string, force bool) error {
-		calls = append(calls, fmt.Sprintf("stop-proxmox:%s:%t", name, force))
-		return nil
-	}
-	powerOffVSphereVMFn = func(name string) error {
-		calls = append(calls, "stop-vsphere:"+name)
-		return nil
-	}
-	infoTrueNASVMFn = func(name string) error {
-		calls = append(calls, "info-truenas:"+name)
-		return nil
-	}
-	infoProxmoxVMFn = func(name string) error {
-		calls = append(calls, "info-proxmox:"+name)
-		return nil
-	}
-	infoVSphereVMFn = func(name string) error {
-		calls = append(calls, "info-vsphere:"+name)
-		return nil
-	}
-	deleteTrueNASVMFn = func(name string) error {
-		calls = append(calls, "delete-truenas:"+name)
-		return nil
-	}
-	deleteProxmoxVMFn = func(name string) error {
-		calls = append(calls, "delete-proxmox:"+name)
-		return nil
-	}
-	deleteVSphereVMFn = func(name string) error {
-		calls = append(calls, "delete-vsphere:"+name)
-		return nil
-	}
+	calls, closed := injectFakeVMLifecycle(t)
 
 	require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
 	require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
@@ -1022,6 +971,7 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 	require.NoError(t, powerOnVM("px-vm", "proxmox"))
 	require.NoError(t, powerOnVM("esx-vm", "vsphere"))
 	require.NoError(t, powerOffVM("esx-vm", "vsphere"))
+	require.NoError(t, listVMs("proxmox"))
 
 	assert.Equal(t, []string{
 		"start-truenas:tn-vm",
@@ -1029,7 +979,7 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 		"start-vsphere:esx-vm",
 		"stop-truenas:tn-vm:false",
 		"stop-proxmox:px-vm:false",
-		"stop-vsphere:esx-vm",
+		"stop-vsphere:esx-vm:false",
 		"info-truenas:tn-vm",
 		"info-proxmox:px-vm",
 		"info-vsphere:esx-vm",
@@ -1039,8 +989,10 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 		"start-truenas:tn-vm",
 		"start-proxmox:px-vm",
 		"start-vsphere:esx-vm",
-		"stop-vsphere:esx-vm",
-	}, calls)
+		"stop-vsphere:esx-vm:true",
+		"list-proxmox",
+	}, *calls)
+	assert.Equal(t, 17, *closed, "every lifecycle instance must be closed")
 }
 
 func TestDeployDryRunPaths(t *testing.T) {
@@ -1101,50 +1053,19 @@ func TestBuildProxmoxDeploymentPlanPresetBatchDetails(t *testing.T) {
 
 func TestVMLifecycleCommandWrappers(t *testing.T) {
 	oldEnsureProvider := ensureVMLifecycleProviderFn
-	oldStartProxmox := startProxmoxVMFn
-	oldStopProxmox := stopProxmoxVMFn
-	oldDeleteProxmox := deleteProxmoxVMFn
-	oldInfoProxmox := infoProxmoxVMFn
-	oldPowerOnVSphere := powerOnVSphereVMFn
-	oldPowerOffVSphere := powerOffVSphereVMFn
+	oldFactory := newVMLifecycleFn
 	t.Cleanup(func() {
 		ensureVMLifecycleProviderFn = oldEnsureProvider
-		startProxmoxVMFn = oldStartProxmox
-		stopProxmoxVMFn = oldStopProxmox
-		deleteProxmoxVMFn = oldDeleteProxmox
-		infoProxmoxVMFn = oldInfoProxmox
-		powerOnVSphereVMFn = oldPowerOnVSphere
-		powerOffVSphereVMFn = oldPowerOffVSphere
+		newVMLifecycleFn = oldFactory
 	})
 
-	var calls []string
+	calls := &[]string{}
 	ensureVMLifecycleProviderFn = func(provider, action string) error {
-		calls = append(calls, "check:"+provider+":"+action)
+		*calls = append(*calls, "check:"+provider+":"+action)
 		return nil
 	}
-	startProxmoxVMFn = func(name string) error {
-		calls = append(calls, "start:"+name)
-		return nil
-	}
-	stopProxmoxVMFn = func(name string, force bool) error {
-		calls = append(calls, fmt.Sprintf("stop:%s:%t", name, force))
-		return nil
-	}
-	deleteProxmoxVMFn = func(name string) error {
-		calls = append(calls, "delete:"+name)
-		return nil
-	}
-	infoProxmoxVMFn = func(name string) error {
-		calls = append(calls, "info:"+name)
-		return nil
-	}
-	powerOnVSphereVMFn = func(name string) error {
-		calls = append(calls, "poweron:"+name)
-		return nil
-	}
-	powerOffVSphereVMFn = func(name string) error {
-		calls = append(calls, "poweroff:"+name)
-		return nil
+	newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
 	}
 
 	_, err := testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "proxmox", "--name", "k8s-0", "--dry-run")
@@ -1169,18 +1090,18 @@ func TestVMLifecycleCommandWrappers(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"check:proxmox:start",
-		"start:px-vm",
+		"start-proxmox:px-vm",
 		"check:proxmox:stop",
-		"stop:px-vm:false",
+		"stop-proxmox:px-vm:false",
 		"check:proxmox:delete",
-		"delete:px-vm",
+		"delete-proxmox:px-vm",
 		"check:proxmox:info",
-		"info:px-vm",
+		"info-proxmox:px-vm",
 		"check:vsphere:poweron",
-		"poweron:esx-vm",
+		"start-vsphere:esx-vm",
 		"check:vsphere:poweroff",
-		"poweroff:esx-vm",
-	}, calls)
+		"stop-vsphere:esx-vm:true",
+	}, *calls)
 }
 
 func TestDeployVMCommandProviderValidation(t *testing.T) {
@@ -1709,10 +1630,10 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 		defer cleanup()
 
 		require.NoError(t, listVMs("truenas"))
-		require.NoError(t, startVM("tn-vm"))
-		require.NoError(t, stopVM("tn-vm", true))
-		require.NoError(t, deleteVM("tn-vm"))
-		require.NoError(t, infoVM("tn-vm"))
+		require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
+		require.NoError(t, powerOffVM("tn-vm", "truenas"))
+		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", true))
+		require.NoError(t, infoVMWithProvider("tn-vm", "truenas"))
 		require.NoError(t, cleanupOrphanedZVols("tn-vm", "flashstor"))
 
 		assert.Equal(t, 6, manager.connectCalls)
@@ -1740,10 +1661,10 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 		}
 
 		require.NoError(t, listVMs("proxmox"))
-		require.NoError(t, startVMOnProxmox("px-vm"))
-		require.NoError(t, stopVMOnProxmox("px-vm", true))
-		require.NoError(t, deleteVMOnProxmox("px-vm"))
-		require.NoError(t, infoVMOnProxmox("px-vm"))
+		require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
+		require.NoError(t, powerOffVM("px-vm", "proxmox"))
+		require.NoError(t, deleteVMWithConfirmation("px-vm", "proxmox", true))
+		require.NoError(t, infoVMWithProvider("px-vm", "proxmox"))
 
 		prepareISOForTargetFn = func(target isoPreparationTarget) error {
 			assert.Equal(t, "Proxmox", target.providerName)
@@ -1762,23 +1683,27 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 	})
 
 	t.Run("vsphere wrappers", func(t *testing.T) {
-		client := &fakeVSphereClient{
-			infoResponse: &mo.VirtualMachine{
-				Runtime: types.VirtualMachineRuntimeInfo{PowerState: types.VirtualMachinePowerStatePoweredOn},
-				Config: &types.VirtualMachineConfigInfo{
-					GuestFullName: "Talos Linux",
-					Uuid:          "vm-uuid",
-					Hardware:      types.VirtualHardware{NumCPU: 4, MemoryMB: 8192},
-				},
-				Guest: &types.GuestInfo{IpAddress: "10.0.0.99"},
-			},
-		}
+		client := &fakeVSphereClient{}
 		getVSphereCredsFn = func() (string, string, string, error) {
 			return "esxi.local", "root", "secret", nil
 		}
 		newVSphereClientFn = func(host, username, password string, insecure bool) vsphereClient {
 			return client
 		}
+
+		oldVSphereVMManagerFactory := newVSphereVMManagerFn
+		t.Cleanup(func() { newVSphereVMManagerFn = oldVSphereVMManagerFactory })
+		calls := &[]string{}
+		var constructed int
+		newVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
+			assert.Equal(t, "esxi.local", host)
+			assert.Equal(t, "root", username)
+			assert.Equal(t, "secret", password)
+			assert.False(t, insecure) // verify-by-default; VSPHERE_INSECURE unset in tests
+			constructed++
+			return &fakeVMLifecycle{provider: "vsphere", calls: calls}, nil
+		}
+
 		httpGetFn = func(url string) (*http.Response, error) {
 			return &http.Response{
 				StatusCode:    http.StatusOK,
@@ -1788,19 +1713,24 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 		}
 
 		require.NoError(t, listVMs("vsphere"))
-		require.NoError(t, infoVMOnVSphere("esx-vm"))
-		require.NoError(t, powerOnVMOnVSphere("esx-vm"))
-		require.NoError(t, powerOffVMOnVSphere("esx-vm"))
-		require.NoError(t, deleteVMOnVSphere("esx-vm"))
+		require.NoError(t, infoVMWithProvider("esx-vm", "vsphere"))
+		require.NoError(t, powerOnVM("esx-vm", "vsphere"))
+		require.NoError(t, powerOffVM("esx-vm", "vsphere"))
+		require.NoError(t, deleteVMWithConfirmation("esx-vm", "vsphere", true))
 		require.NoError(t, uploadISOToVSphere("https://example.com/vsphere.iso"))
 
-		assert.Equal(t, 6, client.connectCalls)
-		assert.Equal(t, 6, client.closeCalls)
-		assert.Equal(t, 1, client.listCount)
-		assert.Equal(t, []string{"esx-vm", "esx-vm", "esx-vm", "esx-vm"}, client.foundNames)
-		assert.Equal(t, 1, client.poweredOn)
-		assert.Equal(t, 1, client.poweredOff)
-		assert.Equal(t, 1, client.deleted)
+		assert.Equal(t, 5, constructed, "each lifecycle op constructs and closes a manager")
+		assert.Equal(t, []string{
+			"list-vsphere",
+			"info-vsphere:esx-vm",
+			"start-vsphere:esx-vm",
+			"stop-vsphere:esx-vm:true",
+			"delete-vsphere:esx-vm",
+		}, *calls)
+
+		// ISO upload still flows through the raw vSphere client.
+		assert.Equal(t, 1, client.connectCalls)
+		assert.Equal(t, 1, client.closeCalls)
 		require.Len(t, client.uploads, 1)
 		assert.Contains(t, client.uploads[0], vsphere.DefaultISODatastore)
 		assert.Contains(t, client.uploads[0], vsphere.DefaultISOFilename)
@@ -1871,12 +1801,12 @@ func TestKubeconfigFlows(t *testing.T) {
 
 func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 	oldConfirm := confirmActionFn
-	oldDeleteTrueNAS := deleteTrueNASVMFn
+	oldFactory := newVMLifecycleFn
 	oldTrueNASFactory := newTrueNASVMManagerFn
 	oldTrueNASCreds := getTrueNASCredentialsFn
 	t.Cleanup(func() {
 		confirmActionFn = oldConfirm
-		deleteTrueNASVMFn = oldDeleteTrueNAS
+		newVMLifecycleFn = oldFactory
 		newTrueNASVMManagerFn = oldTrueNASFactory
 		getTrueNASCredentialsFn = oldTrueNASCreds
 	})
@@ -1887,15 +1817,14 @@ func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 			message = msg
 			return true, nil
 		}
-		var deleted string
-		deleteTrueNASVMFn = func(name string) error {
-			deleted = name
-			return nil
+		calls := &[]string{}
+		newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+			return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
 		}
 
 		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", false))
 		assert.Contains(t, message, "all its ZVols on TrueNAS")
-		assert.Equal(t, "tn-vm", deleted)
+		assert.Equal(t, []string{"delete-truenas:tn-vm"}, *calls)
 	})
 
 	t.Run("cleanup zvol command force wrapper", func(t *testing.T) {
