@@ -55,13 +55,6 @@ spec:
     defaultRules:
       create: true
       groups:
-        # Disable rules for components we don't use
-        etcd:
-          create: false
-        kubernetesSystemControllerManager:
-          create: false
-        kubernetesSystemScheduler:
-          create: false
         # Disable Alertmanager cluster rules (we run single replica)
         alertmanager:
           create: false
@@ -483,13 +476,43 @@ spec:
           spec:
             path: /metrics/resource
 
-    # Disable scraping for components we don't have
-    kubeControllerManager:
-      enabled: false
+    # Control-plane component scraping (kubeadm exposes all three)
+    # etcd serves plain HTTP metrics on 2381 (--listen-metrics-urls)
     kubeEtcd:
-      enabled: false
+      enabled: true
+      service:
+        port: 2381
+        targetPort: 2381
+      vmScrape:
+        spec:
+          jobLabel: app.kubernetes.io/component
+          endpoints:
+            - port: http-metrics
+              scheme: http
+    # CM/scheduler use self-signed serving certs, so skip TLS verification
+    kubeControllerManager:
+      enabled: true
+      vmScrape:
+        spec:
+          jobLabel: app.kubernetes.io/component
+          endpoints:
+            - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              port: http-metrics
+              scheme: https
+              tlsConfig:
+                insecureSkipVerify: true
     kubeScheduler:
-      enabled: false
+      enabled: true
+      vmScrape:
+        spec:
+          jobLabel: app.kubernetes.io/component
+          endpoints:
+            - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+              port: http-metrics
+              scheme: https
+              tlsConfig:
+                insecureSkipVerify: true
+    # kube-proxy not deployed (Cilium kube-proxy replacement)
     kubeProxy:
       enabled: false
 
