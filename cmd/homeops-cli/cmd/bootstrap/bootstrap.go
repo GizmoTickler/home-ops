@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"homeops-cli/internal/common"
@@ -169,16 +170,25 @@ var (
 	bootstrapKubeconfigMaxWait             = time.Duration(constants.BootstrapKubeconfigMaxWait) * time.Second
 	bootstrapCRDMaxWait                    = time.Duration(constants.BootstrapCRDMaxWait) * time.Second
 	bootstrapTalosTempDir        string
-	bootstrapPreflightChecks     = []func(*BootstrapConfig, *common.ColorLogger) *PreflightResult{
-		checkToolAvailability,
-		checkEnvironmentFiles,
-		checkNetworkConnectivity,
-		checkDNSResolution,
-		check1PasswordAuthPreflight,
-		checkMachineConfigRendering,
-		checkTalosNodes,
+	bootstrapPreflightChecks     = []preflightCheck{
+		{fn: checkToolAvailability},
+		{fn: checkEnvironmentFiles},
+		{fn: checkNetworkConnectivity},
+		{fn: checkDNSResolution},
+		// Serial: may launch an interactive `op signin`.
+		{fn: check1PasswordAuthPreflight, serial: true},
+		// Serial: resolves op:// references, so it needs the auth check first.
+		{fn: checkMachineConfigRendering, serial: true},
+		{fn: checkTalosNodes},
 	}
 )
+
+// preflightCheck pairs a check with its scheduling constraint: independent
+// checks run concurrently, serial ones run in order afterwards.
+type preflightCheck struct {
+	fn     func(*BootstrapConfig, *common.ColorLogger) *PreflightResult
+	serial bool
+}
 
 func parseReplicaCount(value string) (int, error) {
 	value = strings.TrimSpace(value)
@@ -890,9 +900,31 @@ func validatePrerequisites(config *BootstrapConfig) error {
 }
 
 func runPreflightChecks(config *BootstrapConfig, logger *common.ColorLogger) error {
+	// Independent checks run concurrently (network/DNS timeouts no longer
+	// add up); serial checks run in declaration order afterwards because they
+	// can prompt for input or depend on an earlier check.
+	results := make([]*PreflightResult, len(bootstrapPreflightChecks))
+	var wg sync.WaitGroup
+	for i, check := range bootstrapPreflightChecks {
+		if check.serial {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, fn func(*BootstrapConfig, *common.ColorLogger) *PreflightResult) {
+			defer wg.Done()
+			results[i] = fn(config, logger)
+		}(i, check.fn)
+	}
+	wg.Wait()
+
+	for i, check := range bootstrapPreflightChecks {
+		if check.serial {
+			results[i] = check.fn(config, logger)
+		}
+	}
+
 	var failures []string
-	for _, check := range bootstrapPreflightChecks {
-		result := check(config, logger)
+	for _, result := range results {
 		switch result.Status {
 		case "PASS":
 			logger.Success("✓ %s: %s", result.Name, result.Message)

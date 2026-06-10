@@ -22,6 +22,16 @@ func isInteractiveDisabled() bool {
 	return os.Getenv(constants.EnvHomeOpsNoInteract) == "1"
 }
 
+// assumeYes, when enabled via the global --yes flag, makes Confirm answer every
+// confirmation prompt affirmatively without blocking on user input.
+var assumeYes = false
+
+// SetAssumeYes toggles automatic confirmation for all Confirm prompts.
+// Wired to the root command's --yes/-y flag.
+func SetAssumeYes(v bool) {
+	assumeYes = v
+}
+
 // IsCancellation checks if an error is from user cancellation (Ctrl+C)
 func IsCancellation(err error) bool {
 	if err == nil {
@@ -44,6 +54,11 @@ type StyleOptions struct {
 // Returns true if the user confirms, false otherwise
 // Gracefully falls back to basic fmt.Scanln if gum is unavailable
 func Confirm(message string, defaultYes bool) (bool, error) {
+	if assumeYes {
+		// Leave an audit trail of what was auto-confirmed.
+		fmt.Fprintf(os.Stderr, "%s yes (--yes)\n", message)
+		return true, nil
+	}
 	if !isGumAvailable() || isInteractiveDisabled() {
 		return confirmBasic(message, defaultYes)
 	}

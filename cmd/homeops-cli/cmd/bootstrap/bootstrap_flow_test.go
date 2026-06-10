@@ -147,16 +147,16 @@ func TestRunPreflightChecksUsesInjectedChecks(t *testing.T) {
 	oldPreflightChecks := bootstrapPreflightChecks
 	t.Cleanup(func() { bootstrapPreflightChecks = oldPreflightChecks })
 
-	bootstrapPreflightChecks = []func(*BootstrapConfig, *common.ColorLogger) *PreflightResult{
-		func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
+	bootstrapPreflightChecks = []preflightCheck{
+		{fn: func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
 			return &PreflightResult{Name: "tools", Status: "PASS", Message: "ok"}
-		},
-		func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
+		}},
+		{fn: func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
 			return &PreflightResult{Name: "network", Status: "WARN", Message: "slow"}
-		},
-		func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
+		}},
+		{fn: func(*BootstrapConfig, *common.ColorLogger) *PreflightResult {
 			return &PreflightResult{Name: "talos", Status: "FAIL", Message: "missing nodes"}
-		},
+		}, serial: true},
 	}
 
 	err := runPreflightChecks(&BootstrapConfig{}, common.NewColorLogger())
