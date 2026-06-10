@@ -253,15 +253,44 @@ spec:
           labels:
             severity: warning
             component: trustsec
+        # Anomaly (spike-over-baseline) detection, not a per-increment tripwire.
+        #
+        # SC01's RBACL_DENY_LOG SGACL drops a constant stream of inter-VLAN
+        # policy denies (IoT/NetBIOS isolation, guest->DNS-VIP, FN-LINK dead-port
+        # RST flood). The old rule (>0, for:0m) fired on ANY deny-counter
+        # increment and never cleared. This rule fires only when the 5m deny
+        # PACKET volume is abnormally high vs the measured baseline — a sudden
+        # flood of denies that suggests a scan, a compromised/misbehaving device,
+        # or a misconfig, NOT the normal steady hum.
+        #
+        # NOTE: this counter counts denied PACKETS (every packet of a denied
+        # flow, both sw+hw plane), so its scale is much larger than the
+        # rate-limited SGACLHIT log lines — it is baselined independently.
+        # A 5m increase window (not 15m) is used deliberately: it tracks the
+        # actual deny RATE sharply, so a brief one-shot flood elevates the metric
+        # for only ~5m and then decays, instead of a 15m window smearing a 2-3min
+        # flood across a full 15m (which would defeat the for:10m guard).
+        # Baseline measured live 2026-06-10 over 6h, sum(increase(denied[5m])):
+        #   steady-state 99-292 packets / 5m (mean ~158, max 292).
+        #   A real anomaly the same day (one IoT host flooding udp/53 to the DNS
+        #   VIP) hit 1529 / 5m for a single 5m bucket, then dropped back to ~120.
+        # Threshold >800 = ~2.7x the steady ceiling (292), ~5x mean, ~48% below
+        # the observed flood peak (1529). for:10m means a single transient 5m
+        # flood (elevated only ~5-9m) does NOT page; only a SUSTAINED flood
+        # spanning multiple consecutive 5m windows fires.
         - alert: TrustSecSGACLDenyCounterIncreased
           expr: |-
-            sum(increase(cisco_trustsec_sgacl_packets_total{device="sc01",action="denied"}[5m])) > 0
-          for: 0m
+            sum(increase(cisco_trustsec_sgacl_packets_total{device="sc01",action="denied"}[5m])) > 800
+          for: 10m
           keep_firing_for: 5m
           annotations:
-            summary: SC01 TrustSec SGACL deny counter increased
+            summary: SC01 TrustSec SGACL deny rate ABNORMALLY high vs baseline
             description: >-
-              One or more SC01 TrustSec SGACL deny counters increased in the last 5 minutes. Check VictoriaLogs for RBACL_DENY_LOG / SGACLHIT to identify source and destination SGT/IP/port.
+              SC01 denied {{ $value | humanize }} packets in the last 5m, far above the normal
+              baseline (~99-292/5m). This is NOT the expected steady IoT/NetBIOS isolation hum —
+              it indicates a possible scan, a compromised/misbehaving device flooding denied flows,
+              or a misconfig. Check VictoriaLogs (CiscoTrustSecSGACLDeny) for the top deny talker by
+              src-ip/dest-port/SGT before dismissing.
           labels:
             severity: warning
             component: trustsec
