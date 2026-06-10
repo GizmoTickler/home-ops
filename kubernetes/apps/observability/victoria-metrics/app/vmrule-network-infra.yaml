@@ -182,6 +182,220 @@ spec:
             severity: critical
             component: dns
 
+    # DNS Resolver Health Alerts
+    # Added 2026-06-10 after a DNSSEC trust-anchor gap made the recursors return
+    # SERVFAIL (EDE 12) for all guest/IoT reverse-PTR lookups, undetected until
+    # iPhones froze. These alerts make that class of silent resolver failure
+    # page automatically. Metric names verified live against Victoria Metrics:
+    #   pdns_recursor_*  (job="pdns-recursor", instance dns[01]:8092)
+    #   dnsdist_*        (job="dnsdist",        instance dns[01]:8083)
+    #   dnscrypt_proxy_* (job="dnscrypt-proxy", instance dns[01]:49312)
+    - name: dns-resolver.rules
+      interval: 30s
+      rules:
+        # --- The headline incident signal: recursor SERVFAIL rate ---
+        - alert: RecursorServfailRateHigh
+          # pdns_recursor_servfail_answers is the recursor's SERVFAIL counter.
+          # Healthy baseline is ~0/s. Today's DNSSEC gap drove this up for every
+          # affected lookup. >1/s sustained for 5m is well above noise and would
+          # have caught the incident long before users complained.
+          expr: |-
+            rate(pdns_recursor_servfail_answers{job="pdns-recursor"}[5m]) > 1
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Recursor SERVFAIL rate elevated on {{ $labels.instance }}"
+            description: |-
+              PowerDNS Recursor on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
+              Healthy baseline is ~0/s. Likely cause: DNSSEC trust-anchor gap, upstream resolver
+              failure, or broken forwarding. Cross-check RecursorDNSSECBogusIncreasing and
+              dnscrypt upstream health. This is the signal class that caused the 2026-06-10
+              guest/IoT reverse-PTR outage.
+          labels:
+            severity: critical
+            component: dns
+
+        - alert: DnsdistServfailRateHigh
+          # dnsdist front-of-VIP SERVFAIL responses to clients. This catches the
+          # user-facing symptom even if the recursor counter is reset/missed, and
+          # covers SERVFAILs dnsdist itself synthesizes. Same ~0/s baseline.
+          expr: |-
+            rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 1
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "dnsdist is returning SERVFAIL to clients on {{ $labels.instance }}"
+            description: |-
+              dnsdist on {{ $labels.instance }} returned {{ $value | humanize }} SERVFAIL/s to clients (5m rate).
+              This is what end users actually experience. Likely a recursor backend failure or
+              a DNSSEC/upstream problem propagating through the VIP. Check RecursorServfailRateHigh
+              and DnsdistBackendDown.
+          labels:
+            severity: critical
+            component: dns
+
+        # --- The exact silent signal from the 2026-06-10 incident ---
+        - alert: RecursorDNSSECBogusIncreasing
+          # Sum of all pdns_recursor_dnssec_result_bogus* counters. A non-zero
+          # sustained rate means validation is FAILING (bogus), which returns
+          # SERVFAIL + EDE 12 — exactly the trust-anchor gap that went unnoticed.
+          # Baseline is 0/s, so any sustained >0 is actionable.
+          expr: |-
+            sum by (instance) (
+              rate({__name__=~"pdns_recursor_dnssec_result_bogus.*",job="pdns-recursor"}[5m])
+            ) > 0.05
+          for: 5m
+          keep_firing_for: 10m
+          annotations:
+            summary: "DNSSEC validation failures (bogus) increasing on {{ $labels.instance }}"
+            description: |-
+              PowerDNS Recursor on {{ $labels.instance }} is recording {{ $value | humanize }} bogus
+              DNSSEC validations/s (5m rate). Bogus results return SERVFAIL with EDE 12 to clients.
+              Likely cause: a DNSSEC trust-anchor gap, expired/invalid RRSIGs upstream, or a
+              missing/stale root key. This is the precise silent signal behind the 2026-06-10
+              guest/IoT reverse-PTR outage. Check the recursor root trust anchor and
+              rec_control current-queries / dump-trace.
+          labels:
+            severity: critical
+            component: dns
+
+        # --- Recursor upstream latency / outgoing trouble ---
+        - alert: RecursorClientLatencyHigh
+          # True recent average client-answer latency = rate(sum)/rate(count) on
+          # the cumul_clientanswers_seconds histogram, in SECONDS. Healthy floor
+          # is ~16-28ms (upstream DoH). The raw pdns_recursor_qa_latency gauge is
+          # a lifetime average dominated by cache hits (~1ms) and is NOT used here.
+          # >150ms sustained 10m indicates real upstream trouble.
+          expr: |-
+            (
+              rate(pdns_recursor_cumul_clientanswers_seconds_sum{job="pdns-recursor"}[10m])
+              /
+              clamp_min(rate(pdns_recursor_cumul_clientanswers_seconds_count{job="pdns-recursor"}[10m]), 1)
+            ) > 0.15
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Recursor client-answer latency high on {{ $labels.instance }}"
+            description: |-
+              Average client-answer latency on {{ $labels.instance }} is {{ $value | humanize }}s over 10m
+              (healthy floor ~16-28ms). Upstream DoH may be slow or failing, or the recursor is
+              spending time on retries/timeouts. Check RecursorOutgoingTimeoutsHigh and dnscrypt
+              upstream response time.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: RecursorOutgoingTimeoutsHigh
+          # pdns_recursor_outgoing_timeouts: upstream/auth queries that timed out.
+          # Baseline ~0/s. Rising timeouts often precede SERVFAILs and high latency.
+          expr: |-
+            rate(pdns_recursor_outgoing_timeouts{job="pdns-recursor"}[5m]) > 1
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Recursor outgoing query timeouts rising on {{ $labels.instance }}"
+            description: |-
+              PowerDNS Recursor on {{ $labels.instance }} is timing out on {{ $value | humanize }} outgoing
+              queries/s (5m rate). Upstream resolvers (DoH via dnscrypt-proxy or authoritatives)
+              may be unreachable or slow. Often a precursor to SERVFAILs and elevated latency.
+          labels:
+            severity: warning
+            component: dns
+
+        # --- dnsdist -> recursor backend path health ---
+        - alert: DnsdistBackendDown
+          # dnsdist_server_status == 0 means dnsdist marked a recursor backend
+          # DOWN. The `server` label is local-recursor / remote-recursor-dnsN.
+          # If a node's local recursor dies, dnsdist fails over to the remote,
+          # but the DOWN backend still needs attention.
+          expr: |-
+            dnsdist_server_status{job="dnsdist"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "dnsdist backend {{ $labels.server }} is DOWN on {{ $labels.instance }}"
+            description: |-
+              dnsdist on {{ $labels.instance }} has marked recursor backend "{{ $labels.server }}"
+              ({{ $labels.address }}) as DOWN. The dnsdist->recursor path for that backend is failing
+              its health check. Resolution continues via the surviving backend, but redundancy is lost.
+              Investigate the recursor process / port 5301 on the affected node.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: DnsdistAllBackendsDown
+          # All dnsdist backends on a node down at once = that node's dnsdist can
+          # serve nothing from the recursor tier. Critical.
+          expr: |-
+            sum by (instance) (dnsdist_server_status{job="dnsdist"}) == 0
+          for: 1m
+          keep_firing_for: 5m
+          annotations:
+            summary: "All dnsdist recursor backends DOWN on {{ $labels.instance }}"
+            description: |-
+              Every recursor backend behind dnsdist on {{ $labels.instance }} is DOWN. This node's
+              dnsdist cannot resolve anything via the recursor tier. If this is the VIP master, all
+              clients are affected. Immediate action required.
+          labels:
+            severity: critical
+            component: dns
+
+        # --- Scrape-target liveness: a dead exporter/service caught directly ---
+        - alert: DNSResolverTargetDown
+          # up==0 for any DNS-stack scrape target (dnsdist/recursor/auth/dnscrypt)
+          # means either the exporter or the service itself is dead — a silent
+          # failure mode that probe-on-port-53 alone may miss.
+          expr: |-
+            up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "DNS scrape target {{ $labels.job }} down on {{ $labels.instance }}"
+            description: |-
+              Prometheus scrape of {{ $labels.job }} on {{ $labels.instance }} has been failing (up==0)
+              for 5m. The exporter or the underlying DNS service ({{ $labels.job }}) may be dead.
+              If both nodes show the same job down, resolution for that component is fully offline.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: DNSResolverComponentAllDown
+          # Same component down on BOTH nodes = no redundancy left for that tier.
+          expr: |-
+            count by (job) (up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0) >= 2
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "DNS component {{ $labels.job }} is down on ALL nodes"
+            description: |-
+              {{ $labels.job }} is down (up==0) on both dns0 and dns1. That entire tier of the
+              resolver stack is offline cluster-wide. Immediate action required.
+          labels:
+            severity: critical
+            component: dns
+
+        # --- dnscrypt-proxy upstream (DoH) health ---
+        - alert: DnscryptUpstreamLatencyHigh
+          # dnscrypt_proxy_server_response_time_average_ms is the per-upstream
+          # (server="cf-gateway") DoH response time. Healthy ~33-38ms. There is NO
+          # explicit upstream-error counter in dnscrypt-proxy 2.1.15, so sustained
+          # high response time is the best available proxy for upstream trouble.
+          expr: |-
+            dnscrypt_proxy_server_response_time_average_ms{job="dnscrypt-proxy"} > 250
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "dnscrypt-proxy upstream {{ $labels.server }} slow on {{ $labels.instance }}"
+            description: |-
+              dnscrypt-proxy on {{ $labels.instance }} reports {{ $value | humanize }}ms average response
+              time from upstream "{{ $labels.server }}" (healthy ~33-38ms). The upstream DoH resolver
+              may be degraded; this feeds recursor latency and can cascade into outgoing timeouts and
+              SERVFAILs. NOTE: dnscrypt-proxy 2.1.15 has no upstream-error counter, so latency is the
+              only observable upstream-health signal (see report for the exporter gap).
+          labels:
+            severity: warning
+            component: dns
+
     # WAN / Gateway Alerts
     - name: wan-gateway.rules
       interval: 30s

@@ -3,9 +3,10 @@
 GitOps-driven **minor** Kubernetes upgrades for the Flatcar + kubeadm control plane,
 via [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) (SUC).
 
-Patch-level k8s sysext updates and Flatcar OS updates are already automatic
-(`systemd-sysupdate` + `kured`). This Plan covers the one thing that isn't: a deliberate
-**minor** bump (e.g. `v1.36 → v1.37`), which requires the `kubeadm upgrade` dance.
+Patch-level k8s sysext updates are automatic (`systemd-sysupdate -C kubernetes` +
+`kured`); Flatcar OS releases are merge-gated via the sibling `flatcar-upgrade` Plan.
+This Plan covers the remaining piece: a deliberate Kubernetes **minor** bump
+(e.g. `v1.36 → v1.37`), which requires the `kubeadm upgrade` dance.
 
 ## ⚠️ Status: UNVALIDATED — dormant by default
 

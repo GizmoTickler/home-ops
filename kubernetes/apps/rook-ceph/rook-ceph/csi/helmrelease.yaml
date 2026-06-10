@@ -1,0 +1,98 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-drivers
+spec:
+  interval: 1h
+  timeout: 15m
+  chart:
+    spec:
+      chart: ceph-csi-drivers
+      version: 1.0.1
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi-operator
+        namespace: rook-ceph
+  upgrade:
+    cleanupOnFail: false
+  # Rook v1.20 moved CSI plugin RBAC + OperatorConfig/Driver CRs out of the rook-ceph
+  # operator chart into this ceph-csi-drivers chart. The live OperatorConfig +
+  # rook-ceph.{rbd,cephfs}.csi.ceph.com Driver CRs are pre-stamped with this release's
+  # helm metadata, so this chart ADOPTS them and creates the plugin ServiceAccounts/RBAC.
+  #
+  # Values reproduce the live (working) Driver/OperatorConfig spec to avoid any regression
+  # (full driver-name prefix per Rook convention, hostNetwork, fsGroupPolicy=File, kernel
+  # client, Recreate strategy, 2 replicas), plus the cephfs ms_mode=prefer-crc mount option.
+  # Custom CSI images stay in the rook-ceph chart (rook-csi-operator-image-set-configmap),
+  # which this chart only references.
+  values:
+    operatorConfig:
+      namespace: rook-ceph
+      driverSpecDefaults:
+        clusterName: rook-ceph
+        imageSet:
+          name: rook-csi-operator-image-set-configmap
+        cephFsClientType: kernel
+        fsGroupPolicy: File
+        deployCsiAddons: false
+        enableMetadata: false
+        generateOMapInfo: false
+        controllerPlugin:
+          hostNetwork: true
+          replicas: 2
+          deploymentStrategy:
+            type: Recreate
+          priorityClassName: system-cluster-critical
+          imagePullPolicy: IfNotPresent
+        nodePlugin:
+          kubeletDirPath: /var/lib/kubelet
+          enableSeLinuxHostMount: false
+          priorityClassName: system-node-critical
+          imagePullPolicy: IfNotPresent
+    drivers:
+      rbd:
+        enabled: true
+        name: rook-ceph.rbd.csi.ceph.com
+        # Explicit volumeSnapshot keeps the csi-snapshotter sidecar deployed (chart default
+        # "none" would remove it and break all RBD VolSync backups).
+        snapshotPolicy: volumeSnapshot
+        fsGroupPolicy: File
+        cephFsClientType: kernel
+        controllerPlugin:
+          hostNetwork: true
+          replicas: 2
+          deploymentStrategy:
+            type: Recreate
+          priorityClassName: system-cluster-critical
+          imagePullPolicy: IfNotPresent
+        nodePlugin:
+          kubeletDirPath: /var/lib/kubelet
+          enableSeLinuxHostMount: false
+          priorityClassName: system-node-critical
+          imagePullPolicy: IfNotPresent
+      cephfs:
+        enabled: true
+        name: rook-ceph.cephfs.csi.ceph.com
+        fsGroupPolicy: File
+        snapshotPolicy: volumeGroupSnapshot
+        cephFsClientType: kernel
+        kernelMountOptions:
+          ms_mode: prefer-crc
+        controllerPlugin:
+          hostNetwork: true
+          replicas: 2
+          deploymentStrategy:
+            type: Recreate
+          priorityClassName: system-cluster-critical
+          imagePullPolicy: IfNotPresent
+        nodePlugin:
+          kubeletDirPath: /var/lib/kubelet
+          enableSeLinuxHostMount: false
+          priorityClassName: system-node-critical
+          imagePullPolicy: IfNotPresent
+      nfs:
+        enabled: false
+      nvmeof:
+        enabled: false

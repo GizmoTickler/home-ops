@@ -1,0 +1,70 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/upgrade.cattle.io/plan_v1.json
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: flatcar-os
+  namespace: system-upgrade
+  labels:
+    app.kubernetes.io/name: flatcar-upgrade
+  annotations:
+    # CRITICAL: Flux post-build substitution (cluster-secret component) runs envsubst
+    # over manifests and would mangle every ${...} in the embedded bash script
+    # (proven live: TARGET became "missing target version", ${VERSION} became "").
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  # ── HOW TO UPGRADE FLATCAR (merge-gated) ──────────────────────────────────────────
+  #   Bump `version` to the target Flatcar Stable release (https://www.flatcar.org/releases)
+  #   and merge. SUC then runs a staging Job per node (one at a time): flatcar-update
+  #   downloads + verifies the payload into the inactive USR partition and leaves
+  #   update_engine in UPDATE_STATUS_UPDATED_NEED_REBOOT. Kured detects that, then
+  #   cordons/drains/reboots one node at a time — same reboot path as before.
+  #
+  #   update_engine channel polling is DISABLED on the nodes (SERVER=disabled in
+  #   /etc/flatcar/update.conf, set via Ignition), so this Plan is the ONLY way the OS
+  #   moves — no label gate needed: the script no-ops when the node is already at (or
+  #   has staged) the target, so the SUC baseline run is harmless.
+  # renovate: datasource=custom.flatcar depName=flatcar
+  version: 4593.2.2
+  concurrency: 1
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+  serviceAccountName: system-upgrade
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+  # Staging only — the payload goes to the inactive partition while workloads keep
+  # running. Kured owns cordon/drain/reboot, so SUC must not cordon here (a cordoned
+  # node would deadlock waiting for kured, which uncordons only after ITS OWN reboots).
+  cordon: false
+  upgrade:
+    # busybox only provides `chroot`; the real work runs against the HOST (Flatcar)
+    # via `chroot /host`, using the host's flatcar-update/update_engine_client.
+    image: docker.io/library/busybox:1.37.0
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        chroot /host /usr/bin/bash -euo pipefail <<'HOSTEOF'
+        TARGET="${SYSTEM_UPGRADE_PLAN_LATEST_VERSION:?missing target version}"
+        source /etc/os-release
+        echo "[flatcar-upgrade] node=$(hostname) current=${VERSION} target=${TARGET}"
+        if [ "${VERSION}" = "${TARGET}" ]; then
+          echo "[flatcar-upgrade] already at ${TARGET}; nothing to do"
+          exit 0
+        fi
+        # Idempotent retry: if a payload is already staged, just wait for kured.
+        if /usr/bin/update_engine_client -status 2>/dev/null | grep -q UPDATE_STATUS_UPDATED_NEED_REBOOT; then
+          echo "[flatcar-upgrade] update already staged; awaiting kured reboot"
+          exit 0
+        fi
+        # Stage the pinned release into the inactive USR partition (payload is
+        # signature-verified by update_engine). --disable-afterwards re-asserts
+        # SERVER=disabled in /etc/flatcar/update.conf when done.
+        /usr/bin/flatcar-update --to-version "${TARGET}" --disable-afterwards
+        echo "[flatcar-upgrade] staged ${TARGET}; kured will reboot this node"
+        HOSTEOF

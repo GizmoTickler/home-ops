@@ -22,14 +22,16 @@ type VersionConfig struct {
 
 	// Flatcar/kubeadm migration knobs.
 	FlatcarVersion string // Flatcar stable release version (e.g. "current" or "4152.2.0")
-	KubeVipVersion string // kube-vip image tag (e.g. "v0.8.9")
+	KubeVipVersion string // kube-vip image tag (e.g. "v1.2.0")
 	PauseImage     string // sandbox/pause image (e.g. "registry.k8s.io/pause:3.10")
 }
 
 const (
 	defaultFlatcarVersion = "current"
-	defaultKubeVipVersion = "v0.8.9"
-	defaultPauseImage     = "registry.k8s.io/pause:3.10"
+	defaultKubeVipVersion = "v1.2.0"
+	// Keep in sync with `kubeadm config images list` for the pinned Kubernetes
+	// minor (v1.36 ships pause:3.10.2); containerd pins this as the sandbox image.
+	defaultPauseImage = "registry.k8s.io/pause:3.10.2"
 	// defaultTalosVersion is the version used by the LEGACY `--provider talos`
 	// path (bootstrap preflight + Talos ISO generation). Flatcar ignores it.
 	// Tracks the install.image tag in internal/templates/talos/controlplane.yaml.
@@ -53,6 +55,11 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 		// Flatcar ignores TalosVersion; populate the legacy-talos default so a
 		// `--provider talos` bootstrap (preflight + ISO naming) still resolves.
 		TalosVersion: defaultTalosVersion,
+		// The flatcar-os SUC Plan pins the OS release (merge-gated updates);
+		// use it so rebuilt nodes come up on the SAME version as the cluster
+		// rather than whatever "current" stable is. Falls back to "current"
+		// if the plan is missing (e.g. pre-migration checkouts).
+		FlatcarVersion: loadFlatcarVersionFromPlan(rootDir),
 	}
 	applyFlatcarDefaults(config)
 
@@ -87,6 +94,31 @@ func loadKubernetesVersionFromPlan(rootDir string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("kubeadm plan %s does not contain a 'version:' field", planPath)
+}
+
+// loadFlatcarVersionFromPlan reads the flatcar-os SUC Plan and extracts
+// spec.version (a Flatcar Stable release like "4593.2.2"). Returns "" (so the
+// "current" default applies) when the plan is absent or malformed — the OS
+// version pin is best-effort for provisioning, unlike the Kubernetes version.
+func loadFlatcarVersionFromPlan(rootDir string) string {
+	planPath := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade",
+		"flatcar-upgrade", "app", "plan.yaml")
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return ""
+	}
+	flatcarVersionRe := regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "version:") {
+			ver := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "version:")), "\"'")
+			if flatcarVersionRe.MatchString(ver) {
+				return ver
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // isValidVersionFormat validates that the version string looks like a semantic version.

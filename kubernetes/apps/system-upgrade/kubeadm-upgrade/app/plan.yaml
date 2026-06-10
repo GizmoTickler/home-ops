@@ -7,6 +7,11 @@ metadata:
   namespace: system-upgrade
   labels:
     app.kubernetes.io/name: kubeadm-upgrade
+  annotations:
+    # CRITICAL: Flux post-build substitution (cluster-secret component) runs envsubst
+    # over manifests and mangles every ${...} in the embedded bash script (proven live
+    # on the flatcar-os Plan: TARGET became "missing target version", vars became "").
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   # ── HOW TO TRIGGER A MINOR UPGRADE (e.g. v1.36 -> v1.37) ───────────────────────────
   #   1. Bump `version` below to the target (e.g. v1.37.4) and commit.

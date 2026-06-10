@@ -93,6 +93,13 @@
       ignoreTests: true,
     },
     {
+      description: "NEVER auto-merge Flatcar OS releases — merging IS the rollout trigger (SUC stage + kured rolling reboot)",
+      matchDatasources: ["custom.flatcar"],
+      automerge: false,
+      automergeType: "pr",
+      ignoreTests: false,
+    },
+    {
       description: "Auto-merge GitHub Releases",
       matchDatasources: ["github-releases"],
       automerge: true,

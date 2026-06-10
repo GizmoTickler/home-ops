@@ -95,6 +95,7 @@ const (
 	EnvPauseImage       = "PAUSE_IMAGE"
 	EnvKubeVipVersion   = "KUBE_VIP_VERSION"
 	EnvNodeInterface    = "NODE_INTERFACE"
+	EnvNodeMAC          = "NODE_MAC"
 	EnvNodeName         = "NODE_NAME"
 	EnvNodeIP           = "NODE_IP"
 	EnvNode0IP          = "NODE0_IP"

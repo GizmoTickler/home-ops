@@ -25,17 +25,17 @@ releases:
   - name: kgateway-crds
     namespace: network
     chart: oci://cr.kgateway.dev/kgateway-dev/charts/kgateway-crds
-    version: 2.3.1
+    version: 2.3.2
 
   - name: grafana-operator
     namespace: observability
     chart: oci://ghcr.io/grafana/helm-charts/grafana-operator
-    version: 5.23.0
+    version: 5.24.0
 
   - name: keda
     namespace: observability
     chart: oci://ghcr.io/home-operations/charts-mirror/keda
-    version: 2.20.0
+    version: 2.20.1
 
   - name: prometheus-operator-crds
     namespace: observability
@@ -45,4 +45,4 @@ releases:
   - name: victoria-metrics-k8s-stack
     namespace: observability
     chart: oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-k8s-stack
-    version: 0.81.0
+    version: 0.82.0

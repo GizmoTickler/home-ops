@@ -57,9 +57,23 @@ storage:
           ::1         localhost
           127.0.0.1   kubernetes
 
+    # --- interface naming: pin the primary NIC (matched by MAC) to "eth0" so the name
+    # survives a machine-type change (e.g. i440fx -> q35, where predictable naming would
+    # rename it and break 10-k8s.network [Match] Name=eth0 + cilium devices=eth0). ---
+    - path: /etc/systemd/network/10-eth0.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC }}
+          [Link]
+          Name=eth0
+
     # --- networking: jumbo frames (MTU 9000) on the primary NIC.
-    # Flatcar names the virtio NIC eth0 (NOT ens18 like Talos) — confirmed in the P2 lab.
-    # Kea also hands MTU 9000 via DHCP, but we set it explicitly here too. ---
+    # Flatcar names the virtio NIC eth0 (NOT ens18 like Talos) — confirmed in the P2 lab;
+    # the 10-eth0.link above pins that name to the MAC. Kea also hands MTU 9000 via DHCP,
+    # but we set it explicitly here too. ---
     - path: /etc/systemd/network/10-k8s.network
       mode: 0644
       overwrite: true
@@ -74,6 +88,19 @@ storage:
           [DHCPv4]
           UseMTU=false
           UseDomains=yes
+
+    # --- OS updates: merge-gated, NOT channel-driven. SERVER=disabled stops
+    # update_engine polling the public Nebraska server; the flatcar-os SUC Plan
+    # (kubernetes/apps/system-upgrade/flatcar-upgrade) stages the git-pinned release
+    # via flatcar-update, and Kured reboots. flatcar-update works fine with
+    # SERVER=disabled (it runs a temporary local Omaha mock). ---
+    - path: /etc/flatcar/update.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          GROUP=stable
+          SERVER=disabled
 
     # --- NTP: the 5 homelab NTP servers (port of Talos machine.time.servers) ---
     - path: /etc/systemd/timesyncd.conf
@@ -174,11 +201,23 @@ systemd:
       enabled: true
     - name: systemd-sysupdate.timer
       enabled: true
-    # mark a reboot as required when the k8s sysext version changes (Kured then drains/reboots)
+    # Auto-update the kubernetes sysext (patch-level within the pinned minor) and mark a
+    # reboot as required when its version changes (Kured then drains/reboots).
+    # The `-C kubernetes` ExecStartPre is what actually processes /etc/sysupdate.kubernetes.d
+    # — the stock ExecStart only reads /etc/sysupdate.d (noop.conf), so without it the
+    # kubernetes component is NEVER updated (canonical pattern per flatcar/sysext-bakery).
     - name: systemd-sysupdate.service
       dropins:
         - name: kubernetes.conf
           contents: |
             [Service]
             ExecStartPre=/usr/bin/sh -c 'readlink --canonicalize /etc/extensions/kubernetes.raw > /tmp/kubernetes'
+            ExecStartPre=/usr/lib/systemd/systemd-sysupdate -C kubernetes update
             ExecStartPost=/usr/bin/sh -c 'readlink --canonicalize /etc/extensions/kubernetes.raw > /tmp/kubernetes-new; if ! cmp --silent /tmp/kubernetes /tmp/kubernetes-new; then touch /run/reboot-required; fi'
+    # systemd-sysupdate-reboot fires daily at 04:10 and reboots WITHOUT drain/serialization
+    # — Kured owns reboots here (locksmithd is masked for the same reason). It also fails
+    # every run (the default sysupdate component only has noop.conf), leaving a failed unit.
+    - name: systemd-sysupdate-reboot.timer
+      mask: true
+    - name: systemd-sysupdate-reboot.service
+      mask: true

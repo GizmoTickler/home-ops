@@ -69,6 +69,7 @@ spec:
       volumeMounts:
         - mountPath: /etc/kubernetes/admin.conf
           name: kubeconfig
+          readOnly: true
   volumes:
     - name: kubeconfig
       hostPath:
