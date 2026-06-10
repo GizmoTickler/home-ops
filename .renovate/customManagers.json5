@@ -1,5 +1,18 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  customDatasources: {
+    // Flatcar Stable releases from the official releases feed. Used by the
+    // flatcar-os SUC Plan (merge-gated OS upgrades): Renovate PRs the version
+    // bump, merging it triggers the staged rollout (SUC stage + kured reboot).
+    // NEVER automerge this — an OS rollout should be a deliberate merge.
+    flatcar: {
+      defaultRegistryUrlTemplate: "https://www.flatcar.org/releases-json/releases.json",
+      format: "json",
+      transformTemplates: [
+        '{ "releases": $each($, function($v, $k) { $v.channel = "stable" ? { "version": $k } : undefined }) }',
+      ],
+    },
+  },
   customManagers: [
     {
       customType: "regex",
