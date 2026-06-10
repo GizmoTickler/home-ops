@@ -407,7 +407,7 @@ func withVSphereClient(logger *common.ColorLogger, fn func(vsphereClient) error)
 		return err
 	}
 
-	client := newVSphereClientFn(host, username, password, true)
+	client := newVSphereClientFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
 	if err := client.Connect(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false)); err != nil {
 		return fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
