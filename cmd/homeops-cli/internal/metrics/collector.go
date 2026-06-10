@@ -1,8 +1,11 @@
 package metrics
 
 import (
+	"sort"
 	"sync"
 	"time"
+
+	"homeops-cli/internal/common"
 )
 
 // PerformanceCollector tracks operation metrics
@@ -169,4 +172,36 @@ func (pc *PerformanceCollector) GetTotalOperations() int {
 	pc.mu.RLock()
 	defer pc.mu.RUnlock()
 	return len(pc.operations)
+}
+
+// LogReport writes a per-operation timing summary at debug level, sorted by
+// total time spent. Defer it where a collector is created so
+// `--log-level debug` shows where command time went.
+func (pc *PerformanceCollector) LogReport(logger *common.ColorLogger) {
+	report := pc.GetReport()
+	if len(report) == 0 {
+		return
+	}
+
+	type entry struct {
+		name  string
+		total time.Duration
+		op    OperationReport
+	}
+	entries := make([]entry, 0, len(report))
+	for name, op := range report {
+		entries = append(entries, entry{
+			name:  name,
+			total: op.AverageDuration * time.Duration(op.TotalCalls),
+			op:    op,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].total > entries[j].total })
+
+	logger.Debug("Performance report (%d operations):", len(entries))
+	for _, e := range entries {
+		logger.Debug("  %-30s calls=%-3d total=%-12s avg=%-12s errors=%.0f%%",
+			e.name, e.op.TotalCalls, e.total.Round(time.Millisecond),
+			e.op.AverageDuration.Round(time.Millisecond), e.op.ErrorRate*100)
+	}
 }

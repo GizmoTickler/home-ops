@@ -2853,6 +2853,7 @@ func testDynamicValuesTemplate(config *BootstrapConfig, logger *common.ColorLogg
 
 	// Create metrics collector
 	metricsCollector := metrics.NewPerformanceCollector()
+	defer metricsCollector.LogReport(logger)
 
 	// Test releases to verify template works
 	testReleases := []string{"cilium", "coredns", "spegel", "cert-manager", "external-secrets", "flux-operator", "flux-instance"}
