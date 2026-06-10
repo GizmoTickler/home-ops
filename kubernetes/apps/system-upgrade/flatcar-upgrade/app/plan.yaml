@@ -7,6 +7,11 @@ metadata:
   namespace: system-upgrade
   labels:
     app.kubernetes.io/name: flatcar-upgrade
+  annotations:
+    # CRITICAL: Flux post-build substitution (cluster-secret component) runs envsubst
+    # over manifests and would mangle every ${...} in the embedded bash script
+    # (proven live: TARGET became "missing target version", ${VERSION} became "").
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   # ── HOW TO UPGRADE FLATCAR (merge-gated) ──────────────────────────────────────────
   #   Bump `version` to the target Flatcar Stable release (https://www.flatcar.org/releases)
