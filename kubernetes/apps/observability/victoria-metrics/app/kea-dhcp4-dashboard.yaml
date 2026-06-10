@@ -560,7 +560,7 @@ data:
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "description": "DHCP allocation failures per second. Should be 0.",
+          "description": "DHCPNAK packets sent per second — proxy for allocation failures (Kea has no allocations-failed counter). Should be 0.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -625,7 +625,7 @@ data:
                 "type": "prometheus",
                 "uid": "${DS_PROMETHEUS}"
               },
-              "expr": "sum(rate(kea_dhcp4_allocations_failed_total{instance=~\"$instance\"}[$__rate_interval]))",
+              "expr": "sum(rate(kea_dhcp4_packets_sent_total{operation=\"nak\", instance=~\"$instance\"}[$__rate_interval]))",
               "legendFormat": "",
               "refId": "A"
             }
@@ -2536,7 +2536,7 @@ data:
                 "type": "prometheus",
                 "uid": "${DS_PROMETHEUS}"
               },
-              "description": "Allocation failures per subnet and context \u2014 indicates pool exhaustion or configuration issues",
+              "description": "DHCPNAK packets sent per instance \u2014 proxy for allocation failures (Kea exposes no allocations-failed counter and packets are not labeled per-subnet). Indicates lease confirmation rejections / pool exhaustion.",
               "fieldConfig": {
                 "defaults": {
                   "color": {
@@ -2625,8 +2625,8 @@ data:
                     "type": "prometheus",
                     "uid": "${DS_PROMETHEUS}"
                   },
-                  "expr": "rate(kea_dhcp4_allocations_failed_total{instance=~\"$instance\", subnet=~\"$subnet\"}[$__rate_interval])",
-                  "legendFormat": "{{subnet}} - {{context}}",
+                  "expr": "sum by (instance) (rate(kea_dhcp4_packets_sent_total{operation=\"nak\", instance=~\"$instance\"}[$__rate_interval]))",
+                  "legendFormat": "{{instance}}",
                   "refId": "A"
                 }
               ]

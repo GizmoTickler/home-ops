@@ -405,7 +405,7 @@ data:
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "description": "Average question-answer latency in microseconds",
+          "description": "Current average client-answer latency, computed from the cumulative latency histogram (rate of sum / rate of count). Avoids pdns_recursor_qa_latency which is a lifetime microsecond average dominated by cache hits.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -421,19 +421,19 @@ data:
                   },
                   {
                     "color": "yellow",
-                    "value": 1000
+                    "value": 0.001
                   },
                   {
                     "color": "orange",
-                    "value": 5000
+                    "value": 0.005
                   },
                   {
                     "color": "red",
-                    "value": 10000
+                    "value": 0.01
                   }
                 ]
               },
-              "unit": "\u00b5s"
+              "unit": "s"
             },
             "overrides": []
           },
@@ -468,12 +468,12 @@ data:
                 "type": "prometheus",
                 "uid": "${DS_PROMETHEUS}"
               },
-              "expr": "avg(pdns_recursor_qa_latency{instance=~\"$instance\"})",
+              "expr": "sum(rate(pdns_recursor_cumul_clientanswers_seconds_sum{instance=~\"$instance\"}[$__rate_interval])) / sum(rate(pdns_recursor_cumul_clientanswers_seconds_count{instance=~\"$instance\"}[$__rate_interval]))",
               "legendFormat": "",
               "refId": "A"
             }
           ],
-          "title": "QA Latency",
+          "title": "Avg Client Latency",
           "type": "stat"
         },
         {
@@ -1189,7 +1189,7 @@ data:
                     "mode": "thresholds"
                   },
                   "mappings": [],
-                  "max": 1000000,
+                  "max": 200000,
                   "min": 0,
                   "thresholds": {
                     "mode": "percentage",
@@ -1250,7 +1250,7 @@ data:
                   "refId": "A"
                 }
               ],
-              "title": "Record Cache Entries (max 1M)",
+              "title": "Record Cache Entries (max 200K)",
               "type": "gauge"
             },
             {
@@ -1265,7 +1265,7 @@ data:
                     "mode": "thresholds"
                   },
                   "mappings": [],
-                  "max": 500000,
+                  "max": 100000,
                   "min": 0,
                   "thresholds": {
                     "mode": "percentage",
@@ -1326,7 +1326,7 @@ data:
                   "refId": "A"
                 }
               ],
-              "title": "Packet Cache Entries (max 500K)",
+              "title": "Packet Cache Entries (max 100K)",
               "type": "gauge"
             },
             {
@@ -2145,7 +2145,7 @@ data:
                 "type": "prometheus",
                 "uid": "${DS_PROMETHEUS}"
               },
-              "description": "QA latency and internal processing latency per instance",
+              "description": "Client-answer latency percentiles (p50/p95) per instance, derived from the cumulative latency histogram. Replaces the lifetime-average pdns_recursor_qa_latency gauge which was effectively flat.",
               "fieldConfig": {
                 "defaults": {
                   "color": {
@@ -2193,7 +2193,7 @@ data:
                       }
                     ]
                   },
-                  "unit": "\u00b5s"
+                  "unit": "s"
                 },
                 "overrides": []
               },
@@ -2226,8 +2226,8 @@ data:
                     "type": "prometheus",
                     "uid": "${DS_PROMETHEUS}"
                   },
-                  "expr": "pdns_recursor_qa_latency{instance=~\"$instance\"}",
-                  "legendFormat": "QA {{instance}}",
+                  "expr": "histogram_quantile(0.50, sum(rate(pdns_recursor_cumul_clientanswers_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])) by (le, instance))",
+                  "legendFormat": "p50 {{instance}}",
                   "refId": "A"
                 },
                 {
@@ -2235,12 +2235,12 @@ data:
                     "type": "prometheus",
                     "uid": "${DS_PROMETHEUS}"
                   },
-                  "expr": "pdns_recursor_x_our_latency{instance=~\"$instance\"}",
-                  "legendFormat": "Internal {{instance}}",
+                  "expr": "histogram_quantile(0.95, sum(rate(pdns_recursor_cumul_clientanswers_seconds_bucket{instance=~\"$instance\"}[$__rate_interval])) by (le, instance))",
+                  "legendFormat": "p95 {{instance}}",
                   "refId": "B"
                 }
               ],
-              "title": "QA & Internal Latency",
+              "title": "Client Latency p50/p95",
               "type": "timeseries"
             }
           ],

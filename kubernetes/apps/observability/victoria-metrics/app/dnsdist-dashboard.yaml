@@ -1092,7 +1092,7 @@ data:
                       "log": 2
                     }
                   },
-                  "unit": "s"
+                  "unit": "ms"
                 },
                 "overrides": []
               },
@@ -1133,7 +1133,7 @@ data:
                 "yAxis": {
                   "axisPlacement": "left",
                   "reverse": false,
-                  "unit": "s"
+                  "unit": "ms"
                 }
               },
               "pluginVersion": "11.0.0",
@@ -1755,7 +1755,7 @@ data:
                     "type": "prometheus",
                     "uid": "${DS_PROMETHEUS}"
                   },
-                  "expr": "dnsdist_server_latency{job=\"dnsdist\", instance=~\"$instance\"} / 1000",
+                  "expr": "dnsdist_server_latency{job=\"dnsdist\", instance=~\"$instance\"}",
                   "legendFormat": "{{instance}} \u2192 {{server}}",
                   "refId": "A"
                 }
