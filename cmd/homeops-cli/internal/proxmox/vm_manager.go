@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/provider"
 
 	"github.com/luthermonson/go-proxmox"
 )
@@ -19,6 +20,9 @@ var (
 	getCredentialsFn  = GetCredentials
 	newVMManagerFn    = NewVMManager
 )
+
+// VMManager satisfies the shared lifecycle contract used by command dispatch.
+var _ provider.VMLifecycle = (*VMManager)(nil)
 
 type taskHandle interface {
 	Wait(context.Context, time.Duration, time.Duration) error
