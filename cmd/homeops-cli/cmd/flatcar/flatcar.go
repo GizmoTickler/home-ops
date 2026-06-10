@@ -559,6 +559,7 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		PauseImage:        pauseImage,
 		KubeVipVersion:    kubeVipVersion,
 		NodeInterface:     nodeInterface,
+		NodeMAC:           nodeConfig.MacAddress,
 		K8sEndpoint:       k8sEndpoint,
 		SSHAuthorizedKey:  sshKey,
 	}, nil

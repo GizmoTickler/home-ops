@@ -22,6 +22,7 @@ func sampleEnv() NodeEnv {
 		PauseImage:        "registry.k8s.io/pause:3.10",
 		KubeVipVersion:    "v0.8.9",
 		NodeInterface:     "eth0",
+		NodeMAC:           "00:a0:98:28:c8:83",
 		K8sEndpoint:       "k8s.example.test",
 		SSHAuthorizedKey:  "ssh-ed25519 AAAATESTKEY",
 	}

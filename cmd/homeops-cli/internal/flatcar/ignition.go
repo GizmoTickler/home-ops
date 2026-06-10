@@ -57,6 +57,7 @@ type NodeEnv struct {
 	PauseImage        string // PAUSE_IMAGE
 	KubeVipVersion    string // KUBE_VIP_VERSION
 	NodeInterface     string // NODE_INTERFACE (e.g. eth0)
+	NodeMAC           string // NODE_MAC (primary NIC MAC; pins the eth0 name via 10-eth0.link)
 	K8sEndpoint       string // K8S_ENDPOINT (apiserver cert SAN DNS, e.g. k8s.<domain>; sourced from op)
 	SSHAuthorizedKey  string // SSH_AUTHORIZED_KEY (node access public key; sourced from op)
 
@@ -86,6 +87,7 @@ func (e NodeEnv) envMap() map[string]string {
 	add(constants.EnvPauseImage, e.PauseImage)
 	add(constants.EnvKubeVipVersion, e.KubeVipVersion)
 	add(constants.EnvNodeInterface, e.NodeInterface)
+	add(constants.EnvNodeMAC, e.NodeMAC)
 	add(constants.EnvK8sEndpoint, e.K8sEndpoint)
 	add(constants.EnvSSHAuthorizedKey, e.SSHAuthorizedKey)
 	add(constants.EnvCertificateKey, e.CertificateKey)

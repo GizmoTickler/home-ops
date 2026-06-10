@@ -22,14 +22,16 @@ type VersionConfig struct {
 
 	// Flatcar/kubeadm migration knobs.
 	FlatcarVersion string // Flatcar stable release version (e.g. "current" or "4152.2.0")
-	KubeVipVersion string // kube-vip image tag (e.g. "v0.8.9")
+	KubeVipVersion string // kube-vip image tag (e.g. "v1.2.0")
 	PauseImage     string // sandbox/pause image (e.g. "registry.k8s.io/pause:3.10")
 }
 
 const (
 	defaultFlatcarVersion = "current"
-	defaultKubeVipVersion = "v0.8.9"
-	defaultPauseImage     = "registry.k8s.io/pause:3.10"
+	defaultKubeVipVersion = "v1.2.0"
+	// Keep in sync with `kubeadm config images list` for the pinned Kubernetes
+	// minor (v1.36 ships pause:3.10.2); containerd pins this as the sandbox image.
+	defaultPauseImage = "registry.k8s.io/pause:3.10.2"
 	// defaultTalosVersion is the version used by the LEGACY `--provider talos`
 	// path (bootstrap preflight + Talos ISO generation). Flatcar ignores it.
 	// Tracks the install.image tag in internal/templates/talos/controlplane.yaml.
