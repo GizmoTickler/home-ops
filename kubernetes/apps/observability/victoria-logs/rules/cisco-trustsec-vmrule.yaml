@@ -13,15 +13,55 @@ spec:
       type: vlogs
       interval: 1m
       rules:
+        # Anomaly (spike-over-baseline) detection, not a per-event tripwire.
+        #
+        # SC01's RBACL_DENY_LOG SGACL logs normal inter-VLAN policy enforcement,
+        # producing a constant deny hum. The old rule (>0, for:0m) fired on any
+        # single normal deny and never cleared. It also matched action='Permit'
+        # SGACLHIT lines (the same %RBM-6-SGACLHIT message carries both Permit
+        # and Deny), inflating the count. This rule counts ONLY action='Deny'
+        # over a fixed 5m window, excludes the known-constant noise signatures,
+        # and fires only when the deny rate is ABNORMALLY high vs the measured
+        # baseline (possible scan / compromised device / misconfig flood).
+        #
+        # A 5m window (not 15m) is used so a brief one-shot flood elevates the
+        # count for only ~5m and decays, letting for:10m suppress transients.
+        # Baseline measured live 2026-06-10 over 6h (deny-only, noise excluded):
+        #   steady-state 13-32 denies / 5m (very stable, mean ~20, max 32).
+        #   A real anomaly the same day (one IoT host flooding udp/53 to the DNS
+        #   VIP and being denied) hit 362 / 5m for a single bucket, then ~26.
+        # Threshold >150 = ~4.7x the steady ceiling (32), ~59% below the observed
+        # flood (362). for:10m means a single transient 5m burst does NOT page;
+        # only a SUSTAINED flood across multiple windows fires.
+        #
+        # Excluded constant-noise signatures (working-as-intended isolation):
+        #   - FN-LINK IoT gadget 192.168.138.86 hammering the dead gateway SVI
+        #     port tcp/80 (13->32 RBACL_FROM_SWITCH_SVIS RST egress).
+        #   - NetBIOS broadcasts udp/137 and udp/138.
+        #   - ICMP-unreachable within VLANs.
+        # The dominant udp/53 guest->DNS-VIP deny is deliberately NOT excluded,
+        # because that is exactly the class of flood the anomaly threshold must
+        # still catch.
         - alert: CiscoTrustSecSGACLDeny
           expr: |
-            facility:23 (_msg:~"SGACLHIT|IPACCESSLOG.*RBACL_DENY_LOG|RBACL_DENY_LOG") | stats count() denies | filter denies:>0
-          for: 0m
+            facility:23 _msg:"SGACLHIT" _msg:"action='Deny'" _time:5m
+              NOT (_msg:"192.168.138.86" _msg:"dest-port='80'")
+              NOT _msg:"dest-port='137'"
+              NOT _msg:"dest-port='138'"
+              NOT _msg:"protocol='icmp'"
+            | stats count() denies | filter denies:>150
+          for: 10m
           annotations:
-            summary: SC01 TrustSec SGACL deny observed
+            summary: SC01 TrustSec SGACL deny rate ABNORMALLY high vs baseline
             description: >-
-              SC01 emitted one or more TrustSec SGACL deny events in the last VMAlert logs evaluation window.
-              Query VictoriaLogs for facility:23 and RBACL_DENY_LOG / SGACLHIT to inspect sgt/dgt, src/dst, and ports.
+              SC01 logged {{ $value }} TrustSec SGACL DENY events in the last 5m, far above the
+              normal baseline (~13-32/5m). This is NOT the expected steady IoT/NetBIOS isolation
+              hum (which is excluded) — it indicates a possible scan, a compromised/misbehaving
+              device flooding denied flows, or a new lateral-movement attempt. Investigate before
+              dismissing. Query VictoriaLogs to find the top talker:
+              facility:23 _msg:"SGACLHIT" _msg:"action='Deny'" _time:15m
+              | extract "src-ip='<src>'" | extract "dest-port='<dport>'"
+              | stats by (src,dport) count() hits | sort by (hits desc)
             runbook_url: https://docs.victoriametrics.com/victorialogs/logsql/
           labels:
             severity: warning
