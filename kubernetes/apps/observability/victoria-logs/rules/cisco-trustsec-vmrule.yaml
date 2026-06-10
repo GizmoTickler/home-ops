@@ -39,6 +39,17 @@ spec:
         #     port tcp/80 (13->32 RBACL_FROM_SWITCH_SVIS RST egress).
         #   - NetBIOS broadcasts udp/137 and udp/138.
         #   - ICMP-unreachable within VLANs.
+        #   - Guest (SGT90, Vlan700, 192.168.140.0/22) Apple devices auto-probing
+        #     for AirPlay/Cast targets on the Trusted VLAN (SGT20) and being
+        #     correctly blocked by guest->Trusted isolation. Confirmed live as the
+        #     ENTIRE content of the 90->20 deny cell (2026-06-10, 6h): tcp/7000
+        #     (AirPlay) and tcp/49152 (AirPlay/AppleTV control), src 192.168.140.x
+        #     -> dst 192.168.133.5/.133.15. Plus Spotify Connect discovery udp/57621
+        #     in the guest->guest cell (90->90), always to the Vlan700 broadcast
+        #     192.168.143.255. These are scoped to (sgt=90,dgt=20)+port for AirPlay
+        #     and (sgt=90,dgt=90)+udp/57621 for Spotify, so OTHER 90->20 denies and
+        #     these same ports in OTHER cells (e.g. 7000 seen in 20->90, 90->90,
+        #     13->32) still count toward the anomaly threshold.
         # The dominant udp/53 guest->DNS-VIP deny is deliberately NOT excluded,
         # because that is exactly the class of flood the anomaly threshold must
         # still catch.
@@ -49,14 +60,19 @@ spec:
               NOT _msg:"dest-port='137'"
               NOT _msg:"dest-port='138'"
               NOT _msg:"protocol='icmp'"
+              NOT (_msg:"sgt='90'" _msg:"dgt='20'" _msg:"dest-port='7000'")
+              NOT (_msg:"sgt='90'" _msg:"dgt='20'" _msg:"dest-port='49152'")
+              NOT (_msg:"sgt='90'" _msg:"dgt='90'" _msg:"dest-port='57621'")
             | stats count() denies | filter denies:>150
           for: 10m
           annotations:
             summary: SC01 TrustSec SGACL deny rate ABNORMALLY high vs baseline
             description: >-
               SC01 logged {{ $value }} TrustSec SGACL DENY events in the last 5m, far above the
-              normal baseline (~13-32/5m). This is NOT the expected steady IoT/NetBIOS isolation
-              hum (which is excluded) — it indicates a possible scan, a compromised/misbehaving
+              normal baseline (~12-32/5m). This is NOT the expected steady isolation hum — the
+              known by-design noise is excluded: IoT/NetBIOS broadcasts, and guest->Trusted
+              AirPlay/Cast (90->20 tcp/7000,tcp/49152) plus guest Spotify discovery (90->90
+              udp/57621). A firing alert indicates a possible scan, a compromised/misbehaving
               device flooding denied flows, or a new lateral-movement attempt. Investigate before
               dismissing. Query VictoriaLogs to find the top talker:
               facility:23 _msg:"SGACLHIT" _msg:"action='Deny'" _time:15m
