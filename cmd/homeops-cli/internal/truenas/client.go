@@ -102,7 +102,10 @@ func (c *WorkingClient) Connect() error {
 		MaxDelay:  8 * time.Second,
 		Sleep:     connectRetrySleep,
 	}, func() error {
-		client, err := truenas_api.NewClient(serverURL, !c.useSSL) // tlsSkipVerify is opposite of useSSL
+		// The second parameter is verifySSL (false sets InsecureSkipVerify in
+		// the library) — a previous inversion here disabled TLS verification
+		// on every wss connection. Verify whenever we dial over SSL.
+		client, err := truenas_api.NewClient(serverURL, c.useSSL)
 		if err != nil {
 			return fmt.Errorf("failed to create TrueNAS client: %w", err)
 		}
