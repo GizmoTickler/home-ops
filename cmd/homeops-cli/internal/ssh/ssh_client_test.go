@@ -59,8 +59,7 @@ func TestSSHClientConnectRedactsCommandOutputOnFailure(t *testing.T) {
 		assert.Equal(t, defaultSSHCommandTimeout, opts.Timeout)
 		assert.Equal(t, "ssh", opts.Name)
 		assert.Equal(t, []string{
-			"-o", "StrictHostKeyChecking=no",
-			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "StrictHostKeyChecking=accept-new",
 			"-o", "IdentitiesOnly=yes",
 			"-o", "NumberOfPasswordPrompts=0",
 			"-p", "22",
@@ -94,8 +93,7 @@ func TestSSHClientExecuteCommandUsesTimeoutAndRedactsCommandOutputOnFailure(t *t
 		assert.Equal(t, defaultSSHCommandTimeout, opts.Timeout)
 		assert.Equal(t, "ssh", opts.Name)
 		assert.Equal(t, []string{
-			"-o", "StrictHostKeyChecking=no",
-			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "StrictHostKeyChecking=accept-new",
 			"-o", "IdentitiesOnly=yes",
 			"-o", "NumberOfPasswordPrompts=0",
 			"-p", "2222",

@@ -615,7 +615,7 @@ func GetVMNames() ([]string, error) {
 	}
 
 	// Create vSphere client and connect
-	client, err := newClientWithConnectFn(host, username, password, true)
+	client, err := newClientWithConnectFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to vSphere: %w", err)
 	}
@@ -668,7 +668,7 @@ func NewESXiSSHClient(host, username string) (*ESXiSSHClient, error) {
 	}
 	_ = keyFile.Close()
 
-	logger.Debug("ESXi SSH key written to %s", keyFile.Name())
+	logger.Debug("ESXi SSH key written to temporary file")
 
 	return &ESXiSSHClient{
 		host:     host,
@@ -691,8 +691,9 @@ func (c *ESXiSSHClient) ExecuteCommand(command string) (string, error) {
 	c.logger.Debug("Executing ESXi command: %s", command)
 
 	args := []string{
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
+		// Trust-on-first-use: record the host key on first connect, then
+		// refuse to connect if it ever changes (MITM protection).
+		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "IdentitiesOnly=yes",
 		"-i", c.keyFile,
 		fmt.Sprintf("%s@%s", c.username, c.host),

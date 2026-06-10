@@ -121,8 +121,9 @@ func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, e
 
 func (c *SSHClient) sshArgs() []string {
 	return []string{
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
+		// Trust-on-first-use: record the host key on first connect, then
+		// refuse to connect if it ever changes (MITM protection).
+		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "IdentitiesOnly=yes",
 		"-o", "NumberOfPasswordPrompts=0",
 		"-p", c.port,

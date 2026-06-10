@@ -75,9 +75,9 @@ func SaveKubeconfigTo1Password(kubeconfigContent []byte, logger *ColorLogger) er
 func PullKubeconfigFrom1Password(destPath string, logger *ColorLogger) error {
 	logger.Debug("Pulling kubeconfig from 1Password...")
 
-	// Ensure destination directory exists
+	// Ensure destination directory exists (owner-only: holds credentials)
 	destDir := filepath.Dir(destPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
+	if err := os.MkdirAll(destDir, 0700); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 

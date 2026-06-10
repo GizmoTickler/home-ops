@@ -323,7 +323,8 @@ func TestGetVMNamesWithSeams(t *testing.T) {
 		assert.Equal(t, "env-host", host)
 		assert.Equal(t, "env-user", username)
 		assert.Equal(t, "env-pass", password)
-		assert.True(t, insecure)
+		// TLS verification is the default; insecure requires VSPHERE_INSECURE=true.
+		assert.False(t, insecure)
 		return &Client{}, nil
 	}
 	listVMNamesFn = func(client *Client) ([]string, error) {

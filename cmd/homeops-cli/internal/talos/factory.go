@@ -373,8 +373,8 @@ func (fc *FactoryClient) checkCache(req ISOGenerationRequest) (*ISOInfo, bool) {
 
 // cacheISOInfo caches ISO information
 func (fc *FactoryClient) cacheISOInfo(isoInfo *ISOInfo) error {
-	// Ensure cache directory exists
-	if err := os.MkdirAll(fc.cacheDir, 0755); err != nil {
+	// Ensure cache directory exists (owner-only, least privilege)
+	if err := os.MkdirAll(fc.cacheDir, 0700); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
@@ -387,7 +387,7 @@ func (fc *FactoryClient) cacheISOInfo(isoInfo *ISOInfo) error {
 		return fmt.Errorf("failed to marshal ISO info: %w", err)
 	}
 
-	if err := os.WriteFile(isoInfo.CacheFile, data, 0644); err != nil {
+	if err := os.WriteFile(isoInfo.CacheFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write cache file: %w", err)
 	}
 
