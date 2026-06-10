@@ -41,8 +41,8 @@ data:
           "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            { "expr": "NOT kubernetes.namespace_name:* (severity:4 OR severity:3 OR severity:2)", "legendFormat": "warn/err/crit", "queryType": "hits", "refId": "A" },
-            { "expr": "NOT kubernetes.namespace_name:* (severity:6 OR severity:5)", "legendFormat": "info/notice", "queryType": "hits", "refId": "B" }
+            { "expr": "NOT kubernetes.pod_namespace:* (severity:4 OR severity:3 OR severity:2)", "legendFormat": "warn/err/crit", "queryType": "hits", "refId": "A" },
+            { "expr": "NOT kubernetes.pod_namespace:* (severity:6 OR severity:5)", "legendFormat": "info/notice", "queryType": "hits", "refId": "B" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -84,7 +84,7 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "victoriametrics-logs-datasource", "uid": "${DS_VICTORIALOGS}" },
           "targets": [
-            { "expr": "facility:23 _msg:~\"IPACCESSLOG\"", "legendFormat": "acl_denies", "queryType": "hits", "refId": "A" }
+            { "expr": "facility:23 _msg:~\"IPACCESSLOGP\"", "legendFormat": "acl_denies", "queryType": "hits", "refId": "A" }
           ],
           "fieldConfig": {
             "defaults": {
