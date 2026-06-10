@@ -29,6 +29,7 @@ var (
 	commit           = "none"
 	date             = "unknown"
 	logLevel         string
+	assumeYes        bool
 	chooseFn                   = ui.Choose
 	signalNotifyFn             = signal.Notify
 	executeRootCmdFn           = func(cmd *cobra.Command) error { return cmd.Execute() }
@@ -75,15 +76,21 @@ VolSync backups, and more.`,
 			if logLevel != "" {
 				common.SetGlobalLogLevel(logLevel)
 			}
+			ui.SetAssumeYes(assumeYes)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// If no subcommand provided, show interactive menu
+			// Only launch the interactive menu on a real terminal; when stdin is
+			// piped or redirected (scripts, CI), print help instead of blocking.
+			if !stdinIsTerminal() {
+				return cmd.Help()
+			}
 			return showInteractiveMenu(cmd)
 		},
 	}
 
 	// Add global flags
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "Set log level (debug, info, warn, error)")
+	rootCmd.PersistentFlags().BoolVarP(&assumeYes, "yes", "y", false, "Assume yes for all confirmation prompts (non-interactive)")
 
 	// Set global environment variables
 	setEnvironment()
@@ -106,6 +113,16 @@ VolSync backups, and more.`,
 	rootCmd.SetContext(ctx)
 
 	return rootCmd
+}
+
+// stdinIsTerminal reports whether stdin is attached to a terminal (vs a pipe
+// or redirect), so interactive prompts are only offered where a user can type.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 func showInteractiveMenu(rootCmd *cobra.Command) error {
