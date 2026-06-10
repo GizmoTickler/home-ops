@@ -55,6 +55,11 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 		// Flatcar ignores TalosVersion; populate the legacy-talos default so a
 		// `--provider talos` bootstrap (preflight + ISO naming) still resolves.
 		TalosVersion: defaultTalosVersion,
+		// The flatcar-os SUC Plan pins the OS release (merge-gated updates);
+		// use it so rebuilt nodes come up on the SAME version as the cluster
+		// rather than whatever "current" stable is. Falls back to "current"
+		// if the plan is missing (e.g. pre-migration checkouts).
+		FlatcarVersion: loadFlatcarVersionFromPlan(rootDir),
 	}
 	applyFlatcarDefaults(config)
 
@@ -89,6 +94,31 @@ func loadKubernetesVersionFromPlan(rootDir string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("kubeadm plan %s does not contain a 'version:' field", planPath)
+}
+
+// loadFlatcarVersionFromPlan reads the flatcar-os SUC Plan and extracts
+// spec.version (a Flatcar Stable release like "4593.2.2"). Returns "" (so the
+// "current" default applies) when the plan is absent or malformed — the OS
+// version pin is best-effort for provisioning, unlike the Kubernetes version.
+func loadFlatcarVersionFromPlan(rootDir string) string {
+	planPath := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade",
+		"flatcar-upgrade", "app", "plan.yaml")
+	data, err := os.ReadFile(planPath)
+	if err != nil {
+		return ""
+	}
+	flatcarVersionRe := regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "version:") {
+			ver := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "version:")), "\"'")
+			if flatcarVersionRe.MatchString(ver) {
+				return ver
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 // isValidVersionFormat validates that the version string looks like a semantic version.

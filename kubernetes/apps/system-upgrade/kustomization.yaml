@@ -13,3 +13,4 @@ resources:
   - ./kured/ks.yaml
   - ./system-upgrade-controller/ks.yaml
   - ./kubeadm-upgrade/ks.yaml
+  - ./flatcar-upgrade/ks.yaml

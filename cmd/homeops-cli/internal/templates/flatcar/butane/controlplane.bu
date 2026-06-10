@@ -89,6 +89,19 @@ storage:
           UseMTU=false
           UseDomains=yes
 
+    # --- OS updates: merge-gated, NOT channel-driven. SERVER=disabled stops
+    # update_engine polling the public Nebraska server; the flatcar-os SUC Plan
+    # (kubernetes/apps/system-upgrade/flatcar-upgrade) stages the git-pinned release
+    # via flatcar-update, and Kured reboots. flatcar-update works fine with
+    # SERVER=disabled (it runs a temporary local Omaha mock). ---
+    - path: /etc/flatcar/update.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          GROUP=stable
+          SERVER=disabled
+
     # --- NTP: the 5 homelab NTP servers (port of Talos machine.time.servers) ---
     - path: /etc/systemd/timesyncd.conf
       mode: 0644
