@@ -116,8 +116,13 @@ type VMConfig struct {
 	OpenEBSSize    int    // OpenEBS disk GB (default: 800)
 	OpenEBSStorage string // Storage pool for OpenEBS (e.g., "nvmeof-vmdata")
 
-	// Disk Passthrough for Rook-Ceph SSDs (via /dev/disk/by-id/)
+	// Rook-Ceph OSD disk: either a physical SSD passthrough (CephDiskByID,
+	// via /dev/disk/by-id/) or a plain virtual disk (CephDiskSize GB on
+	// CephStorage). Passthrough wins when both are set.
+	CephMode     string // "", "passthrough", "virtual", or "none" (explicit selector)
 	CephDiskByID string // e.g., "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN"
+	CephDiskSize int    // virtual Ceph disk size in GB (used when CephDiskByID is empty)
+	CephStorage  string // storage pool for the virtual Ceph disk (default: BootStorage)
 
 	// Proxmox-specific configuration
 	Node       string // Proxmox node name (default: "pve")
@@ -171,7 +176,10 @@ type TalosNodeConfig struct {
 	VMID           int    // Proxmox VMID (200, 201, 202)
 	BootStorage    string // Storage pool for boot disk
 	OpenEBSStorage string // Storage pool for OpenEBS disk
+	CephMode       string // "", "passthrough", "virtual", or "none"
 	CephDiskByID   string // Disk passthrough by-id path for Ceph SSD
+	CephDiskGB     int    // virtual Ceph disk size GB (alternative to passthrough)
+	CephStorage    string // storage pool for the virtual Ceph disk
 	CPUAffinity    string // CPU core pinning
 	NUMANode       int    // NUMA node (0 or 1)
 	MacAddress     string // Static MAC address
@@ -220,7 +228,10 @@ type FlatcarNodeConfig struct {
 	NodeIP         string // primary node IP (advertiseAddress / node-ip)
 	BootStorage    string // Storage pool for boot disk
 	OpenEBSStorage string // Storage pool for OpenEBS disk
+	CephMode       string // "", "passthrough", "virtual", or "none"
 	CephDiskByID   string // Disk passthrough by-id path for Ceph SSD
+	CephDiskGB     int    // virtual Ceph disk size GB (alternative to passthrough)
+	CephStorage    string // storage pool for the virtual Ceph disk
 	CPUAffinity    string // CPU core pinning
 	NUMANode       int    // NUMA node (0 or 1)
 	MacAddress     string // Static MAC address
@@ -281,14 +292,15 @@ func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
 			nodeCfg.NodeIP = homeopsNode.IP
 		}
 		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
-			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode, homeopsNode.VM)
+			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode,
+			&nodeCfg.CephMode, &nodeCfg.CephDiskGB, &nodeCfg.CephStorage, homeopsNode.VM)
 	}
 	return nodeCfg, exists
 }
 
 // applyNodeVMProfile overlays a homeops.yaml per-node VM profile onto a
 // predefined node hardware config; unset profile fields keep the defaults.
-func applyNodeVMProfile(vmid *int, mac, bootStorage, openEBSStorage, cephDisk, cpuAffinity *string, numaNode *int, p homeopscfg.VMProfile) {
+func applyNodeVMProfile(vmid *int, mac, bootStorage, openEBSStorage, cephDisk, cpuAffinity *string, numaNode *int, cephMode *string, cephDiskGB *int, cephStorage *string, p homeopscfg.VMProfile) {
 	if p.VMID != 0 {
 		*vmid = p.VMID
 	}
@@ -301,14 +313,23 @@ func applyNodeVMProfile(vmid *int, mac, bootStorage, openEBSStorage, cephDisk, c
 	if p.OpenEBSStorage != "" {
 		*openEBSStorage = p.OpenEBSStorage
 	}
-	if p.CephDiskByID != "" {
-		*cephDisk = p.CephDiskByID
+	if p.Ceph.Mode != "" {
+		*cephMode = p.Ceph.Mode
+	}
+	if p.Ceph.DiskByID != "" {
+		*cephDisk = p.Ceph.DiskByID
 	}
 	if p.CPUAffinity != "" {
 		*cpuAffinity = p.CPUAffinity
 	}
 	if p.NUMANode != nil {
 		*numaNode = *p.NUMANode
+	}
+	if p.Ceph.SizeGB != 0 {
+		*cephDiskGB = p.Ceph.SizeGB
+	}
+	if p.Ceph.Storage != "" {
+		*cephStorage = p.Ceph.Storage
 	}
 }
 
@@ -343,6 +364,18 @@ func GetDefaultVMConfig() VMConfig {
 	}
 	if vm.VLANID != 0 {
 		cfg.VLANID = vm.VLANID
+	}
+	if vm.Ceph.Mode != "" {
+		cfg.CephMode = vm.Ceph.Mode
+	}
+	if vm.Ceph.DiskByID != "" {
+		cfg.CephDiskByID = vm.Ceph.DiskByID
+	}
+	if vm.Ceph.SizeGB != 0 {
+		cfg.CephDiskSize = vm.Ceph.SizeGB
+	}
+	if vm.Ceph.Storage != "" {
+		cfg.CephStorage = vm.Ceph.Storage
 	}
 	return cfg
 }
@@ -417,7 +450,8 @@ func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
 			exists = true
 		}
 		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
-			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode, homeopsNode.VM)
+			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode,
+			&nodeCfg.CephMode, &nodeCfg.CephDiskGB, &nodeCfg.CephStorage, homeopsNode.VM)
 	}
 	return nodeCfg, exists
 }
@@ -627,10 +661,26 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 		options = append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
 	}
 
-	// Ceph SSD disk passthrough (scsi2)
-	if config.CephDiskByID != "" {
-		cephDiskPath := fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
-		cephDiskOpts := cephDiskPath
+	// Rook-Ceph OSD disk (scsi2). CephMode selects explicitly: "passthrough"
+	// (physical disk via /dev/disk/by-id), "virtual" (plain virtual disk —
+	// no dedicated SSD needed), "none" (no Ceph disk, even if a built-in
+	// node profile sets one). Empty mode keeps the legacy inference:
+	// passthrough when a disk id is set, else virtual when a size is set.
+	usePassthrough := config.CephMode == "passthrough" ||
+		(config.CephMode == "" && config.CephDiskByID != "")
+	useVirtual := config.CephMode == "virtual" ||
+		(config.CephMode == "" && config.CephDiskByID == "" && config.CephDiskSize > 0)
+	if usePassthrough || useVirtual {
+		var cephDiskOpts string
+		if usePassthrough {
+			cephDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
+		} else {
+			cephStorage := config.CephStorage
+			if cephStorage == "" {
+				cephStorage = config.BootStorage
+			}
+			cephDiskOpts = fmt.Sprintf("%s:%d", cephStorage, config.CephDiskSize)
+		}
 		if config.Discard {
 			cephDiskOpts += ",discard=on"
 		}
@@ -752,10 +802,26 @@ func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMac
 		options = append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
 	}
 
-	// Ceph SSD disk passthrough (scsi2)
-	if config.CephDiskByID != "" {
-		cephDiskPath := fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
-		cephDiskOpts := cephDiskPath
+	// Rook-Ceph OSD disk (scsi2). CephMode selects explicitly: "passthrough"
+	// (physical disk via /dev/disk/by-id), "virtual" (plain virtual disk —
+	// no dedicated SSD needed), "none" (no Ceph disk, even if a built-in
+	// node profile sets one). Empty mode keeps the legacy inference:
+	// passthrough when a disk id is set, else virtual when a size is set.
+	usePassthrough := config.CephMode == "passthrough" ||
+		(config.CephMode == "" && config.CephDiskByID != "")
+	useVirtual := config.CephMode == "virtual" ||
+		(config.CephMode == "" && config.CephDiskByID == "" && config.CephDiskSize > 0)
+	if usePassthrough || useVirtual {
+		var cephDiskOpts string
+		if usePassthrough {
+			cephDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
+		} else {
+			cephStorage := config.CephStorage
+			if cephStorage == "" {
+				cephStorage = config.BootStorage
+			}
+			cephDiskOpts = fmt.Sprintf("%s:%d", cephStorage, config.CephDiskSize)
+		}
 		if config.Discard {
 			cephDiskOpts += ",discard=on"
 		}

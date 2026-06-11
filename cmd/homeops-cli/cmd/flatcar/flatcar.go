@@ -205,7 +205,16 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.Name = node.name
 	vmConfig.BootStorage = nodeConfig.BootStorage
 	vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+	if nodeConfig.CephMode != "" {
+		vmConfig.CephMode = nodeConfig.CephMode
+	}
 	vmConfig.CephDiskByID = nodeConfig.CephDiskByID
+	if nodeConfig.CephDiskGB != 0 {
+		vmConfig.CephDiskSize = nodeConfig.CephDiskGB
+	}
+	if nodeConfig.CephStorage != "" {
+		vmConfig.CephStorage = nodeConfig.CephStorage
+	}
 	vmConfig.CPUAffinity = nodeConfig.CPUAffinity
 	vmConfig.NUMANode = nodeConfig.NUMANode
 	vmConfig.MacAddress = nodeConfig.MacAddress

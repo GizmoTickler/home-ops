@@ -158,7 +158,11 @@ cluster:
       #  mac: "00:a0:98:00:00:01"
       #  boot_storage: nvme-mirror
       #  openebs_storage: nvmeof-vmdata
-      #  ceph_disk_by_id: ata-INTEL_SSD...
+      #  ceph:                               # Rook-Ceph OSD disk for this node
+      #    mode: passthrough                 # passthrough | virtual | none
+      #    disk_by_id: ata-INTEL_SSD...      # passthrough: physical disk id
+      #    #size_gb: 500                     # virtual: disk size
+      #    #storage: my-pool                 # virtual: pool/datastore
       #  cpu_affinity: "0-7,32-39"
       #  numa_node: 0
     - name: k8s-1
@@ -178,6 +182,10 @@ hypervisors:
     #  openebs_disk_gb: 800
     #  boot_storage: nvme1
     #  openebs_storage: nvmeof-vmdata
+    #  ceph:                      # default Rook-Ceph OSD disk for every node
+    #    mode: virtual            # passthrough | virtual | none
+    #    size_gb: 500             # virtual: disk size
+    #    storage: my-pool         # virtual: pool/datastore (defaults to boot storage)
     #  network_bridge: vmbr0
     #  network_mtu: 9000
     #  vlan_id: 999

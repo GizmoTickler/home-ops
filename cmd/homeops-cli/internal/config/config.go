@@ -38,9 +38,26 @@ type VMProfile struct {
 	Mac            string `yaml:"mac,omitempty"`             // static MAC address
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
-	CephDiskByID   string `yaml:"ceph_disk_by_id,omitempty"` // /dev/disk/by-id passthrough for Rook-Ceph
 	CPUAffinity    string `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
 	NUMANode       *int   `yaml:"numa_node,omitempty"`       // host NUMA node
+	// Ceph configures this node's Rook-Ceph OSD disk (overrides the provider
+	// default and any built-in node profile).
+	Ceph CephDisk `yaml:"ceph,omitempty"`
+}
+
+// CephDisk describes how a node gets its Rook-Ceph OSD disk.
+type CephDisk struct {
+	// Mode: "passthrough" (a physical disk via /dev/disk/by-id), "virtual"
+	// (a plain virtual disk — no dedicated SSD needed), or "none" (no Ceph
+	// disk, e.g. when not running Rook). Empty keeps the built-in default.
+	Mode string `yaml:"mode,omitempty"`
+	// DiskByID is the /dev/disk/by-id identifier (passthrough mode).
+	DiskByID string `yaml:"disk_by_id,omitempty"`
+	// SizeGB is the virtual disk size (virtual mode).
+	SizeGB int `yaml:"size_gb,omitempty"`
+	// Storage is the pool/datastore for the virtual disk (virtual mode);
+	// defaults to the boot disk's storage when empty.
+	Storage string `yaml:"storage,omitempty"`
 }
 
 // VMDefaults customizes the per-provider defaults for VM composition: sizing,
@@ -53,9 +70,12 @@ type VMDefaults struct {
 	OpenEBSDiskGB  int    `yaml:"openebs_disk_gb,omitempty"`
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // default pool/datastore for boot disks
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
-	NetworkBridge  string `yaml:"network_bridge,omitempty"`
-	NetworkMTU     int    `yaml:"network_mtu,omitempty"`
-	VLANID         int    `yaml:"vlan_id,omitempty"`
+	// Ceph sets the default Rook-Ceph OSD disk for every node (per-node
+	// cluster.nodes[].vm.ceph overrides this).
+	Ceph          CephDisk `yaml:"ceph,omitempty"`
+	NetworkBridge string   `yaml:"network_bridge,omitempty"`
+	NetworkMTU    int      `yaml:"network_mtu,omitempty"`
+	VLANID        int      `yaml:"vlan_id,omitempty"`
 }
 
 // Node is one control-plane node of the cluster.
@@ -332,6 +352,25 @@ func validate(c *Config) error {
 		case "", "op", "file":
 		default:
 			problems = append(problems, fmt.Sprintf("%s.backend: %q is not supported (use \"op\" or \"file\")", store.name, store.cfg.Backend))
+		}
+	}
+	cephModes := []struct {
+		name string
+		mode string
+	}{{"hypervisors.proxmox.vm.ceph", c.Hypervisors.Proxmox.VM.Ceph.Mode},
+		{"hypervisors.truenas.vm.ceph", c.Hypervisors.TrueNAS.VM.Ceph.Mode},
+		{"hypervisors.vsphere.vm.ceph", c.Hypervisors.VSphere.VM.Ceph.Mode}}
+	for _, n := range c.Cluster.Nodes {
+		cephModes = append(cephModes, struct {
+			name string
+			mode string
+		}{fmt.Sprintf("cluster.nodes[%s].vm.ceph", n.Name), n.VM.Ceph.Mode})
+	}
+	for _, cm := range cephModes {
+		switch cm.mode {
+		case "", "passthrough", "virtual", "none":
+		default:
+			problems = append(problems, fmt.Sprintf("%s.mode: %q is not supported (use passthrough, virtual, or none)", cm.name, cm.mode))
 		}
 	}
 	switch strings.ToLower(c.Hypervisors.Default) {

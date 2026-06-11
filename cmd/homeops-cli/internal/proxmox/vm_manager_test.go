@@ -316,3 +316,69 @@ func TestVMManagerDeleteVMFailsIfStillPresentAfterRetry(t *testing.T) {
 	assert.Equal(t, 1, vmObj.deleteCalls)
 	assert.Equal(t, 1, deleteTask.waits)
 }
+
+func TestBuildVMOptionsVirtualCephDisk(t *testing.T) {
+	manager := &VMManager{}
+
+	// Virtual Ceph disk on a dedicated pool when no passthrough disk is set.
+	options := manager.buildVMOptions(VMConfig{
+		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
+		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
+		CephDiskSize: 500, CephStorage: "local-zfs",
+		Discard: true, IOThread: true,
+	})
+	optionMap := map[string]interface{}{}
+	for _, opt := range options {
+		optionMap[opt.Name] = opt.Value
+	}
+	assert.Equal(t, "local-zfs:500,discard=on,iothread=1", optionMap["scsi2"])
+
+	// CephStorage falls back to BootStorage.
+	options = manager.buildVMOptions(VMConfig{
+		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
+		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
+		CephDiskSize: 250,
+	})
+	optionMap = map[string]interface{}{}
+	for _, opt := range options {
+		optionMap[opt.Name] = opt.Value
+	}
+	assert.Equal(t, "local:250", optionMap["scsi2"])
+
+	// Physical passthrough wins over the virtual disk when both are set.
+	options = manager.buildVMOptions(VMConfig{
+		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
+		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
+		CephDiskByID: "ata-DISK", CephDiskSize: 500,
+	})
+	optionMap = map[string]interface{}{}
+	for _, opt := range options {
+		optionMap[opt.Name] = opt.Value
+	}
+	assert.Equal(t, "/dev/disk/by-id/ata-DISK", optionMap["scsi2"])
+
+	// mode=virtual forces the virtual disk even when a passthrough id exists.
+	options = manager.buildVMOptions(VMConfig{
+		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
+		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
+		CephMode: "virtual", CephDiskByID: "ata-DISK", CephDiskSize: 500, CephStorage: "tank",
+	})
+	optionMap = map[string]interface{}{}
+	for _, opt := range options {
+		optionMap[opt.Name] = opt.Value
+	}
+	assert.Equal(t, "tank:500", optionMap["scsi2"])
+
+	// mode=none suppresses the Ceph disk entirely (even with built-in defaults).
+	options = manager.buildVMOptions(VMConfig{
+		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
+		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
+		CephMode: "none", CephDiskByID: "ata-DISK", CephDiskSize: 500,
+	})
+	optionMap = map[string]interface{}{}
+	for _, opt := range options {
+		optionMap[opt.Name] = opt.Value
+	}
+	_, hasCeph := optionMap["scsi2"]
+	assert.False(t, hasCeph)
+}
