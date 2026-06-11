@@ -2089,12 +2089,14 @@ func TestRemainingTalosHelpers(t *testing.T) {
 		newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
 			return manager, nil
 		}
-		proxmoxDefaultVMConfig = proxmox.VMConfig{
-			Memory:       4096,
-			Cores:        2,
-			BootDiskSize: 50,
-			OpenEBSSize:  100,
-			BootStorage:  "local-zfs",
+		proxmoxDefaultVMConfig = func() proxmox.VMConfig {
+			return proxmox.VMConfig{
+				Memory:       4096,
+				Cores:        2,
+				BootDiskSize: 50,
+				OpenEBSSize:  100,
+				BootStorage:  "local-zfs",
+			}
 		}
 		proxmoxGetTalosNodeConfigFn = func(name string) (proxmox.TalosNodeConfig, bool) {
 			if name == "k8s-0" {

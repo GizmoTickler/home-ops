@@ -72,7 +72,7 @@ var (
 	renderKubeadmJoinFn     = flatcar.RenderKubeadmJoinConfig
 	getFlatcarNodeConfigFn  = proxmox.GetFlatcarNodeConfig
 	getProxmoxCredentialsFn = proxmox.GetCredentials
-	proxmoxDefaultVMConfig  = proxmox.DefaultVMConfig
+	proxmoxDefaultVMConfig  = proxmox.GetDefaultVMConfig
 	newProxmoxVMManagerFn   = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
 		return proxmox.NewVMManager(host, tokenID, secret, nodeName, insecure)
 	}
@@ -201,7 +201,7 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 		return fmt.Errorf("unknown flatcar node %q (known: %s)", node.name, strings.Join(nodeNames(), ", "))
 	}
 
-	vmConfig := proxmoxDefaultVMConfig
+	vmConfig := proxmoxDefaultVMConfig()
 	vmConfig.Name = node.name
 	vmConfig.BootStorage = nodeConfig.BootStorage
 	vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage

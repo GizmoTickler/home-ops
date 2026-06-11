@@ -24,16 +24,13 @@ func (l *stubLogger) Info(msg string, args ...interface{}) {
 }
 
 func TestUIHelpers(t *testing.T) {
-	t.Setenv("PATH", t.TempDir())
 	t.Setenv(constants.EnvHomeOpsNoInteract, "1")
 
-	assert.False(t, isGumAvailable())
 	assert.True(t, isInteractiveDisabled())
+	assert.False(t, isInteractive())
 	assert.True(t, IsCancellation(errors.New("cancelled by user")))
 	assert.False(t, IsCancellation(nil))
 	assert.Equal(t, "plain", Style("plain", StyleOptions{Bold: true}))
-	assert.Contains(t, InstallInstructions(), "brew install gum")
-	require.NoError(t, CheckGumInstallation())
 }
 
 func TestRunWithSpinner(t *testing.T) {

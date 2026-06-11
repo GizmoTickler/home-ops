@@ -1,6 +1,10 @@
 package vsphere
 
-import "fmt"
+import (
+	"fmt"
+
+	homeopscfg "homeops-cli/internal/config"
+)
 
 const (
 	DefaultISODatastore = "datastore1"
@@ -142,8 +146,37 @@ func GetK8sNodeConfig(name string) (K8sNodeConfig, bool) {
 	return config, exists
 }
 
-// GetDefaultVMConfig returns a VM configuration with default Talos specs
+// GetDefaultVMConfig returns a VM configuration with default Talos specs,
+// with hypervisors.vsphere.vm overrides from homeops.yaml applied (sizing,
+// datastores, network).
 func GetDefaultVMConfig(name string) VMConfig {
+	cfg := defaultVMConfig(name)
+	vm := homeopscfg.Get().Hypervisors.VSphere.VM
+	if vm.MemoryMB != 0 {
+		cfg.Memory = vm.MemoryMB
+	}
+	if vm.Cores != 0 {
+		cfg.VCPUs = vm.Cores
+	}
+	if vm.BootDiskGB != 0 {
+		cfg.DiskSize = vm.BootDiskGB
+	}
+	if vm.OpenEBSDiskGB != 0 {
+		cfg.OpenEBSSize = vm.OpenEBSDiskGB
+	}
+	if vm.BootStorage != "" {
+		cfg.BootDatastore = vm.BootStorage
+	}
+	if vm.OpenEBSStorage != "" {
+		cfg.OpenEBSDatastore = vm.OpenEBSStorage
+	}
+	if vm.NetworkBridge != "" {
+		cfg.Network = vm.NetworkBridge
+	}
+	return cfg
+}
+
+func defaultVMConfig(name string) VMConfig {
 	return VMConfig{
 		Name:                 name,
 		Memory:               64 * 1024, // 64GB (matches actual VMs)
@@ -179,6 +212,22 @@ func GetK8sVMConfig(name string) VMConfig {
 		config.MacAddress = nodeConfig.MacAddress
 		config.CPUAffinity = nodeConfig.CPUAffinity
 		config.BootDatastore = nodeConfig.BootDatastore
+	}
+
+	// Per-node VM profile from homeops.yaml wins over the predefined map.
+	if node, found := homeopscfg.Get().NodeByName(name); found {
+		if node.VM.Mac != "" {
+			config.MacAddress = node.VM.Mac
+		}
+		if node.VM.BootStorage != "" {
+			config.BootDatastore = node.VM.BootStorage
+		}
+		if node.VM.OpenEBSStorage != "" {
+			config.OpenEBSDatastore = node.VM.OpenEBSStorage
+		}
+		if node.VM.CPUAffinity != "" {
+			config.CPUAffinity = node.VM.CPUAffinity
+		}
 	}
 
 	// Set ISO path

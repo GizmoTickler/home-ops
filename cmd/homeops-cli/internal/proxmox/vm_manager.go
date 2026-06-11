@@ -280,8 +280,71 @@ func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
 		if homeopsNode.IP != "" {
 			nodeCfg.NodeIP = homeopsNode.IP
 		}
+		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
+			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode, homeopsNode.VM)
 	}
 	return nodeCfg, exists
+}
+
+// applyNodeVMProfile overlays a homeops.yaml per-node VM profile onto a
+// predefined node hardware config; unset profile fields keep the defaults.
+func applyNodeVMProfile(vmid *int, mac, bootStorage, openEBSStorage, cephDisk, cpuAffinity *string, numaNode *int, p homeopscfg.VMProfile) {
+	if p.VMID != 0 {
+		*vmid = p.VMID
+	}
+	if p.Mac != "" {
+		*mac = p.Mac
+	}
+	if p.BootStorage != "" {
+		*bootStorage = p.BootStorage
+	}
+	if p.OpenEBSStorage != "" {
+		*openEBSStorage = p.OpenEBSStorage
+	}
+	if p.CephDiskByID != "" {
+		*cephDisk = p.CephDiskByID
+	}
+	if p.CPUAffinity != "" {
+		*cpuAffinity = p.CPUAffinity
+	}
+	if p.NUMANode != nil {
+		*numaNode = *p.NUMANode
+	}
+}
+
+// GetDefaultVMConfig returns DefaultVMConfig with the hypervisors.proxmox.vm
+// overrides from homeops.yaml applied (sizing, disk backends, network).
+func GetDefaultVMConfig() VMConfig {
+	cfg := DefaultVMConfig
+	vm := homeopscfg.Get().Hypervisors.Proxmox.VM
+	if vm.MemoryMB != 0 {
+		cfg.Memory = vm.MemoryMB
+	}
+	if vm.Cores != 0 {
+		cfg.Cores = vm.Cores
+	}
+	if vm.BootDiskGB != 0 {
+		cfg.BootDiskSize = vm.BootDiskGB
+	}
+	if vm.OpenEBSDiskGB != 0 {
+		cfg.OpenEBSSize = vm.OpenEBSDiskGB
+	}
+	if vm.BootStorage != "" {
+		cfg.BootStorage = vm.BootStorage
+	}
+	if vm.OpenEBSStorage != "" {
+		cfg.OpenEBSStorage = vm.OpenEBSStorage
+	}
+	if vm.NetworkBridge != "" {
+		cfg.NetworkBridge = vm.NetworkBridge
+	}
+	if vm.NetworkMTU != 0 {
+		cfg.NetworkMTU = vm.NetworkMTU
+	}
+	if vm.VLANID != 0 {
+		cfg.VLANID = vm.VLANID
+	}
+	return cfg
 }
 
 // DefaultVMConfig provides default VM settings matching actual deployment
@@ -343,10 +406,20 @@ func normalizeStorageConfig(config VMConfig) (VMConfig, error) {
 	return config, nil
 }
 
-// GetTalosNodeConfig retrieves predefined config for a Talos node
+// GetTalosNodeConfig retrieves the config for a Talos node, with the
+// homeops.yaml per-node VM profile overlaid (same semantics as the Flatcar
+// accessor).
 func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
-	config, exists := TalosNodeConfigs[name]
-	return config, exists
+	nodeCfg, exists := TalosNodeConfigs[name]
+	if homeopsNode, found := homeopscfg.Get().NodeByName(name); found {
+		if !exists {
+			nodeCfg = TalosNodeConfig{Name: name}
+			exists = true
+		}
+		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
+			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode, homeopsNode.VM)
+	}
+	return nodeCfg, exists
 }
 
 // VMManager handles high-level VM operations on Proxmox

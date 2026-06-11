@@ -152,6 +152,15 @@ cluster:
   nodes:
     - name: k8s-0
       ip: 192.168.122.10
+      # Optional per-node VM hardware profile (unset fields keep defaults):
+      #vm:
+      #  vmid: 200
+      #  mac: "00:a0:98:00:00:01"
+      #  boot_storage: nvme-mirror
+      #  openebs_storage: nvmeof-vmdata
+      #  ceph_disk_by_id: ata-INTEL_SSD...
+      #  cpu_affinity: "0-7,32-39"
+      #  numa_node: 0
     - name: k8s-1
       ip: 192.168.122.11
     - name: k8s-2
@@ -161,10 +170,27 @@ hypervisors:
   default: proxmox          # proxmox | truenas | vsphere
   proxmox:
     snippets_dir: /var/lib/vz/snippets
+    # Default VM composition for new VMs (unset fields keep built-in defaults):
+    #vm:
+    #  memory_mb: 98304
+    #  cores: 16
+    #  boot_disk_gb: 100
+    #  openebs_disk_gb: 800
+    #  boot_storage: nvme1
+    #  openebs_storage: nvmeof-vmdata
+    #  network_bridge: vmbr0
+    #  network_mtu: 9000
+    #  vlan_id: 999
   truenas:
     iso_dir: /mnt/tank/ISO
     iso_file: metal-amd64.iso
     #spice_host: 0.0.0.0
+    #vm:
+    #  boot_storage: tank/VM    # zvol parent dataset
+  #vsphere:
+  #  vm:
+  #    boot_storage: local-nvme1     # boot datastore
+  #    openebs_storage: truenas-iscsi
 
 # Where cluster state that must survive rebuilds lives: the admin kubeconfig
 # and the kubeadm PKI. backend: file (local, 0600) or op (a 1Password item).

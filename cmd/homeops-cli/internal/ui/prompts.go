@@ -1,25 +1,40 @@
+// Package ui provides the interactive layer of homeops-cli: prompts, fuzzy
+// selection, spinners, and styled output. It is built natively on
+// charmbracelet huh/bubbletea/lipgloss — no external binary (gum) is needed.
+// Every primitive degrades to plain line-mode I/O when stdin/stdout is not a
+// terminal or HOMEOPS_NO_INTERACTIVE=1 is set, so scripts and CI behave.
 package ui
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-isatty"
+
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/constants"
-	"os"
-	"os/exec"
-	"strings"
-	"syscall"
-	"time"
 )
 
-// isGumAvailable checks if the gum binary is installed and available in PATH
-func isGumAvailable() bool {
-	_, err := common.LookPath("gum")
-	return err == nil
-}
-
-// isInteractiveDisabled checks if interactive mode is explicitly disabled via environment variable
+// isInteractiveDisabled checks if interactive mode is explicitly disabled via
+// environment variable.
 func isInteractiveDisabled() bool {
 	return os.Getenv(constants.EnvHomeOpsNoInteract) == "1"
+}
+
+// isInteractive reports whether rich TUI prompts can run: a real terminal on
+// both ends and interactivity not explicitly disabled.
+func isInteractive() bool {
+	if isInteractiveDisabled() {
+		return false
+	}
+	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
 }
 
 // assumeYes, when enabled via the global --yes flag, makes Confirm answer every
@@ -37,8 +52,24 @@ func IsCancellation(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "cancelled by user") ||
+	return errors.Is(err, huh.ErrUserAborted) ||
+		strings.Contains(err.Error(), "cancelled by user") ||
 		strings.Contains(err.Error(), "cancelled")
+}
+
+var errCancelled = fmt.Errorf("cancelled by user")
+
+// runField runs a single huh field as a form with the shared theme, mapping
+// user aborts to the package's cancellation error.
+func runField(field huh.Field) error {
+	form := huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeCharm())
+	if err := form.Run(); err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			return errCancelled
+		}
+		return err
+	}
+	return nil
 }
 
 // StyleOptions defines styling options for text
@@ -50,46 +81,24 @@ type StyleOptions struct {
 	Border     string
 }
 
-// Confirm presents a yes/no confirmation prompt using gum
-// Returns true if the user confirms, false otherwise
-// Gracefully falls back to basic fmt.Scanln if gum is unavailable
+// Confirm presents a yes/no confirmation prompt. Falls back to basic
+// fmt.Scanln input when not running on an interactive terminal.
 func Confirm(message string, defaultYes bool) (bool, error) {
 	if assumeYes {
 		// Leave an audit trail of what was auto-confirmed.
 		fmt.Fprintf(os.Stderr, "%s yes (--yes)\n", message)
 		return true, nil
 	}
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return confirmBasic(message, defaultYes)
 	}
 
-	args := []string{"confirm", message}
-
-	// Set default option
-	if defaultYes {
-		args = append(args, "--default")
-	}
-
-	cmd := common.Command("gum", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err := cmd.Run()
-	if err != nil {
-		// Exit code 0 = yes, 1 = no, 130 = cancelled
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode := exitErr.ExitCode()
-			if exitCode == 1 {
-				return false, nil
-			}
-			if exitCode == 130 {
-				return false, fmt.Errorf("cancelled by user")
-			}
-		}
+	confirmed := defaultYes
+	field := huh.NewConfirm().Title(message).Affirmative("Yes").Negative("No").Value(&confirmed)
+	if err := runField(field); err != nil {
 		return false, err
 	}
-	return true, nil
+	return confirmed, nil
 }
 
 // confirmBasic is a fallback confirmation prompt using basic input
@@ -118,29 +127,19 @@ func confirmBasic(message string, defaultYes bool) (bool, error) {
 	return response == "y" || response == "yes", nil
 }
 
-// Choose presents a list of options for the user to select one
-// Returns the selected option as a string
+// Choose presents a list of options for the user to select one.
+// Returns the selected option as a string.
 func Choose(prompt string, options []string) (string, error) {
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return chooseBasic(prompt, options)
 	}
 
-	args := []string{"choose", "--header", prompt}
-	args = append(args, options...)
-
-	cmd := common.Command("gum", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-			return "", fmt.Errorf("cancelled by user")
-		}
+	var selected string
+	field := huh.NewSelect[string]().Title(prompt).Options(huh.NewOptions(options...)...).Value(&selected)
+	if err := runField(field); err != nil {
 		return "", err
 	}
-
-	return strings.TrimSpace(string(output)), nil
+	return selected, nil
 }
 
 // chooseBasic is a fallback chooser using numbered list
@@ -164,38 +163,25 @@ func chooseBasic(prompt string, options []string) (string, error) {
 	return options[choice-1], nil
 }
 
-// ChooseMulti presents a list of options for the user to select multiple
-// Returns the selected options as a string slice
+// ChooseMulti presents a list of options for the user to select multiple.
+// Returns the selected options as a string slice.
 func ChooseMulti(prompt string, options []string, limit int) ([]string, error) {
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return chooseMultiBasic(prompt, options)
 	}
 
-	args := []string{"choose", "--header", prompt}
+	var selected []string
+	field := huh.NewMultiSelect[string]().Title(prompt).Options(huh.NewOptions(options...)...).Value(&selected)
 	if limit > 0 {
-		args = append(args, "--limit", fmt.Sprintf("%d", limit))
-	} else {
-		args = append(args, "--no-limit")
+		field = field.Limit(limit)
 	}
-	args = append(args, options...)
-
-	cmd := common.Command("gum", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-			return nil, fmt.Errorf("cancelled by user")
-		}
+	if err := runField(field); err != nil {
 		return nil, err
 	}
-
-	result := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(result) == 1 && result[0] == "" {
-		return []string{}, nil
+	if selected == nil {
+		selected = []string{}
 	}
-	return result, nil
+	return selected, nil
 }
 
 // chooseMultiBasic is a fallback multi-choice using comma-separated input
@@ -227,55 +213,34 @@ func chooseMultiBasic(prompt string, options []string) ([]string, error) {
 	return result, nil
 }
 
-// Filter provides fuzzy filtering for a list of options
-// Returns the selected option as a string
+// Filter provides fuzzy filtering for a list of options (type to filter).
+// Returns the selected option as a string.
 func Filter(prompt string, options []string) (string, error) {
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return chooseBasic(prompt, options)
 	}
 
-	args := []string{"filter", "--placeholder", prompt}
-
-	cmd := common.Command("gum", args...)
-	cmd.Stdin = strings.NewReader(strings.Join(options, "\n"))
-	cmd.Stderr = os.Stderr
-
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-			return "", fmt.Errorf("cancelled by user")
-		}
+	var selected string
+	field := huh.NewSelect[string]().Title(prompt).Options(huh.NewOptions(options...)...).Filtering(true).Value(&selected)
+	if err := runField(field); err != nil {
 		return "", err
 	}
-
-	return strings.TrimSpace(string(output)), nil
+	return selected, nil
 }
 
-// Input prompts for a single-line text input
-// Returns the entered text as a string
+// Input prompts for a single-line text input.
+// Returns the entered text as a string.
 func Input(prompt, placeholder string) (string, error) {
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return inputBasic(prompt)
 	}
 
-	args := []string{"input", "--prompt", prompt + " "}
-	if placeholder != "" {
-		args = append(args, "--placeholder", placeholder)
-	}
-
-	cmd := common.Command("gum", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = os.Stderr
-
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 130 {
-			return "", fmt.Errorf("cancelled by user")
-		}
+	var value string
+	field := huh.NewInput().Title(prompt).Placeholder(placeholder).Value(&value)
+	if err := runField(field); err != nil {
 		return "", err
 	}
-
-	return strings.TrimSpace(string(output)), nil
+	return strings.TrimSpace(value), nil
 }
 
 // inputBasic is a fallback input using basic fmt
@@ -286,8 +251,64 @@ func inputBasic(prompt string) (string, error) {
 	return input, err
 }
 
-// Spin displays a spinner while executing a command
-// The spinner automatically stops when the command completes
+// ---------------------------------------------------------------------------
+// Spinner (bubbletea)
+
+// spinnerModel renders "<spinner> title (elapsed)" until it receives a
+// spinnerDoneMsg. The work runs in a goroutine owned by SpinWithFunc; Ctrl+C
+// detaches the UI but the work keeps running to completion.
+type spinnerModel struct {
+	spin  spinner.Model
+	title string
+	start time.Time
+}
+
+type spinnerDoneMsg struct{}
+
+type spinnerTickMsg time.Time
+
+func newSpinnerModel(title string) spinnerModel {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	return spinnerModel{spin: s, title: title, start: time.Now()}
+}
+
+func (m spinnerModel) Init() tea.Cmd {
+	return tea.Batch(m.spin.Tick, spinnerTick())
+}
+
+func spinnerTick() tea.Cmd {
+	return tea.Tick(time.Second, func(t time.Time) tea.Msg { return spinnerTickMsg(t) })
+}
+
+func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case spinnerDoneMsg:
+		return m, tea.Quit
+	case spinnerTickMsg:
+		return m, spinnerTick()
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC {
+			return m, tea.Quit
+		}
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.spin, cmd = m.spin.Update(msg)
+		return m, cmd
+	}
+}
+
+var spinnerElapsedStyle = lipgloss.NewStyle().Faint(true)
+
+func (m spinnerModel) View() string {
+	elapsed := time.Since(m.start).Round(time.Second)
+	return fmt.Sprintf("%s%s %s", m.spin.View(), m.title, spinnerElapsedStyle.Render(fmt.Sprintf("(%s)", elapsed)))
+}
+
+// Spin displays a spinner while executing a command.
+// The spinner automatically stops when the command completes.
 func Spin(title, command string, args ...string) error {
 	return SpinWithFunc(title, func() error {
 		cmd := common.Command(command, args...)
@@ -298,8 +319,8 @@ func Spin(title, command string, args ...string) error {
 	})
 }
 
-// SpinWithOutput displays a spinner and captures command output
-// Returns the output and any error
+// SpinWithOutput displays a spinner and captures command output.
+// Returns the output and any error.
 func SpinWithOutput(title, command string, args ...string) (string, error) {
 	var output []byte
 	err := SpinWithFunc(title, func() error {
@@ -311,197 +332,79 @@ func SpinWithOutput(title, command string, args ...string) (string, error) {
 	return string(output), err
 }
 
-// SpinWithFunc runs a Go function with a spinner
+// SpinWithFunc runs a Go function under a live spinner (with elapsed time).
+// Off-terminal it simply runs the function. The function's error is always
+// returned; UI failures never mask it.
 func SpinWithFunc(title string, fn func() error) error {
-	if !isGumAvailable() || isInteractiveDisabled() {
-		// Fallback: just run the function without spinner
+	if !isInteractive() {
 		return fn()
 	}
 
-	spinCmd, tty, scriptPath, err := startGumSpinner(title)
-	if err != nil {
-		// If spinner fails to start, just run the function
-		return fn()
-	}
+	// The spinner renders on stderr so any stdout the work produces stays
+	// machine-readable.
+	prog := tea.NewProgram(newSpinnerModel(title), tea.WithOutput(os.Stderr))
 
-	defer func() {
-		stopGumSpinner(spinCmd, tty, scriptPath)
-		if r := recover(); r != nil {
-			panic(r)
-		}
-	}()
-
-	return fn()
-}
-
-func startGumSpinner(title string) (*exec.Cmd, *os.File, string, error) {
-	tmpFile, err := os.CreateTemp("", "spinner-*.sh")
-	if err != nil {
-		return nil, nil, "", err
-	}
-
-	tmpScript := `#!/bin/sh
-while true; do
-    sleep 1
-done
-`
-	if _, err := tmpFile.WriteString(tmpScript); err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(tmpFile.Name())
-		return nil, nil, "", err
-	}
-
-	scriptPath := tmpFile.Name()
-	_ = tmpFile.Close()
-	// Owner-only: nothing else needs to read or execute the spinner script.
-	if err := os.Chmod(scriptPath, 0o700); err != nil {
-		_ = os.Remove(scriptPath)
-		return nil, nil, "", err
-	}
-
-	spinCmd := common.Command("gum", "spin", "--spinner", "dot", "--title", title, "--", scriptPath)
-
-	tty, ttyErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if ttyErr == nil {
-		spinCmd.Stdin = tty
-		spinCmd.Stdout = tty
-		spinCmd.Stderr = tty
-	} else {
-		spinCmd.Stdin = os.Stdin
-		spinCmd.Stdout = os.Stderr
-		spinCmd.Stderr = os.Stderr
-	}
-
-	if err := spinCmd.Start(); err != nil {
-		if tty != nil {
-			_ = tty.Close()
-		}
-		_ = os.Remove(scriptPath)
-		return nil, nil, "", err
-	}
-
-	return spinCmd, tty, scriptPath, nil
-}
-
-func stopGumSpinner(spinCmd *exec.Cmd, tty *os.File, scriptPath string) {
-	defer func() {
-		if tty != nil {
-			_ = tty.Close()
-		}
-		if scriptPath != "" {
-			_ = os.Remove(scriptPath)
-		}
-	}()
-
-	if spinCmd == nil || spinCmd.Process == nil {
-		return
-	}
-
-	_ = spinCmd.Process.Signal(os.Interrupt)
-
-	waitDone := make(chan struct{})
+	errCh := make(chan error, 1)
 	go func() {
-		_ = spinCmd.Wait()
-		close(waitDone)
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("panic in spinner task: %v", r)
+			}
+			prog.Send(spinnerDoneMsg{})
+		}()
+		errCh <- fn()
 	}()
 
-	select {
-	case <-waitDone:
-	case <-time.After(150 * time.Millisecond):
-		_ = spinCmd.Process.Signal(syscall.SIGTERM)
+	if _, uiErr := prog.Run(); uiErr != nil {
+		// UI failed to start/run — the work is still going; wait for it.
+		return <-errCh
 	}
-
-	select {
-	case <-waitDone:
-	case <-time.After(150 * time.Millisecond):
-		_ = spinCmd.Process.Kill()
-		<-waitDone
-	}
-
-	resetTerminal(tty)
+	return <-errCh
 }
 
-// Style applies styling to text using gum
+// ---------------------------------------------------------------------------
+// Styling (lipgloss)
+
+// Style renders text with the requested styling. Off-terminal it returns the
+// text unchanged.
 func Style(text string, opts StyleOptions) string {
-	if !isGumAvailable() || isInteractiveDisabled() {
+	if !isInteractive() {
 		return text
 	}
 
-	args := []string{"style"}
-
+	style := lipgloss.NewStyle()
 	if opts.Foreground != "" {
-		args = append(args, "--foreground", opts.Foreground)
+		style = style.Foreground(lipgloss.Color(opts.Foreground))
 	}
 	if opts.Background != "" {
-		args = append(args, "--background", opts.Background)
+		style = style.Background(lipgloss.Color(opts.Background))
 	}
 	if opts.Bold {
-		args = append(args, "--bold")
+		style = style.Bold(true)
 	}
 	if opts.Italic {
-		args = append(args, "--italic")
+		style = style.Italic(true)
 	}
-	if opts.Border != "" {
-		args = append(args, "--border", opts.Border)
+	switch opts.Border {
+	case "normal":
+		style = style.Border(lipgloss.NormalBorder())
+	case "rounded":
+		style = style.Border(lipgloss.RoundedBorder())
+	case "double":
+		style = style.Border(lipgloss.DoubleBorder())
+	case "thick":
+		style = style.Border(lipgloss.ThickBorder())
 	}
-
-	args = append(args, text)
-
-	cmd := common.Command("gum", args...)
-	output, err := cmd.Output()
-	if err != nil {
-		return text // Fallback to unstyled text
-	}
-
-	return string(output)
-}
-
-// InstallInstructions returns installation instructions for gum
-func InstallInstructions() string {
-	return `
-Gum is not installed. To enable interactive features, install gum:
-
-macOS:
-  brew install gum
-
-Linux (go install):
-  go install github.com/charmbracelet/gum@latest
-
-For other platforms, visit: https://github.com/charmbracelet/gum
-
-To disable this message, set: export HOMEOPS_NO_INTERACTIVE=1
-`
-}
-
-// CheckGumInstallation checks if gum is installed and returns a helpful message if not
-// Returns nil if gum is available or interactive mode is disabled
-func CheckGumInstallation() error {
-	if isInteractiveDisabled() {
-		return nil
-	}
-
-	if !isGumAvailable() {
-		fmt.Println(InstallInstructions())
-		return nil // Not an error, just informational
-	}
-
-	return nil
+	return style.Render(text)
 }
 
 // SelectNamespace prompts the user to select a Kubernetes namespace
 // If includeAllOption is true, adds "(all namespaces)" as the first option
 // Returns empty string if "(all namespaces)" is selected
 func SelectNamespace(prompt string, includeAllOption bool) (string, error) {
-	// Get list of namespaces from kubectl
-	cmd := common.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-	output, err := cmd.Output()
+	namespaces, err := GetNamespaces()
 	if err != nil {
-		return "", fmt.Errorf("failed to get namespaces: %w", err)
-	}
-
-	namespaces := strings.Fields(string(output))
-	if len(namespaces) == 0 {
-		return "", fmt.Errorf("no namespaces found in cluster")
+		return "", err
 	}
 
 	// Add "all namespaces" option if requested
@@ -561,7 +464,9 @@ func RunWithSpinner(title string, verbose bool, logger interface {
 	})
 }
 
-// ResetTerminal resets terminal state to prevent escape code leakage
+// ResetTerminal resets terminal state to prevent escape code leakage.
+// bubbletea restores the terminal itself; this remains as a belt-and-braces
+// cleanup for code paths that ran external full-screen commands.
 func ResetTerminal() {
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {

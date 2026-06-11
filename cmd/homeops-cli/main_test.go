@@ -213,9 +213,8 @@ func TestRunApp(t *testing.T) {
 		assert.Contains(t, stderr.String(), "Received interrupt signal")
 	})
 
-	t.Run("execute error returns non-zero and writes stderr", func(t *testing.T) {
-		var stderr bytes.Buffer
-		stderrWriter = &stderr
+	t.Run("execute error returns non-zero exit code", func(t *testing.T) {
+		// fang renders the error itself; runApp only maps it to an exit code.
 		signalNotifyFn = func(c chan<- os.Signal, sig ...os.Signal) {}
 		executeRootCmdFn = func(cmd *cobra.Command) error {
 			return errors.New("boom")
@@ -223,6 +222,5 @@ func TestRunApp(t *testing.T) {
 
 		code := runApp(make(chan os.Signal, 1))
 		assert.Equal(t, 1, code)
-		assert.Contains(t, stderr.String(), "Error: boom")
 	})
 }

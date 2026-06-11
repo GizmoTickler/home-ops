@@ -52,7 +52,7 @@ var (
 	getESXiVMNamesFn            = getESXiVMNames
 	vsphereGetVMNamesFn         = vsphere.GetVMNames
 	proxmoxGetTalosNodeConfigFn = proxmox.GetTalosNodeConfig
-	proxmoxDefaultVMConfig      = proxmox.DefaultVMConfig
+	proxmoxDefaultVMConfig      = proxmox.GetDefaultVMConfig
 	getProxmoxCredentialsFn     = proxmox.GetCredentials
 	getTalosNodeIPsFn           = talos.GetNodeIPs
 	resolveSecretKeyFn          = func(key string) string {
@@ -282,6 +282,15 @@ func resolveSecretKey(key string) string {
 	return resolveSecretKeyFn(key)
 }
 
+// truenasDefaultPool returns the configured TrueNAS VM storage pool
+// (hypervisors.truenas.vm.boot_storage in homeops.yaml), or fallback.
+func truenasDefaultPool(fallback string) string {
+	if p := versionconfig.Get().Hypervisors.TrueNAS.VM.BootStorage; p != "" {
+		return p
+	}
+	return fallback
+}
+
 // getSpicePassword retrieves the SPICE password through the configured secret
 // reference, with environment-variable fallback.
 func getSpicePassword() string {
@@ -406,7 +415,7 @@ func newVMLifecycle(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		return truenasLifecycleAdapter{
 			trueNASVMManager: vmManager,
 			deleteZVols:      true,
-			storagePool:      getEnvOrDefault("STORAGE_POOL", "flashstor"),
+			storagePool:      getEnvOrDefault("STORAGE_POOL", truenasDefaultPool("flashstor")),
 		}, nil
 	case "proxmox":
 		host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
@@ -1651,7 +1660,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 
 	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
-	cmd.Flags().StringVar(&pool, "pool", "flashstor/VM", "Storage pool (TrueNAS only)")
+	cmd.Flags().StringVar(&pool, "pool", truenasDefaultPool("flashstor/VM"), "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB (default: 250GB)")
@@ -1952,7 +1961,7 @@ func buildProxmoxDryRunSummary(plan *proxmoxDeploymentPlan, memory, vcpus, diskS
 			summary.Lines = append(summary.Lines, fmt.Sprintf("Node Presets: %s", strings.Join(plan.VMNames, ", ")))
 		}
 
-		defaultConfig := proxmox.DefaultVMConfig
+		defaultConfig := proxmox.GetDefaultVMConfig()
 		summary.Lines = append(summary.Lines,
 			fmt.Sprintf("Memory: %d MB (%d GB)", defaultConfig.Memory, defaultConfig.Memory/1024),
 			fmt.Sprintf("vCPUs: %d", defaultConfig.Cores),
@@ -2454,7 +2463,7 @@ func buildProxmoxVMConfigs(vmNames []string, memory, vcpus, diskSize, openebsSiz
 		var vmConfig proxmox.VMConfig
 		if isPredefined {
 			presets = append(presets, nodeConfig)
-			vmConfig = proxmoxDefaultVMConfig
+			vmConfig = proxmoxDefaultVMConfig()
 			vmConfig.Name = name
 			vmConfig.BootStorage = nodeConfig.BootStorage
 			vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
@@ -2463,7 +2472,7 @@ func buildProxmoxVMConfigs(vmNames []string, memory, vcpus, diskSize, openebsSiz
 			vmConfig.NUMANode = nodeConfig.NUMANode
 			vmConfig.MacAddress = nodeConfig.MacAddress
 		} else {
-			vmConfig = proxmoxDefaultVMConfig
+			vmConfig = proxmoxDefaultVMConfig()
 			vmConfig.Name = name
 			vmConfig.Memory = memory
 			vmConfig.Cores = vcpus

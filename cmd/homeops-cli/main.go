@@ -23,20 +23,28 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ui"
 
+	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 )
 
 var (
-	version          = "dev"
-	commit           = "none"
-	date             = "unknown"
-	logLevel         string
-	assumeYes        bool
-	configPath       string
-	chooseFn                   = ui.Choose
-	signalNotifyFn             = signal.Notify
-	executeRootCmdFn           = func(cmd *cobra.Command) error { return cmd.Execute() }
-	stderrWriter     io.Writer = os.Stderr
+	version        = "dev"
+	commit         = "none"
+	date           = "unknown"
+	logLevel       string
+	assumeYes      bool
+	configPath     string
+	chooseFn       = ui.Choose
+	signalNotifyFn = signal.Notify
+	// executeRootCmdFn runs the root command through fang, which provides
+	// styled help pages, styled error output, and version plumbing on top of
+	// cobra. fang prints errors itself, so runApp only maps to an exit code.
+	executeRootCmdFn = func(cmd *cobra.Command) error {
+		return fang.Execute(cmd.Context(), cmd,
+			fang.WithVersion(fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date)),
+		)
+	}
+	stderrWriter io.Writer = os.Stderr
 )
 
 func main() {
@@ -59,7 +67,7 @@ func runApp(sigChan chan os.Signal) int {
 
 	rootCmd := newRootCommand(ctx)
 	if err := executeRootCmdFn(rootCmd); err != nil {
-		_, _ = fmt.Fprintf(stderrWriter, "Error: %v\n", err)
+		// fang already rendered the error; just map it to an exit code.
 		return 1
 	}
 

@@ -31,10 +31,39 @@ import (
 // EnvConfigFile names the environment variable that points at the config file.
 const EnvConfigFile = "HOMEOPS_CONFIG"
 
+// VMProfile customizes one node's VM hardware on the hypervisor. Unset
+// fields keep the provider's built-in defaults.
+type VMProfile struct {
+	VMID           int    `yaml:"vmid,omitempty"`            // hypervisor VM id (Proxmox)
+	Mac            string `yaml:"mac,omitempty"`             // static MAC address
+	BootStorage    string `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
+	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
+	CephDiskByID   string `yaml:"ceph_disk_by_id,omitempty"` // /dev/disk/by-id passthrough for Rook-Ceph
+	CPUAffinity    string `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
+	NUMANode       *int   `yaml:"numa_node,omitempty"`       // host NUMA node
+}
+
+// VMDefaults customizes the per-provider defaults for VM composition: sizing,
+// disk layout/backends, and network attachment. Unset fields keep the
+// provider's built-in defaults.
+type VMDefaults struct {
+	MemoryMB       int    `yaml:"memory_mb,omitempty"`
+	Cores          int    `yaml:"cores,omitempty"`
+	BootDiskGB     int    `yaml:"boot_disk_gb,omitempty"`
+	OpenEBSDiskGB  int    `yaml:"openebs_disk_gb,omitempty"`
+	BootStorage    string `yaml:"boot_storage,omitempty"`    // default pool/datastore for boot disks
+	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
+	NetworkBridge  string `yaml:"network_bridge,omitempty"`
+	NetworkMTU     int    `yaml:"network_mtu,omitempty"`
+	VLANID         int    `yaml:"vlan_id,omitempty"`
+}
+
 // Node is one control-plane node of the cluster.
 type Node struct {
 	Name string `yaml:"name"`
 	IP   string `yaml:"ip"`
+	// VM customizes this node's VM hardware profile on the hypervisor.
+	VM VMProfile `yaml:"vm,omitempty"`
 }
 
 // ClusterConfig is the cluster topology section.
@@ -61,6 +90,8 @@ type ProxmoxConfig struct {
 	// SnippetsDir is where rendered Ignition files are uploaded on the PVE
 	// host (read by qemu via fw_cfg).
 	SnippetsDir string `yaml:"snippets_dir,omitempty"`
+	// VM overrides the default VM composition (sizing, disk backends, network).
+	VM VMDefaults `yaml:"vm,omitempty"`
 }
 
 // TrueNASConfig holds TrueNAS-specific knobs.
@@ -72,6 +103,15 @@ type TrueNASConfig struct {
 	// SpiceHost is the address SPICE consoles bind to; defaults to the
 	// TrueNAS host itself when empty.
 	SpiceHost string `yaml:"spice_host,omitempty"`
+	// VM overrides the default VM composition (sizing, zvol pool, network).
+	// BootStorage doubles as the zvol parent dataset (e.g. "flashstor/VM").
+	VM VMDefaults `yaml:"vm,omitempty"`
+}
+
+// VSphereConfig holds vSphere/ESXi-specific knobs.
+type VSphereConfig struct {
+	// VM overrides the default VM composition (sizing, datastores).
+	VM VMDefaults `yaml:"vm,omitempty"`
 }
 
 // HypervisorsConfig groups per-hypervisor settings.
@@ -81,6 +121,7 @@ type HypervisorsConfig struct {
 	Default string        `yaml:"default,omitempty"`
 	Proxmox ProxmoxConfig `yaml:"proxmox,omitempty"`
 	TrueNAS TrueNASConfig `yaml:"truenas,omitempty"`
+	VSphere VSphereConfig `yaml:"vsphere,omitempty"`
 }
 
 // OpLocation addresses an item (and optionally a field) in 1Password.
