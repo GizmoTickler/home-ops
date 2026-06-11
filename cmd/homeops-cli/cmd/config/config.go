@@ -214,6 +214,13 @@ state:
     #backend: op
     #op: {vault: Infrastructure, item: kubernetes-pki}
 
+# Optional: override/pin the cloud-image catalog used by 'vm create'
+# (ubuntu/rocky/debian/fedora resolve to latest stable automatically; RHEL
+# requires this since its KVM guest image is subscription-gated).
+#images:
+#  rhel: /var/lib/vz/template/cache/rhel-10.1-x86_64-kvm.qcow2
+#  ubuntu: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+
 # Optional: a directory whose files shadow the embedded templates by relative
 # path (e.g. <dir>/talos/controlplane.yaml).
 #templates:

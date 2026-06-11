@@ -180,6 +180,10 @@ type Config struct {
 	Hypervisors HypervisorsConfig `yaml:"hypervisors,omitempty"`
 	State       StateConfig       `yaml:"state,omitempty"`
 	Templates   TemplatesConfig   `yaml:"templates,omitempty"`
+	// Images overrides the cloud-image catalog used by `vm create`: a map of
+	// OS key (ubuntu, rocky, rhel, debian, fedora) to a qcow2 URL or a path
+	// already present on the hypervisor. RHEL requires this (subscription).
+	Images map[string]string `yaml:"images,omitempty"`
 	// Secrets maps semantic secret keys (see Keys in keys.go) to secret
 	// references (op://, env://, file://, cmd://, literal://). Keys not
 	// listed here fall back to their portable env:// defaults.

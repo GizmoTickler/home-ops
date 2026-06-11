@@ -15,6 +15,7 @@ import (
 	configcmd "homeops-cli/cmd/config"
 	"homeops-cli/cmd/flatcar"
 	"homeops-cli/cmd/kubernetes"
+	opvault "homeops-cli/cmd/opvault"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
@@ -128,6 +129,7 @@ Environment:
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
 		talos.NewVMCommand(),
+		opvault.NewCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),
 		newVersionCommand(),

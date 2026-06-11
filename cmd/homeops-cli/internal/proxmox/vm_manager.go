@@ -167,7 +167,11 @@ type VMConfig struct {
 	IgnitionPath   string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
 	ImageDiskPath  string // path/volume to import the Flatcar disk image from (import-from=)
 	ImageVolume    string // pre-existing storage volume to use directly as scsi0 (alternative to import)
-	BootMode       string // override boot order (e.g. "order=scsi0"); empty = sensible default
+
+	// CloudInit, when set, deploys a general-purpose cloud-image VM (vm
+	// create): imported boot disk + cloud-init drive (see cloudinit.go).
+	CloudInit *CloudInitConfig
+	BootMode  string // override boot order (e.g. "order=scsi0"); empty = sensible default
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -552,9 +556,12 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	// Build VM options. Flatcar nodes (IgnitionConfig set) use the Ignition/fw_cfg
 	// boot path; everything else uses the Talos ISO path. Talos behavior unchanged.
 	var options []proxmox.VirtualMachineOption
-	if config.IgnitionConfig != "" || config.ImageDiskPath != "" || config.ImageVolume != "" {
+	switch {
+	case config.CloudInit != nil:
+		options = vm.buildCloudInitVMOptions(config, *config.CloudInit)
+	case config.IgnitionConfig != "" || config.ImageDiskPath != "" || config.ImageVolume != "":
 		options = vm.buildFlatcarVMOptions(config)
-	} else {
+	default:
 		options = vm.buildVMOptions(config)
 	}
 

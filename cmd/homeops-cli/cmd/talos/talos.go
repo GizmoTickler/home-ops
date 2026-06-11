@@ -2675,7 +2675,22 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
   homeops-cli vm info --provider truenas --name k8s-0
   homeops-cli vm delete --name old-vm --force`,
 	}
-	cmd.AddCommand(
+	cmd.AddCommand(vmLifecycleSubcommands()...)
+	// Provider-scoped subgroups: `vm proxmox list`, `vm truenas stop ...` —
+	// same commands with --provider pinned, for explicit per-provider ops.
+	for _, p := range []string{"proxmox", "truenas", "vsphere"} {
+		cmd.AddCommand(newProviderScopedVMGroup(p))
+	}
+	return cmd
+}
+
+// vmLifecycleSubcommands builds one fresh set of the lifecycle commands.
+func vmLifecycleSubcommands() []*cobra.Command {
+	return []*cobra.Command{
+		newCreateVMCommand(),
+		newSetVMCommand(),
+		newResizeDiskCommand(),
+		newRestartVMCommand(),
 		newListVMsCommand(),
 		newStartVMCommand(),
 		newStopVMCommand(),
@@ -2684,8 +2699,25 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
 		newDeleteVMCommand(),
 		newInfoVMCommand(),
 		newCleanupZVolsCommand(),
-	)
-	return cmd
+	}
+}
+
+// newProviderScopedVMGroup wraps the lifecycle commands with --provider
+// pinned to one hypervisor (and the flag hidden), e.g. `vm truenas list`.
+func newProviderScopedVMGroup(provider string) *cobra.Command {
+	group := &cobra.Command{
+		Use:   provider,
+		Short: fmt.Sprintf("VM operations on %s", provider),
+	}
+	for _, sub := range vmLifecycleSubcommands() {
+		if f := sub.Flags().Lookup("provider"); f != nil {
+			_ = f.Value.Set(provider)
+			f.DefValue = provider
+			f.Hidden = true
+		}
+		group.AddCommand(sub)
+	}
+	return group
 }
 
 func newManageVMCommand() *cobra.Command {
