@@ -234,7 +234,7 @@ func NewCommand() *cobra.Command {
 		Short: "Manage Talos Linux nodes and clusters",
 		Long: `Commands for managing Talos Linux nodes, including configuration, upgrades, and VM deployments.
 
-Use ` + "`homeops-cli talos manage-vm`" + ` for VM lifecycle operations such as list, start, stop, info, poweron, poweroff, and delete.`,
+Use ` + "`homeops-cli vm`" + ` for VM lifecycle operations such as list, start, stop, info, poweron, poweroff, and delete.`,
 	}
 
 	// Add subcommands
@@ -697,7 +697,7 @@ func ensureVMLifecycleProviderAvailable(provider, action string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s VM lifecycle commands require %s: %w. Use `homeops-cli talos manage-vm %s --provider %s --name <vm-name>` after configuring prerequisites",
+	return fmt.Errorf("%s VM lifecycle commands require %s: %w. Use `homeops-cli vm %s --provider %s --name <vm-name>` after configuring prerequisites",
 		vmProviderDisplayName(normalizedProvider),
 		vmProviderPrerequisites(normalizedProvider),
 		capabilityErr,
@@ -736,14 +736,14 @@ func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    action,
 		Hidden: true,
-		Short:  fmt.Sprintf("Use manage-vm %s", action),
+		Short:  fmt.Sprintf("Use 'homeops-cli vm %s'", action),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			normalizedProvider, err := normalizeVMProvider(provider)
 			if err != nil {
 				normalizedProvider = provider
 			}
 
-			example := fmt.Sprintf("homeops-cli talos manage-vm %s --provider %s", action, normalizedProvider)
+			example := fmt.Sprintf("homeops-cli vm %s --provider %s", action, normalizedProvider)
 			if strings.TrimSpace(name) != "" {
 				example += fmt.Sprintf(" --name %s", name)
 			} else if action != "list" {
@@ -753,11 +753,11 @@ func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 				example += " --force"
 			}
 
-			return fmt.Errorf("VM lifecycle command `talos %s` is available under `talos manage-vm %s`; use `%s`", action, action, example)
+			return fmt.Errorf("VM lifecycle commands moved to the top-level `vm` group; use `%s`", example)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	if action != "list" {
 		cmd.Flags().StringVar(&name, "name", "", "VM name")
 	}
@@ -1658,7 +1658,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
 	cmd.Flags().StringVar(&pool, "pool", truenasDefaultPool("flashstor/VM"), "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
@@ -2652,18 +2652,56 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 	return nil
 }
 
+// defaultProviderName returns hypervisors.default from homeops.yaml.
+func defaultProviderName() string {
+	if p := versionconfig.Get().Hypervisors.Default; p != "" {
+		return p
+	}
+	return "proxmox"
+}
+
+// NewVMCommand exposes the provider-agnostic VM lifecycle as the top-level
+// `vm` command group. The implementations are OS-agnostic (provider.VMLifecycle);
+// they only lived under `talos` for historical reasons.
+func NewVMCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vm",
+		Short: "Manage VM lifecycle on Proxmox, TrueNAS, or vSphere",
+		Long: `Provider-agnostic VM lifecycle: list, start/stop, power on/off, info,
+delete, and zvol cleanup. Works on any VM regardless of OS (Flatcar, Talos, or
+other). --provider defaults to hypervisors.default in homeops.yaml.`,
+		Example: `  homeops-cli vm list
+  homeops-cli vm start --name k8s-1
+  homeops-cli vm info --provider truenas --name k8s-0
+  homeops-cli vm delete --name old-vm --force`,
+	}
+	cmd.AddCommand(
+		newListVMsCommand(),
+		newStartVMCommand(),
+		newStopVMCommand(),
+		newPowerOnVMCommand(),
+		newPowerOffVMCommand(),
+		newDeleteVMCommand(),
+		newInfoVMCommand(),
+		newCleanupZVolsCommand(),
+	)
+	return cmd
+}
+
 func newManageVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "manage-vm",
-		Short: "Manage VMs on Proxmox, TrueNAS, or vSphere",
+		Use:        "manage-vm",
+		Short:      "Manage VMs (deprecated: use top-level 'homeops-cli vm')",
+		Deprecated: "use 'homeops-cli vm' instead",
+		Hidden:     true,
 		Long: `Commands for managing VMs on Proxmox VE, TrueNAS Scale, or vSphere/ESXi.
 
 Examples:
-  homeops-cli talos manage-vm list --provider proxmox
-  homeops-cli talos manage-vm start --provider proxmox --name <vm-name>
-  homeops-cli talos manage-vm stop --provider truenas --name <vm-name>
-  homeops-cli talos manage-vm info --provider vsphere --name <vm-name>
-  homeops-cli talos manage-vm delete --provider proxmox --name <vm-name> --force
+  homeops-cli vm list --provider proxmox
+  homeops-cli vm start --provider proxmox --name <vm-name>
+  homeops-cli vm stop --provider truenas --name <vm-name>
+  homeops-cli vm info --provider vsphere --name <vm-name>
+  homeops-cli vm delete --provider proxmox --name <vm-name> --force
 
 Provider prerequisites:
   Proxmox: host, API token, token secret, and node name from environment or 1Password
@@ -2699,7 +2737,7 @@ func newListVMsCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 
 	return cmd
 }
@@ -2733,7 +2771,7 @@ func newStartVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2781,7 +2819,7 @@ func newStopVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2809,7 +2847,7 @@ func newDeleteVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 
@@ -2877,7 +2915,7 @@ func newInfoVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2907,7 +2945,7 @@ and deploy multiple VMs using the same custom configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Storage provider: proxmox (default), truenas, or vsphere/esxi")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Storage provider: proxmox, truenas, or vsphere/esxi (default: hypervisors.default in homeops.yaml)")
 
 	return cmd
 }
@@ -3382,7 +3420,7 @@ func newPowerOnVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -3409,7 +3447,7 @@ func newPowerOffVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Virtualization provider: proxmox (default), vsphere/esxi, or truenas")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag

@@ -127,6 +127,7 @@ Environment:
 		flatcar.NewCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
+		talos.NewVMCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),
 		newVersionCommand(),

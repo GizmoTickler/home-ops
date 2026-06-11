@@ -851,27 +851,31 @@ func TestCommandProviderDefaults(t *testing.T) {
 	assert.Contains(t, prepareISOCmd.Long, "Upload the ISO to Proxmox storage, TrueNAS storage, or a vSphere datastore")
 }
 
-func TestVMLifecycleHelpMakesManageVMDiscoverable(t *testing.T) {
+func TestVMLifecycleHelpMakesVMGroupDiscoverable(t *testing.T) {
+	// The talos help points at the top-level vm group; manage-vm remains as a
+	// hidden deprecated alias with the same subcommands.
 	rootCmd := NewCommand()
-	rootOutput, err := testutil.ExecuteCommand(rootCmd, "--help")
+	_, err := testutil.ExecuteCommand(rootCmd, "--help")
 	require.NoError(t, err)
-	assert.Contains(t, rootOutput, "manage-vm")
-	assert.Contains(t, rootCmd.Long, "Use `homeops-cli talos manage-vm`")
+	assert.Contains(t, rootCmd.Long, "homeops-cli vm")
+
+	vmOutput, err := testutil.ExecuteCommand(NewVMCommand(), "--help")
+	require.NoError(t, err)
+	assert.Contains(t, vmOutput, "start")
+	assert.Contains(t, vmOutput, "stop")
+	assert.Contains(t, vmOutput, "delete")
+	assert.Contains(t, vmOutput, "cleanup-zvols")
 
 	manageOutput, err := testutil.ExecuteCommand(newManageVMCommand(), "--help")
 	require.NoError(t, err)
 	assert.Contains(t, manageOutput, "start")
-	assert.Contains(t, manageOutput, "stop")
 	assert.Contains(t, manageOutput, "delete")
-	assert.Contains(t, manageOutput, "--provider proxmox")
-	assert.Contains(t, manageOutput, "TrueNAS")
-	assert.Contains(t, manageOutput, "vSphere")
 }
 
 func TestRootVMLifecycleAliasReturnsManageVMGuidance(t *testing.T) {
 	_, err := testutil.ExecuteCommand(NewCommand(), "start", "--provider", "truenas", "--name", "tn-vm")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "talos manage-vm start")
+	assert.Contains(t, err.Error(), "homeops-cli vm start")
 	assert.Contains(t, err.Error(), "--provider truenas")
 }
 
@@ -940,7 +944,7 @@ func TestVMLifecycleProviderCapabilityError(t *testing.T) {
 	require.Error(t, err)
 	assert.Empty(t, *calls, "provider operation should not run when config-level prerequisites are missing")
 	assert.Contains(t, err.Error(), "TrueNAS VM lifecycle commands require")
-	assert.Contains(t, err.Error(), "homeops-cli talos manage-vm start --provider truenas --name <vm-name>")
+	assert.Contains(t, err.Error(), "homeops-cli vm start --provider truenas --name <vm-name>")
 	assert.Contains(t, err.Error(), constants.EnvTrueNASHost)
 	assert.Contains(t, err.Error(), constants.EnvTrueNASAPIKey)
 }
