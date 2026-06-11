@@ -1394,25 +1394,29 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logg
 
 // mergeConfigsWithTalosctl merges base and patch configs using talosctl (onedr0p approach)
 func mergeConfigsWithTalosctl(baseConfig, patchConfig []byte) ([]byte, error) {
-	// Create temporary files for talosctl processing
-	baseFile, err := os.CreateTemp(bootstrapTalosTempDir, "talos-base-*.yaml")
+	// The configs have 1Password references already resolved, so keep them in
+	// a private 0700 directory for the duration of the merge instead of
+	// loose files in the shared temp root.
+	mergeDir, err := os.MkdirTemp(bootstrapTalosTempDir, "talos-merge-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config merge temp dir: %w", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(mergeDir) // Ignore cleanup errors
+	}()
+
+	baseFile, err := os.CreateTemp(mergeDir, "talos-base-*.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base config temp file: %w", err)
 	}
 	defer func() {
-		_ = os.Remove(baseFile.Name()) // Ignore cleanup errors
-	}()
-	defer func() {
 		_ = baseFile.Close() // Ignore cleanup errors
 	}()
 
-	patchFile, err := os.CreateTemp(bootstrapTalosTempDir, "talos-patch-*.yaml")
+	patchFile, err := os.CreateTemp(mergeDir, "talos-patch-*.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create patch config temp file: %w", err)
 	}
-	defer func() {
-		_ = os.Remove(patchFile.Name()) // Ignore cleanup errors
-	}()
 	defer func() {
 		_ = patchFile.Close() // Ignore cleanup errors
 	}()
@@ -1628,9 +1632,9 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 
 	logger.Debug("Fetching kubeconfig from controller %s", controller)
 
-	// Ensure directory exists for kubeconfig
+	// Ensure directory exists for kubeconfig (owner-only: holds credentials)
 	kubeconfigDir := filepath.Dir(config.KubeConfig)
-	if err := os.MkdirAll(kubeconfigDir, 0755); err != nil {
+	if err := os.MkdirAll(kubeconfigDir, 0700); err != nil {
 		return fmt.Errorf("failed to create kubeconfig directory %s: %w", kubeconfigDir, err)
 	}
 

@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -456,7 +458,68 @@ func TestKrewDownloadInfo(t *testing.T) {
 	assert.Equal(t, "https://example.test/krew/krew-linux_amd64.tar.gz", url)
 }
 
+// skipIfTempNoexec skips tests that need to execute binaries out of the
+// system temp dir (mounted noexec on some hardened hosts).
+func skipIfTempNoexec(t *testing.T) {
+	t.Helper()
+	probe, err := os.CreateTemp("", "execprobe-*.sh")
+	require.NoError(t, err)
+	defer func() { _ = os.Remove(probe.Name()) }()
+	_, err = probe.WriteString("#!/bin/sh\nexit 0\n")
+	require.NoError(t, err)
+	require.NoError(t, probe.Close())
+	require.NoError(t, os.Chmod(probe.Name(), 0o700))
+	if err := exec.Command(probe.Name()).Run(); err != nil {
+		t.Skipf("system temp dir is not executable (noexec mount?): %v", err)
+	}
+}
+
 func TestInstallKrew(t *testing.T) {
+	skipIfTempNoexec(t)
+
+	executableName := "krew-linux_amd64"
+	archiveBytes := buildKrewArchive(t, executableName)
+	archiveSum := sha256.Sum256(archiveBytes)
+	checksumBody := hex.EncodeToString(archiveSum[:]) + "  " + executableName + ".tar.gz\n"
+
+	oldOS := runtimeGOOS
+	oldArch := runtimeGOARCH
+	oldBaseURL := krewDownloadBaseURL
+	oldHTTPGet := httpGetFunc
+	t.Cleanup(func() {
+		runtimeGOOS = oldOS
+		runtimeGOARCH = oldArch
+		krewDownloadBaseURL = oldBaseURL
+		httpGetFunc = oldHTTPGet
+	})
+
+	runtimeGOOS = "linux"
+	runtimeGOARCH = "amd64"
+	krewDownloadBaseURL = "https://example.test/krew"
+	httpGetFunc = func(url string) (*http.Response, error) {
+		switch {
+		case strings.HasSuffix(url, executableName+".tar.gz"):
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(bytes.NewReader(archiveBytes)),
+			}, nil
+		case strings.HasSuffix(url, executableName+".tar.gz.sha256"):
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(checksumBody)),
+			}, nil
+		default:
+			t.Fatalf("unexpected download URL: %s", url)
+			return nil, nil
+		}
+	}
+
+	require.NoError(t, installKrew())
+}
+
+func TestInstallKrewRejectsChecksumMismatch(t *testing.T) {
 	executableName := "krew-linux_amd64"
 	archiveBytes := buildKrewArchive(t, executableName)
 
@@ -475,7 +538,13 @@ func TestInstallKrew(t *testing.T) {
 	runtimeGOARCH = "amd64"
 	krewDownloadBaseURL = "https://example.test/krew"
 	httpGetFunc = func(url string) (*http.Response, error) {
-		require.True(t, strings.HasSuffix(url, executableName+".tar.gz"))
+		if strings.HasSuffix(url, ".sha256") {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(strings.Repeat("00", 32) + "  whatever\n")),
+			}, nil
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
@@ -483,7 +552,9 @@ func TestInstallKrew(t *testing.T) {
 		}, nil
 	}
 
-	require.NoError(t, installKrew())
+	err := installKrew()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "integrity check failed")
 }
 
 func TestExtractTarGzRejectsTraversal(t *testing.T) {

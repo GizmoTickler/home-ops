@@ -903,6 +903,9 @@ func newGenKubeadmCommand() *cobra.Command {
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), out)
 			case "join":
+				if err := flatcar.ValidateJoinMaterial(token, caCertHash, certKey); err != nil {
+					return err
+				}
 				env.CertificateKey = certKey
 				env.BootstrapToken = token
 				env.CACertHash = caCertHash
