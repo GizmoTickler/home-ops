@@ -82,6 +82,10 @@ func RunCommand(ctx context.Context, opts CommandOptions) (CommandResult, error)
 	}
 
 	cmd := exec.CommandContext(runCtx, opts.Name, opts.Args...)
+	// After the context kills the process, force-close its I/O pipes so Wait
+	// can't be held hostage by orphaned grandchildren that inherited them
+	// (e.g. a shell's `sleep` child surviving the shell's SIGKILL).
+	cmd.WaitDelay = 3 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
