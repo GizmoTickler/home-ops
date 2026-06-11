@@ -57,20 +57,24 @@ PowerShell:
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var err error
 			switch args[0] {
 			case "bash":
-				_ = cmd.Root().GenBashCompletion(os.Stdout)
+				err = cmd.Root().GenBashCompletion(os.Stdout)
 			case "zsh":
-				_ = cmd.Root().GenZshCompletion(os.Stdout)
+				err = cmd.Root().GenZshCompletion(os.Stdout)
 			case "fish":
-				_ = cmd.Root().GenFishCompletion(os.Stdout, true)
+				err = cmd.Root().GenFishCompletion(os.Stdout, true)
 			case "powershell":
-				_ = cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+				err = cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
 			default:
-				fmt.Fprintf(os.Stderr, "Unsupported shell type %q\n", args[0])
-				os.Exit(1)
+				return fmt.Errorf("unsupported shell type %q", args[0])
 			}
+			if err != nil {
+				return fmt.Errorf("failed to generate %s completion: %w", args[0], err)
+			}
+			return nil
 		},
 	}
 

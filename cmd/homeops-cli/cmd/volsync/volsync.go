@@ -360,20 +360,28 @@ func setAllVolsyncResourcesSuspended(namespace string, suspend bool) error {
 	completedState := boolWord(suspend, "suspended", "resumed")
 	resourceKinds := []string{"replicationsource", "replicationdestination"}
 
+	var failures []string
 	for _, kind := range resourceKinds {
 		names, err := listVolsyncResources(namespace, kind)
 		if err != nil {
 			logger.Warn("Failed to list %ss: %v", resourceDisplayName(kind), err)
+			failures = append(failures, fmt.Sprintf("list %ss", resourceDisplayName(kind)))
 			continue
 		}
 
 		for _, name := range names {
 			if err := patchVolsyncResource(namespace, kind, name, suspend); err != nil {
 				logger.Error("Failed to %s %s %s: %v", desiredState, resourceDisplayName(kind), name, err)
+				failures = append(failures, fmt.Sprintf("%s/%s", kind, name))
 			} else {
 				logger.Info("%s %s %s", capitalize(completedState), resourceDisplayName(kind), name)
 			}
 		}
+	}
+
+	if len(failures) > 0 {
+		return fmt.Errorf("failed to %s %d VolSync resource(s) in namespace %s: %s",
+			desiredState, len(failures), namespace, strings.Join(failures, ", "))
 	}
 
 	logger.Success("%s all VolSync resources in namespace %s", capitalize(completedState), namespace)
@@ -565,13 +573,21 @@ func fetchReplicationSourceNames(namespace string) ([]string, error) {
 // waitForJobToAppear polls kubectl until the named Job exists in the namespace.
 // Returns an error if the job does not appear within `timeout`.
 func waitForJobToAppear(namespace, jobName string, timeout time.Duration) error {
+	logger := common.NewColorLogger()
 	start := time.Now()
+	lastProgress := start
 	for {
 		if err := commandRunFn("kubectl", "--namespace", namespace, "get", fmt.Sprintf("job/%s", jobName)); err == nil {
 			return nil
 		}
 		if time.Since(start) >= timeout {
 			return fmt.Errorf("job %s did not appear within %v", jobName, timeout)
+		}
+		// Heartbeat so long waits don't look like a hang.
+		if time.Since(lastProgress) >= 30*time.Second {
+			logger.Info("Still waiting for job %s to appear (elapsed %v, timeout %v)...",
+				jobName, time.Since(start).Round(time.Second), timeout)
+			lastProgress = time.Now()
 		}
 		volsyncSleep(5 * time.Second)
 	}
@@ -1042,8 +1058,10 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	jobName := fmt.Sprintf("volsync-dst-%s-manual", app)
 	logger.Info("Waiting for restore job %s to complete...", jobName)
 
-	// Wait for job to appear with timeout (use 1/4 of restoreTimeout or 5 minutes max for job appearance)
-	jobAppearTimeout := min(restoreTimeout/4, 5*time.Minute)
+	// Wait for job to appear with timeout: 1/4 of restoreTimeout, capped at
+	// 5 minutes, but never below 30s (small --timeout values would otherwise
+	// abort before slow clusters can even schedule the job).
+	jobAppearTimeout := max(min(restoreTimeout/4, 5*time.Minute), 30*time.Second)
 	if err := waitForJobToAppear(namespace, jobName, jobAppearTimeout); err != nil {
 		return fmt.Errorf("restore %w", err)
 	}
