@@ -353,7 +353,8 @@ done
 
 	scriptPath := tmpFile.Name()
 	_ = tmpFile.Close()
-	if err := os.Chmod(scriptPath, 0o755); err != nil {
+	// Owner-only: nothing else needs to read or execute the spinner script.
+	if err := os.Chmod(scriptPath, 0o700); err != nil {
 		_ = os.Remove(scriptPath)
 		return nil, nil, "", err
 	}

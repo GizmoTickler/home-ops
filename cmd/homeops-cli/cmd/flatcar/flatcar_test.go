@@ -274,15 +274,29 @@ func TestGenKubeadmCommandJoin(t *testing.T) {
 		return "kind: JoinConfiguration", nil
 	}
 
+	// Join material must pass flatcar.ValidateJoinMaterial format checks.
+	validToken := "abcdef.0123456789abcdef"
+	validHash := "sha256:" + strings.Repeat("ab", 32)
+	validCertKey := strings.Repeat("cd", 32)
+
 	cmd := newGenKubeadmCommand()
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
-	cmd.SetArgs([]string{"--node", "k8s-1", "--mode", "join", "--cert-key", "k", "--token", "t", "--ca-cert-hash", "h"})
+	cmd.SetArgs([]string{"--node", "k8s-1", "--mode", "join", "--cert-key", validCertKey, "--token", validToken, "--ca-cert-hash", validHash})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "JoinConfiguration")
-	assert.Equal(t, "k", captured.CertificateKey)
-	assert.Equal(t, "t", captured.BootstrapToken)
-	assert.Equal(t, "h", captured.CACertHash)
+	assert.Equal(t, validCertKey, captured.CertificateKey)
+	assert.Equal(t, validToken, captured.BootstrapToken)
+	assert.Equal(t, validHash, captured.CACertHash)
+
+	// Malformed material is rejected before rendering.
+	badCmd := newGenKubeadmCommand()
+	badCmd.SetOut(&bytes.Buffer{})
+	badCmd.SetErr(&bytes.Buffer{})
+	badCmd.SetArgs([]string{"--node", "k8s-1", "--mode", "join", "--token", "nope", "--ca-cert-hash", validHash})
+	err := badCmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid --token")
 }
 
 func TestDeployVMDryRun(t *testing.T) {

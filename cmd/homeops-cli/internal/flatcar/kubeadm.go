@@ -341,7 +341,29 @@ var (
 	tokenRe = regexp.MustCompile(`--token\s+([a-z0-9]{6}\.[a-z0-9]{16})`)
 	// The certificate key is printed on its own line after the upload-certs notice.
 	certKeyRe = regexp.MustCompile(`(?m)^\s*([0-9a-f]{64})\s*$`)
+
+	// Strict whole-string forms of the above, for validating user-supplied
+	// join material before it is rendered into a join configuration.
+	strictTokenRe      = regexp.MustCompile(`^[a-z0-9]{6}\.[a-z0-9]{16}$`)
+	strictCACertHashRe = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	strictCertKeyRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
+
+// ValidateJoinMaterial checks user-supplied kubeadm join material against the
+// formats kubeadm emits. token and caCertHash are required; certKey is
+// optional (worker joins) but must be well-formed when present.
+func ValidateJoinMaterial(token, caCertHash, certKey string) error {
+	if !strictTokenRe.MatchString(token) {
+		return fmt.Errorf("invalid --token: want kubeadm format like abcdef.0123456789abcdef")
+	}
+	if !strictCACertHashRe.MatchString(caCertHash) {
+		return fmt.Errorf("invalid --ca-cert-hash: want sha256:<64 hex chars>")
+	}
+	if certKey != "" && !strictCertKeyRe.MatchString(certKey) {
+		return fmt.Errorf("invalid --certificate-key: want 64 hex chars")
+	}
+	return nil
+}
 
 // ParseKubeadmInitOutput extracts the bootstrap token, CA cert hash and (if
 // present) the control-plane certificate key from `kubeadm init` stdout.

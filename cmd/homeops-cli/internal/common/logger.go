@@ -100,10 +100,11 @@ func Logger() *ColorLogger {
 		globalLogger = NewColorLogger()
 	})
 
-	// Update level in case it was changed
-	globalLogMu.RLock()
+	// Update level in case it was changed. Write lock: concurrent callers
+	// would otherwise race on the assignment.
+	globalLogMu.Lock()
 	globalLogger.Level = globalLogLevel
-	globalLogMu.RUnlock()
+	globalLogMu.Unlock()
 
 	return globalLogger
 }

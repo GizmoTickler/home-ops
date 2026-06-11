@@ -3,6 +3,8 @@ package workstation
 import (
 	"archive/tar"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -118,7 +120,8 @@ func installBrewPackages() error {
 		logger.Success("Homebrew packages already match the embedded Brewfile")
 		return nil
 	}
-	logger.Debug("brew bundle check reported changes needed: %s", strings.TrimSpace(string(checkOutput)))
+	// Surface what's missing at info level so users see why install runs.
+	logger.Info("Homebrew changes needed:\n%s", strings.TrimSpace(string(checkOutput)))
 
 	// Run brew bundle install with spinner
 	err = spinWithFunc("📦 Installing Homebrew packages", func() error {
@@ -229,6 +232,12 @@ func installKrew() error {
 		return fmt.Errorf("failed to download krew archive: %w", err)
 	}
 
+	// Verify integrity against the published .sha256 before extracting and
+	// executing anything from the archive.
+	if err := verifyFileSHA256(archivePath, archiveURL+".sha256"); err != nil {
+		return fmt.Errorf("krew archive integrity check failed: %w", err)
+	}
+
 	if err := extractTarGz(archivePath, tempDir); err != nil {
 		return fmt.Errorf("failed to extract krew archive: %w", err)
 	}
@@ -302,6 +311,53 @@ func normalizeKrewArch(goarch string) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported architecture for Krew: %s", goarch)
 	}
+}
+
+// verifyFileSHA256 downloads the expected digest from checksumURL (a file
+// whose first whitespace-separated field is the hex SHA-256) and compares it
+// against the actual digest of the file at path.
+func verifyFileSHA256(path, checksumURL string) error {
+	resp, err := httpGetFunc(checksumURL)
+	if err != nil {
+		return fmt.Errorf("failed to download checksum: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected HTTP status %s fetching checksum", resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return fmt.Errorf("failed to read checksum: %w", err)
+	}
+	fields := strings.Fields(string(body))
+	if len(fields) == 0 {
+		return fmt.Errorf("checksum file is empty")
+	}
+	expected := strings.ToLower(fields[0])
+	if len(expected) != sha256.Size*2 {
+		return fmt.Errorf("checksum file does not contain a SHA-256 digest")
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = f.Close()
+	}()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	actual := hex.EncodeToString(h.Sum(nil))
+
+	if actual != expected {
+		return fmt.Errorf("SHA-256 mismatch: expected %s, got %s", expected, actual)
+	}
+	return nil
 }
 
 func downloadFile(url, destination string) error {
