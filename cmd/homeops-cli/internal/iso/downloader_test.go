@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ssh"
 
 	"github.com/stretchr/testify/assert"
@@ -59,14 +58,18 @@ func (f *fakeSSHClient) DownloadISO(url, path string) error {
 }
 
 func TestGetDefaultConfig(t *testing.T) {
+	// The default config resolves TrueNAS connection details through the
+	// portable env:// references.
+	t.Setenv("TRUENAS_HOST", "nas.example.com")
+	t.Setenv("TRUENAS_USERNAME", "admin")
+
 	config := GetDefaultConfig()
 
-	assert.Equal(t, constants.OpTrueNASHost, config.TrueNASHost)
-	assert.Equal(t, constants.OpTrueNASUsername, config.TrueNASUsername)
+	assert.Equal(t, "nas.example.com", config.TrueNASHost)
+	assert.Equal(t, "admin", config.TrueNASUsername)
 	assert.Equal(t, "22", config.TrueNASPort)
 	assert.Equal(t, "/mnt/flashstor/ISO", config.ISOStoragePath)
 	assert.Equal(t, "metal-amd64.iso", config.ISOFilename)
-	assert.Equal(t, constants.OpTrueNASSSHPrivateKey, config.SSHItemRef)
 }
 
 func TestNewDownloader(t *testing.T) {
@@ -87,7 +90,6 @@ func TestDownloaderValidateConfig(t *testing.T) {
 				TrueNASHost:     "192.168.1.100",
 				TrueNASUsername: "root",
 				TrueNASPort:     "22",
-				SSHItemRef:      "op://vault/truenas/ssh",
 				ISOURL:          "https://example.com/test.iso",
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.iso",
@@ -98,7 +100,6 @@ func TestDownloaderValidateConfig(t *testing.T) {
 			config: DownloadConfig{
 				TrueNASUsername: "root",
 				TrueNASPort:     "22",
-				SSHItemRef:      "op://vault/truenas/ssh",
 				ISOURL:          "https://example.com/test.iso",
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.iso",
@@ -110,7 +111,6 @@ func TestDownloaderValidateConfig(t *testing.T) {
 			config: DownloadConfig{
 				TrueNASHost:    "192.168.1.100",
 				TrueNASPort:    "22",
-				SSHItemRef:     "op://vault/truenas/ssh",
 				ISOURL:         "https://example.com/test.iso",
 				ISOStoragePath: "/mnt/tank/isos",
 				ISOFilename:    "test.iso",
@@ -118,24 +118,11 @@ func TestDownloaderValidateConfig(t *testing.T) {
 			wantErr: "TrueNAS username is required",
 		},
 		{
-			name: "missing SSH item reference",
-			config: DownloadConfig{
-				TrueNASHost:     "192.168.1.100",
-				TrueNASUsername: "root",
-				TrueNASPort:     "22",
-				ISOURL:          "https://example.com/test.iso",
-				ISOStoragePath:  "/mnt/tank/isos",
-				ISOFilename:     "test.iso",
-			},
-			wantErr: "SSH item reference is required",
-		},
-		{
 			name: "missing ISO URL",
 			config: DownloadConfig{
 				TrueNASHost:     "192.168.1.100",
 				TrueNASUsername: "root",
 				TrueNASPort:     "22",
-				SSHItemRef:      "op://vault/truenas/ssh",
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.iso",
 			},
@@ -147,7 +134,6 @@ func TestDownloaderValidateConfig(t *testing.T) {
 				TrueNASHost:     "192.168.1.100",
 				TrueNASUsername: "root",
 				TrueNASPort:     "22",
-				SSHItemRef:      "op://vault/truenas/ssh",
 				ISOURL:          "not-a-valid-url",
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.iso",
@@ -160,7 +146,6 @@ func TestDownloaderValidateConfig(t *testing.T) {
 				TrueNASHost:     "192.168.1.100",
 				TrueNASUsername: "root",
 				TrueNASPort:     "22",
-				SSHItemRef:      "op://vault/truenas/ssh",
 				ISOURL:          "https://example.com/test.img",
 				ISOStoragePath:  "/mnt/tank/isos",
 				ISOFilename:     "test.img",
@@ -187,7 +172,6 @@ func TestDownloaderDownloadCustomISO(t *testing.T) {
 		TrueNASHost:     "nas.local",
 		TrueNASUsername: "root",
 		TrueNASPort:     "22",
-		SSHItemRef:      "op://vault/truenas/ssh",
 		ISOURL:          "https://example.com/test.iso",
 		ISOStoragePath:  "/mnt/tank/isos",
 		ISOFilename:     "test.iso",
@@ -211,7 +195,6 @@ func TestDownloaderDownloadCustomISO(t *testing.T) {
 			assert.Equal(t, "nas.local", config.Host)
 			assert.Equal(t, "root", config.Username)
 			assert.Equal(t, "22", config.Port)
-			assert.Equal(t, "op://vault/truenas/ssh", config.SSHItemRef)
 			return fake
 		}
 

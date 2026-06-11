@@ -2,7 +2,7 @@
 version: v1alpha1
 machine:
   ca:
-    crt: op://Infrastructure/talos/MACHINE_CA_CRT
+    crt: secret://talos_machine_ca_crt
   certSANs:
     - 127.0.0.1
     - 192.168.255.10
@@ -77,14 +77,14 @@ machine:
     sunrpc.tcp_slot_table_entries: "128"
     user.max_user_namespaces: "11255"
     vm.nr_hugepages: "1024"
-  token: op://Infrastructure/talos/MACHINE_TOKEN
+  token: secret://talos_machine_token
 cluster:
   ca:
-    crt: op://Infrastructure/talos/CLUSTER_CA_CRT
+    crt: secret://talos_cluster_ca_crt
   clusterName: home-ops-cluster
   controlPlane:
-    endpoint: op://Infrastructure/talos/K8S_ENDPOINT
-  id: op://Infrastructure/talos/CLUSTER_ID
+    endpoint: secret://talos_k8s_endpoint
+  id: secret://talos_cluster_id
   network:
     cni:
       name: none
@@ -93,5 +93,5 @@ cluster:
       - 10.42.0.0/16
     serviceSubnets:
       - 10.43.0.0/16
-  secret: op://Infrastructure/talos/CLUSTER_SECRET
-  token: op://Infrastructure/talos/CLUSTER_TOKEN
+  secret: secret://talos_cluster_secret
+  token: secret://talos_cluster_token

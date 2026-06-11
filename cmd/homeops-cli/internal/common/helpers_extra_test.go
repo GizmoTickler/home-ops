@@ -57,14 +57,6 @@ func TestContextAndGitHelpers(t *testing.T) {
 }
 
 func TestValidationAndLoggerHelpers(t *testing.T) {
-	filtered := filterConnectEnvVars([]string{
-		"PATH=/bin",
-		"OP_CONNECT_HOST=https://connect",
-		"OP_CONNECT_TOKEN=secret",
-		"HOME=/tmp/home",
-	})
-	assert.Equal(t, []string{"PATH=/bin", "HOME=/tmp/home"}, filtered)
-
 	t.Setenv("HOMEOPS_TEST_ENV", "set")
 	require.NoError(t, CheckEnv("HOMEOPS_TEST_ENV"))
 	require.Error(t, CheckEnv("HOMEOPS_TEST_ENV", "HOMEOPS_TEST_MISSING"))
@@ -131,99 +123,4 @@ func TestValidationAndLoggerHelpers(t *testing.T) {
 	assert.Equal(t, parseLogLevel("warn").String(), "warn")
 	assert.Equal(t, parseLogLevel("error").String(), "error")
 	assert.Equal(t, parseLogLevel("unknown").String(), "info")
-}
-
-func TestSaveKubeconfigTo1PasswordFiltersConnectEnv(t *testing.T) {
-	scriptDir := t.TempDir()
-	opPath := filepath.Join(scriptDir, "op")
-	require.NoError(t, os.WriteFile(opPath, []byte(`#!/bin/sh
-set -eu
-if env | grep -q '^OP_CONNECT_HOST='; then
-  echo "unexpected OP_CONNECT_HOST" >&2
-  exit 97
-fi
-if env | grep -q '^OP_CONNECT_TOKEN='; then
-  echo "unexpected OP_CONNECT_TOKEN" >&2
-  exit 98
-fi
-if [ "$1" = "item" ] && [ "$2" = "edit" ]; then
-  exit 0
-fi
-echo "unexpected command" >&2
-exit 1
-`), 0o755))
-
-	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("OP_CONNECT_HOST", "https://connect.local")
-	t.Setenv("OP_CONNECT_TOKEN", "token")
-
-	err := SaveKubeconfigTo1Password([]byte("apiVersion: v1\n"), NewColorLogger())
-	require.NoError(t, err)
-}
-
-func TestPullPushAndLookupKubeconfigIn1Password(t *testing.T) {
-	scriptDir := t.TempDir()
-	opPath := filepath.Join(scriptDir, "op")
-	require.NoError(t, os.WriteFile(opPath, []byte(`#!/bin/sh
-set -eu
-if [ "$1" = "item" ] && [ "$2" = "get" ]; then
-  printf '{"files":[{"id":"file-123","name":"kubeconfig"},{"id":"other","name":"note"}]}'
-  exit 0
-fi
-if [ "$1" = "read" ]; then
-  [ "$2" = "op://Infrastructure/kubeconfig/file-123" ] || exit 1
-  [ "$3" = "--out-file" ] || exit 1
-  printf 'apiVersion: v1\nclusters: []\n' > "$4"
-  exit 0
-fi
-if [ "$1" = "item" ] && [ "$2" = "edit" ]; then
-  exit 0
-fi
-echo "unexpected command" >&2
-exit 1
-`), 0o755))
-
-	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	fileID, err := getKubeconfigFileID()
-	require.NoError(t, err)
-	assert.Equal(t, "file-123", fileID)
-
-	destPath := filepath.Join(t.TempDir(), "config", "kubeconfig")
-	require.NoError(t, PullKubeconfigFrom1Password(destPath, NewColorLogger()))
-	content, err := os.ReadFile(destPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "apiVersion: v1")
-
-	info, err := os.Stat(destPath)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
-
-	require.NoError(t, PushKubeconfigTo1Password(destPath, NewColorLogger()))
-}
-
-func TestGetKubeconfigFileIDErrors(t *testing.T) {
-	t.Run("invalid json", func(t *testing.T) {
-		scriptDir := t.TempDir()
-		opPath := filepath.Join(scriptDir, "op")
-		require.NoError(t, os.WriteFile(opPath, []byte("#!/bin/sh\nprintf '{'\n"), 0o755))
-		t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-		_, err := getKubeconfigFileID()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to parse item")
-	})
-
-	t.Run("missing kubeconfig attachment", func(t *testing.T) {
-		scriptDir := t.TempDir()
-		opPath := filepath.Join(scriptDir, "op")
-		require.NoError(t, os.WriteFile(opPath, []byte(`#!/bin/sh
-printf '{"files":[{"id":"other","name":"notes"}]}'
-`), 0o755))
-		t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-		_, err := getKubeconfigFileID()
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no kubeconfig file found")
-	})
 }

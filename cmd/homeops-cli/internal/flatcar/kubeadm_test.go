@@ -68,17 +68,17 @@ func withFakeRunner(t *testing.T, r *fakeRunner) func() {
 	orig := newCommandRunnerFn
 	newCommandRunnerFn = func(_ ssh.SSHConfig) commandRunner { return r }
 	// No persisted PKI in tests -> provisionPKI is a no-op (hermetic; no real op).
-	origPKI := pkiSecretFn
-	pkiSecretFn = func(string) string { return "" }
-	return func() { newCommandRunnerFn = orig; pkiSecretFn = origPKI }
+	origPKI := pkiFieldFn
+	pkiFieldFn = func(string) string { return "" }
+	return func() { newCommandRunnerFn = orig; pkiFieldFn = origPKI }
 }
 
 func TestProvisionPKIRestoresAllFiles(t *testing.T) {
 	r := &fakeRunner{}
 	defer withFakeRunner(t, r)()
-	pkiSecretFn = func(string) string { return "QUJD" } // base64("ABC"), non-empty for every ref
+	pkiFieldFn = func(string) string { return "QUJD" } // base64("ABC"), non-empty for every ref
 
-	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core", SSHItemRef: "op://x/y/key"})
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
 	require.NoError(t, o.provisionPKI(r))
 
 	joined := strings.Join(r.commands, "\n")
@@ -113,7 +113,7 @@ func TestCapturePKI(t *testing.T) {
 func TestProvisionPKIFreshSkips(t *testing.T) {
 	r := &fakeRunner{}
 	defer withFakeRunner(t, r)()
-	pkiSecretFn = func(string) string { return "QUJD" }
+	pkiFieldFn = func(string) string { return "QUJD" }
 
 	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core", FreshPKI: true})
 	require.NoError(t, o.provisionPKI(r))
@@ -122,7 +122,7 @@ func TestProvisionPKIFreshSkips(t *testing.T) {
 
 func TestProvisionPKINoMaterialSkips(t *testing.T) {
 	r := &fakeRunner{}
-	defer withFakeRunner(t, r)() // stubs pkiSecretFn -> "" (no persisted PKI)
+	defer withFakeRunner(t, r)() // stubs pkiFieldFn -> "" (no persisted PKI)
 
 	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
 	require.NoError(t, o.provisionPKI(r))
@@ -140,7 +140,7 @@ func TestInitFirstControlPlane(t *testing.T) {
 	}
 	defer withFakeRunner(t, r)()
 
-	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core", SSHItemRef: "op://x/y/key"})
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
 	res, err := o.InitFirstControlPlane("192.168.122.10", "kind: InitConfiguration\n", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "abcdef.0123456789abcdef", res.BootstrapToken)

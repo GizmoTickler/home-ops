@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
+	"homeops-cli/internal/secrets"
 
 	"github.com/vmware/govmomi"
 	"github.com/vmware/govmomi/find"
@@ -54,15 +56,15 @@ type datastoreUploader interface {
 }
 
 var (
-	vsphereSleep             = time.Sleep
-	get1PasswordSecretsBatch = common.Get1PasswordSecretsBatch
-	newClientWithConnectFn   = NewClientWithConnect
-	listVMNamesFn            = listVMNames
-	listVMObjectsFn          = func(client *Client) ([]*object.VirtualMachine, error) { return client.ListVMs() }
-	sshCombinedOutputFn      = func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() }
-	newGovmomiClientFn       = govmomi.NewClient
-	newFinderFn              = func(client *vim25.Client) *find.Finder { return find.NewFinder(client, true) }
-	defaultDatacenterFn      = func(ctx context.Context, finder *find.Finder) (*object.Datacenter, error) {
+	vsphereSleep           = time.Sleep
+	resolveSecretsBatch    = secrets.ResolveBatch
+	newClientWithConnectFn = NewClientWithConnect
+	listVMNamesFn          = listVMNames
+	listVMObjectsFn        = func(client *Client) ([]*object.VirtualMachine, error) { return client.ListVMs() }
+	sshCombinedOutputFn    = func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() }
+	newGovmomiClientFn     = govmomi.NewClient
+	newFinderFn            = func(client *vim25.Client) *find.Finder { return find.NewFinder(client, true) }
+	defaultDatacenterFn    = func(ctx context.Context, finder *find.Finder) (*object.Datacenter, error) {
 		return finder.DefaultDatacenter(ctx)
 	}
 	setFinderDatacenterFn = func(finder *find.Finder, datacenter *object.Datacenter) { finder.SetDatacenter(datacenter) }
@@ -642,11 +644,11 @@ type ESXiSSHClient struct {
 func NewESXiSSHClient(host, username string) (*ESXiSSHClient, error) {
 	logger := common.NewColorLogger()
 
-	// Fetch SSH private key from 1Password
-	logger.Debug("Fetching ESXi SSH key from 1Password...")
-	privateKey, err := common.Get1PasswordSecret(constants.OpESXiSSHPrivateKey)
+	// Fetch the SSH private key through the configured secret reference.
+	logger.Debug("Fetching ESXi SSH key (secrets.%s)...", config.KeyVSphereSSHKey)
+	privateKey, err := config.Get().ResolveSecret(config.KeyVSphereSSHKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get ESXi SSH key from 1Password: %w", err)
+		return nil, fmt.Errorf("failed to resolve ESXi SSH key: %w", err)
 	}
 
 	// Write key to temporary file with proper permissions
@@ -1241,15 +1243,18 @@ func listVMNames(client *Client) ([]string, error) {
 }
 
 func resolveVSphereCredentials() (host, username, password string, usedEnvFallback bool) {
-	secrets := get1PasswordSecretsBatch([]string{
-		constants.OpESXiHost,
-		constants.OpESXiUsername,
-		constants.OpESXiPassword,
-	})
-	host = secrets[constants.OpESXiHost]
-	username = secrets[constants.OpESXiUsername]
-	password = secrets[constants.OpESXiPassword]
+	cfg := config.Get()
+	hostRef := cfg.SecretRef(config.KeyVSphereHost)
+	usernameRef := cfg.SecretRef(config.KeyVSphereUsername)
+	passwordRef := cfg.SecretRef(config.KeyVSpherePassword)
 
+	resolved := resolveSecretsBatch([]string{hostRef, usernameRef, passwordRef})
+	host = resolved[hostRef]
+	username = resolved[usernameRef]
+	password = resolved[passwordRef]
+
+	// Legacy fallback: plain environment variables, regardless of the
+	// configured references.
 	if host == "" {
 		host = os.Getenv(constants.EnvVSphereHost)
 		usedEnvFallback = usedEnvFallback || host != ""

@@ -17,7 +17,7 @@ version: 1.1.0
 passwd:
   users:
     - name: core
-      # Node access key, sourced at render time from op://Infrastructure/flatcar/"public key"
+      # Node access key, sourced at render time from the configured secret reference (secrets.node_ssh_authorized_key)
       # (matching PRIVATE key in the same item, used by homeops-cli kubeadm-over-SSH).
       ssh_authorized_keys:
         - "{{ ENV.SSH_AUTHORIZED_KEY }}"

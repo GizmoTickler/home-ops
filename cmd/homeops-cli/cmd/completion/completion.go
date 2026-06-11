@@ -2,10 +2,12 @@ package completion
 
 import (
 	"fmt"
-	"homeops-cli/internal/common"
-	"homeops-cli/internal/constants"
 	"os"
 	"strings"
+
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 
 	"github.com/spf13/cobra"
 )
@@ -152,13 +154,8 @@ func ValidNodeNames(cmd *cobra.Command, args []string, toComplete string) ([]str
 		return nodeNames, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Fallback to static node names
-	nodeNames := []string{
-		"k8s-0",
-		"k8s-1",
-		"k8s-2",
-	}
-	return nodeNames, cobra.ShellCompDirectiveNoFileComp
+	// Fallback to the configured cluster topology
+	return config.Get().NodeNames(), cobra.ShellCompDirectiveNoFileComp
 }
 
 // ValidNodeIPs provides completion for node IP addresses
@@ -168,11 +165,11 @@ func ValidNodeIPs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return nodeIPs, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Fallback to static node IPs
-	nodeIPs := []string{
-		"192.168.122.10",
-		"192.168.122.11",
-		"192.168.122.12",
+	// Fallback to the configured cluster topology
+	nodes := config.Get().Cluster.Nodes
+	nodeIPs := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		nodeIPs = append(nodeIPs, n.IP)
 	}
 	return nodeIPs, cobra.ShellCompDirectiveNoFileComp
 }
@@ -239,12 +236,6 @@ func ValidVMNames(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return vmNames, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Fallback to static VM names (current Flatcar/kubeadm node names).
-	// Hyphens to match the real node names used everywhere else (k8s-0/1/2).
-	vmNames := []string{
-		"k8s-0",
-		"k8s-1",
-		"k8s-2",
-	}
-	return vmNames, cobra.ShellCompDirectiveNoFileComp
+	// Fallback to the configured cluster node names.
+	return config.Get().NodeNames(), cobra.ShellCompDirectiveNoFileComp
 }

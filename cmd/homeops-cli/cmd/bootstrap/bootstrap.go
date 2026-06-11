@@ -22,6 +22,8 @@ import (
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/secrets"
+	"homeops-cli/internal/state"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/ui"
 
@@ -72,7 +74,7 @@ var (
 	bootstrapWorkingDirectory = common.GetWorkingDirectory
 	bootstrapGetVersions      = versionconfig.GetVersions
 	bootstrapLookPath         = exec.LookPath
-	bootstrapEnsureOPAuth     = common.Ensure1PasswordAuth
+	bootstrapEnsureOPAuth     = secrets.EnsureOpAuth
 	bootstrapHTTPDo           = func(req *http.Request) (*http.Response, error) {
 		client := &http.Client{Timeout: 10 * time.Second}
 		return client.Do(req)
@@ -90,19 +92,21 @@ var (
 	bootstrapTalosctlCombined = func(talosConfig string, args ...string) ([]byte, error) {
 		return buildTalosctlCmd(talosConfig, args...).CombinedOutput()
 	}
-	bootstrapGetBootstrapFile       = templates.GetBootstrapFile
-	bootstrapGetBootstrapTemplate   = templates.GetBootstrapTemplate
-	bootstrapGetTalosTemplate       = templates.GetTalosTemplate
-	bootstrapInjectSecrets          = common.InjectSecrets
-	bootstrapResolveSecrets         = resolve1PasswordReferences
-	bootstrapRenderMachineConfig    = renderMachineConfigFromEmbedded
-	bootstrapGetMachineType         = getMachineTypeFromEmbedded
-	bootstrapMergeTalosConfigs      = mergeConfigsWithTalosctl
-	bootstrapGetTalosNodes          = getTalosNodes
-	bootstrapApplyNodeConfig        = applyNodeConfig
-	bootstrapApplyNodeConfigTry     = applyNodeConfigWithRetry
-	bootstrapValidateEtcd           = validateEtcdRunning
-	bootstrapSaveKubeconfig         = common.SaveKubeconfigTo1Password
+	bootstrapGetBootstrapFile     = templates.GetBootstrapFile
+	bootstrapGetBootstrapTemplate = templates.GetBootstrapTemplate
+	bootstrapGetTalosTemplate     = templates.GetTalosTemplate
+	bootstrapInjectSecrets        = secrets.Inject
+	bootstrapResolveSecrets       = resolve1PasswordReferences
+	bootstrapRenderMachineConfig  = renderMachineConfigFromEmbedded
+	bootstrapGetMachineType       = getMachineTypeFromEmbedded
+	bootstrapMergeTalosConfigs    = mergeConfigsWithTalosctl
+	bootstrapGetTalosNodes        = getTalosNodes
+	bootstrapApplyNodeConfig      = applyNodeConfig
+	bootstrapApplyNodeConfigTry   = applyNodeConfigWithRetry
+	bootstrapValidateEtcd         = validateEtcdRunning
+	bootstrapSaveKubeconfig       = func(content []byte, logger *common.ColorLogger) error {
+		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Save(content, logger)
+	}
 	bootstrapPatchKubeconfig        = patchKubeconfigForBootstrap
 	bootstrapGetRandomController    = getRandomController
 	bootstrapRunPreflightChecks     = runPreflightChecks
@@ -328,6 +332,17 @@ kubeadm provider:
 
 Pass --provider talos to run the legacy Talos path (apply machine config,
 talosctl bootstrap) instead.`,
+		Example: `  # Dry-run first: see every step without touching the cluster
+  homeops-cli bootstrap --dry-run
+
+  # Full Flatcar/kubeadm bootstrap
+  homeops-cli bootstrap
+
+  # Re-run only the post-CNI phase against an existing control plane
+  homeops-cli bootstrap --skip-kubeadm
+
+  # Legacy Talos path
+  homeops-cli bootstrap --provider talos`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBootstrap(&config)
 		},
@@ -1052,6 +1067,13 @@ func checkDNSResolution(config *BootstrapConfig, logger *common.ColorLogger) *Pr
 }
 
 func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
+	if !versionconfig.Get().UsesOpReferences() {
+		return &PreflightResult{
+			Name:    "1Password Authentication",
+			Status:  "PASS",
+			Message: "Skipped — no op:// references in the homeops config",
+		}
+	}
 	if err := bootstrapEnsureOPAuth(); err != nil {
 		return &PreflightResult{
 			Name:    "1Password Authentication",
@@ -1067,9 +1089,17 @@ func check1PasswordAuthPreflight(config *BootstrapConfig, logger *common.ColorLo
 }
 
 func checkMachineConfigRendering(config *BootstrapConfig, logger *common.ColorLogger) *PreflightResult {
-	// Test rendering of machine configurations
-	// Use a sample node template for patch testing
-	patchTemplate := "nodes/192.168.122.10.yaml"
+	// Test rendering of machine configurations using the first configured
+	// node's patch template.
+	nodes := versionconfig.Get().Cluster.Nodes
+	if len(nodes) == 0 {
+		return &PreflightResult{
+			Name:    "Machine Config Rendering",
+			Status:  "FAIL",
+			Message: "no cluster nodes configured (cluster.nodes in homeops.yaml)",
+		}
+	}
+	patchTemplate := fmt.Sprintf("nodes/%s.yaml", nodes[0].IP)
 
 	_, err := bootstrapRenderMachineConfig("controlplane.yaml", patchTemplate, "controlplane", logger)
 	if err != nil {
@@ -1379,13 +1409,11 @@ func renderMachineConfigFromEmbedded(baseTemplate, patchTemplate, _ string, logg
 		resolvedConfig = string(mergedConfig)
 	}
 
-	// Debug: Check if the resolved config still contains 1Password references
-	if strings.Contains(resolvedConfig, "op://") {
-		logger.Warn("Warning: Resolved config still contains 1Password references")
-		// Find remaining references
-		opRefs := extractOnePasswordReferences(resolvedConfig)
-		for _, ref := range opRefs {
-			logger.Warn("Unresolved 1Password reference: %s", ref)
+	// Debug: Check if the resolved config still contains secret references
+	if remaining := secrets.ListReferences(resolvedConfig); len(remaining) > 0 {
+		logger.Warn("Warning: Resolved config still contains secret references")
+		for _, ref := range remaining {
+			logger.Warn("Unresolved secret reference: %s", ref)
 		}
 	}
 
@@ -2211,9 +2239,9 @@ func applyResources(config *BootstrapConfig, logger *common.ColorLogger) error {
 	return nil
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the shared common function
+// get1PasswordSecret retrieves a secret through the shared scheme resolver.
 func get1PasswordSecret(reference string) (string, error) {
-	return common.Get1PasswordSecret(reference)
+	return secrets.Resolve(reference)
 }
 
 // resolve1PasswordReferences resolves all 1Password references in the content
@@ -2256,14 +2284,13 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	}
 
 	// Optional validation message
-	if strings.Contains(resolved, "op://") {
-		logger.Warn("Warning: Resolved content still contains 1Password references")
-		remainingRefs := extractOnePasswordReferences(resolved)
-		for _, ref := range remainingRefs {
+	if remaining := secrets.ListReferences(resolved); len(remaining) > 0 {
+		logger.Warn("Warning: Resolved content still contains secret references")
+		for _, ref := range remaining {
 			logger.Warn("Unresolved reference: %s", ref)
 		}
 	} else {
-		logger.Debug("✅ No 1Password references remain in rendered configuration")
+		logger.Debug("✅ No secret references remain in rendered configuration")
 	}
 
 	// Save rendered configuration for validation if debug is enabled

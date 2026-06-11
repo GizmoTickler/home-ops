@@ -12,12 +12,14 @@ import (
 
 	"homeops-cli/cmd/bootstrap"
 	"homeops-cli/cmd/completion"
+	configcmd "homeops-cli/cmd/config"
 	"homeops-cli/cmd/flatcar"
 	"homeops-cli/cmd/kubernetes"
 	"homeops-cli/cmd/talos"
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ui"
 
@@ -30,6 +32,7 @@ var (
 	date             = "unknown"
 	logLevel         string
 	assumeYes        bool
+	configPath       string
 	chooseFn                   = ui.Choose
 	signalNotifyFn             = signal.Notify
 	executeRootCmdFn           = func(cmd *cobra.Command) error { return cmd.Execute() }
@@ -69,7 +72,15 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 		Short: "HomeOps Infrastructure Management CLI",
 		Long: `A comprehensive CLI tool for managing home infrastructure including
 Flatcar/kubeadm (and legacy Talos) clusters, Kubernetes applications,
-VolSync backups, and more.`,
+VolSync backups, and more.
+
+Configuration lives in homeops.yaml (cluster topology, hypervisors, and
+secret-backend references) — run 'homeops-cli config init' to scaffold one
+and 'homeops-cli config doctor' to validate your setup.
+
+Environment:
+  HOMEOPS_CONFIG          path to the config file (same as --config)
+  HOMEOPS_NO_INTERACTIVE  set to 1 to disable interactive prompts (CI mode)`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			// Set global log level from flag (if provided) before any command runs
@@ -77,6 +88,10 @@ VolSync backups, and more.`,
 				common.SetGlobalLogLevel(logLevel)
 			}
 			ui.SetAssumeYes(assumeYes)
+			// Record --config before any command loads the configuration.
+			if configPath != "" {
+				config.SetExplicitPath(configPath)
+			}
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Only launch the interactive menu on a real terminal; when stdin is
@@ -91,6 +106,7 @@ VolSync backups, and more.`,
 	// Add global flags
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "", "Set log level (debug, info, warn, error)")
 	rootCmd.PersistentFlags().BoolVarP(&assumeYes, "yes", "y", false, "Assume yes for all confirmation prompts (non-interactive)")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Path to the homeops config file (default: ./homeops.yaml, <git root>/homeops.yaml, or ~/.config/homeops/config.yaml)")
 
 	// Set global environment variables
 	setEnvironment()
@@ -99,11 +115,13 @@ VolSync backups, and more.`,
 	rootCmd.AddCommand(
 		bootstrap.NewCommand(),
 		completion.NewCommand(),
+		configcmd.NewCommand(),
 		flatcar.NewCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),
+		newVersionCommand(),
 	)
 
 	// Enable completion for all commands
@@ -243,6 +261,18 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 				return subcmd.Help()
 			}
 		}
+	}
+}
+
+// newVersionCommand exposes the build info as `homeops-cli version` so
+// scripts don't have to parse --help output.
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print version, commit, and build date",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("homeops-cli %s\ncommit: %s\nbuilt:  %s\n", version, commit, date)
+		},
 	}
 }
 

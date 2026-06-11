@@ -19,37 +19,36 @@ var connectRetrySleep = time.Sleep
 
 var runCommand = common.RunCommand
 
-// SSHClient represents an SSH client for TrueNAS operations
+// SSHClient executes commands on a remote host via the system ssh binary.
+// Authentication is delegated entirely to the ambient ssh-agent (a standard
+// agent or the 1Password agent — the client doesn't care which).
 type SSHClient struct {
-	host       string
-	username   string
-	port       string
-	sshItemRef string // 1Password SSH item reference
-	logger     *common.ColorLogger
+	host     string
+	username string
+	port     string
+	logger   *common.ColorLogger
 }
 
 // SSHConfig holds SSH connection configuration
 type SSHConfig struct {
-	Host       string
-	Username   string
-	Port       string
-	SSHItemRef string // 1Password SSH item reference
+	Host     string
+	Username string
+	Port     string
 }
 
 // NewSSHClient creates a new SSH client instance
 func NewSSHClient(config SSHConfig) *SSHClient {
 	return &SSHClient{
-		host:       config.Host,
-		username:   config.Username,
-		port:       config.Port,
-		sshItemRef: config.SSHItemRef,
-		logger:     common.NewColorLogger(),
+		host:     config.Host,
+		username: config.Username,
+		port:     config.Port,
+		logger:   common.NewColorLogger(),
 	}
 }
 
-// Connect validates the SSH connection using SSH with 1Password SSH agent
+// Connect validates the SSH connection using the ambient ssh-agent
 func (c *SSHClient) Connect() error {
-	c.logger.Debug("Testing SSH connection to %s@%s:%s using 1Password SSH agent", c.username, c.host, c.port)
+	c.logger.Debug("Testing SSH connection to %s@%s:%s via ssh-agent", c.username, c.host, c.port)
 
 	// Validate configuration first
 	if c.host == "" {
@@ -86,7 +85,7 @@ func (c *SSHClient) Connect() error {
 		return fmt.Errorf("SSH connection test failed - expected 'connection_test' in output")
 	}
 
-	c.logger.Success("Successfully connected to TrueNAS via SSH")
+	c.logger.Success("Successfully connected to %s via SSH", c.host)
 	return nil
 }
 

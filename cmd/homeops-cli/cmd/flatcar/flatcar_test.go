@@ -12,7 +12,6 @@ import (
 
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
-	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/truenas"
@@ -36,21 +35,16 @@ func stubVersions(t *testing.T) func() {
 	return func() { getVersionsFn = orig }
 }
 
-// stubSecrets makes the op-sourced node identifiers deterministic (no real
-// 1Password access) so buildNodeEnv is hermetic.
+// stubSecrets makes the config-sourced node identifiers deterministic (no
+// real secret-backend access) so buildNodeEnv is hermetic.
 func stubSecrets(t *testing.T) func() {
 	t.Helper()
-	orig := get1PasswordSecretFn
-	get1PasswordSecretFn = func(ref string) string {
-		switch ref {
-		case constants.OpSecretDomain:
-			return "example.test"
-		case constants.OpFlatcarPublicKey:
-			return "ssh-ed25519 AAAATESTKEY"
-		}
-		return ""
-	}
-	return func() { get1PasswordSecretFn = orig }
+	return versionconfig.SetForTesting(&versionconfig.Config{
+		Cluster: versionconfig.ClusterConfig{DomainRef: "literal://example.test"},
+		Secrets: map[string]string{
+			versionconfig.KeyNodeSSHAuthorizedKey: "literal://ssh-ed25519 AAAATESTKEY",
+		},
+	})
 }
 
 func TestNewCommandStructure(t *testing.T) {
@@ -64,41 +58,6 @@ func TestNewCommandStructure(t *testing.T) {
 	assert.True(t, subs["render-ignition"])
 	assert.True(t, subs["gen-kubeadm"])
 	assert.True(t, subs["save-pki"])
-}
-
-func TestBuildPKITemplate(t *testing.T) {
-	// *.key fields must be CONCEALED; others STRING; deterministic order; notes first.
-	tmpl := buildPKITemplate(map[string]string{"ca_crt": "AAA", "ca_key": "BBB", "etcd_ca_key": "CCC"})
-	assert.Equal(t, "kubernetes-pki", tmpl.Title)
-	assert.Equal(t, "SECURE_NOTE", tmpl.Category)
-	require.Len(t, tmpl.Fields, 4) // notesPlain + 3
-	assert.Equal(t, "notesPlain", tmpl.Fields[0].ID)
-	got := map[string]opField{}
-	for _, f := range tmpl.Fields[1:] {
-		got[f.Label] = f
-	}
-	assert.Equal(t, "STRING", got["ca_crt"].Type)
-	assert.Equal(t, "AAA", got["ca_crt"].Value)
-	assert.Equal(t, "CONCEALED", got["ca_key"].Type)      // *.key concealed
-	assert.Equal(t, "CONCEALED", got["etcd_ca_key"].Type) // *.key concealed
-}
-
-func TestSavePKIToOpUsesStdinNotArgv(t *testing.T) {
-	// The base64 keys must travel via stdin (template), never argv (/proc leak).
-	var deleteArgs []string
-	var createStdin []byte
-	var createArgs []string
-	origDel, origStdin := runOpFn, runOpStdinFn
-	runOpFn = func(args ...string) error { deleteArgs = args; return nil }
-	runOpStdinFn = func(stdin []byte, args ...string) error { createStdin = stdin; createArgs = args; return nil }
-	defer func() { runOpFn, runOpStdinFn = origDel, origStdin }()
-
-	require.NoError(t, savePKIToOp(map[string]string{"ca_crt": "AAA", "ca_key": "BBB"}))
-	assert.Equal(t, "delete", deleteArgs[1])
-	assert.Equal(t, []string{"item", "create", "--vault", "Infrastructure"}, createArgs)
-	// secret values present in stdin payload, absent from argv
-	assert.Contains(t, string(createStdin), "BBB")
-	assert.NotContains(t, strings.Join(createArgs, " "), "BBB")
 }
 
 func TestResetNodeCommand(t *testing.T) {
@@ -196,14 +155,14 @@ func TestKubeconfigCommandPull(t *testing.T) {
 func TestSavePKICommand(t *testing.T) {
 	defer stubSecrets(t)() // OpFlatcarSSHUser -> "" so sshUser defaults to "core"
 	var saved map[string]string
-	origCap, origSave := capturePKIFn, savePKIToOpFn
+	origCap, origSave := capturePKIFn, savePKIFn
 	capturePKIFn = func(sshUser, ip string) (map[string]string, error) {
 		assert.Equal(t, "core", sshUser)
 		assert.Equal(t, "192.168.122.10", ip)
 		return map[string]string{"ca_crt": "X", "ca_key": "Y"}, nil
 	}
-	savePKIToOpFn = func(f map[string]string) error { saved = f; return nil }
-	defer func() { capturePKIFn = origCap; savePKIToOpFn = origSave }()
+	savePKIFn = func(f map[string]string) error { saved = f; return nil }
+	defer func() { capturePKIFn = origCap; savePKIFn = origSave }()
 
 	cmd := newSavePKICommand()
 	cmd.SetArgs([]string{"--node", "k8s-0"})

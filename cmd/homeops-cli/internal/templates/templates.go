@@ -3,9 +3,13 @@ package templates
 import (
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/metrics"
+	"homeops-cli/internal/secrets"
 	"homeops-cli/internal/template"
 )
 
@@ -24,10 +28,25 @@ var brewTemplates embed.FS
 //go:embed flatcar/butane/*.bu flatcar/kubeadm/*.yaml flatcar/files/* flatcar/manifests/*
 var flatcarTemplates embed.FS
 
+// readTemplateFile returns template content, preferring a user override from
+// the configured templates.dir (homeops.yaml) over the embedded copy. The
+// override file shadows the embedded one by relative path, e.g.
+// <templates.dir>/talos/controlplane.yaml.
+func readTemplateFile(embedded embed.FS, path string) ([]byte, error) {
+	if dir := config.Get().Templates.Dir; dir != "" {
+		if expanded, err := secrets.ExpandHome(dir); err == nil {
+			if data, err := os.ReadFile(filepath.Join(expanded, path)); err == nil {
+				return data, nil
+			}
+		}
+	}
+	return embedded.ReadFile(path)
+}
+
 // RenderTemplate renders a Jinja2-style template with environment variables
 func RenderVolsyncTemplate(templateName string, env map[string]string) (string, error) {
 	templateFile := fmt.Sprintf("volsync/%s", templateName)
-	content, err := volsyncTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(volsyncTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -45,7 +64,7 @@ func RenderVolsyncTemplate(templateName string, env map[string]string) (string, 
 // GetVolsyncTemplate returns the raw template content
 func GetVolsyncTemplate(templateName string) (string, error) {
 	templateFile := fmt.Sprintf("volsync/%s", templateName)
-	content, err := volsyncTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(volsyncTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -54,7 +73,7 @@ func GetVolsyncTemplate(templateName string) (string, error) {
 
 // RenderTalosTemplate renders a Jinja2-style Talos template with environment variables
 func RenderTalosTemplate(templateName string, env map[string]string) (string, error) {
-	content, err := talosTemplates.ReadFile(templateName)
+	content, err := readTemplateFile(talosTemplates, templateName)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -71,7 +90,7 @@ func RenderTalosTemplate(templateName string, env map[string]string) (string, er
 
 // GetTalosTemplate returns the raw Talos template content
 func GetTalosTemplate(templateName string) (string, error) {
-	content, err := talosTemplates.ReadFile(templateName)
+	content, err := readTemplateFile(talosTemplates, templateName)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -84,7 +103,7 @@ func GetTalosTemplate(templateName string) (string, error) {
 // "kubeadm/init-config.yaml", "files/containerd-config.toml", "manifests/kube-vip.yaml".
 func RenderFlatcarTemplate(templateName string, env map[string]string) (string, error) {
 	templateFile := fmt.Sprintf("flatcar/%s", templateName)
-	content, err := flatcarTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(flatcarTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read flatcar template %s: %w", templateName, err)
 	}
@@ -102,7 +121,7 @@ func RenderFlatcarTemplate(templateName string, env map[string]string) (string, 
 // GetFlatcarTemplate returns the raw Flatcar template content (no substitution).
 func GetFlatcarTemplate(templateName string) (string, error) {
 	templateFile := fmt.Sprintf("flatcar/%s", templateName)
-	content, err := flatcarTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(flatcarTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read flatcar template %s: %w", templateName, err)
 	}
@@ -131,7 +150,7 @@ func ListFlatcarFiles(subdir string) ([]string, error) {
 // RenderBootstrapTemplate renders a Jinja2-style bootstrap template with environment variables
 func RenderBootstrapTemplate(templateName string, env map[string]string) (string, error) {
 	templateFile := fmt.Sprintf("bootstrap/%s", templateName)
-	content, err := bootstrapTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(bootstrapTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -158,7 +177,7 @@ func GetBootstrapTemplate(templateName string) (string, error) {
 	// Check if this is the values template which is now in a different location
 	if templateName == "values.yaml.gotmpl" {
 		templateFile := "bootstrap/helmfile.d/templates/values.yaml.gotmpl"
-		content, err := bootstrapTemplates.ReadFile(templateFile)
+		content, err := readTemplateFile(bootstrapTemplates, templateFile)
 		if err != nil {
 			return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 		}
@@ -167,7 +186,7 @@ func GetBootstrapTemplate(templateName string) (string, error) {
 
 	// For other templates, use the standard path
 	templateFile := fmt.Sprintf("bootstrap/%s", templateName)
-	content, err := bootstrapTemplates.ReadFile(templateFile)
+	content, err := readTemplateFile(bootstrapTemplates, templateFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
 	}
@@ -177,7 +196,7 @@ func GetBootstrapTemplate(templateName string) (string, error) {
 // GetBootstrapFile returns the content of a bootstrap file (non-template)
 func GetBootstrapFile(fileName string) (string, error) {
 	filePath := fmt.Sprintf("bootstrap/%s", fileName)
-	content, err := bootstrapTemplates.ReadFile(filePath)
+	content, err := readTemplateFile(bootstrapTemplates, filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", fileName, err)
 	}
@@ -186,7 +205,7 @@ func GetBootstrapFile(fileName string) (string, error) {
 
 // GetBrewfile returns the content of the embedded Brewfile
 func GetBrewfile() (string, error) {
-	content, err := brewTemplates.ReadFile("brew/Brewfile")
+	content, err := readTemplateFile(brewTemplates, "brew/Brewfile")
 	if err != nil {
 		return "", fmt.Errorf("failed to read Brewfile: %w", err)
 	}

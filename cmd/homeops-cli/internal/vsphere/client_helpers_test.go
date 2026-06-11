@@ -271,15 +271,16 @@ func TestDeployVMsConcurrently(t *testing.T) {
 }
 
 func TestResolveVSphereCredentials(t *testing.T) {
-	originalGetSecrets := get1PasswordSecretsBatch
-	t.Cleanup(func() { get1PasswordSecretsBatch = originalGetSecrets })
+	originalGetSecrets := resolveSecretsBatch
+	t.Cleanup(func() { resolveSecretsBatch = originalGetSecrets })
 
-	t.Run("uses onepassword values first", func(t *testing.T) {
-		get1PasswordSecretsBatch = func([]string) map[string]string {
+	t.Run("uses configured secret references first", func(t *testing.T) {
+		resolveSecretsBatch = func(refs []string) map[string]string {
+			// refs arrive as [host, username, password]
 			return map[string]string{
-				constants.OpESXiHost:     "esxi.local",
-				constants.OpESXiUsername: "root",
-				constants.OpESXiPassword: "secret",
+				refs[0]: "esxi.local",
+				refs[1]: "root",
+				refs[2]: "secret",
 			}
 		}
 
@@ -291,7 +292,7 @@ func TestResolveVSphereCredentials(t *testing.T) {
 	})
 
 	t.Run("falls back to environment", func(t *testing.T) {
-		get1PasswordSecretsBatch = func([]string) map[string]string { return map[string]string{} }
+		resolveSecretsBatch = func([]string) map[string]string { return map[string]string{} }
 		t.Setenv(constants.EnvVSphereHost, "env-host")
 		t.Setenv(constants.EnvVSphereUsername, "env-user")
 		t.Setenv(constants.EnvVSpherePassword, "env-pass")
@@ -305,16 +306,16 @@ func TestResolveVSphereCredentials(t *testing.T) {
 }
 
 func TestGetVMNamesWithSeams(t *testing.T) {
-	originalGetSecrets := get1PasswordSecretsBatch
+	originalGetSecrets := resolveSecretsBatch
 	originalNewClient := newClientWithConnectFn
 	originalListVMNames := listVMNamesFn
 	t.Cleanup(func() {
-		get1PasswordSecretsBatch = originalGetSecrets
+		resolveSecretsBatch = originalGetSecrets
 		newClientWithConnectFn = originalNewClient
 		listVMNamesFn = originalListVMNames
 	})
 
-	get1PasswordSecretsBatch = func([]string) map[string]string { return map[string]string{} }
+	resolveSecretsBatch = func([]string) map[string]string { return map[string]string{} }
 	t.Setenv(constants.EnvVSphereHost, "env-host")
 	t.Setenv(constants.EnvVSphereUsername, "env-user")
 	t.Setenv(constants.EnvVSpherePassword, "env-pass")

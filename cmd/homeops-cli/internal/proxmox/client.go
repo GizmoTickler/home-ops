@@ -9,7 +9,9 @@ import (
 	"os"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
+	"homeops-cli/internal/secrets"
 
 	"github.com/luthermonson/go-proxmox"
 )
@@ -163,59 +165,44 @@ func (c *Client) Node() *proxmox.Node {
 	return c.node
 }
 
-// GetCredentials retrieves Proxmox credentials from 1Password or environment variables
+// GetCredentials retrieves Proxmox credentials through the configured secret
+// references (homeops.yaml `secrets:` map), with legacy environment-variable
+// fallbacks.
 func GetCredentials() (host, tokenID, secret, nodeName string, err error) {
-	logger := common.NewColorLogger()
-	usedEnvFallback := false
+	cfg := config.Get()
+	hostRef := cfg.SecretRef(config.KeyProxmoxHost)
+	tokenIDRef := cfg.SecretRef(config.KeyProxmoxTokenID)
+	tokenSecretRef := cfg.SecretRef(config.KeyProxmoxTokenSecret)
+	nodeRef := cfg.SecretRef(config.KeyProxmoxNode)
 
-	// Try 1Password first - batch lookup for better performance
-	secrets := common.Get1PasswordSecretsBatch([]string{
-		constants.OpProxmoxHost,
-		constants.OpProxmoxTokenID,
-		constants.OpProxmoxTokenSecret,
-		constants.OpProxmoxNode,
-	})
-	host = secrets[constants.OpProxmoxHost]
-	tokenID = secrets[constants.OpProxmoxTokenID]
-	secret = secrets[constants.OpProxmoxTokenSecret]
-	nodeName = secrets[constants.OpProxmoxNode]
+	resolved := secrets.ResolveBatch([]string{hostRef, tokenIDRef, tokenSecretRef, nodeRef})
+	host = resolved[hostRef]
+	tokenID = resolved[tokenIDRef]
+	secret = resolved[tokenSecretRef]
+	nodeName = resolved[nodeRef]
 
-	// Fall back to environment variables if 1Password fails
+	// Legacy fallback: plain environment variables, regardless of the
+	// configured references.
 	if host == "" {
 		host = os.Getenv(constants.EnvProxmoxHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
 	}
 	if tokenID == "" {
 		tokenID = os.Getenv(constants.EnvProxmoxTokenID)
-		if tokenID != "" {
-			usedEnvFallback = true
-		}
 	}
 	if secret == "" {
 		secret = os.Getenv(constants.EnvProxmoxTokenSecret)
-		if secret != "" {
-			usedEnvFallback = true
-		}
 	}
 	if nodeName == "" {
 		nodeName = os.Getenv(constants.EnvProxmoxNode)
 		if nodeName == "" {
-			nodeName = "pve" // Default node name
+			nodeName = config.DefaultProxmoxNodeName
 		}
 	}
 
-	// Check if we have required credentials
 	if host == "" || tokenID == "" || secret == "" {
-		return "", "", "", "", fmt.Errorf("proxmox credentials not found: set %s, %s, and %s environment variables or configure 1Password with '%s', '%s', and '%s'",
-			constants.EnvProxmoxHost, constants.EnvProxmoxTokenID, constants.EnvProxmoxTokenSecret,
-			constants.OpProxmoxHost, constants.OpProxmoxTokenID, constants.OpProxmoxTokenSecret)
-	}
-
-	// Warn if using environment variables (less secure than 1Password)
-	if usedEnvFallback {
-		logger.Warn("Using environment variables for Proxmox credentials. Consider using 1Password for better security.")
+		return "", "", "", "", fmt.Errorf("proxmox credentials not found: secrets.%s (%s), secrets.%s (%s), and secrets.%s (%s) did not resolve — fix the references in your homeops config or set %s/%s/%s, then re-check with 'homeops-cli config doctor'",
+			config.KeyProxmoxHost, hostRef, config.KeyProxmoxTokenID, tokenIDRef, config.KeyProxmoxTokenSecret, tokenSecretRef,
+			constants.EnvProxmoxHost, constants.EnvProxmoxTokenID, constants.EnvProxmoxTokenSecret)
 	}
 
 	return host, tokenID, secret, nodeName, nil

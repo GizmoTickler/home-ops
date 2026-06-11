@@ -20,6 +20,8 @@ func TestESXiSSHClientHelpers(t *testing.T) {
 	require.NoError(t, os.WriteFile(opPath, []byte("#!/bin/sh\nprintf 'PRIVATE-KEY'\n"), 0o755))
 	require.NoError(t, os.WriteFile(sshPath, []byte("#!/bin/sh\nprintf 'SSH-OK'\n"), 0o755))
 	t.Setenv("PATH", scriptDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// The SSH key resolves through the homeops config (env:// default in tests).
+	t.Setenv("VSPHERE_SSH_PRIVATE_KEY", "PRIVATE-KEY")
 
 	client, err := NewESXiSSHClient("esxi.local", "root")
 	require.NoError(t, err)

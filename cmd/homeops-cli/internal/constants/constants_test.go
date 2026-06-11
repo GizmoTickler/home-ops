@@ -1,7 +1,6 @@
 package constants
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -19,11 +18,6 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, "network", NSNetwork)
 
 	assert.Equal(t, "https://factory.talos.dev", TalosFactoryBaseURL)
-	assert.Equal(t, "/mnt/flashstor/ISO/metal-amd64.iso", TrueNASStandardISOPath)
-
-	assert.True(t, strings.HasPrefix(OpProxmoxHost, "op://"))
-	assert.True(t, strings.HasPrefix(OpTrueNASHost, "op://"))
-	assert.True(t, strings.HasPrefix(OpESXiHost, "op://"))
 
 	assert.Equal(t, "30s", DefaultKubectlTimeout)
 	assert.Equal(t, 120000, DefaultCommandTimeout)

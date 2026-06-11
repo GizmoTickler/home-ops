@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	homeopscfg "homeops-cli/internal/config"
 )
 
 var sleepForOperation = time.Sleep
@@ -615,8 +616,14 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if config.SpicePassword == "" {
 			return fmt.Errorf("SPICE password is required for display device")
 		}
+		// Bind address comes from hypervisors.truenas.spice_host in
+		// homeops.yaml; all interfaces when unset.
+		spiceBind := homeopscfg.Get().Hypervisors.TrueNAS.SpiceHost
+		if spiceBind == "" {
+			spiceBind = "0.0.0.0"
+		}
 		if err := vm.createVMDevice(vmID, 1003, map[string]interface{}{
-			"bind":       "192.168.120.10",
+			"bind":       spiceBind,
 			"dtype":      "DISPLAY",
 			"password":   config.SpicePassword,
 			"port":       nil,
@@ -630,7 +637,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		}
 
 		vm.logger.Info("Created SPICE display device with password from config")
-		vm.logger.Info("Display access: SPICE://192.168.120.10:[auto-assigned] (web: https://192.168.120.10:[auto-assigned])")
+		vm.logger.Info("Display access: SPICE://%s:[auto-assigned] (web: https://%s:[auto-assigned])", spiceBind, spiceBind)
 	} else {
 		vm.logger.Info("Skipping SPICE display device for VM %s", config.Name)
 	}

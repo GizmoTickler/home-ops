@@ -1,0 +1,92 @@
+# homeops-cli configuration for this repo's cluster.
+#
+# Discovery order: --config flag > $HOMEOPS_CONFIG > ./homeops.yaml >
+# <git root>/homeops.yaml > ~/.config/homeops/config.yaml.
+#
+# Secret references support several backends:
+#   op://vault/item/field    1Password CLI
+#   env://VAR_NAME           environment variable
+#   file:///path/to/file     file contents (~ expands)
+#   cmd://command args       stdout of a command (pass, vault, sops...)
+#   literal://value          the value itself (non-sensitive knobs)
+#
+# Without this file, homeops-cli falls back to fully-portable defaults
+# (env:// for every secret, local-file state stores). Run
+# `homeops-cli config init` to scaffold your own copy, and
+# `homeops-cli config doctor` to check what resolves.
+
+cluster:
+  name: home-kubernetes
+  domain_ref: op://Infrastructure/cluster-config/SECRET_DOMAIN
+  control_plane_vip: 192.168.123.253
+  node_interface: eth0
+  nodes:
+    - name: k8s-0
+      ip: 192.168.122.10
+    - name: k8s-1
+      ip: 192.168.122.11
+    - name: k8s-2
+      ip: 192.168.122.12
+
+hypervisors:
+  default: proxmox
+  proxmox:
+    snippets_dir: /var/lib/vz/snippets
+  truenas:
+    iso_dir: /mnt/flashstor/ISO
+    iso_file: metal-amd64.iso
+    spice_host: 192.168.120.10
+
+state:
+  kubeconfig:
+    backend: op
+    op:
+      vault: Infrastructure
+      item: kubeconfig
+      field: kubeconfig
+  pki:
+    backend: op
+    op:
+      vault: Infrastructure
+      item: kubernetes-pki
+
+secrets:
+  # Hypervisor credentials
+  truenas_host: op://Infrastructure/talosdeploy/TRUENAS_HOST
+  truenas_api_key: op://Infrastructure/talosdeploy/TRUENAS_API
+  truenas_username: op://Infrastructure/talosdeploy/TRUENAS_USERNAME
+  truenas_spice_password: op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS
+  proxmox_host: op://Infrastructure/PVE-API/HOST
+  proxmox_token_id: op://Infrastructure/PVE-API/TOKENID
+  proxmox_token_secret: op://Infrastructure/PVE-API/SECRET
+  proxmox_node: op://Infrastructure/PVE-API/node
+  # vSphere/ESXi: no ESXi host is currently deployed; the old 1Password items
+  # are gone. The portable env:// defaults (VSPHERE_HOST etc.) apply — re-add
+  # op:// references here if an ESXi host returns.
+
+  # Cluster identity / node access
+  cluster_domain: op://Infrastructure/cluster-config/SECRET_DOMAIN
+  node_ssh_user: op://Infrastructure/flatcar/SSH_USER
+  node_ssh_authorized_key: "op://Infrastructure/flatcar/public key"
+
+  # Talos machine secrets (legacy provider)
+  talos_machine_ca_crt: op://Infrastructure/talos/MACHINE_CA_CRT
+  talos_machine_ca_key: op://Infrastructure/talos/MACHINE_CA_KEY
+  talos_machine_token: op://Infrastructure/talos/MACHINE_TOKEN
+  talos_cluster_ca_crt: op://Infrastructure/talos/CLUSTER_CA_CRT
+  talos_cluster_ca_key: op://Infrastructure/talos/CLUSTER_CA_KEY
+  talos_cluster_id: op://Infrastructure/talos/CLUSTER_ID
+  talos_cluster_secret: op://Infrastructure/talos/CLUSTER_SECRET
+  talos_cluster_token: op://Infrastructure/talos/CLUSTER_TOKEN
+  talos_k8s_endpoint: op://Infrastructure/talos/K8S_ENDPOINT
+  talos_aggregator_ca_crt: op://Infrastructure/talos/CLUSTER_AGGREGATORCA_CRT
+  talos_aggregator_ca_key: op://Infrastructure/talos/CLUSTER_AGGREGATORCA_KEY
+  talos_etcd_ca_crt: op://Infrastructure/talos/CLUSTER_ETCD_CA_CRT
+  talos_etcd_ca_key: op://Infrastructure/talos/CLUSTER_ETCD_CA_KEY
+  talos_secretbox_encryption_secret: op://Infrastructure/talos/CLUSTER_SECRETBOXENCRYPTIONSECRET
+  talos_service_account_key: op://Infrastructure/talos/CLUSTER_SERVICEACCOUNT_KEY
+
+  # Bootstrap workload secrets (embedded bootstrap manifests)
+  op_credentials_json: op://Infrastructure/1password/OP_CREDENTIALS_JSON
+  op_connect_token: op://Infrastructure/1password/OP_CONNECT_TOKEN
+  cloudflare_tunnel_id: op://Infrastructure/cloudflare/CLOUDFLARE_TUNNEL_ID

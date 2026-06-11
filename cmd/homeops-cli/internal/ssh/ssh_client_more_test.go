@@ -59,10 +59,9 @@ esac
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/test-agent.sock")
 
 	client := NewSSHClient(SSHConfig{
-		Host:       "truenas.local",
-		Username:   "admin",
-		Port:       "22",
-		SSHItemRef: "op://vault/item/key",
+		Host:     "truenas.local",
+		Username: "admin",
+		Port:     "22",
 	})
 
 	require.NoError(t, client.Connect())

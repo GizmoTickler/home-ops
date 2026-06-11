@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
+	"homeops-cli/internal/secrets"
 
 	"github.com/truenas/api_client_golang/truenas_api"
 )
@@ -480,42 +482,31 @@ func (c *WorkingClient) GetDeviceNICAttachChoices() (interface{}, error) {
 	return choices, nil
 }
 
-// GetCredentials retrieves TrueNAS credentials from 1Password or environment variables
+// GetCredentials retrieves TrueNAS credentials through the configured secret
+// references (homeops.yaml `secrets:` map), with legacy environment-variable
+// fallbacks.
 func GetCredentials() (host, apiKey string, err error) {
-	logger := common.NewColorLogger()
-	usedEnvFallback := false
+	cfg := config.Get()
+	hostRef := cfg.SecretRef(config.KeyTrueNASHost)
+	apiKeyRef := cfg.SecretRef(config.KeyTrueNASAPIKey)
 
-	// Try 1Password first - batch lookup for better performance
-	secrets := common.Get1PasswordSecretsBatch([]string{
-		constants.OpTrueNASHost,
-		constants.OpTrueNASAPI,
-	})
-	host = secrets[constants.OpTrueNASHost]
-	apiKey = secrets[constants.OpTrueNASAPI]
+	resolved := secrets.ResolveBatch([]string{hostRef, apiKeyRef})
+	host = resolved[hostRef]
+	apiKey = resolved[apiKeyRef]
 
-	// Fall back to environment variables if 1Password fails
+	// Legacy fallback: plain environment variables, regardless of the
+	// configured references.
 	if host == "" {
 		host = os.Getenv(constants.EnvTrueNASHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
 	}
 	if apiKey == "" {
 		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
-		if apiKey != "" {
-			usedEnvFallback = true
-		}
 	}
 
-	// Check if we have both credentials
 	if host == "" || apiKey == "" {
-		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set %s and %s environment variables or configure 1Password with '%s' and '%s'",
-			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
-	}
-
-	// Warn if using environment variables (less secure than 1Password)
-	if usedEnvFallback {
-		logger.Warn("Using environment variables for TrueNAS credentials. Consider using 1Password for better security.")
+		return "", "", fmt.Errorf("TrueNAS credentials not found: secrets.%s (%s) and secrets.%s (%s) did not resolve — fix the references in your homeops config or set %s/%s, then re-check with 'homeops-cli config doctor'",
+			config.KeyTrueNASHost, hostRef, config.KeyTrueNASAPIKey, apiKeyRef,
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey)
 	}
 
 	return host, apiKey, nil

@@ -1,6 +1,6 @@
 # HomeOps CLI
 
-`homeops-cli` is the Go-based operations tool for this repository. The built binary and the Cobra root command both use `homeops-cli`.
+`homeops-cli` is the Go-based operations tool for this repository. The built binary and the Cobra root command both use `homeops-cli`. It deploys Kubernetes (Flatcar/kubeadm, or legacy Talos) on Proxmox, TrueNAS, or vSphere.
 
 ## Build and Verify
 
@@ -11,6 +11,41 @@ make test
 make check
 ```
 
+## Configuration (homeops.yaml)
+
+Everything environment-specific — cluster topology (node names/IPs, control-plane
+VIP), hypervisor settings, state storage, and **where secrets come from** — lives
+in a config file, not in the code. Nothing in the CLI is hardwired to 1Password
+or to any particular network layout, so the tool is usable outside this repo.
+
+```bash
+homeops-cli config init            # scaffold a homeops.yaml (--backend env|op|file)
+homeops-cli config show            # effective config + where it was loaded from
+homeops-cli config doctor          # validate config, binaries, and secret resolution
+homeops-cli config init --print-keys   # list every secret key and its default
+```
+
+Discovery order: `--config` flag → `$HOMEOPS_CONFIG` → `./homeops.yaml` →
+`<git root>/homeops.yaml` → `~/.config/homeops/config.yaml`. With no file at
+all, fully-portable defaults apply: every secret resolves from environment
+variables and cluster state (kubeconfig, kubeadm PKI) is stored under
+`~/.config/homeops/state`.
+
+Secret references support several backends and can be mixed freely:
+
+| Scheme | Source |
+|---|---|
+| `op://vault/item/field` | 1Password CLI (`op read`) |
+| `env://VAR_NAME` | environment variable |
+| `file:///path/to/file` | file contents (`~` expands) |
+| `cmd://command args` | stdout of a command (pass, vault, sops…) |
+| `literal://value` | the value itself (non-sensitive knobs) |
+
+Embedded templates reference secrets by semantic key (`secret://talos_machine_ca_crt`),
+which the `secrets:` map in homeops.yaml binds to a backend. Templates can also be
+shadowed wholesale via `templates.dir`. This repo's own mapping is in the
+repo-root [`homeops.yaml`](../../homeops.yaml) (1Password-backed).
+
 ## Core Commands
 
 ```bash
@@ -20,6 +55,8 @@ homeops-cli talos --help         # legacy provider (retained for reference/rollb
 homeops-cli k8s --help
 homeops-cli volsync --help
 homeops-cli workstation --help
+homeops-cli config --help        # config scaffold / show / doctor
+homeops-cli version
 ```
 
 ## Flatcar VM Workflows (current)
@@ -31,7 +68,7 @@ on first boot and Cilium is then installed.
 
 ```bash
 # Deploy the control-plane / all nodes on Proxmox
-homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
 
 # Render just the Ignition or kubeadm config
 homeops-cli flatcar render-ignition
@@ -59,7 +96,7 @@ homeops-cli talos deploy-vm
 homeops-cli talos deploy-vm --name test --generate-iso
 
 # Batch deployment on Proxmox or vSphere
-homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrency 3 --generate-iso
 
 # Start numbering at a higher index
 homeops-cli talos deploy-vm --name worker --node-count 2 --start-index 3 --generate-iso
@@ -139,8 +176,10 @@ homeops-cli volsync resume --all -n default
 
 - `make build` outputs `homeops-cli` in this directory.
 - The CLI expects core environment such as `KUBECONFIG` and `KUBERNETES_VERSION`. `TALOSCONFIG` and `TALOS_VERSION` are needed only for the legacy Talos provider.
-- For provider/hypervisor credentials (Proxmox/vSphere/TrueNAS, and Talos for the legacy path), the code prefers 1Password and falls back to environment variables.
+- Provider/hypervisor credentials resolve through the `secrets:` map in homeops.yaml (any backend), with plain environment variables as a final fallback. Run `homeops-cli config doctor` to see what resolves.
+- `HOMEOPS_NO_INTERACTIVE=1` disables interactive prompts (CI mode).
 - For Kubernetes GitOps changes, commit and push changes before reconciling Flux.
+- Per-node VM hardware profiles (Proxmox VMIDs, MACs, storage pools, CPU pinning) remain code defaults in `internal/proxmox/vm_manager.go`, overridable per-deploy via flags; node names/IPs come from `cluster.nodes` in homeops.yaml.
 
 ## Pre-commit
 

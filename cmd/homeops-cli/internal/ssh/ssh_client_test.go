@@ -15,16 +15,14 @@ import (
 
 func TestNewSSHClientAndClose(t *testing.T) {
 	client := NewSSHClient(SSHConfig{
-		Host:       "host",
-		Username:   "user",
-		Port:       "22",
-		SSHItemRef: "op://vault/item/key",
+		Host:     "host",
+		Username: "user",
+		Port:     "22",
 	})
 
 	assert.Equal(t, "host", client.host)
 	assert.Equal(t, "user", client.username)
 	assert.Equal(t, "22", client.port)
-	assert.Equal(t, "op://vault/item/key", client.sshItemRef)
 	require.NoError(t, client.Close())
 }
 

@@ -1,61 +1,10 @@
 // Package constants provides centralized constant definitions for the homeops-cli.
 // This reduces magic strings throughout the codebase and makes configuration easier to manage.
+//
+// NOTE: secret locations and cluster topology are NOT constants — they live in
+// the homeops config file (homeops.yaml; see internal/config). Only values that
+// are genuinely the same for every user of the tool belong here.
 package constants
-
-// 1Password reference paths
-const (
-	// TrueNAS credentials
-	OpTrueNASHost      = "op://Infrastructure/talosdeploy/TRUENAS_HOST"
-	OpTrueNASAPI       = "op://Infrastructure/talosdeploy/TRUENAS_API"
-	OpTrueNASSPICEPass = "op://Infrastructure/talosdeploy/TRUENAS_SPICE_PASS"
-
-	// vSphere/ESXi credentials
-	OpESXiHost     = "op://Infrastructure/esxi/add more/host"
-	OpESXiUsername = "op://Infrastructure/esxi/username"
-	OpESXiPassword = "op://Infrastructure/esxi/password"
-
-	// ESXi SSH credentials
-	OpESXiSSHPrivateKey = "op://Infrastructure/esxi-ssh/private key"
-
-	// TrueNAS SSH/username credentials
-	OpTrueNASUsername      = "op://Infrastructure/talosdeploy/TRUENAS_USERNAME"
-	OpTrueNASSSHPrivateKey = "op://Infrastructure/NAS01/private key"
-
-	// Proxmox VE credentials
-	OpProxmoxHost        = "op://Infrastructure/PVE-API/HOST"
-	OpProxmoxTokenID     = "op://Infrastructure/PVE-API/TOKENID"
-	OpProxmoxTokenSecret = "op://Infrastructure/PVE-API/SECRET"
-	OpProxmoxNode        = "op://Infrastructure/PVE-API/node"
-
-	// Flatcar/kubeadm SSH credentials (node access for kubeadm orchestration).
-	// The SSH user/key the homeops-cli uses to reach the k8s-* Flatcar nodes.
-	OpFlatcarSSHUser       = "op://Infrastructure/flatcar/SSH_USER"
-	OpFlatcarSSHPrivateKey = "op://Infrastructure/flatcar/private key"
-
-	// Proxmox node SSH key (root@pve) — used to upload Flatcar Ignition to the
-	// Proxmox snippets dir for the fw_cfg attach. Auth is via the ambient ssh-agent;
-	// this op ref is the macOS 1Password SSH-agent identity.
-	OpProxmoxSSHKey = "op://Infrastructure/proxmox-ssh/private key"
-
-	// Flatcar node SSH public key (non-secret) injected into the Ignition
-	// ssh_authorized_keys at render time. Matches OpFlatcarSSHPrivateKey.
-	OpFlatcarPublicKey = "op://Infrastructure/flatcar/public key"
-
-	// Cluster base domain — kept out of this (public) repo. The Flatcar kubeadm
-	// apiserver certSAN is derived as "k8s." + this value at render time.
-	OpSecretDomain = "op://Infrastructure/cluster-config/SECRET_DOMAIN"
-
-	// Persisted kubeadm cluster PKI (base64-encoded), restored onto node0 before
-	// `kubeadm init` so the cluster keeps a stable identity across nuke/pave.
-	OpPKICACrt           = "op://Infrastructure/kubernetes-pki/ca_crt"
-	OpPKICAKey           = "op://Infrastructure/kubernetes-pki/ca_key"
-	OpPKISAKey           = "op://Infrastructure/kubernetes-pki/sa_key"
-	OpPKISAPub           = "op://Infrastructure/kubernetes-pki/sa_pub"
-	OpPKIFrontProxyCACrt = "op://Infrastructure/kubernetes-pki/front_proxy_ca_crt"
-	OpPKIFrontProxyCAKey = "op://Infrastructure/kubernetes-pki/front_proxy_ca_key"
-	OpPKIEtcdCACrt       = "op://Infrastructure/kubernetes-pki/etcd_ca_crt"
-	OpPKIEtcdCAKey       = "op://Infrastructure/kubernetes-pki/etcd_ca_key"
-)
 
 // Environment variable names
 const (
@@ -176,23 +125,4 @@ const (
 // Talos Factory API
 const (
 	TalosFactoryBaseURL = "https://factory.talos.dev"
-)
-
-// Flatcar / kubeadm cluster design constants. These mirror the migration design
-// (k8s-0/1/2 control-plane, kube-vip ARP VIP, Cilium BGP external API LB).
-const (
-	// Defaults for the configurable knobs (overridable via flags/env).
-	// PauseImage / KubeVipVersion defaults live in internal/config/versions.go.
-	DefaultControlPlaneVIP = "192.168.123.253"
-	DefaultNodeInterface   = "eth0"
-
-	// Node IPs for the 3 control-plane nodes.
-	FlatcarNode0IP = "192.168.122.10"
-	FlatcarNode1IP = "192.168.122.11"
-	FlatcarNode2IP = "192.168.122.12"
-)
-
-// TrueNAS storage paths
-const (
-	TrueNASStandardISOPath = "/mnt/flashstor/ISO/metal-amd64.iso"
 )

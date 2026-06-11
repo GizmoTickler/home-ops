@@ -9,7 +9,6 @@ import (
 
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
-	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
@@ -40,18 +39,18 @@ var (
 	// loader the rest of the CLI uses).
 	flatcarGetVersions = versionconfig.GetVersions
 
-	// flatcarGetSSHUser resolves the node SSH username from 1Password. The SSH
-	// private key is passed to the Orchestrator as an op:// item ref (resolved
-	// lazily by the SSH client), so we only need the username here.
+	// flatcarGetSSHUser resolves the node SSH username through the configured
+	// secret reference (secrets.node_ssh_user; defaults to literal://core).
+	// SSH key auth itself is the ambient ssh-agent's job.
 	flatcarGetSSHUser = func() (string, error) {
-		return common.Get1PasswordSecret(constants.OpFlatcarSSHUser)
+		return versionconfig.Get().ResolveSecret(versionconfig.KeyNodeSSHUser)
 	}
 
-	// flatcarGetSecretDomain resolves the cluster base domain from 1Password
-	// (kept out of this public repo). The apiserver certSAN is derived as
-	// "k8s." + this value. Swappable so tests don't touch 1Password.
-	flatcarGetSecretDomain = func() string {
-		return common.Get1PasswordSecretSilent(constants.OpSecretDomain)
+	// flatcarGetK8sEndpoint resolves the apiserver certSAN DNS name from the
+	// homeops config (explicit cluster.endpoint, or "k8s." + the resolved
+	// cluster domain). Swappable so tests don't touch secret backends.
+	flatcarGetK8sEndpoint = func() string {
+		return versionconfig.Get().APIEndpoint()
 	}
 
 	// flatcarFreshPKI mirrors BootstrapConfig.FreshPKI into the orchestrator
@@ -64,9 +63,8 @@ var (
 	// tests can supply a fake that records init/join calls.
 	flatcarNewOrchestrator = func(sshUser string) flatcarOrchestrator {
 		return flatcar.NewOrchestrator(flatcar.OrchestratorConfig{
-			SSHUser:    sshUser,
-			SSHItemRef: constants.OpFlatcarSSHPrivateKey,
-			FreshPKI:   flatcarFreshPKI,
+			SSHUser:  sshUser,
+			FreshPKI: flatcarFreshPKI,
 		})
 	}
 
@@ -108,9 +106,13 @@ type flatcarOrchestrator interface {
 	FetchAdminKubeconfig(node0IP string) (string, error)
 }
 
-// flatcarNodes returns the ordered control-plane nodes (k8s-0 = init node).
+// flatcarNodes returns the ordered control-plane nodes (the first configured
+// node is the kubeadm init node).
 func flatcarNodes() ([]flatcarBootstrapNode, error) {
-	names := []string{"k8s-0", "k8s-1", "k8s-2"}
+	names := versionconfig.Get().NodeNames()
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no cluster nodes configured (cluster.nodes in homeops.yaml)")
+	}
 	nodes := make([]flatcarBootstrapNode, 0, len(names))
 	for _, name := range names {
 		cfg, ok := flatcarGetNodeConfig(name)
@@ -124,23 +126,27 @@ func flatcarNodes() ([]flatcarBootstrapNode, error) {
 
 // buildFlatcarNodeEnv assembles the per-node template env for the kubeadm flow.
 func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.VersionConfig) flatcar.NodeEnv {
-	k8sEndpoint := ""
-	if domain := strings.TrimSpace(flatcarGetSecretDomain()); domain != "" {
-		k8sEndpoint = "k8s." + domain
+	cfg := versionconfig.Get()
+	clusterNodes := cfg.Cluster.Nodes
+	nodeIP := func(i int) string {
+		if i < len(clusterNodes) {
+			return clusterNodes[i].IP
+		}
+		return ""
 	}
 	return flatcar.NodeEnv{
 		NodeName:          node.Name,
 		NodeIP:            node.IP,
-		Node0IP:           constants.FlatcarNode0IP,
-		Node1IP:           constants.FlatcarNode1IP,
-		Node2IP:           constants.FlatcarNode2IP,
+		Node0IP:           nodeIP(0),
+		Node1IP:           nodeIP(1),
+		Node2IP:           nodeIP(2),
 		KubernetesVersion: versions.KubernetesVersion,
 		KubernetesMinor:   flatcar.KubernetesMinor(versions.KubernetesVersion),
-		ControlPlaneVIP:   constants.DefaultControlPlaneVIP,
+		ControlPlaneVIP:   cfg.Cluster.ControlPlaneVIP,
 		PauseImage:        versions.PauseImage,
 		KubeVipVersion:    versions.KubeVipVersion,
-		NodeInterface:     constants.DefaultNodeInterface,
-		K8sEndpoint:       k8sEndpoint,
+		NodeInterface:     cfg.Cluster.NodeInterface,
+		K8sEndpoint:       flatcarGetK8sEndpoint(),
 	}
 }
 
@@ -251,7 +257,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 			node := node
 			if err := bootstrapRunWithSpinner(fmt.Sprintf("➕ Step 3: kubeadm join %s (%s) as control-plane", node.Name, node.IP), config.Verbose, logger, func() error {
 				if config.DryRun {
-					logger.Info("[DRY RUN] Would render kubeadm join config and join %s via VIP %s", node.IP, constants.DefaultControlPlaneVIP)
+					logger.Info("[DRY RUN] Would render kubeadm join config and join %s via VIP %s", node.IP, versionconfig.Get().Cluster.ControlPlaneVIP)
 					return nil
 				}
 				joinEnv := buildFlatcarNodeEnv(node, versions)
@@ -499,10 +505,9 @@ func runFlatcarPreflight(config *BootstrapConfig, nodes []flatcarBootstrapNode, 
 // flatcarNewSSHRunner builds an SSH runner for a node (swappable for tests).
 var flatcarNewSSHRunner = func(sshUser, host string) flatcarSSHRunner {
 	return ssh.NewSSHClient(ssh.SSHConfig{
-		Host:       host,
-		Username:   sshUser,
-		Port:       "22",
-		SSHItemRef: constants.OpFlatcarSSHPrivateKey,
+		Host:     host,
+		Username: sshUser,
+		Port:     "22",
 	})
 }
 

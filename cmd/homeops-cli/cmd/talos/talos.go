@@ -19,9 +19,11 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/iso"
 	"homeops-cli/internal/metrics"
-	"homeops-cli/internal/proxmox"
 	vmprov "homeops-cli/internal/provider"
+	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/secrets"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/state"
 	"homeops-cli/internal/talos"
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
@@ -40,20 +42,22 @@ import (
 const talosCommandTimeout = 10 * time.Minute
 
 var (
-	chooseVMFunc                      = ui.Choose
-	chooseTalosNodeFn                 = ui.Choose
-	chooseOptionFn                    = ui.Choose
-	inputPromptFn                     = ui.Input
-	confirmActionFn                   = ui.Confirm
-	getTrueNASVMNamesFn               = getTrueNASVMNames
-	getProxmoxVMNamesFn               = getProxmoxVMNames
-	getESXiVMNamesFn                  = getESXiVMNames
-	vsphereGetVMNamesFn               = vsphere.GetVMNames
-	proxmoxGetTalosNodeConfigFn       = proxmox.GetTalosNodeConfig
-	proxmoxDefaultVMConfig            = proxmox.DefaultVMConfig
-	getProxmoxCredentialsFn           = proxmox.GetCredentials
-	getTalosNodeIPsFn                 = talos.GetNodeIPs
-	get1PasswordSecretFn              = common.Get1PasswordSecretSilent
+	chooseVMFunc                = ui.Choose
+	chooseTalosNodeFn           = ui.Choose
+	chooseOptionFn              = ui.Choose
+	inputPromptFn               = ui.Input
+	confirmActionFn             = ui.Confirm
+	getTrueNASVMNamesFn         = getTrueNASVMNames
+	getProxmoxVMNamesFn         = getProxmoxVMNames
+	getESXiVMNamesFn            = getESXiVMNames
+	vsphereGetVMNamesFn         = vsphere.GetVMNames
+	proxmoxGetTalosNodeConfigFn = proxmox.GetTalosNodeConfig
+	proxmoxDefaultVMConfig      = proxmox.DefaultVMConfig
+	getProxmoxCredentialsFn     = proxmox.GetCredentials
+	getTalosNodeIPsFn           = talos.GetNodeIPs
+	resolveSecretKeyFn          = func(key string) string {
+		return versionconfig.Get().ResolveSecretSilent(key)
+	}
 	getTalosTemplateFn                = templates.GetTalosTemplate
 	workingDirectoryFn                = common.GetWorkingDirectory
 	getVSphereCredsFn                 = getVSphereCredentials
@@ -62,8 +66,8 @@ var (
 	ensureVMLifecycleProviderFn       = ensureVMLifecycleProviderAvailable
 	getMachineTypeFromNodeFn          = getMachineTypeFromNode
 	renderMachineConfigFromEmbeddedFn = renderMachineConfigFromEmbedded
-	injectSecretsFn                   = common.InjectSecrets
-	ensure1PasswordAuthFn             = common.Ensure1PasswordAuth
+	injectSecretsFn                   = secrets.Inject
+	ensure1PasswordAuthFn             = secrets.EnsureOpAuth
 	talosctlOutputFn                  = common.Output
 	talosctlCombinedOutputFn          = common.CombinedOutput
 	talosApplyConfigFn                = func(nodeIP, mode, config string) ([]byte, error) {
@@ -90,8 +94,18 @@ var (
 		combined := []byte(result.Stdout + result.Stderr)
 		return combined, err
 	}
-	pushKubeconfigTo1PasswordFn        = common.PushKubeconfigTo1Password
-	pullKubeconfigFrom1PasswordFn      = common.PullKubeconfigFrom1Password
+	// pushKubeconfigFn / pullKubeconfigFn persist the kubeconfig through the
+	// configured state store (1Password item or local file).
+	pushKubeconfigFn = func(sourcePath string, logger *common.ColorLogger) error {
+		content, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return fmt.Errorf("failed to read kubeconfig file: %w", err)
+		}
+		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Save(content, logger)
+	}
+	pullKubeconfigFn = func(destPath string, logger *common.ColorLogger) error {
+		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Pull(destPath, logger)
+	}
 	newVMLifecycleFn                   = newVMLifecycle
 	prepareISOForTrueNASFn             = prepareISOForTrueNAS
 	prepareISOForProxmoxFn             = prepareISOForProxmox
@@ -256,101 +270,47 @@ func getEnvOrDefault(key, defaultValue string) string {
 	return defaultValue
 }
 
-// getTrueNASCredentials retrieves TrueNAS credentials from 1Password or environment variables
+// getTrueNASCredentials retrieves TrueNAS credentials through the shared
+// provider client (configured secret references + env fallback).
 func getTrueNASCredentials() (host, apiKey string, err error) {
-	logger := common.NewColorLogger()
-	usedEnvFallback := false
-
-	// Try 1Password first - batch lookup for better performance
-	secrets := common.Get1PasswordSecretsBatch([]string{
-		constants.OpTrueNASHost,
-		constants.OpTrueNASAPI,
-	})
-	host = secrets[constants.OpTrueNASHost]
-	apiKey = secrets[constants.OpTrueNASAPI]
-
-	// Fall back to environment variables if 1Password fails
-	if host == "" {
-		host = os.Getenv(constants.EnvTrueNASHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
-	}
-	if apiKey == "" {
-		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
-		if apiKey != "" {
-			usedEnvFallback = true
-		}
-	}
-
-	// Check if we have both credentials
-	if host == "" || apiKey == "" {
-		return "", "", fmt.Errorf("TrueNAS credentials not found. Please set %s and %s environment variables or configure 1Password with '%s' and '%s'",
-			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
-	}
-
-	// Warn if using environment variables (less secure than 1Password)
-	if usedEnvFallback {
-		logger.Warn("Using environment variables for TrueNAS credentials. Consider using 1Password for better security.")
-	}
-
-	return host, apiKey, nil
+	return truenas.GetCredentials()
 }
 
-// get1PasswordSecret retrieves a secret from 1Password using the shared common function
-func get1PasswordSecret(reference string) string {
-	return get1PasswordSecretFn(reference)
+// resolveSecretKey resolves a semantic secret key through the homeops config
+// ("" on miss).
+func resolveSecretKey(key string) string {
+	return resolveSecretKeyFn(key)
 }
 
-// getSpicePassword retrieves SPICE password from 1Password or environment variables
+// getSpicePassword retrieves the SPICE password through the configured secret
+// reference, with environment-variable fallback.
 func getSpicePassword() string {
-	// Try 1Password first
-	password := get1PasswordSecret(constants.OpTrueNASSPICEPass)
+	password := resolveSecretKey(versionconfig.KeyTrueNASSpicePassword)
 	if password != "" {
 		return password
 	}
-	// Fall back to environment variable
 	return os.Getenv(constants.EnvSPICEPassword)
 }
 
 func getVSphereCredentials() (host, username, password string, err error) {
-	logger := common.NewColorLogger()
-	usedEnvFallback := false
-
-	host = get1PasswordSecret(constants.OpESXiHost)
-	if host == "" {
-		// Backward-compatible fallback for older/more direct vault layout.
-		host = get1PasswordSecretFn("op://Infrastructure/esxi/host")
-	}
-	username = get1PasswordSecret(constants.OpESXiUsername)
-	password = get1PasswordSecret(constants.OpESXiPassword)
+	host = resolveSecretKey(versionconfig.KeyVSphereHost)
+	username = resolveSecretKey(versionconfig.KeyVSphereUsername)
+	password = resolveSecretKey(versionconfig.KeyVSpherePassword)
 
 	if host == "" {
 		host = os.Getenv(constants.EnvVSphereHost)
-		if host != "" {
-			usedEnvFallback = true
-		}
 	}
 	if username == "" {
 		username = os.Getenv(constants.EnvVSphereUsername)
-		if username != "" {
-			usedEnvFallback = true
-		}
 	}
 	if password == "" {
 		password = os.Getenv(constants.EnvVSpherePassword)
-		if password != "" {
-			usedEnvFallback = true
-		}
 	}
 
 	if host == "" || username == "" || password == "" {
-		return "", "", "", fmt.Errorf("vSphere credentials not found. Please set %s, %s, and %s environment variables or configure 1Password",
+		return "", "", "", fmt.Errorf("vSphere credentials not found: configure secrets.%s/%s/%s in your homeops config or set %s/%s/%s ('homeops-cli config doctor' shows what resolves)",
+			versionconfig.KeyVSphereHost, versionconfig.KeyVSphereUsername, versionconfig.KeyVSpherePassword,
 			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
-	}
-
-	if usedEnvFallback {
-		logger.Warn("Using environment variables for vSphere credentials. Consider using 1Password for better security.")
 	}
 
 	return host, username, password, nil
@@ -695,13 +655,16 @@ func vmProviderDisplayName(provider string) string {
 func vmProviderPrerequisites(provider string) string {
 	switch provider {
 	case "truenas":
-		return fmt.Sprintf("%s/%s environment variables or 1Password refs %s/%s",
-			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+		return fmt.Sprintf("secrets.%s/%s in your homeops config, or %s/%s environment variables",
+			versionconfig.KeyTrueNASHost, versionconfig.KeyTrueNASAPIKey,
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey)
 	case "vsphere":
-		return fmt.Sprintf("%s/%s/%s environment variables or vSphere 1Password refs",
+		return fmt.Sprintf("secrets.%s/%s/%s in your homeops config, or %s/%s/%s environment variables",
+			versionconfig.KeyVSphereHost, versionconfig.KeyVSphereUsername, versionconfig.KeyVSpherePassword,
 			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
 	default:
-		return "Proxmox host, token ID, token secret, and node configuration from environment or 1Password"
+		return fmt.Sprintf("secrets.%s/%s/%s in your homeops config, or the PROXMOX_* environment variables",
+			versionconfig.KeyProxmoxHost, versionconfig.KeyProxmoxTokenID, versionconfig.KeyProxmoxTokenSecret)
 	}
 }
 
@@ -1285,13 +1248,13 @@ With --pull: retrieves kubeconfig from 1Password`,
 			logger := common.NewColorLogger()
 
 			if pull {
-				return pullKubeconfigFrom1Password(logger)
+				return pullKubeconfigFromStore(logger)
 			}
 			if err := generateKubeconfig(); err != nil {
 				return err
 			}
 			if push {
-				return pushKubeconfigTo1Password(logger)
+				return pushKubeconfigToStore(logger)
 			}
 			return nil
 		},
@@ -1325,25 +1288,26 @@ func generateKubeconfig() error {
 	return nil
 }
 
-func pushKubeconfigTo1Password(logger *common.ColorLogger) error {
+func pushKubeconfigToStore(logger *common.ColorLogger) error {
 	rootDir := workingDirectoryFn()
 	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
 
-	logger.Info("Pushing kubeconfig to 1Password...")
-	if err := pushKubeconfigTo1PasswordFn(kubeconfigPath, logger); err != nil {
+	store := state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig)
+	logger.Info("Pushing kubeconfig to %s...", store.Describe())
+	if err := pushKubeconfigFn(kubeconfigPath, logger); err != nil {
 		return err
 	}
 
-	logger.Success("Kubeconfig saved to 1Password")
+	logger.Success("Kubeconfig saved to %s", store.Describe())
 	return nil
 }
 
-func pullKubeconfigFrom1Password(logger *common.ColorLogger) error {
+func pullKubeconfigFromStore(logger *common.ColorLogger) error {
 	rootDir := workingDirectoryFn()
 	kubeconfigPath := filepath.Join(rootDir, "kubeconfig")
 
-	logger.Info("Pulling kubeconfig from 1Password...")
-	if err := pullKubeconfigFrom1PasswordFn(kubeconfigPath, logger); err != nil {
+	logger.Info("Pulling kubeconfig from %s...", state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Describe())
+	if err := pullKubeconfigFn(kubeconfigPath, logger); err != nil {
 		return err
 	}
 
@@ -1626,6 +1590,11 @@ func newDeployVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Talos VM on TrueNAS, vSphere/ESXi, or Proxmox",
+		Example: `  # Deploy a Talos VM on Proxmox (default provider)
+  homeops-cli talos deploy-vm --name k8s-0
+
+  # Deploy on TrueNAS with a generated custom ISO
+  homeops-cli talos deploy-vm --provider truenas --name k8s-0 --generate-iso`,
 		Long: `Deploy a new Talos VM on TrueNAS, vSphere/ESXi, or Proxmox VE.
 
 Defaults to Proxmox VE deployment. Use --provider truenas for TrueNAS or --provider vsphere/esxi for vSphere/ESXi.
@@ -1705,11 +1674,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 }
 
 func getVSphereHost() (string, error) {
-	host := get1PasswordSecret(constants.OpESXiHost)
-	if host == "" {
-		// Backward-compatible fallback for older/more direct vault layout.
-		host = get1PasswordSecretFn("op://Infrastructure/esxi/host")
-	}
+	host := resolveSecretKey(versionconfig.KeyVSphereHost)
 	if host == "" {
 		host = os.Getenv(constants.EnvVSphereHost)
 	}
@@ -2222,8 +2187,6 @@ func prepareGeneratedTrueNASISO(logger *common.ColorLogger) (*trueNASISOSelectio
 
 	downloader := newISODownloaderFn()
 	downloadConfig := iso.GetDefaultConfig()
-	downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
-	downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
 	downloadConfig.ISOURL = isoInfo.URL
 	downloadConfig.ISOFilename = fmt.Sprintf("metal-amd64-%s.iso", isoInfo.SchematicID[:8])
 
@@ -2244,14 +2207,13 @@ func prepareGeneratedTrueNASISO(logger *common.ColorLogger) (*trueNASISOSelectio
 }
 
 func verifyPreparedTrueNASISO(logger *common.ColorLogger, host string) (*trueNASISOSelection, error) {
-	standardISOPath := constants.TrueNASStandardISOPath
+	standardISOPath := versionconfig.Get().TrueNASISOPath()
 	logger.Debug("Checking for prepared ISO at: %s", standardISOPath)
 
 	sshConfig := ssh.SSHConfig{
-		Host:       host,
-		Username:   get1PasswordSecret(constants.OpTrueNASUsername),
-		Port:       "22",
-		SSHItemRef: constants.OpTrueNASSSHPrivateKey,
+		Host:     host,
+		Username: resolveSecretKey(versionconfig.KeyTrueNASUsername),
+		Port:     "22",
 	}
 	sshClient := newTrueNASSSHClientFn(sshConfig)
 
@@ -3055,16 +3017,14 @@ func prepareISOForTrueNAS() error {
 		platform:       "metal",
 		uploadStep:     "Uploading ISO to TrueNAS...",
 		uploadSpinner:  "Uploading ISO to TrueNAS",
-		location:       constants.TrueNASStandardISOPath,
+		location:       versionconfig.Get().TrueNASISOPath(),
 		deployCommand:  "homeops-cli talos deploy-vm --provider truenas --name <vm_name> [other flags]",
 		summaryMessage: "Custom ISO generated and uploaded to TrueNAS",
 		uploadISO: func(isoInfo *talos.ISOInfo) error {
 			downloader := newISODownloaderFn()
 			downloadConfig := iso.GetDefaultConfig()
-			downloadConfig.TrueNASHost = get1PasswordSecret(constants.OpTrueNASHost)
-			downloadConfig.TrueNASUsername = get1PasswordSecret(constants.OpTrueNASUsername)
 			downloadConfig.ISOURL = isoInfo.URL
-			downloadConfig.ISOFilename = filepath.Base(constants.TrueNASStandardISOPath)
+			downloadConfig.ISOFilename = filepath.Base(versionconfig.Get().TrueNASISOPath())
 
 			if err := downloader.DownloadCustomISO(downloadConfig); err != nil {
 				return fmt.Errorf("failed to upload custom ISO to TrueNAS: %w", err)

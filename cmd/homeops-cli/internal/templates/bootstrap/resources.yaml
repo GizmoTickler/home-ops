@@ -5,8 +5,8 @@ metadata:
   name: onepassword-secret
   namespace: external-secrets
 stringData:
-  1password-credentials.json: op://Infrastructure/1password/OP_CREDENTIALS_JSON
-  token: op://Infrastructure/1password/OP_CONNECT_TOKEN
+  1password-credentials.json: secret://op_credentials_json
+  token: secret://op_connect_token
 ---
 apiVersion: v1
 kind: Secret
@@ -14,7 +14,7 @@ metadata:
   name: onepassword-secret
   namespace: external-secrets
 stringData:
-  token: op://Infrastructure/1password/OP_CONNECT_TOKEN
+  token: secret://op_connect_token
 ---
 apiVersion: v1
 kind: Secret
@@ -22,4 +22,4 @@ metadata:
   name: cloudflare-tunnel-id-secret
   namespace: network
 stringData:
-  CLOUDFLARE_TUNNEL_ID: op://Infrastructure/cloudflare/CLOUDFLARE_TUNNEL_ID
+  CLOUDFLARE_TUNNEL_ID: secret://cloudflare_tunnel_id

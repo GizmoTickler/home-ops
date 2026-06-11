@@ -14,16 +14,16 @@ import (
 
 // fakeOrchestrator records init/join/fetch calls for the Flatcar bootstrap flow.
 type fakeOrchestrator struct {
-	initCalledWith   string // node0 IP passed to InitFirstControlPlane
-	initConfig       string
-	result           *flatcar.KubeadmResult
-	initErr          error
-	joinCalls        []string // node IPs joined, in order
-	joinConfigs      []string // join configs, in order
-	joinErr          error
-	fetchCalledWith  string
-	fetchKubeconfig  string
-	fetchErr         error
+	initCalledWith  string // node0 IP passed to InitFirstControlPlane
+	initConfig      string
+	result          *flatcar.KubeadmResult
+	initErr         error
+	joinCalls       []string // node IPs joined, in order
+	joinConfigs     []string // join configs, in order
+	joinErr         error
+	fetchCalledWith string
+	fetchKubeconfig string
+	fetchErr        error
 }
 
 func (f *fakeOrchestrator) InitFirstControlPlane(node0IP, initConfig string, _ []string) (*flatcar.KubeadmResult, error) {

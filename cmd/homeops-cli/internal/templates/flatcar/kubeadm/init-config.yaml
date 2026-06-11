@@ -1,7 +1,7 @@
 # kubeadm init config for the FIRST control-plane node (node0).
 # v1beta4 (k8s 1.31+). Faithful port of the Talos controlplane.yaml cluster settings.
 # Rendered with {{ ENV.* }} substitution. By default homeops-cli restores the
-# persisted cluster PKI (op://Infrastructure/kubernetes-pki) onto node0 BEFORE
+# persisted cluster PKI (state.pki store in homeops.yaml) onto node0 BEFORE
 # `kubeadm init`, so kubeadm reuses that CA for a stable identity across rebuilds
 # (bootstrap --fresh-pki opts out to mint a new CA). CoreDNS + kube-proxy are
 # skipped (CoreDNS via Flux, kube-proxy replaced by Cilium).

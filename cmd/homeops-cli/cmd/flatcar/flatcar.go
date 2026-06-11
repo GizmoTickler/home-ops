@@ -4,9 +4,7 @@
 package flatcar
 
 import (
-	"bytes"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +20,7 @@ import (
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/state"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vsphere"
@@ -31,49 +30,42 @@ import (
 
 // Swappable function vars for testability (mirrors cmd/talos patterns).
 var (
-	getVersionsFn        = versionconfig.GetVersions
-	workingDirectoryFn   = common.GetWorkingDirectory
-	get1PasswordSecretFn = common.Get1PasswordSecretSilent
+	getVersionsFn      = versionconfig.GetVersions
+	workingDirectoryFn = common.GetWorkingDirectory
+	// resolveSecretKeyFn resolves a semantic secret key (config.Key*) through
+	// the homeops config; "" on miss. Swappable for tests.
+	resolveSecretKeyFn = func(key string) string {
+		return versionconfig.Get().ResolveSecretSilent(key)
+	}
 	// capturePKIFn reads the cluster PKI from node0 over SSH (swappable for tests).
 	capturePKIFn = func(sshUser, node0IP string) (map[string]string, error) {
-		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
 		return orch.CapturePKI(node0IP)
 	}
 	// fetchAdminKubeconfigFn reads /etc/kubernetes/admin.conf from a node over SSH.
 	fetchAdminKubeconfigFn = func(sshUser, node0IP string) (string, error) {
-		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
 		return orch.FetchAdminKubeconfig(node0IP)
 	}
-	saveKubeconfigFn = common.SaveKubeconfigTo1Password
-	pullKubeconfigFn = common.PullKubeconfigFrom1Password
+	// saveKubeconfigFn / pullKubeconfigFn persist the admin kubeconfig through
+	// the configured state store (1Password item or local file).
+	saveKubeconfigFn = func(content []byte, logger *common.ColorLogger) error {
+		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Save(content, logger)
+	}
+	pullKubeconfigFn = func(destPath string, logger *common.ColorLogger) error {
+		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Pull(destPath, logger)
+	}
 	// confirmActionFn is the interactive confirmation prompt (swappable for tests).
 	confirmActionFn = ui.Confirm
 	// resetNodeFn runs `kubeadm reset` on a node over SSH (swappable for tests).
 	resetNodeFn = func(sshUser, nodeIP string) error {
-		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser, SSHItemRef: constants.OpFlatcarSSHPrivateKey})
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
 		return orch.ResetNode(nodeIP)
 	}
-	// savePKIToOpFn persists captured PKI fields to 1Password (swappable for tests).
-	savePKIToOpFn = savePKIToOp
-	// runOpFn runs the op CLI with NO stdin so op never tries to read a JSON
-	// template from a pipe (the trap that bites interactive/over-ssh op invocations).
-	runOpFn = func(args ...string) error {
-		c := common.Command("op", args...)
-		c.Stdin = nil
-		if out, err := c.CombinedOutput(); err != nil {
-			return fmt.Errorf("op %s: %w\n%s", args[0], err, strings.TrimSpace(string(out)))
-		}
-		return nil
-	}
-	// runOpStdinFn runs op with `stdin` piped in (an item template), so secret
-	// field values travel via stdin and never appear in argv / /proc/<pid>/cmdline.
-	runOpStdinFn = func(stdin []byte, args ...string) error {
-		c := common.Command("op", args...)
-		c.Stdin = bytes.NewReader(stdin)
-		if out, err := c.CombinedOutput(); err != nil {
-			return fmt.Errorf("op %s: %w\n%s", args[0], err, strings.TrimSpace(string(out)))
-		}
-		return nil
+	// savePKIFn persists captured PKI fields to the configured PKI store
+	// (1Password item or local directory). Swappable for tests.
+	savePKIFn = func(fields map[string]string) error {
+		return state.NewPKIStore(versionconfig.Get().State.PKI).Save(fields)
 	}
 	renderIgnitionFn        = flatcar.RenderIgnition
 	renderKubeadmInitFn     = flatcar.RenderKubeadmInitConfig
@@ -87,19 +79,18 @@ var (
 	// uploadIgnitionToPVEFn writes the rendered Ignition to the snippets dir ON the
 	// Proxmox node over SSH. The fw_cfg file= path is read by qemu on that host, so the
 	// file must live there — not on whatever box runs this CLI (e.g. varunlnx0).
-	// Swappable for tests. Auth is via the ambient ssh-agent (sshArgs sets no -i);
-	// SSHItemRef is the 1Password key used by the macOS 1Password SSH agent.
+	// Swappable for tests. Auth is via the ambient ssh-agent (sshArgs sets no -i).
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
 		return uploadIgnitionFile(ssh.SSHConfig{
-			Host: sshHost, Username: sshUser, Port: sshPort, SSHItemRef: constants.OpProxmoxSSHKey,
+			Host: sshHost, Username: sshUser, Port: sshPort,
 		}, remotePath, content)
 	}
 	// uploadIgnitionToNASFn writes the rendered Ignition to a dataset path ON the
 	// TrueNAS host over SSH (qemu reads the fw_cfg file= path there). Same transport
-	// as the Proxmox path, but authenticated with the NAS01 SSH key. Swappable for tests.
+	// as the Proxmox path. Swappable for tests.
 	uploadIgnitionToNASFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
 		return uploadIgnitionFile(ssh.SSHConfig{
-			Host: sshHost, Username: sshUser, Port: sshPort, SSHItemRef: constants.OpTrueNASSSHPrivateKey,
+			Host: sshHost, Username: sshUser, Port: sshPort,
 		}, remotePath, content)
 	}
 )
@@ -337,23 +328,24 @@ func (d *vsphereFlatcarDeployer) Close() error {
 // getVSphereCredentialsFn resolves vSphere/ESXi credentials (swappable for tests).
 var getVSphereCredentialsFn = resolveVSphereCredentials
 
-// resolveVSphereCredentials reads the ESXi host/username/password from 1Password
-// (constants.OpESXi*) with environment-variable fallback (constants.EnvVSphere*).
+// resolveVSphereCredentials reads the ESXi host/username/password through the
+// configured secret references with environment-variable fallback.
 func resolveVSphereCredentials() (host, username, password string, err error) {
-	host = get1PasswordSecretFn(constants.OpESXiHost)
+	host = resolveSecretKeyFn(versionconfig.KeyVSphereHost)
 	if host == "" {
 		host = os.Getenv(constants.EnvVSphereHost)
 	}
-	username = get1PasswordSecretFn(constants.OpESXiUsername)
+	username = resolveSecretKeyFn(versionconfig.KeyVSphereUsername)
 	if username == "" {
 		username = os.Getenv(constants.EnvVSphereUsername)
 	}
-	password = get1PasswordSecretFn(constants.OpESXiPassword)
+	password = resolveSecretKeyFn(versionconfig.KeyVSpherePassword)
 	if password == "" {
 		password = os.Getenv(constants.EnvVSpherePassword)
 	}
 	if host == "" || username == "" || password == "" {
-		return "", "", "", fmt.Errorf("vSphere credentials not found: set %s/%s/%s or configure 1Password",
+		return "", "", "", fmt.Errorf("vSphere credentials not found: configure secrets.%s/%s/%s in your homeops config or set %s/%s/%s ('homeops-cli config doctor' shows what resolves)",
+			versionconfig.KeyVSphereHost, versionconfig.KeyVSphereUsername, versionconfig.KeyVSpherePassword,
 			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
 	}
 	return host, username, password, nil
@@ -460,20 +452,21 @@ func (d *truenasFlatcarDeployer) Close() error {
 // getTrueNASCredentialsFn resolves TrueNAS credentials (swappable for tests).
 var getTrueNASCredentialsFn = resolveTrueNASCredentials
 
-// resolveTrueNASCredentials reads the TrueNAS host + API key from 1Password
-// (constants.OpTrueNAS*) with environment-variable fallback (constants.EnvTrueNAS*).
+// resolveTrueNASCredentials reads the TrueNAS host + API key through the
+// configured secret references with environment-variable fallback.
 func resolveTrueNASCredentials() (host, apiKey string, err error) {
-	host = get1PasswordSecretFn(constants.OpTrueNASHost)
+	host = resolveSecretKeyFn(versionconfig.KeyTrueNASHost)
 	if host == "" {
 		host = os.Getenv(constants.EnvTrueNASHost)
 	}
-	apiKey = get1PasswordSecretFn(constants.OpTrueNASAPI)
+	apiKey = resolveSecretKeyFn(versionconfig.KeyTrueNASAPIKey)
 	if apiKey == "" {
 		apiKey = os.Getenv(constants.EnvTrueNASAPIKey)
 	}
 	if host == "" || apiKey == "" {
-		return "", "", fmt.Errorf("TrueNAS credentials not found: set %s/%s or configure 1Password (%s, %s)",
-			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey, constants.OpTrueNASHost, constants.OpTrueNASAPI)
+		return "", "", fmt.Errorf("TrueNAS credentials not found: configure secrets.%s/%s in your homeops config or set %s/%s ('homeops-cli config doctor' shows what resolves)",
+			versionconfig.KeyTrueNASHost, versionconfig.KeyTrueNASAPIKey,
+			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey)
 	}
 	return host, apiKey, nil
 }
@@ -525,8 +518,9 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 
 	versions := getVersionsFn(workingDirectoryFn())
 
+	cfg := versionconfig.Get()
 	if vip == "" {
-		vip = constants.DefaultControlPlaneVIP
+		vip = cfg.Cluster.ControlPlaneVIP
 	}
 	if pauseImage == "" {
 		pauseImage = versions.PauseImage
@@ -535,24 +529,27 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		kubeVipVersion = versions.KubeVipVersion
 	}
 	if nodeInterface == "" {
-		nodeInterface = constants.DefaultNodeInterface
+		nodeInterface = cfg.Cluster.NodeInterface
 	}
 
-	// Non-secret node identifiers sourced from 1Password (kept out of the repo):
-	// the apiserver cert SAN DNS (k8s.<SECRET_DOMAIN>) and the node SSH public key.
-	domain := strings.TrimSpace(get1PasswordSecretFn(constants.OpSecretDomain))
-	k8sEndpoint := ""
-	if domain != "" {
-		k8sEndpoint = "k8s." + domain
-	}
-	sshKey := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarPublicKey))
+	// Node identifiers sourced through the configured secret references:
+	// the apiserver cert SAN DNS (k8s.<domain>) and the node SSH public key.
+	k8sEndpoint := cfg.APIEndpoint()
+	sshKey := strings.TrimSpace(resolveSecretKeyFn(versionconfig.KeyNodeSSHAuthorizedKey))
 
+	nodeIPs := cfg.Cluster.Nodes
+	nodeIP := func(i int) string {
+		if i < len(nodeIPs) {
+			return nodeIPs[i].IP
+		}
+		return ""
+	}
 	return flatcar.NodeEnv{
 		NodeName:          nodeConfig.Name,
 		NodeIP:            nodeConfig.NodeIP,
-		Node0IP:           constants.FlatcarNode0IP,
-		Node1IP:           constants.FlatcarNode1IP,
-		Node2IP:           constants.FlatcarNode2IP,
+		Node0IP:           nodeIP(0),
+		Node1IP:           nodeIP(1),
+		Node2IP:           nodeIP(2),
 		KubernetesVersion: versions.KubernetesVersion,
 		KubernetesMinor:   flatcar.KubernetesMinor(versions.KubernetesVersion),
 		ControlPlaneVIP:   vip,
@@ -565,62 +562,10 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 	}, nil
 }
 
-// opField / opItemTemplate model the `op item create` JSON template piped on stdin.
-type opField struct {
-	ID      string `json:"id,omitempty"`
-	Label   string `json:"label,omitempty"`
-	Purpose string `json:"purpose,omitempty"`
-	Type    string `json:"type"`
-	Value   string `json:"value"`
-}
-
-type opItemTemplate struct {
-	Title    string    `json:"title"`
-	Category string    `json:"category"`
-	Fields   []opField `json:"fields"`
-}
-
-// buildPKITemplate turns captured PKI (1Password field -> base64) into an op item
-// template. *.key fields are CONCEALED. Field order is deterministic.
-func buildPKITemplate(fields map[string]string) opItemTemplate {
-	t := opItemTemplate{
-		Title:    "kubernetes-pki",
-		Category: "SECURE_NOTE",
-		Fields: []opField{{
-			ID: "notesPlain", Type: "STRING", Purpose: "NOTES",
-			Value: "kubeadm cluster PKI (base64). Restored by homeops-cli before kubeadm init for a stable cluster identity across rebuilds. Managed by 'flatcar save-pki'.",
-		}},
-	}
-	keys := make([]string, 0, len(fields))
-	for k := range fields {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		typ := "STRING"
-		if strings.HasSuffix(k, "_key") {
-			typ = "CONCEALED"
-		}
-		t.Fields = append(t.Fields, opField{Label: k, Type: typ, Value: fields[k]})
-	}
-	return t
-}
-
-// savePKIToOp persists captured PKI to op://Infrastructure/kubernetes-pki,
-// replacing any existing item. The base64 CA/SA/etcd PRIVATE keys are passed via
-// an item template on STDIN (never argv), so they don't appear in /proc/<pid>/cmdline.
-func savePKIToOp(fields map[string]string) error {
-	_ = runOpFn("item", "delete", "kubernetes-pki", "--vault", "Infrastructure") // ignore if absent
-	doc, err := json.Marshal(buildPKITemplate(fields))
-	if err != nil {
-		return fmt.Errorf("marshal op item template: %w", err)
-	}
-	return runOpStdinFn(doc, "item", "create", "--vault", "Infrastructure")
-}
-
-// flatcarSSHUser resolves the node SSH username from 1Password, defaulting to "core".
+// flatcarSSHUser resolves the node SSH username through the configured secret
+// reference, defaulting to "core".
 func flatcarSSHUser() string {
-	if u := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser)); u != "" {
+	if u := strings.TrimSpace(resolveSecretKeyFn(versionconfig.KeyNodeSSHUser)); u != "" {
 		return u
 	}
 	return "core"
@@ -717,11 +662,20 @@ func newKubeconfigCommand() *cobra.Command {
 	var push, pull bool
 	cmd := &cobra.Command{
 		Use:   "kubeconfig",
-		Short: "Fetch the cluster kubeconfig from a node (with --push/--pull 1Password)",
+		Short: "Fetch the cluster kubeconfig from a node (with --push/--pull state store)",
 		Long: `Fetch /etc/kubernetes/admin.conf from a control-plane node over SSH, point its
 server at the control-plane VIP, and write it locally (0600). --push also stores
-it in 1Password (op://Infrastructure/kubeconfig); --pull retrieves it from there
-instead of contacting a node.`,
+it in the configured kubeconfig store (state.kubeconfig in homeops.yaml — a
+1Password item or a local file); --pull retrieves it from there instead of
+contacting a node.`,
+		Example: `  # Fetch from the first control-plane node and write to $KUBECONFIG
+  homeops-cli flatcar kubeconfig
+
+  # Fetch and persist to the configured store
+  homeops-cli flatcar kubeconfig --push
+
+  # Restore from the store without contacting any node
+  homeops-cli flatcar kubeconfig --pull`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
 			if output == "" {
@@ -747,12 +701,9 @@ instead of contacting a node.`,
 			if !ok {
 				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
 			}
-			sshUser := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser))
-			if sshUser == "" {
-				sshUser = "core"
-			}
+			sshUser := flatcarSSHUser()
 			if vip == "" {
-				vip = constants.DefaultControlPlaneVIP
+				vip = versionconfig.Get().Cluster.ControlPlaneVIP
 			}
 
 			logger.Info("Fetching kubeconfig from %s (%s)...", node, nodeConfig.NodeIP)
@@ -795,31 +746,35 @@ func newSavePKICommand() *cobra.Command {
 	var node string
 	cmd := &cobra.Command{
 		Use:   "save-pki",
-		Short: "Capture the live cluster PKI into op://Infrastructure/kubernetes-pki",
+		Short: "Capture the live cluster PKI into the configured PKI store",
 		Long: `Read /etc/kubernetes/pki (cluster CA, ServiceAccount keys, front-proxy CA, etcd
-CA) from a control-plane node over SSH and store it in 1Password, so 'bootstrap'
-restores it before 'kubeadm init' and the cluster keeps a STABLE identity across
-nuke/pave. Run once after the cluster is up, and again after any CA rotation.
-Leaf certs are not captured (kubeadm regenerates them off the CAs).`,
+CA) from a control-plane node over SSH and store it in the configured PKI store
+(state.pki in homeops.yaml — a 1Password item or a local directory), so
+'bootstrap' restores it before 'kubeadm init' and the cluster keeps a STABLE
+identity across nuke/pave. Run once after the cluster is up, and again after any
+CA rotation. Leaf certs are not captured (kubeadm regenerates them off the CAs).`,
+		Example: `  # Capture from the default node into the configured store
+  homeops-cli flatcar save-pki
+
+  # Capture from a specific control-plane node
+  homeops-cli flatcar save-pki --node k8s-1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
 			nodeConfig, ok := getFlatcarNodeConfigFn(node)
 			if !ok {
 				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
 			}
-			sshUser := strings.TrimSpace(get1PasswordSecretFn(constants.OpFlatcarSSHUser))
-			if sshUser == "" {
-				sshUser = "core"
-			}
+			sshUser := flatcarSSHUser()
 			logger.Info("Capturing cluster PKI from %s (%s) over SSH...", node, nodeConfig.NodeIP)
 			fields, err := capturePKIFn(sshUser, nodeConfig.NodeIP)
 			if err != nil {
 				return fmt.Errorf("capture PKI: %w", err)
 			}
-			if err := savePKIToOpFn(fields); err != nil {
-				return fmt.Errorf("persist PKI to 1Password: %w", err)
+			if err := savePKIFn(fields); err != nil {
+				return fmt.Errorf("persist PKI: %w", err)
 			}
-			logger.Success("Persisted %d PKI fields to op://Infrastructure/kubernetes-pki (bootstrap restores them; --fresh-pki opts out)", len(fields))
+			logger.Success("Persisted %d PKI fields to %s (bootstrap restores them; --fresh-pki opts out)",
+				len(fields), state.NewPKIStore(versionconfig.Get().State.PKI).Describe())
 			return nil
 		},
 	}
@@ -969,6 +924,11 @@ func newDeployVMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Flatcar k8s VM(s) on Proxmox, vSphere, or TrueNAS with Ignition",
+		Example: `  # Deploy all configured nodes on Proxmox, two at a time
+  homeops-cli flatcar deploy-vm --concurrency 2
+
+  # Deploy a single node on TrueNAS
+  homeops-cli flatcar deploy-vm --provider truenas --nodes k8s-1`,
 		Long: `Deploy one or more Flatcar control-plane VMs on the chosen hypervisor.
 
 --provider proxmox (default): each VM boots from a pre-staged Flatcar image
@@ -1052,14 +1012,14 @@ NAS (--ignition-dir, default /mnt/<pool>/VM) over SSH.`,
 }
 
 type deployVMOptions struct {
-	provider       string
-	nodes          []string
-	imagePath      string
-	imageVolume    string
-	snippetsDir    string
-	pveSSHHost     string
-	pveSSHUser     string
-	pveSSHPort     string
+	provider    string
+	nodes       []string
+	imagePath   string
+	imageVolume string
+	snippetsDir string
+	pveSSHHost  string
+	pveSSHUser  string
+	pveSSHPort  string
 	// vSphere
 	vsphereTemplate string
 	datastore       string

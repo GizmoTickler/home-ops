@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -84,46 +83,4 @@ func TestStructuredLoggerFilesystemAndSecretsHelpers(t *testing.T) {
 	assert.True(t, DirExists(tmpDir))
 	assert.False(t, DirExists(tmpFile))
 	assert.False(t, DirExists(filepath.Join(tmpDir, "missing-dir")))
-}
-
-func TestSilentAndBatchSecrets(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("tests not supported on Windows in this environment")
-	}
-
-	tmp := t.TempDir()
-	script := "" +
-		"#!/usr/bin/env bash\n" +
-		"set -e\n" +
-		"cmd=$1\n" +
-		"shift || true\n" +
-		"if [[ \"$cmd\" == \"read\" ]]; then\n" +
-		"  ref=$1\n" +
-		"  case \"$ref\" in\n" +
-		"    op://Vault/Item/One) echo -n 'ONE'; exit 0 ;;\n" +
-		"    op://Vault/Item/Two) echo -n 'TWO'; exit 0 ;;\n" +
-		"    *) echo 'missing' >&2; exit 1 ;;\n" +
-		"  esac\n" +
-		"fi\n" +
-		"echo 'unexpected command' >&2\n" +
-		"exit 1\n"
-	writeFakeOp(t, tmp, script)
-
-	oldPath := os.Getenv("PATH")
-	require.NoError(t, os.Setenv("PATH", tmp+":"+oldPath))
-	defer func() { _ = os.Setenv("PATH", oldPath) }()
-
-	assert.Equal(t, "ONE", Get1PasswordSecretSilent("op://Vault/Item/One"))
-	assert.Equal(t, "", Get1PasswordSecretSilent("op://Vault/Item/Missing"))
-
-	results := Get1PasswordSecretsBatch([]string{
-		"op://Vault/Item/One",
-		"op://Vault/Item/Two",
-		"op://Vault/Item/Missing",
-	})
-	assert.Equal(t, map[string]string{
-		"op://Vault/Item/One": "ONE",
-		"op://Vault/Item/Two": "TWO",
-	}, results)
-	assert.Empty(t, Get1PasswordSecretsBatch(nil))
 }

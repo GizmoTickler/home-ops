@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	homeopscfg "homeops-cli/internal/config"
 	"homeops-cli/internal/provider"
 
 	"github.com/luthermonson/go-proxmox"
@@ -157,11 +158,11 @@ type VMConfig struct {
 	// Flatcar node: it boots from a pre-staged Flatcar image disk (ImageDiskPath /
 	// import-from) instead of an install ISO, and the rendered Ignition JSON is
 	// injected via fw_cfg (qemu args). BootMode lets callers force a boot order.
-	IgnitionConfig  string // rendered Ignition JSON (controls Flatcar branch in buildVMOptions)
-	IgnitionPath    string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
-	ImageDiskPath   string // path/volume to import the Flatcar disk image from (import-from=)
-	ImageVolume     string // pre-existing storage volume to use directly as scsi0 (alternative to import)
-	BootMode        string // override boot order (e.g. "order=scsi0"); empty = sensible default
+	IgnitionConfig string // rendered Ignition JSON (controls Flatcar branch in buildVMOptions)
+	IgnitionPath   string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
+	ImageDiskPath  string // path/volume to import the Flatcar disk image from (import-from=)
+	ImageVolume    string // pre-existing storage volume to use directly as scsi0 (alternative to import)
+	BootMode       string // override boot order (e.g. "order=scsi0"); empty = sensible default
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -264,10 +265,23 @@ var FlatcarNodeConfigs = map[string]FlatcarNodeConfig{
 	},
 }
 
-// GetFlatcarNodeConfig retrieves predefined config for a Flatcar node.
+// GetFlatcarNodeConfig retrieves the config for a Flatcar node. The hardware
+// profile (VMID, storage, MAC, pinning) comes from the predefined map; the
+// node IP is overridden by cluster.nodes in homeops.yaml when present, and a
+// node defined only in homeops.yaml gets a minimal profile so config-driven
+// topologies work without editing this file.
 func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
-	config, exists := FlatcarNodeConfigs[name]
-	return config, exists
+	nodeCfg, exists := FlatcarNodeConfigs[name]
+	if homeopsNode, found := homeopscfg.Get().NodeByName(name); found {
+		if !exists {
+			nodeCfg = FlatcarNodeConfig{Name: name}
+			exists = true
+		}
+		if homeopsNode.IP != "" {
+			nodeCfg.NodeIP = homeopsNode.IP
+		}
+	}
+	return nodeCfg, exists
 }
 
 // DefaultVMConfig provides default VM settings matching actual deployment

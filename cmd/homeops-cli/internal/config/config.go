@@ -1,0 +1,383 @@
+// Package config loads the homeops configuration file (homeops.yaml) that
+// defines cluster topology, hypervisor settings, state storage, and the
+// mapping from semantic secret keys to secret-backend references.
+//
+// Discovery order (first hit wins):
+//  1. --config flag / HOMEOPS_CONFIG environment variable
+//  2. ./homeops.yaml
+//  3. <git repo root>/homeops.yaml
+//  4. ~/.config/homeops/config.yaml
+//
+// With no config file at all, built-in portable defaults apply: every secret
+// resolves from environment variables (env://) and cluster state (kubeconfig,
+// PKI) is stored in ~/.config/homeops/state. This means the tool is fully
+// usable without 1Password — `op://` is just one of several secret backends.
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+
+	"gopkg.in/yaml.v3"
+
+	"homeops-cli/internal/common"
+	"homeops-cli/internal/secrets"
+)
+
+// EnvConfigFile names the environment variable that points at the config file.
+const EnvConfigFile = "HOMEOPS_CONFIG"
+
+// Node is one control-plane node of the cluster.
+type Node struct {
+	Name string `yaml:"name"`
+	IP   string `yaml:"ip"`
+}
+
+// ClusterConfig is the cluster topology section.
+type ClusterConfig struct {
+	// Name is informational (shown in config show).
+	Name string `yaml:"name,omitempty"`
+	// DomainRef is a secret reference resolving to the cluster base domain.
+	// The apiserver endpoint is derived as "k8s." + domain unless Endpoint is
+	// set explicitly. Optional: with neither set, no extra certSAN is added.
+	DomainRef string `yaml:"domain_ref,omitempty"`
+	// Endpoint optionally pins the apiserver DNS name (overrides derivation).
+	Endpoint string `yaml:"endpoint,omitempty"`
+	// ControlPlaneVIP is the kube-vip virtual IP fronting the apiserver.
+	ControlPlaneVIP string `yaml:"control_plane_vip,omitempty"`
+	// NodeInterface is the primary NIC name on the nodes (e.g. eth0).
+	NodeInterface string `yaml:"node_interface,omitempty"`
+	// Nodes are the control-plane nodes in order; the first is the kubeadm
+	// init node.
+	Nodes []Node `yaml:"nodes,omitempty"`
+}
+
+// ProxmoxConfig holds Proxmox-specific knobs.
+type ProxmoxConfig struct {
+	// SnippetsDir is where rendered Ignition files are uploaded on the PVE
+	// host (read by qemu via fw_cfg).
+	SnippetsDir string `yaml:"snippets_dir,omitempty"`
+}
+
+// TrueNASConfig holds TrueNAS-specific knobs.
+type TrueNASConfig struct {
+	// ISODir is the dataset path where installer ISOs are stored.
+	ISODir string `yaml:"iso_dir,omitempty"`
+	// ISOFile is the default installer ISO filename within ISODir.
+	ISOFile string `yaml:"iso_file,omitempty"`
+	// SpiceHost is the address SPICE consoles bind to; defaults to the
+	// TrueNAS host itself when empty.
+	SpiceHost string `yaml:"spice_host,omitempty"`
+}
+
+// HypervisorsConfig groups per-hypervisor settings.
+type HypervisorsConfig struct {
+	// Default is the hypervisor used when --provider is not given
+	// (proxmox | truenas | vsphere).
+	Default string        `yaml:"default,omitempty"`
+	Proxmox ProxmoxConfig `yaml:"proxmox,omitempty"`
+	TrueNAS TrueNASConfig `yaml:"truenas,omitempty"`
+}
+
+// OpLocation addresses an item (and optionally a field) in 1Password.
+type OpLocation struct {
+	Vault string `yaml:"vault,omitempty"`
+	Item  string `yaml:"item,omitempty"`
+	Field string `yaml:"field,omitempty"`
+}
+
+// StoreConfig selects where a piece of cluster state (kubeconfig, PKI) is
+// persisted: "op" (a 1Password item) or "file" (a local path, 0600).
+type StoreConfig struct {
+	Backend string     `yaml:"backend,omitempty"` // op | file
+	Op      OpLocation `yaml:"op,omitempty"`
+	// Path is the file-backend location: a file path for kubeconfig, a
+	// directory for PKI. ~ is expanded.
+	Path string `yaml:"path,omitempty"`
+}
+
+// StateConfig groups the persisted-state stores.
+type StateConfig struct {
+	Kubeconfig StoreConfig `yaml:"kubeconfig,omitempty"`
+	PKI        StoreConfig `yaml:"pki,omitempty"`
+}
+
+// TemplatesConfig controls template resolution.
+type TemplatesConfig struct {
+	// Dir optionally points at a directory whose files shadow the embedded
+	// templates by relative path (e.g. <dir>/talos/controlplane.yaml).
+	Dir string `yaml:"dir,omitempty"`
+}
+
+// Config is the root of homeops.yaml.
+type Config struct {
+	Cluster     ClusterConfig     `yaml:"cluster,omitempty"`
+	Hypervisors HypervisorsConfig `yaml:"hypervisors,omitempty"`
+	State       StateConfig       `yaml:"state,omitempty"`
+	Templates   TemplatesConfig   `yaml:"templates,omitempty"`
+	// Secrets maps semantic secret keys (see Keys in keys.go) to secret
+	// references (op://, env://, file://, cmd://, literal://). Keys not
+	// listed here fall back to their portable env:// defaults.
+	Secrets map[string]string `yaml:"secrets,omitempty"`
+
+	// Source is the path the config was loaded from ("" = built-in defaults).
+	Source string `yaml:"-"`
+}
+
+var (
+	loadOnce sync.Once
+	loaded   *Config
+	loadErr  error
+
+	// explicitPath is set by the root command's --config flag before any
+	// command runs.
+	explicitPathMu sync.Mutex
+	explicitPath   string
+)
+
+// SetExplicitPath records the --config flag value. Must be called before the
+// first Get().
+func SetExplicitPath(path string) {
+	explicitPathMu.Lock()
+	defer explicitPathMu.Unlock()
+	explicitPath = path
+}
+
+// Get returns the process-wide configuration, loading it on first use. Load
+// problems with an explicitly requested file are fatal; discovery problems
+// fall back to defaults with a warning so read-only commands keep working.
+func Get() *Config {
+	loadOnce.Do(func() {
+		loaded, loadErr = load()
+		if loadErr != nil {
+			common.NewColorLogger().Warn("homeops config: %v — continuing with built-in defaults", loadErr)
+			loaded = defaultConfig()
+		}
+		registerKeymap(loaded)
+	})
+	return loaded
+}
+
+// LoadError returns the error (if any) encountered loading the config file.
+// Get() must have been called first.
+func LoadError() error { return loadErr }
+
+// SetForTesting replaces the loaded config for the duration of a test.
+// Returns a restore function the caller should defer.
+func SetForTesting(c *Config) func() {
+	old := loaded
+	loadOnce.Do(func() {}) // mark as loaded
+	if c == nil {
+		c = defaultConfig()
+	}
+	applyDefaults(c)
+	loaded = c
+	registerKeymap(c)
+	return func() {
+		if old == nil {
+			// SetForTesting ran before the first Get(); fall back to defaults
+			// rather than reinstating a nil config.
+			old = defaultConfig()
+		}
+		loaded = old
+		registerKeymap(old)
+	}
+}
+
+// registerKeymap wires the secret:// indirection scheme to this config.
+func registerKeymap(c *Config) {
+	secrets.RegisterKeymap(func(key string) (string, bool) {
+		ref := c.SecretRef(key)
+		return ref, ref != ""
+	})
+}
+
+func load() (*Config, error) {
+	path, explicit := Locate()
+	if path == "" {
+		return defaultConfig(), nil
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		if explicit {
+			return nil, err
+		}
+		return nil, fmt.Errorf("discovered config %s failed to load: %w", path, err)
+	}
+	return cfg, nil
+}
+
+// Locate finds the config file. Returns the path (or "") and whether the
+// location was explicitly requested (flag/env) rather than discovered.
+func Locate() (path string, explicit bool) {
+	explicitPathMu.Lock()
+	flagPath := explicitPath
+	explicitPathMu.Unlock()
+	if flagPath != "" {
+		return flagPath, true
+	}
+	if envPath := os.Getenv(EnvConfigFile); envPath != "" {
+		return envPath, true
+	}
+	// Test binaries must stay hermetic: never auto-discover a developer's real
+	// config (which may point at live secret backends). Tests opt in via
+	// SetForTesting or an explicit HOMEOPS_CONFIG.
+	if strings.HasSuffix(os.Args[0], ".test") {
+		return "", false
+	}
+	if _, err := os.Stat("homeops.yaml"); err == nil {
+		abs, _ := filepath.Abs("homeops.yaml")
+		return abs, false
+	}
+	if gitRoot, err := common.FindGitRoot("."); err == nil {
+		candidate := filepath.Join(gitRoot, "homeops.yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, false
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidate := filepath.Join(home, ".config", "homeops", "config.yaml")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, false
+		}
+	}
+	return "", false
+}
+
+// LoadFile parses a config file and applies built-in defaults to unset fields.
+func LoadFile(path string) (*Config, error) {
+	expanded, err := secrets.ExpandHome(path)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(expanded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file %s: %w", expanded, err)
+	}
+	cfg := &Config{}
+	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config file %s: %w", expanded, err)
+	}
+	if err := validate(cfg); err != nil {
+		return nil, fmt.Errorf("invalid config file %s: %w", expanded, err)
+	}
+	applyDefaults(cfg)
+	cfg.Source = expanded
+	return cfg, nil
+}
+
+// validate rejects obviously broken configs early with actionable messages.
+func validate(c *Config) error {
+	var problems []string
+	for key, ref := range c.Secrets {
+		if _, known := defaultSecretRefs[key]; !known {
+			problems = append(problems, fmt.Sprintf("secrets.%s: unknown secret key (known keys: run 'homeops-cli config init --print-keys')", key))
+		}
+		if ref != "" && !secrets.IsReference(ref) {
+			problems = append(problems, fmt.Sprintf("secrets.%s: %q is not a valid secret reference (expected op://, env://, file://, cmd://, or literal://)", key, ref))
+		}
+	}
+	for _, store := range []struct {
+		name string
+		cfg  StoreConfig
+	}{{"state.kubeconfig", c.State.Kubeconfig}, {"state.pki", c.State.PKI}} {
+		switch store.cfg.Backend {
+		case "", "op", "file":
+		default:
+			problems = append(problems, fmt.Sprintf("%s.backend: %q is not supported (use \"op\" or \"file\")", store.name, store.cfg.Backend))
+		}
+	}
+	switch strings.ToLower(c.Hypervisors.Default) {
+	case "", "proxmox", "truenas", "vsphere":
+	default:
+		problems = append(problems, fmt.Sprintf("hypervisors.default: %q is not supported (use proxmox, truenas, or vsphere)", c.Hypervisors.Default))
+	}
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return fmt.Errorf("%s", strings.Join(problems, "\n"))
+	}
+	return nil
+}
+
+// SecretRef returns the reference configured for a semantic secret key,
+// falling back to the key's portable default. Returns "" for unknown keys.
+func (c *Config) SecretRef(key string) string {
+	if c != nil && c.Secrets != nil {
+		if ref, ok := c.Secrets[key]; ok && ref != "" {
+			return ref
+		}
+	}
+	return defaultSecretRefs[key]
+}
+
+// ResolveSecret resolves a semantic secret key through its configured
+// reference.
+func (c *Config) ResolveSecret(key string) (string, error) {
+	ref := c.SecretRef(key)
+	if ref == "" {
+		return "", fmt.Errorf("unknown secret key %q", key)
+	}
+	value, err := secrets.Resolve(ref)
+	if err != nil {
+		return "", fmt.Errorf("secret %s (%s): %w", key, ref, err)
+	}
+	return value, nil
+}
+
+// ResolveSecretSilent resolves a semantic key, returning "" on any failure.
+func (c *Config) ResolveSecretSilent(key string) string {
+	value, _ := c.ResolveSecret(key)
+	return value
+}
+
+// UsesOpReferences reports whether any effective secret reference or state
+// store uses the 1Password backend — i.e. whether the `op` CLI is required.
+func (c *Config) UsesOpReferences() bool {
+	for key := range defaultSecretRefs {
+		if strings.HasPrefix(c.SecretRef(key), "op://") {
+			return true
+		}
+	}
+	return c.State.Kubeconfig.Backend == "op" || c.State.PKI.Backend == "op"
+}
+
+// NodeNames returns the configured node names in order.
+func (c *Config) NodeNames() []string {
+	names := make([]string, len(c.Cluster.Nodes))
+	for i, n := range c.Cluster.Nodes {
+		names[i] = n.Name
+	}
+	return names
+}
+
+// NodeByName returns the node with the given name.
+func (c *Config) NodeByName(name string) (Node, bool) {
+	for _, n := range c.Cluster.Nodes {
+		if n.Name == name {
+			return n, true
+		}
+	}
+	return Node{}, false
+}
+
+// APIEndpoint returns the apiserver DNS name: the explicit endpoint if set,
+// otherwise "k8s." + the resolved cluster domain, otherwise "".
+func (c *Config) APIEndpoint() string {
+	if c.Cluster.Endpoint != "" {
+		return c.Cluster.Endpoint
+	}
+	if c.Cluster.DomainRef == "" {
+		return ""
+	}
+	domain := strings.TrimSpace(secrets.ResolveSilent(c.Cluster.DomainRef))
+	if domain == "" {
+		return ""
+	}
+	return "k8s." + domain
+}

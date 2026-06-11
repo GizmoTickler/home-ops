@@ -64,9 +64,9 @@ func TestVMConfigValidate(t *testing.T) {
 }
 
 func TestVSphereClientHelpers(t *testing.T) {
-	originalGetSecrets := get1PasswordSecretsBatch
-	t.Cleanup(func() { get1PasswordSecretsBatch = originalGetSecrets })
-	get1PasswordSecretsBatch = func([]string) map[string]string { return map[string]string{} }
+	originalGetSecrets := resolveSecretsBatch
+	t.Cleanup(func() { resolveSecretsBatch = originalGetSecrets })
+	resolveSecretsBatch = func([]string) map[string]string { return map[string]string{} }
 
 	client := NewClient("host", "user", "pass", true)
 	require.NoError(t, client.Close())

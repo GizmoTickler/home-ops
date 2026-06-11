@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
-	"homeops-cli/internal/constants"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/state"
 )
 
 // pkiBlobs are the kubeadm CA/identity files restored onto node0 before
@@ -15,18 +16,17 @@ import (
 // down first yields a stable cluster identity across rebuilds. *.key are 0600.
 var pkiBlobs = []struct {
 	path  string // relative to /etc/kubernetes/pki
-	field string // 1Password field label
-	opRef string // op:// reference for that field
+	field string // PKI store field name
 	mode  string // file mode when restored
 }{
-	{"ca.crt", "ca_crt", constants.OpPKICACrt, "0644"},
-	{"ca.key", "ca_key", constants.OpPKICAKey, "0600"},
-	{"sa.pub", "sa_pub", constants.OpPKISAPub, "0644"},
-	{"sa.key", "sa_key", constants.OpPKISAKey, "0600"},
-	{"front-proxy-ca.crt", "front_proxy_ca_crt", constants.OpPKIFrontProxyCACrt, "0644"},
-	{"front-proxy-ca.key", "front_proxy_ca_key", constants.OpPKIFrontProxyCAKey, "0600"},
-	{"etcd/ca.crt", "etcd_ca_crt", constants.OpPKIEtcdCACrt, "0644"},
-	{"etcd/ca.key", "etcd_ca_key", constants.OpPKIEtcdCAKey, "0600"},
+	{"ca.crt", "ca_crt", "0644"},
+	{"ca.key", "ca_key", "0600"},
+	{"sa.pub", "sa_pub", "0644"},
+	{"sa.key", "sa_key", "0600"},
+	{"front-proxy-ca.crt", "front_proxy_ca_crt", "0644"},
+	{"front-proxy-ca.key", "front_proxy_ca_key", "0600"},
+	{"etcd/ca.crt", "etcd_ca_crt", "0644"},
+	{"etcd/ca.key", "etcd_ca_key", "0600"},
 }
 
 // CapturePKI reads the cluster PKI identity set (CA/SA/front-proxy/etcd CA) from a
@@ -56,9 +56,11 @@ func (o *Orchestrator) CapturePKI(node0IP string) (map[string]string, error) {
 	return out, nil
 }
 
-// pkiSecretFn fetches a base64 PKI blob from 1Password (silent ""-on-miss).
-// Swappable for tests.
-var pkiSecretFn = common.Get1PasswordSecretSilent
+// pkiFieldFn fetches a base64 PKI blob from the configured PKI store (silent
+// ""-on-miss). Swappable for tests.
+var pkiFieldFn = func(field string) string {
+	return state.NewPKIStore(config.Get().State.PKI).GetField(field)
+}
 
 // commandRunner is the minimal SSH surface kubeadm orchestration needs. The real
 // implementation is *ssh.SSHClient; tests inject a fake.
@@ -113,19 +115,17 @@ type KubeadmResult struct {
 
 // Orchestrator drives kubeadm over SSH against the Flatcar control-plane nodes.
 type Orchestrator struct {
-	sshUser    string
-	sshItemRef string
-	port       string
-	freshPKI   bool // when true, skip the persisted-PKI restore (generate a new CA)
-	logger     *common.ColorLogger
+	sshUser  string
+	port     string
+	freshPKI bool // when true, skip the persisted-PKI restore (generate a new CA)
+	logger   *common.ColorLogger
 }
 
 // OrchestratorConfig configures an Orchestrator.
 type OrchestratorConfig struct {
-	SSHUser    string // username for node SSH
-	SSHItemRef string // 1Password SSH item reference (op:// path)
-	Port       string // SSH port (default 22)
-	FreshPKI   bool   // skip the persisted-PKI restore and let kubeadm mint a new CA
+	SSHUser  string // username for node SSH
+	Port     string // SSH port (default 22)
+	FreshPKI bool   // skip the persisted-PKI restore and let kubeadm mint a new CA
 }
 
 // NewOrchestrator builds an Orchestrator.
@@ -135,11 +135,10 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 		port = "22"
 	}
 	return &Orchestrator{
-		sshUser:    cfg.SSHUser,
-		sshItemRef: cfg.SSHItemRef,
-		port:       port,
-		freshPKI:   cfg.FreshPKI,
-		logger:     common.NewColorLogger(),
+		sshUser:  cfg.SSHUser,
+		port:     port,
+		freshPKI: cfg.FreshPKI,
+		logger:   common.NewColorLogger(),
 	}
 }
 
@@ -156,12 +155,13 @@ func (o *Orchestrator) provisionPKI(runner commandRunner) error {
 	}
 	blobs := make(map[string]string, len(pkiBlobs))
 	for _, b := range pkiBlobs {
-		if v := strings.TrimSpace(pkiSecretFn(b.opRef)); v != "" {
+		if v := strings.TrimSpace(pkiFieldFn(b.field)); v != "" {
 			blobs[b.path] = v
 		}
 	}
 	if blobs["ca.crt"] == "" || blobs["ca.key"] == "" {
-		o.logger.Warn("No persisted cluster PKI in 1Password (%s) — kubeadm will generate a fresh CA", constants.OpPKICACrt)
+		o.logger.Warn("No persisted cluster PKI in %s — kubeadm will generate a fresh CA",
+			state.NewPKIStore(config.Get().State.PKI).Describe())
 		return nil
 	}
 	o.logger.Info("Restoring persisted cluster PKI to /etc/kubernetes/pki (stable identity across rebuilds)")
@@ -186,10 +186,9 @@ func (o *Orchestrator) provisionPKI(runner commandRunner) error {
 
 func (o *Orchestrator) runnerFor(host string) commandRunner {
 	return newCommandRunnerFn(ssh.SSHConfig{
-		Host:       host,
-		Username:   o.sshUser,
-		Port:       o.port,
-		SSHItemRef: o.sshItemRef,
+		Host:     host,
+		Username: o.sshUser,
+		Port:     o.port,
 	})
 }
 

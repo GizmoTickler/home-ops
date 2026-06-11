@@ -6,17 +6,16 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
-	"homeops-cli/internal/constants"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/ssh"
 )
 
 // DownloadConfig holds configuration for ISO download
 type DownloadConfig struct {
-	// TrueNAS SSH connection details
+	// TrueNAS SSH connection details (auth is the ambient ssh-agent)
 	TrueNASHost     string
 	TrueNASUsername string
 	TrueNASPort     string
-	SSHItemRef      string // 1Password SSH item reference for op CLI
 
 	// ISO details
 	ISOURL         string
@@ -62,10 +61,9 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 
 	// Create SSH client
 	sshConfig := ssh.SSHConfig{
-		Host:       config.TrueNASHost,
-		Username:   config.TrueNASUsername,
-		Port:       config.TrueNASPort,
-		SSHItemRef: config.SSHItemRef,
+		Host:     config.TrueNASHost,
+		Username: config.TrueNASUsername,
+		Port:     config.TrueNASPort,
 	}
 
 	sshClient := newSSHClient(sshConfig)
@@ -129,9 +127,6 @@ func (d *Downloader) validateConfig(config DownloadConfig) error {
 	if config.TrueNASPort == "" {
 		return fmt.Errorf("TrueNAS SSH port is required")
 	}
-	if config.SSHItemRef == "" {
-		return fmt.Errorf("SSH item reference is required")
-	}
 	if config.ISOURL == "" {
 		return fmt.Errorf("ISO URL is required")
 	}
@@ -156,14 +151,16 @@ func (d *Downloader) validateConfig(config DownloadConfig) error {
 	return nil
 }
 
-// GetDefaultConfig returns a default configuration for ISO download
+// GetDefaultConfig returns a default configuration for ISO download with the
+// TrueNAS connection details resolved through the configured secret
+// references and the ISO location taken from the hypervisors.truenas config.
 func GetDefaultConfig() DownloadConfig {
+	cfg := config.Get()
 	return DownloadConfig{
-		TrueNASHost:     constants.OpTrueNASHost,
-		TrueNASUsername: constants.OpTrueNASUsername,
+		TrueNASHost:     cfg.ResolveSecretSilent(config.KeyTrueNASHost),
+		TrueNASUsername: cfg.ResolveSecretSilent(config.KeyTrueNASUsername),
 		TrueNASPort:     "22",
-		ISOStoragePath:  "/mnt/flashstor/ISO",
-		ISOFilename:     "metal-amd64.iso",
-		SSHItemRef:      constants.OpTrueNASSSHPrivateKey,
+		ISOStoragePath:  cfg.Hypervisors.TrueNAS.ISODir,
+		ISOFilename:     cfg.Hypervisors.TrueNAS.ISOFile,
 	}
 }

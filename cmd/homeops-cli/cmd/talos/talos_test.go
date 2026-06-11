@@ -18,10 +18,11 @@ import (
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
 	"homeops-cli/internal/common"
+	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/iso"
-	"homeops-cli/internal/proxmox"
 	vmprov "homeops-cli/internal/provider"
+	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
 	internaltalos "homeops-cli/internal/talos"
 	"homeops-cli/internal/truenas"
@@ -545,17 +546,17 @@ func TestBuildTrueNASVMConfig(t *testing.T) {
 }
 
 func TestTrueNASDeploymentHelpers(t *testing.T) {
-	oldSecret := get1PasswordSecretFn
+	oldSecret := resolveSecretKeyFn
 	oldManagerFactory := newTrueNASVMManagerFn
 	oldSpin := spinWithFuncFn
 	t.Cleanup(func() {
-		get1PasswordSecretFn = oldSecret
+		resolveSecretKeyFn = oldSecret
 		newTrueNASVMManagerFn = oldManagerFactory
 		spinWithFuncFn = oldSpin
 	})
 
 	t.Run("required spice password errors when missing", func(t *testing.T) {
-		get1PasswordSecretFn = func(string) string { return "" }
+		resolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, constants.EnvSPICEPassword, "")
 		defer cleanup()
 
@@ -567,8 +568,8 @@ func TestTrueNASDeploymentHelpers(t *testing.T) {
 
 	t.Run("resolve truenas deployment access from env and 1password", func(t *testing.T) {
 		stubUnavailable1PasswordCLI(t)
-		get1PasswordSecretFn = func(ref string) string {
-			if ref == constants.OpTrueNASSPICEPass {
+		resolveSecretKeyFn = func(ref string) string {
+			if ref == versionconfig.KeyTrueNASSpicePassword {
 				return "op-spice"
 			}
 			return ""
@@ -638,27 +639,31 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 	oldFactory := newTalosFactoryClientFn
 	oldDownloader := newISODownloaderFn
 	oldSSHClient := newTrueNASSSHClientFn
-	oldSecret := get1PasswordSecretFn
+	oldSecret := resolveSecretKeyFn
 	oldWorkdir := workingDirectoryFn
 	t.Cleanup(func() {
 		newTalosFactoryClientFn = oldFactory
 		newISODownloaderFn = oldDownloader
 		newTrueNASSSHClientFn = oldSSHClient
-		get1PasswordSecretFn = oldSecret
+		resolveSecretKeyFn = oldSecret
 		workingDirectoryFn = oldWorkdir
 	})
 
 	workingDirectoryFn = func() string { return "." }
-	get1PasswordSecretFn = func(ref string) string {
+	resolveSecretKeyFn = func(ref string) string {
 		switch ref {
-		case constants.OpTrueNASHost:
+		case versionconfig.KeyTrueNASHost:
 			return "truenas.local"
-		case constants.OpTrueNASUsername:
+		case versionconfig.KeyTrueNASUsername:
 			return "admin"
 		default:
 			return ""
 		}
 	}
+	// iso.GetDefaultConfig resolves through the homeops config (env://
+	// defaults in tests), not through resolveSecretKeyFn.
+	t.Setenv("TRUENAS_HOST", "truenas.local")
+	t.Setenv("TRUENAS_USERNAME", "admin")
 
 	t.Run("generated iso path uses factory and downloader seams", func(t *testing.T) {
 		fakeFactory := &fakeTalosFactoryClient{
@@ -696,7 +701,7 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 		selection, err := verifyPreparedTrueNASISO(common.NewColorLogger(), "truenas.local")
 		require.NoError(t, err)
 		require.NotNil(t, selection)
-		assert.Equal(t, constants.TrueNASStandardISOPath, selection.ISOPath)
+		assert.Equal(t, "/mnt/flashstor/ISO/metal-amd64.iso", selection.ISOPath)
 		assert.True(t, selection.CustomISO)
 		assert.Equal(t, 1, fakeSSH.closeCalls)
 	})
@@ -1111,34 +1116,34 @@ func TestDeployVMCommandProviderValidation(t *testing.T) {
 }
 
 func TestSecretAndHostResolution(t *testing.T) {
-	oldSecret := get1PasswordSecretFn
+	oldSecret := resolveSecretKeyFn
 	t.Cleanup(func() {
-		get1PasswordSecretFn = oldSecret
+		resolveSecretKeyFn = oldSecret
 	})
 
 	t.Run("spice password prefers 1password then env", func(t *testing.T) {
-		get1PasswordSecretFn = func(ref string) string {
-			if ref == constants.OpTrueNASSPICEPass {
+		resolveSecretKeyFn = func(ref string) string {
+			if ref == versionconfig.KeyTrueNASSpicePassword {
 				return "op-secret"
 			}
 			return ""
 		}
 		assert.Equal(t, "op-secret", getSpicePassword())
 
-		get1PasswordSecretFn = func(string) string { return "" }
+		resolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, "SPICE_PASSWORD", "env-secret")
 		defer cleanup()
 		assert.Equal(t, "env-secret", getSpicePassword())
 	})
 
 	t.Run("vsphere credentials resolve from secret source", func(t *testing.T) {
-		get1PasswordSecretFn = func(ref string) string {
+		resolveSecretKeyFn = func(ref string) string {
 			switch ref {
-			case constants.OpESXiHost:
+			case versionconfig.KeyVSphereHost:
 				return "esxi.local"
-			case constants.OpESXiUsername:
+			case versionconfig.KeyVSphereUsername:
 				return "root"
-			case constants.OpESXiPassword:
+			case versionconfig.KeyVSpherePassword:
 				return "secret"
 			default:
 				return ""
@@ -1153,7 +1158,7 @@ func TestSecretAndHostResolution(t *testing.T) {
 	})
 
 	t.Run("vsphere host falls back to env", func(t *testing.T) {
-		get1PasswordSecretFn = func(string) string { return "" }
+		resolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, "VSPHERE_HOST", "env-esxi.local")
 		defer cleanup()
 
@@ -1246,12 +1251,12 @@ func TestPrepareISOForTarget(t *testing.T) {
 
 func TestPrepareISOProviderTargets(t *testing.T) {
 	oldPrepareTarget := prepareISOForTargetFn
-	oldSecret := get1PasswordSecretFn
+	oldSecret := resolveSecretKeyFn
 	oldDownloader := newISODownloaderFn
 	oldUploadVSphere := uploadISOToVSphereFn
 	t.Cleanup(func() {
 		prepareISOForTargetFn = oldPrepareTarget
-		get1PasswordSecretFn = oldSecret
+		resolveSecretKeyFn = oldSecret
 		newISODownloaderFn = oldDownloader
 		uploadISOToVSphereFn = oldUploadVSphere
 	})
@@ -1259,16 +1264,10 @@ func TestPrepareISOProviderTargets(t *testing.T) {
 	t.Run("truenas target configures downloader", func(t *testing.T) {
 		fakeDownloader := &fakeISODownloader{}
 		newISODownloaderFn = func() isoDownloader { return fakeDownloader }
-		get1PasswordSecretFn = func(ref string) string {
-			switch ref {
-			case constants.OpTrueNASHost:
-				return "truenas.local"
-			case constants.OpTrueNASUsername:
-				return "root"
-			default:
-				return ""
-			}
-		}
+		// iso.GetDefaultConfig resolves through the homeops config (env://
+		// defaults in tests).
+		t.Setenv("TRUENAS_HOST", "truenas.local")
+		t.Setenv("TRUENAS_USERNAME", "root")
 		prepareISOForTargetFn = func(target isoPreparationTarget) error {
 			assert.Equal(t, "TrueNAS", target.providerName)
 			assert.Equal(t, "metal", target.platform)
@@ -1280,7 +1279,7 @@ func TestPrepareISOProviderTargets(t *testing.T) {
 		assert.Equal(t, "truenas.local", fakeDownloader.configs[0].TrueNASHost)
 		assert.Equal(t, "root", fakeDownloader.configs[0].TrueNASUsername)
 		assert.Equal(t, "https://example.com/metal.iso", fakeDownloader.configs[0].ISOURL)
-		assert.Equal(t, filepath.Base(constants.TrueNASStandardISOPath), fakeDownloader.configs[0].ISOFilename)
+		assert.Equal(t, filepath.Base("/mnt/flashstor/ISO/metal-amd64.iso"), fakeDownloader.configs[0].ISOFilename)
 	})
 
 	t.Run("proxmox target metadata is stable", func(t *testing.T) {
@@ -1509,13 +1508,13 @@ func TestTalosUpgradeAndLifecycleFlows(t *testing.T) {
 }
 
 func TestTalosCommandWrappersAndEdges(t *testing.T) {
-	oldSecret := get1PasswordSecretFn
+	oldSecret := resolveSecretKeyFn
 	oldTalosctlOutput := talosctlOutputFn
 	oldCombined := talosctlCombinedOutputFn
 	oldConfirm := confirmActionFn
 	oldSpin := spinCommandFn
 	t.Cleanup(func() {
-		get1PasswordSecretFn = oldSecret
+		resolveSecretKeyFn = oldSecret
 		talosctlOutputFn = oldTalosctlOutput
 		talosctlCombinedOutputFn = oldCombined
 		confirmActionFn = oldConfirm
@@ -1523,7 +1522,7 @@ func TestTalosCommandWrappersAndEdges(t *testing.T) {
 	})
 
 	t.Run("vsphere credentials fall back to environment", func(t *testing.T) {
-		get1PasswordSecretFn = func(string) string { return "" }
+		resolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnvs(t, map[string]string{
 			constants.EnvVSphereHost:     "env-host",
 			constants.EnvVSphereUsername: "env-user",
@@ -1740,14 +1739,14 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 func TestKubeconfigFlows(t *testing.T) {
 	oldWorkdir := workingDirectoryFn
 	oldGen := generateKubeconfigFn
-	oldPush := pushKubeconfigTo1PasswordFn
-	oldPull := pullKubeconfigFrom1PasswordFn
+	oldPush := pushKubeconfigFn
+	oldPull := pullKubeconfigFn
 	oldTalosctlOutput := talosctlOutputFn
 	t.Cleanup(func() {
 		workingDirectoryFn = oldWorkdir
 		generateKubeconfigFn = oldGen
-		pushKubeconfigTo1PasswordFn = oldPush
-		pullKubeconfigFrom1PasswordFn = oldPull
+		pushKubeconfigFn = oldPush
+		pullKubeconfigFn = oldPull
 		talosctlOutputFn = oldTalosctlOutput
 	})
 
@@ -1771,26 +1770,26 @@ func TestKubeconfigFlows(t *testing.T) {
 
 	t.Run("push and pull kubeconfig", func(t *testing.T) {
 		var pushedPath, pulledPath string
-		pushKubeconfigTo1PasswordFn = func(path string, logger *common.ColorLogger) error {
+		pushKubeconfigFn = func(path string, logger *common.ColorLogger) error {
 			pushedPath = path
 			return nil
 		}
-		pullKubeconfigFrom1PasswordFn = func(path string, logger *common.ColorLogger) error {
+		pullKubeconfigFn = func(path string, logger *common.ColorLogger) error {
 			pulledPath = path
 			return nil
 		}
 
 		logger := common.NewColorLogger()
-		require.NoError(t, pushKubeconfigTo1Password(logger))
-		require.NoError(t, pullKubeconfigFrom1Password(logger))
+		require.NoError(t, pushKubeconfigToStore(logger))
+		require.NoError(t, pullKubeconfigFromStore(logger))
 		assert.Equal(t, filepath.Join(workdir, "kubeconfig"), pushedPath)
 		assert.Equal(t, filepath.Join(workdir, "kubeconfig"), pulledPath)
 	})
 
 	t.Run("kubeconfig command push and pull wrappers", func(t *testing.T) {
 		generateKubeconfigFn = func(n, r string) ([]byte, error) { return []byte("ok"), nil }
-		pushKubeconfigTo1PasswordFn = func(path string, logger *common.ColorLogger) error { return nil }
-		pullKubeconfigFrom1PasswordFn = func(path string, logger *common.ColorLogger) error { return nil }
+		pushKubeconfigFn = func(path string, logger *common.ColorLogger) error { return nil }
+		pullKubeconfigFn = func(path string, logger *common.ColorLogger) error { return nil }
 
 		_, err := testutil.ExecuteCommand(newKubeconfigCommand(), "--push")
 		require.NoError(t, err)
