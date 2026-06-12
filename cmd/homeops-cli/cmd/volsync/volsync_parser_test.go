@@ -203,3 +203,23 @@ func TestParseKopiaSnapshotsPicksNewestAsLatest(t *testing.T) {
 	assert.Contains(t, snapshots[0].RetentionTags, "latest-1")
 	assert.Equal(t, 33, snapshots[0].Count)
 }
+
+func TestParseKopiaSnapshotsUsesIdenticalRunEnd(t *testing.T) {
+	// When the data hasn't changed, kopia collapses the newest snapshots
+	// into "+ N identical snapshots until <ts>" after the run's first line;
+	// LATEST must show the end of that run, not its start.
+	output := `actual@self-hosted:/data
+2026-06-06 19:00:52 EDT ka085 249 KB (daily-4..7,weekly-2)
++ 3 identical snapshots until 2026-06-09 19:00:46 EDT
+2026-06-10 19:01:04 EDT k5c88 249 KB (latest-1..10,hourly-1..24)
++ 24 identical snapshots until 2026-06-12 14:01:09 EDT
+`
+
+	snapshots, err := parseKopiaSnapshots(output, "")
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	assert.Equal(t, "2026-06-12 14:01:09 EDT", snapshots[0].LatestTime)
+	assert.Equal(t, "k5c88", snapshots[0].LatestID, "the run's snapshot ID still identifies the content")
+	assert.Contains(t, snapshots[0].RetentionTags, "latest-1")
+	assert.Equal(t, 29, snapshots[0].Count)
+}

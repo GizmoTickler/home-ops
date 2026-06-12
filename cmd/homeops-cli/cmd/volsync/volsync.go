@@ -1387,13 +1387,22 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 				}
 			}
 		} else if inSnapshotBlock && strings.HasPrefix(line, "+ ") {
-			// This indicates additional identical snapshots
-			// Parse the count from "+ X identical snapshots until..."
+			// "+ N identical snapshots until <ts>": kopia collapses runs of
+			// content-identical snapshots, printing the run's FIRST line and
+			// the newest occurrence here. Count them, and when the run ends
+			// newer than the chosen latest (data simply hasn't changed since
+			// the run started), surface the newest time as LATEST.
 			if strings.Contains(line, "identical snapshots") {
 				fields := strings.Fields(line)
 				if len(fields) >= 2 {
 					if additionalCount, err := strconv.Atoi(fields[1]); err == nil {
 						currentApp.Count += additionalCount
+					}
+				}
+				if len(fields) >= 7 && fields[4] == "until" {
+					if ts, err := time.Parse("2006-01-02 15:04:05", fields[5]+" "+fields[6]); err == nil && ts.After(currentLatest) {
+						currentLatest = ts
+						currentApp.LatestTime = strings.Join(fields[5:], " ")
 					}
 				}
 			}
