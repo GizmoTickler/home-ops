@@ -168,13 +168,13 @@ func TestRestartVM(t *testing.T) {
 
 func TestSnapshotVM(t *testing.T) {
 	manager, calls := opsTestManager(t, "RUNNING", func(method string, params interface{}) (json.RawMessage, error) {
-		if method == "zfs.snapshot.create" {
+		if method == "pool.snapshot.create" {
 			return mustJSON(map[string]any{"result": true}), nil
 		}
 		return nil, fmt.Errorf("unexpected method %s", method)
 	})
 	require.NoError(t, manager.SnapshotVM("web0", "pre-upgrade"))
-	creates := methodCalls(*calls, "zfs.snapshot.create")
+	creates := methodCalls(*calls, "pool.snapshot.create")
 	require.Len(t, creates, 2)
 	first := creates[0].params.([]interface{})[0].(map[string]interface{})
 	assert.Equal(t, "flashstor/VM/web0-boot", first["dataset"])
@@ -183,7 +183,7 @@ func TestSnapshotVM(t *testing.T) {
 
 func TestListVMSnapshots(t *testing.T) {
 	manager, _ := opsTestManager(t, "STOPPED", func(method string, params interface{}) (json.RawMessage, error) {
-		if method == "zfs.snapshot.query" {
+		if method == "pool.snapshot.query" {
 			filters := params.([]interface{})[0].([]interface{})[0].([]interface{})
 			ds := filters[2].(string)
 			return mustJSON(map[string]any{"result": []map[string]any{
@@ -205,13 +205,13 @@ func TestRollbackVM(t *testing.T) {
 
 	t.Run("rolls back every zvol", func(t *testing.T) {
 		manager, calls := opsTestManager(t, "STOPPED", func(method string, params interface{}) (json.RawMessage, error) {
-			if method == "zfs.snapshot.rollback" {
+			if method == "pool.snapshot.rollback" {
 				return mustJSON(map[string]any{"result": nil}), nil
 			}
 			return nil, fmt.Errorf("unexpected method %s", method)
 		})
 		require.NoError(t, manager.RollbackVM("web0", "pre-upgrade"))
-		rollbacks := methodCalls(*calls, "zfs.snapshot.rollback")
+		rollbacks := methodCalls(*calls, "pool.snapshot.rollback")
 		require.Len(t, rollbacks, 2)
 		args := rollbacks[0].params.([]interface{})
 		assert.Equal(t, "flashstor/VM/web0-boot@pre-upgrade", args[0])
@@ -223,7 +223,7 @@ func TestDeleteVMSnapshot(t *testing.T) {
 	t.Run("deletes where present", func(t *testing.T) {
 		manager, calls := opsTestManager(t, "STOPPED", func(method string, params interface{}) (json.RawMessage, error) {
 			switch method {
-			case "zfs.snapshot.query":
+			case "pool.snapshot.query":
 				filters := params.([]interface{})[0].([]interface{})[0].([]interface{})
 				ds := filters[2].(string)
 				if ds != "flashstor/VM/web0-boot" {
@@ -232,20 +232,20 @@ func TestDeleteVMSnapshot(t *testing.T) {
 				return mustJSON(map[string]any{"result": []map[string]any{
 					{"id": ds + "@old", "dataset": ds, "snapshot_name": "old"},
 				}}), nil
-			case "zfs.snapshot.delete":
+			case "pool.snapshot.delete":
 				return mustJSON(map[string]any{"result": true}), nil
 			}
 			return nil, fmt.Errorf("unexpected method %s", method)
 		})
 		require.NoError(t, manager.DeleteVMSnapshot("web0", "old"))
-		deletes := methodCalls(*calls, "zfs.snapshot.delete")
+		deletes := methodCalls(*calls, "pool.snapshot.delete")
 		require.Len(t, deletes, 1)
 		assert.Equal(t, []interface{}{"flashstor/VM/web0-boot@old"}, deletes[0].params)
 	})
 
 	t.Run("missing snapshot errors", func(t *testing.T) {
 		manager, _ := opsTestManager(t, "STOPPED", func(method string, params interface{}) (json.RawMessage, error) {
-			if method == "zfs.snapshot.query" {
+			if method == "pool.snapshot.query" {
 				return mustJSON(map[string]any{"result": []map[string]any{}}), nil
 			}
 			return nil, fmt.Errorf("unexpected method %s", method)

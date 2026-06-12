@@ -586,6 +586,10 @@ func runBootstrap(config *BootstrapConfig) error {
 	}
 
 	logger.Success("🎉 Congrats! The cluster is bootstrapped and Flux has completed initial reconciliation")
+	ui.PrintSuccessBox("🎉 Cluster bootstrapped!",
+		"Flux has completed initial reconciliation.",
+		"kubectl get nodes        # say hello to your cluster",
+		"flux get kustomizations  # watch the apps roll out")
 
 	// Explicitly reset terminal state to prevent escape code leakage
 	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)

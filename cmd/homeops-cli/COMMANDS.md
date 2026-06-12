@@ -50,6 +50,30 @@ homeops-cli
 │       ├── delete
 │       ├── info
 │       └── cleanup-zvols
+├── vm                       # provider-agnostic VM platform (proxmox|truenas|vsphere)
+│   ├── create
+│   ├── template
+│   │   └── import
+│   ├── clone
+│   ├── snapshot [create|list|rollback|delete]
+│   ├── ip <name>
+│   ├── ssh <name>
+│   ├── console <name>
+│   ├── set
+│   ├── resize-disk
+│   ├── restart
+│   ├── list / start / stop / poweron / poweroff / delete / info
+│   ├── cleanup-zvols
+│   └── proxmox|truenas|vsphere <op>   # same verbs, provider pinned
+├── op                       # 1Password item management
+│   ├── list / get / create / edit / delete
+│   ├── vaults list
+│   ├── move <item>
+│   └── duplicate <item>
+├── config
+│   ├── init
+│   ├── show
+│   └── doctor [--network]
 ├── volsync
 │   ├── state
 │   ├── suspend [name]
@@ -278,6 +302,73 @@ Notes:
 - `manage-vm` subcommands default to `proxmox`.
 - `start`, `stop`, `poweron`, `poweroff`, `delete`, and `info` support interactive VM selection when `--name` is omitted.
 - `cleanup-zvols` is TrueNAS-specific and requires `--vm-name`.
+
+## VM Platform (`vm`)
+
+Provider-agnostic VM management. Every subcommand takes
+`--provider proxmox|truenas|vsphere` (default: `hypervisors.default` in
+homeops.yaml); the same verbs exist provider-pinned under
+`vm proxmox|truenas|vsphere`. VM names complete live from the hypervisor.
+
+```bash
+# Create from a cloud image (ubuntu/rocky/debian/fedora resolve automatically)
+homeops-cli vm create --name dev-vm --os ubuntu
+homeops-cli vm create --provider truenas --name dev0 --os rocky --ip 192.168.120.50/22 --gateway 192.168.123.254
+homeops-cli vm create --provider vsphere --name dev-vm --template ubuntu-tpl
+
+# Templates
+homeops-cli vm template import --name ubuntu-tpl --os ubuntu          # proxmox
+homeops-cli vm template import --from-vm golden --provider vsphere    # convert existing VM
+
+# Day-2 operations
+homeops-cli vm set --name dev-vm --memory 16384 --cores 8
+homeops-cli vm resize-disk --name dev-vm --grow 20G
+homeops-cli vm snapshot create --name dev-vm --snap pre-upgrade
+homeops-cli vm clone --name dev-vm --to dev-vm2
+homeops-cli vm ip dev-vm
+homeops-cli vm ssh dev-vm --user ubuntu
+homeops-cli vm console dev-vm
+homeops-cli vm restart --name dev-vm
+homeops-cli vm list / start / stop / info / delete
+```
+
+Feature × provider matrix:
+
+| Feature | Proxmox | TrueNAS | vSphere |
+|---|---|---|---|
+| create | cloud image + cloud-init drive | cloud image → zvol + NoCloud seed ISO | template clone + guestinfo |
+| template import | image import + template flag; `--from-vm` | not supported (no template concept) | `--from-vm` only (qcow2 needs VMDK/OVA) |
+| set / resize-disk / restart | ✓ | ✓ | ✓ |
+| snapshot create/list/rollback/delete | ✓ (native) | ✓ (ZFS, all zvols under one name) | ✓ (native, tree listing) |
+| clone | full or `--linked`, `--vmid` | ZFS clone (always linked) | full only |
+| ip | ✓ (guest agent) | not supported (no guest agent; falls back to cluster.nodes) | ✓ (VMware Tools) |
+| ssh | ✓ | ✓ (via cluster.nodes fallback) | ✓ |
+| console | noVNC + xterm.js URLs | SPICE web / native URL | WebMKS ticket URL |
+| list/start/stop/info/delete | ✓ | ✓ | ✓ |
+
+Unsupported cells fail loudly and uniformly: `not supported on <provider>: <reason>`.
+
+## 1Password (`op`)
+
+```bash
+homeops-cli op list --vault Infrastructure
+homeops-cli op get my-item --field API_TOKEN --reveal
+homeops-cli op create my-svc --vault Infrastructure --field API_TOKEN=...   # values via stdin template
+homeops-cli op edit my-svc --field API_HOST=10.0.0.5
+homeops-cli op delete old-item --archive
+homeops-cli op vaults list
+homeops-cli op move my-svc --vault Private --to-vault Infrastructure
+homeops-cli op duplicate prod-creds --to-vault Staging --name staging-creds
+```
+
+## Config
+
+```bash
+homeops-cli config init [--backend env|op|file]   # scaffold homeops.yaml
+homeops-cli config show                            # effective config (no secret values)
+homeops-cli config doctor                          # offline validation
+homeops-cli config doctor --network                # + hypervisor API probes, image URL HEAD checks
+```
 
 ## Kubernetes
 

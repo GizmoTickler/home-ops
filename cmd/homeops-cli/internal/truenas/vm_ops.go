@@ -30,11 +30,15 @@ func (c *WorkingClient) callResult(method string, params interface{}, timeoutSec
 	}
 	var envelope struct {
 		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
 	}
 	if envelope.Result == nil {
+		if envelope.Error != nil {
+			return fmt.Errorf("%s failed: %s", method, string(envelope.Error))
+		}
 		return fmt.Errorf("no result field in response")
 	}
 	if err := json.Unmarshal(envelope.Result, out); err != nil {
@@ -106,7 +110,8 @@ func (c *WorkingClient) GetZvolSize(id string) (int64, error) {
 	return size, nil
 }
 
-// ZFSSnapshot is a ZFS snapshot as returned by zfs.snapshot.query.
+// ZFSSnapshot is a ZFS snapshot as returned by pool.snapshot.query
+// (TrueNAS 25.x renamed the zfs.snapshot.* namespace to pool.snapshot.*).
 type ZFSSnapshot struct {
 	ID           string                 `json:"id"` // dataset@name
 	Dataset      string                 `json:"dataset"`
@@ -133,7 +138,7 @@ func (s ZFSSnapshot) Created() string {
 // CreateZFSSnapshot snapshots one dataset/zvol under the given snapshot name.
 func (c *WorkingClient) CreateZFSSnapshot(dataset, name string) error {
 	params := []interface{}{map[string]interface{}{"dataset": dataset, "name": name}}
-	if err := c.callResult("zfs.snapshot.create", params, 60, nil); err != nil {
+	if err := c.callResult("pool.snapshot.create", params, 60, nil); err != nil {
 		return fmt.Errorf("failed to snapshot %s@%s: %w", dataset, name, err)
 	}
 	return nil
@@ -143,7 +148,7 @@ func (c *WorkingClient) CreateZFSSnapshot(dataset, name string) error {
 func (c *WorkingClient) QueryZFSSnapshots(dataset string) ([]ZFSSnapshot, error) {
 	params := []interface{}{[]interface{}{[]interface{}{"dataset", "=", dataset}}}
 	var snaps []ZFSSnapshot
-	if err := c.callResult("zfs.snapshot.query", params, 30, &snaps); err != nil {
+	if err := c.callResult("pool.snapshot.query", params, 30, &snaps); err != nil {
 		return nil, fmt.Errorf("failed to query snapshots of %s: %w", dataset, err)
 	}
 	return snaps, nil
@@ -151,7 +156,7 @@ func (c *WorkingClient) QueryZFSSnapshots(dataset string) ([]ZFSSnapshot, error)
 
 // DeleteZFSSnapshot removes one snapshot by ID ("dataset@name").
 func (c *WorkingClient) DeleteZFSSnapshot(id string) error {
-	if err := c.callResult("zfs.snapshot.delete", []interface{}{id}, 60, nil); err != nil {
+	if err := c.callResult("pool.snapshot.delete", []interface{}{id}, 60, nil); err != nil {
 		return fmt.Errorf("failed to delete snapshot %s: %w", id, err)
 	}
 	return nil
@@ -161,7 +166,7 @@ func (c *WorkingClient) DeleteZFSSnapshot(id string) error {
 // force unmounts/destroys anything newer that blocks the rollback.
 func (c *WorkingClient) RollbackZFSSnapshot(id string, force bool) error {
 	params := []interface{}{id, map[string]interface{}{"force": force}}
-	if err := c.callResult("zfs.snapshot.rollback", params, 300, nil); err != nil {
+	if err := c.callResult("pool.snapshot.rollback", params, 300, nil); err != nil {
 		return fmt.Errorf("failed to roll back to snapshot %s: %w", id, err)
 	}
 	return nil

@@ -40,7 +40,9 @@ var (
 		return manager.Close()
 	}
 	headImageFn = func(url string) error {
-		client := &http.Client{Timeout: 15 * time.Second}
+		// Generous timeout: some distro mirrors (cloud.debian.org) take
+		// 20s+ just to answer the redirect.
+		client := &http.Client{Timeout: 60 * time.Second}
 		resp, err := client.Head(url)
 		if err != nil {
 			return err

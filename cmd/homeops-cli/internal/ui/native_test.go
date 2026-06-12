@@ -75,3 +75,8 @@ func TestSpinnerModelView(t *testing.T) {
 	_, cmd := m.Update(spinnerDoneMsg{})
 	require.NotNil(t, cmd)
 }
+
+func TestSuccessBoxOffTerminal(t *testing.T) {
+	// Tests run without a TTY: the flourish must vanish so CI logs stay plain.
+	assert.Empty(t, SuccessBox("done", "line"))
+}

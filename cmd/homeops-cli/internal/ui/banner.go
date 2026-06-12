@@ -49,3 +49,29 @@ func PrintBanner(tagline string) {
 		fmt.Print(banner + "\n")
 	}
 }
+
+// SuccessBox renders a celebratory bordered box for milestone completions
+// (e.g. bootstrap). Returns "" off-terminal — callers keep their plain
+// logger line as the CI/pipe fallback.
+func SuccessBox(title string, lines ...string) string {
+	if !isStyledOutput() {
+		return ""
+	}
+	body := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42")).Render(title)
+	if len(lines) > 0 {
+		body += "\n" + lipgloss.NewStyle().Faint(true).Render(strings.Join(lines, "\n"))
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("42")).
+		Padding(0, 2).
+		Render(body)
+	return box
+}
+
+// PrintSuccessBox writes SuccessBox to stdout (no-op off-terminal).
+func PrintSuccessBox(title string, lines ...string) {
+	if box := SuccessBox(title, lines...); box != "" {
+		fmt.Println(box)
+	}
+}
