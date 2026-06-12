@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -56,6 +57,7 @@ func main() {
 }
 
 func runApp(sigChan chan os.Signal) int {
+	resolveBuildInfo()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -286,6 +288,42 @@ func runMenuCommand(cmd *cobra.Command) error {
 		return cmd.Help()
 	}
 	return cmd.RunE(cmd, []string{})
+}
+
+// resolveBuildInfo fills version/commit/date from the Go toolchain's
+// embedded VCS metadata when the Makefile ldflags didn't stamp them (plain
+// `go build` / `go install` still gets a real commit and build time).
+func resolveBuildInfo() {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		applyBuildInfo(info)
+	}
+}
+
+func applyBuildInfo(info *debug.BuildInfo) {
+	if version == "dev" && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	dirty := false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			if commit == "none" && len(setting.Value) >= 8 {
+				commit = setting.Value[:8]
+			}
+		case "vcs.time":
+			if date == "unknown" {
+				date = setting.Value
+			}
+		case "vcs.modified":
+			dirty = setting.Value == "true"
+		}
+	}
+	if dirty && commit != "none" {
+		commit += "-dirty"
+	}
+	if version == "dev" && commit != "none" {
+		version = "dev (" + commit + ")"
+	}
 }
 
 // newVersionCommand exposes the build info as `homeops-cli version` so

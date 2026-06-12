@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"testing"
 	"time"
 
@@ -263,5 +264,38 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 		})
 		require.NoError(t, showSubcommandMenu(cmd))
 		assert.Empty(t, got)
+	})
+}
+
+func TestApplyBuildInfoFallsBackToVCS(t *testing.T) {
+	origVersion, origCommit, origDate := version, commit, date
+	t.Cleanup(func() { version, commit, date = origVersion, origCommit, origDate })
+
+	t.Run("unstamped build picks up VCS metadata", func(t *testing.T) {
+		version, commit, date = "dev", "none", "unknown"
+		applyBuildInfo(&debug.BuildInfo{
+			Main: debug.Module{Version: "(devel)"},
+			Settings: []debug.BuildSetting{
+				{Key: "vcs.revision", Value: "15522fe1deadbeef"},
+				{Key: "vcs.time", Value: "2026-06-12T18:00:00Z"},
+				{Key: "vcs.modified", Value: "true"},
+			},
+		})
+		assert.Equal(t, "15522fe1-dirty", commit)
+		assert.Equal(t, "2026-06-12T18:00:00Z", date)
+		assert.Equal(t, "dev (15522fe1-dirty)", version)
+	})
+
+	t.Run("ldflags stamping wins", func(t *testing.T) {
+		version, commit, date = "2026.6.0", "abc12345", "2026-06-12"
+		applyBuildInfo(&debug.BuildInfo{
+			Settings: []debug.BuildSetting{
+				{Key: "vcs.revision", Value: "ffff0000ffff0000"},
+				{Key: "vcs.time", Value: "1970-01-01T00:00:00Z"},
+			},
+		})
+		assert.Equal(t, "2026.6.0", version)
+		assert.Equal(t, "abc12345", commit)
+		assert.Equal(t, "2026-06-12", date)
 	})
 }
