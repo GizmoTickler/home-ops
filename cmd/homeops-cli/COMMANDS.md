@@ -50,21 +50,20 @@ homeops-cli
 │       ├── delete
 │       ├── info
 │       └── cleanup-zvols
-├── vm                       # provider-agnostic VM platform (proxmox|truenas|vsphere)
-│   ├── create
-│   ├── template
-│   │   └── import
-│   ├── clone
-│   ├── snapshot [create|list|rollback|delete]
-│   ├── ip <name>
-│   ├── ssh <name>
-│   ├── console <name>
-│   ├── set
-│   ├── resize-disk
-│   ├── restart
-│   ├── list / start / stop / poweron / poweroff / delete / info
-│   ├── cleanup-zvols
-│   └── proxmox|truenas|vsphere <op>   # same verbs, provider pinned
+├── vm                       # VM platform, provider-first
+│   ├── proxmox|truenas|vsphere
+│   │   ├── create
+│   │   ├── template
+│   │   │   └── import
+│   │   ├── clone
+│   │   ├── snapshot [create|list|rollback|delete]
+│   │   ├── ip [name]
+│   │   ├── ssh [name]
+│   │   ├── console [name]
+│   │   ├── set / resize-disk / restart
+│   │   ├── list / start / stop / poweron / poweroff / delete / info
+│   │   └── cleanup-zvols              # truenas only
+│   └── <verb>                         # hidden shorthand: hypervisors.default
 ├── op                       # 1Password item management
 │   ├── list / get / create / edit / delete
 │   ├── vaults list
@@ -305,31 +304,34 @@ Notes:
 
 ## VM Platform (`vm`)
 
-Provider-agnostic VM management. Every subcommand takes
-`--provider proxmox|truenas|vsphere` (default: `hypervisors.default` in
-homeops.yaml); the same verbs exist provider-pinned under
-`vm proxmox|truenas|vsphere`. VM names complete live from the hypervisor.
+Provider-first VM management: `vm proxmox|truenas|vsphere <verb>`. The same
+verbs also work directly under `vm` (hidden shorthand) with
+`--provider` / `hypervisors.default` selecting the hypervisor. VM names
+complete live from the hypervisor.
 
 ```bash
 # Create from a cloud image (ubuntu/rocky/debian/fedora resolve automatically)
-homeops-cli vm create --name dev-vm --os ubuntu
-homeops-cli vm create --provider truenas --name dev0 --os rocky --ip 192.168.120.50/22 --gateway 192.168.123.254
-homeops-cli vm create --provider vsphere --name dev-vm --template ubuntu-tpl
+homeops-cli vm proxmox create --name dev-vm --os ubuntu
+homeops-cli vm truenas create --name dev0 --os rocky --ip 192.168.120.50/22 --gateway 192.168.123.254
+homeops-cli vm vsphere create --name dev-vm --template ubuntu-tpl
 
 # Templates
-homeops-cli vm template import --name ubuntu-tpl --os ubuntu          # proxmox
-homeops-cli vm template import --from-vm golden --provider vsphere    # convert existing VM
+homeops-cli vm proxmox template import --name ubuntu-tpl --os ubuntu
+homeops-cli vm vsphere template import --from-vm golden   # convert existing VM
 
 # Day-2 operations
-homeops-cli vm set --name dev-vm --memory 16384 --cores 8
-homeops-cli vm resize-disk --name dev-vm --grow 20G
-homeops-cli vm snapshot create --name dev-vm --snap pre-upgrade
-homeops-cli vm clone --name dev-vm --to dev-vm2
-homeops-cli vm ip dev-vm
-homeops-cli vm ssh dev-vm --user ubuntu
-homeops-cli vm console dev-vm
-homeops-cli vm restart --name dev-vm
-homeops-cli vm list / start / stop / info / delete
+homeops-cli vm proxmox set --name dev-vm --memory 16384 --cores 8
+homeops-cli vm proxmox resize-disk --name dev-vm --grow 20G
+homeops-cli vm truenas snapshot create --name dev0 --snap pre-upgrade
+homeops-cli vm proxmox clone --name dev-vm --to dev-vm2
+homeops-cli vm proxmox ip dev-vm
+homeops-cli vm proxmox ssh dev-vm --user ubuntu
+homeops-cli vm truenas console dev0
+homeops-cli vm proxmox list / start / stop / restart / info / delete
+
+# Shorthand against hypervisors.default (hidden from help, fully supported)
+homeops-cli vm list
+homeops-cli vm ssh dev-vm
 ```
 
 Feature × provider matrix:

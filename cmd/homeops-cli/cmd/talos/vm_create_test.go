@@ -341,17 +341,47 @@ func TestVMPositionalCommandsPromptWhenNameless(t *testing.T) {
 	assert.Equal(t, []string{"ip-proxmox:dev1"}, *calls)
 }
 
-func TestVMProviderGroupsHiddenButFunctional(t *testing.T) {
+func TestVMTreeIsProviderFirst(t *testing.T) {
 	defer versionconfig.SetForTesting(nil)()
 	vm := NewVMCommand()
-	hidden := 0
+
+	providerGroups := 0
 	for _, sub := range vm.Commands() {
 		switch sub.Name() {
 		case "proxmox", "truenas", "vsphere":
-			assert.True(t, sub.Hidden, "provider alias group %q must be hidden from help/menu", sub.Name())
-			assert.True(t, sub.HasSubCommands(), "provider alias group %q must keep its verbs", sub.Name())
-			hidden++
+			providerGroups++
+			assert.False(t, sub.Hidden, "provider group %q is the primary structure and must be visible", sub.Name())
+			assert.True(t, sub.HasSubCommands(), "provider group %q must hold the verbs", sub.Name())
+			hasCleanup := false
+			for _, verb := range sub.Commands() {
+				if verb.Name() == "cleanup-zvols" {
+					hasCleanup = true
+				}
+			}
+			assert.Equal(t, sub.Name() == "truenas", hasCleanup,
+				"cleanup-zvols is TrueNAS-only and must appear exactly there (group %q)", sub.Name())
+		default:
+			assert.True(t, sub.Hidden, "flat verb %q must be a hidden shorthand", sub.Name())
 		}
 	}
-	assert.Equal(t, 3, hidden)
+	assert.Equal(t, 3, providerGroups)
+}
+
+func TestVMProviderGroupPinsProvider(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	calls, _ := injectFakeVMLifecycle(t)
+
+	vm := NewVMCommand()
+	vm.SetArgs([]string{"truenas", "restart", "--name", "web0"})
+	require.NoError(t, vm.Execute())
+
+	// snapshot's --provider is persistent on the group; pinning must reach it.
+	vm = NewVMCommand()
+	vm.SetArgs([]string{"vsphere", "snapshot", "create", "--name", "vc0", "--snap", "pre"})
+	require.NoError(t, vm.Execute())
+
+	assert.Equal(t, []string{
+		"restart-truenas:web0",
+		"snap-create-vsphere:vc0:pre",
+	}, *calls)
 }

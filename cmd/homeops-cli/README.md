@@ -63,32 +63,33 @@ homeops-cli version
 
 ## VM Platform (`homeops-cli vm`)
 
-Provider-agnostic VM management — any OS, not just k8s nodes. Every
-subcommand takes `--provider proxmox|truenas|vsphere` (default:
-`hypervisors.default` in homeops.yaml) and is also nested per provider
-(`vm truenas list`, `vm vsphere snapshot create ...`).
+Provider-first VM management — any OS, not just k8s nodes. Pick the
+hypervisor, then the verb: `vm proxmox|truenas|vsphere <verb>`. The same
+verbs also work directly under `vm` as hidden shorthands acting on
+`hypervisors.default` (with `--provider` to override).
 
 ```bash
 # Create general-purpose VMs from cloud images (latest stable resolved automatically)
-homeops-cli vm create --name dev-vm --os ubuntu
-homeops-cli vm create --name rocky0 --os rocky --memory 8192 --ip 192.168.120.50/22 --gateway 192.168.123.254
-homeops-cli vm create --name rhel0 --os rhel                    # set images.rhel in homeops.yaml first
-homeops-cli vm create --provider truenas --name dev0 --os ubuntu       # NoCloud seed ISO over SSH
-homeops-cli vm create --provider vsphere --name dev-vm --template ubuntu-tpl  # template clone + guestinfo
+homeops-cli vm proxmox create --name dev-vm --os ubuntu
+homeops-cli vm proxmox create --name rocky0 --os rocky --memory 8192 --ip 192.168.120.50/22 --gateway 192.168.123.254
+homeops-cli vm proxmox create --name rhel0 --os rhel            # set images.rhel in homeops.yaml first
+homeops-cli vm truenas create --name dev0 --os ubuntu           # NoCloud seed ISO over SSH
+homeops-cli vm vsphere create --name dev-vm --template ubuntu-tpl  # template clone + guestinfo
 
 # Reusable templates
-homeops-cli vm template import --name ubuntu-tpl --os ubuntu    # proxmox: image + template flag
-homeops-cli vm template import --from-vm golden --provider vsphere  # convert an existing VM
+homeops-cli vm proxmox template import --name ubuntu-tpl --os ubuntu  # image + template flag
+homeops-cli vm vsphere template import --from-vm golden               # convert an existing VM
 
 # Day-2 lifecycle
-homeops-cli vm list / start / stop / info / delete / restart
-homeops-cli vm set --name dev-vm --memory 16384 --cores 8
-homeops-cli vm resize-disk --name dev-vm --grow 20G             # truenas: --disk boot|openebs|<zvol>
-homeops-cli vm snapshot create|list|rollback|delete --name dev-vm --snap pre-upgrade
-homeops-cli vm clone --name template --to dev-vm2
-homeops-cli vm ip dev-vm                                        # guest agent / VMware Tools / cluster config
-homeops-cli vm ssh dev-vm --user ubuntu
-homeops-cli vm console dev-vm                                   # noVNC+xterm.js / SPICE / WebMKS URL
+homeops-cli vm proxmox list / start / stop / info / delete / restart
+homeops-cli vm proxmox set --name dev-vm --memory 16384 --cores 8
+homeops-cli vm truenas resize-disk --name dev0 --disk openebs --grow 100G
+homeops-cli vm proxmox snapshot create|list|rollback|delete --name dev-vm --snap pre-upgrade
+homeops-cli vm proxmox clone --name template --to dev-vm2
+homeops-cli vm proxmox ip dev-vm                                # guest agent / VMware Tools / cluster config
+homeops-cli vm proxmox ssh dev-vm --user ubuntu
+homeops-cli vm truenas console dev0                             # noVNC+xterm.js / SPICE / WebMKS URL
+homeops-cli vm list                                             # shorthand: hypervisors.default
 ```
 
 The full matrix (create, set, resize-disk, restart, snapshot CRUD, clone, ip,

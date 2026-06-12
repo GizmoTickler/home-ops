@@ -2669,46 +2669,57 @@ func defaultProviderName() string {
 	return "proxmox"
 }
 
-// NewVMCommand exposes the provider-agnostic VM lifecycle as the top-level
-// `vm` command group. The implementations are OS-agnostic (provider.VMLifecycle);
-// they only lived under `talos` for historical reasons.
-func NewVMCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "vm",
-		Short: "Manage VM lifecycle on Proxmox, TrueNAS, or vSphere",
-		Long: `Provider-agnostic VM lifecycle: list, start/stop, power on/off, info,
-delete, and zvol cleanup. Works on any VM regardless of OS (Flatcar, Talos, or
-other). --provider defaults to hypervisors.default in homeops.yaml.`,
-		Example: `  homeops-cli vm list
-  homeops-cli vm start --name k8s-1
-  homeops-cli vm info --provider truenas --name k8s-0
-  homeops-cli vm delete --name old-vm --force`,
-	}
+// vmVerbGroups organizes the lifecycle verbs in help output.
+var vmVerbGroups = map[string]string{
+	"create": "provision", "template": "provision", "clone": "provision",
+	"set": "day2", "resize-disk": "day2", "snapshot": "day2", "cleanup-zvols": "day2",
+	"list": "power", "start": "power", "stop": "power", "poweron": "power",
+	"poweroff": "power", "restart": "power", "delete": "power", "info": "power",
+	"ip": "access", "ssh": "access", "console": "access",
+}
+
+func addVMVerbGroups(cmd *cobra.Command, subcommands []*cobra.Command) {
 	cmd.AddGroup(
 		&cobra.Group{ID: "provision", Title: "Provisioning:"},
 		&cobra.Group{ID: "day2", Title: "Day-2 operations:"},
 		&cobra.Group{ID: "power", Title: "Power & lifecycle:"},
 		&cobra.Group{ID: "access", Title: "Access:"},
 	)
-	subcommands := vmLifecycleSubcommands()
-	groupByName := map[string]string{
-		"create": "provision", "template": "provision", "clone": "provision",
-		"set": "day2", "resize-disk": "day2", "snapshot": "day2", "cleanup-zvols": "day2",
-		"list": "power", "start": "power", "stop": "power", "poweron": "power",
-		"poweroff": "power", "restart": "power", "delete": "power", "info": "power",
-		"ip": "access", "ssh": "access", "console": "access",
-	}
 	for _, sub := range subcommands {
-		if g, ok := groupByName[sub.Name()]; ok {
+		if g, ok := vmVerbGroups[sub.Name()]; ok {
 			sub.GroupID = g
 		}
 	}
 	cmd.AddCommand(subcommands...)
-	// Provider-scoped subgroups: `vm proxmox list`, `vm truenas stop ...` —
-	// same commands with --provider pinned, for explicit per-provider ops
-	// (hidden from help/menu to avoid listing every verb four times).
+}
+
+// NewVMCommand exposes the VM platform as the top-level `vm` command group,
+// organized provider-first: `vm proxmox|truenas|vsphere <verb>`. The same
+// verbs also exist directly under `vm` as hidden shorthands that act on
+// hypervisors.default (kept for scripts and muscle memory).
+func NewVMCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vm",
+		Short: "Manage VM lifecycle on Proxmox, TrueNAS, or vSphere",
+		Long: `VM platform, organized per provider: pick the hypervisor, then the verb.
+Works on any VM regardless of OS (Flatcar, Talos, or other).
+
+The verbs also work directly under vm (e.g. 'vm list'), acting on
+hypervisors.default from homeops.yaml.`,
+		Example: `  homeops-cli vm proxmox list
+  homeops-cli vm proxmox create --name dev-vm --os ubuntu
+  homeops-cli vm truenas snapshot create --name web0 --snap pre-upgrade
+  homeops-cli vm vsphere info --name vc0
+  homeops-cli vm list                  # shorthand: hypervisors.default`,
+	}
+	// Provider-first groups are the visible structure.
 	for _, p := range []string{"proxmox", "truenas", "vsphere"} {
 		cmd.AddCommand(newProviderScopedVMGroup(p))
+	}
+	// Flat verbs stay as hidden shorthands for the default provider.
+	for _, sub := range vmLifecycleSubcommands() {
+		sub.Hidden = true
+		cmd.AddCommand(sub)
 	}
 	return cmd
 }
@@ -2746,25 +2757,36 @@ func lifecycleSubcommandSet() []*cobra.Command {
 	}
 }
 
-// newProviderScopedVMGroup wraps the lifecycle commands with --provider
-// pinned to one hypervisor (and the flag hidden), e.g. `vm truenas list`.
-// Hidden from help and the interactive menu: the verbs are identical to the
-// top-level ones, and listing them three more times only adds noise. They
-// remain fully functional shortcuts for people who prefer the pinned form.
+// newProviderScopedVMGroup builds one provider's verb set with --provider
+// pinned to that hypervisor (and the flag hidden), e.g. `vm truenas list`.
 func newProviderScopedVMGroup(provider string) *cobra.Command {
 	group := &cobra.Command{
-		Use:    provider,
-		Short:  fmt.Sprintf("VM operations on %s (same verbs, provider pinned)", provider),
-		Hidden: true,
+		Use:   provider,
+		Short: fmt.Sprintf("VM operations on %s", provider),
+		Example: fmt.Sprintf(`  homeops-cli vm %[1]s list
+  homeops-cli vm %[1]s create --name dev0 --os ubuntu
+  homeops-cli vm %[1]s snapshot create --name dev0 --snap pre-upgrade`, provider),
 	}
+	var subcommands []*cobra.Command
 	for _, sub := range vmLifecycleSubcommands() {
-		if f := sub.Flags().Lookup("provider"); f != nil {
+		// TrueNAS-only verbs don't belong under the other providers.
+		if sub.Name() == "cleanup-zvols" && provider != "truenas" {
+			continue
+		}
+		// --provider may be a local flag (most verbs) or a persistent one
+		// (the snapshot group); pin whichever exists.
+		f := sub.Flags().Lookup("provider")
+		if f == nil {
+			f = sub.PersistentFlags().Lookup("provider")
+		}
+		if f != nil {
 			_ = f.Value.Set(provider)
 			f.DefValue = provider
 			f.Hidden = true
 		}
-		group.AddCommand(sub)
+		subcommands = append(subcommands, sub)
 	}
+	addVMVerbGroups(group, subcommands)
 	return group
 }
 

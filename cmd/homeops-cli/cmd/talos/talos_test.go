@@ -966,12 +966,20 @@ func TestVMLifecycleHelpMakesVMGroupDiscoverable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, rootCmd.Long, "homeops-cli vm")
 
+	// vm help is provider-first: the three hypervisors are the visible
+	// children, each holding the verb set.
 	vmOutput, err := testutil.ExecuteCommand(NewVMCommand(), "--help")
 	require.NoError(t, err)
-	assert.Contains(t, vmOutput, "start")
-	assert.Contains(t, vmOutput, "stop")
-	assert.Contains(t, vmOutput, "delete")
-	assert.Contains(t, vmOutput, "cleanup-zvols")
+	assert.Contains(t, vmOutput, "proxmox")
+	assert.Contains(t, vmOutput, "truenas")
+	assert.Contains(t, vmOutput, "vsphere")
+
+	providerOutput, err := testutil.ExecuteCommand(NewVMCommand(), "truenas", "--help")
+	require.NoError(t, err)
+	assert.Contains(t, providerOutput, "start")
+	assert.Contains(t, providerOutput, "stop")
+	assert.Contains(t, providerOutput, "delete")
+	assert.Contains(t, providerOutput, "cleanup-zvols")
 
 	manageOutput, err := testutil.ExecuteCommand(newManageVMCommand(), "--help")
 	require.NoError(t, err)
