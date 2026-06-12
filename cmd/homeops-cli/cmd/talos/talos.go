@@ -2693,8 +2693,17 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
 	return cmd
 }
 
-// vmLifecycleSubcommands builds one fresh set of the lifecycle commands.
+// vmLifecycleSubcommands builds one fresh set of the lifecycle commands,
+// each with live VM-name completion wired onto its --name/positional.
 func vmLifecycleSubcommands() []*cobra.Command {
+	cmds := lifecycleSubcommandSet()
+	for _, c := range cmds {
+		registerVMNameCompletion(c)
+	}
+	return cmds
+}
+
+func lifecycleSubcommandSet() []*cobra.Command {
 	return []*cobra.Command{
 		newCreateVMCommand(),
 		newVMTemplateCommand(),
@@ -2822,7 +2831,7 @@ func newStartVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
@@ -2870,7 +2879,7 @@ func newStopVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
@@ -2899,7 +2908,7 @@ func newDeleteVMCommand() *cobra.Command {
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
@@ -2966,7 +2975,7 @@ func newInfoVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
@@ -3471,7 +3480,7 @@ func newPowerOnVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
@@ -3498,7 +3507,7 @@ func newPowerOffVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
-	_ = cmd.RegisterFlagCompletionFunc("name", completion.ValidVMNames)
+	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
 
 	return cmd
 }
