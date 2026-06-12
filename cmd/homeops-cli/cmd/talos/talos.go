@@ -115,9 +115,12 @@ var (
 	spinCommandFn                      = ui.Spin
 	updateNodeTemplatesWithSchematicFn = updateNodeTemplatesWithSchematic
 	uploadISOToVSphereFn               = uploadISOToVSphere
-	httpGetFn                          = http.Get
-	controlplaneTemplatePath           = "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
-	newISODownloaderFn                 = func() isoDownloader {
+	// isoDownloadClient bounds ISO downloads: without a timeout a stalled
+	// mirror hangs prepare-iso/deploy-vm forever. 30m accommodates slow links.
+	isoDownloadClient        = &http.Client{Timeout: 30 * time.Minute}
+	httpGetFn                = isoDownloadClient.Get
+	controlplaneTemplatePath = "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
+	newISODownloaderFn       = func() isoDownloader {
 		return iso.NewDownloader()
 	}
 	newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {

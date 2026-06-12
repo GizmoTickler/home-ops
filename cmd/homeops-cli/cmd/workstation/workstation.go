@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
@@ -21,7 +22,10 @@ import (
 )
 
 var (
-	httpGetFunc         = http.Get
+	// krewDownloadClient bounds krew artifact downloads (a hung GitHub
+	// connection should fail, not stall workstation setup forever).
+	krewDownloadClient  = &http.Client{Timeout: 10 * time.Minute}
+	httpGetFunc         = krewDownloadClient.Get
 	krewDownloadBaseURL = "https://github.com/kubernetes-sigs/krew/releases/latest/download"
 	runtimeGOOS         = runtime.GOOS
 	runtimeGOARCH       = runtime.GOARCH

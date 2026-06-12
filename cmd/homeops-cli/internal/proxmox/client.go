@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
@@ -32,14 +33,14 @@ func NewClient(host, tokenID, secret string, insecure bool) (*Client, error) {
 	// Build the API URL
 	apiURL := fmt.Sprintf("https://%s:8006/api2/json", host)
 
-	// Create HTTP client with optional insecure TLS
-	httpClient := http.DefaultClient
+	// Create HTTP client with optional insecure TLS. Every Proxmox API call
+	// is a short request (long operations poll task status), so a bounded
+	// per-request timeout prevents a stalled API from hanging the CLI.
+	httpClient := &http.Client{Timeout: 60 * time.Second}
 	if insecure {
 		common.NewColorLogger().Warn("Proxmox TLS verification DISABLED via %s=true (unset it to verify the endpoint)", constants.EnvProxmoxInsecure)
-		httpClient = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		}
 	}
 
