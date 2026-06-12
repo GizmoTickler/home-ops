@@ -155,6 +155,7 @@ func stdinIsTerminal() bool {
 }
 
 func showInteractiveMenu(rootCmd *cobra.Command) error {
+	ui.PrintBanner(fmt.Sprintf("homeops %s — clusters, VMs, and secrets from one CLI", version))
 	for {
 		// Build the menu from the live command tree so it never drifts from the
 		// registered subcommands. Skip hidden + non-interactive helpers.
@@ -282,6 +283,7 @@ func newVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print version, commit, and build date",
 		Run: func(cmd *cobra.Command, args []string) {
+			ui.PrintBanner("")
 			fmt.Printf("homeops-cli %s\ncommit: %s\nbuilt:  %s\n", version, commit, date)
 		},
 	}

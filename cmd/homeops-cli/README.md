@@ -55,9 +55,34 @@ homeops-cli talos --help         # legacy provider (retained for reference/rollb
 homeops-cli k8s --help
 homeops-cli volsync --help
 homeops-cli workstation --help
+homeops-cli vm --help            # provider-agnostic VM platform (see below)
+homeops-cli op --help            # 1Password item management
 homeops-cli config --help        # config scaffold / show / doctor
 homeops-cli version
 ```
+
+## VM Platform (`homeops-cli vm`)
+
+Provider-agnostic VM management — any OS, not just k8s nodes:
+
+```bash
+# Create general-purpose VMs from cloud images (latest stable resolved automatically)
+homeops-cli vm create --name dev-vm --os ubuntu
+homeops-cli vm create --name rocky0 --os rocky --memory 8192 --ip 192.168.120.50/22 --gateway 192.168.123.254
+homeops-cli vm create --name rhel0 --os rhel          # set images.rhel in homeops.yaml first
+
+# Day-2 lifecycle (also nested per provider: vm proxmox|truenas|vsphere <op>)
+homeops-cli vm list / start / stop / info / delete / restart
+homeops-cli vm set --name dev-vm --memory 16384 --cores 8
+homeops-cli vm resize-disk --name dev-vm --grow 20G
+homeops-cli vm snapshot create|list|rollback|delete --name dev-vm --snap pre-upgrade
+homeops-cli vm clone --name template --to dev-vm2
+homeops-cli vm ip dev-vm                               # guest-agent discovery
+homeops-cli vm ssh dev-vm --user ubuntu
+```
+
+`vm create/set/resize-disk/restart/snapshot/clone/ip/ssh` are Proxmox-first;
+list/start/stop/info/delete work on all three hypervisors.
 
 ## Flatcar VM Workflows (current)
 

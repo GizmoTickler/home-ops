@@ -2688,6 +2688,10 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
 func vmLifecycleSubcommands() []*cobra.Command {
 	return []*cobra.Command{
 		newCreateVMCommand(),
+		newCloneVMCommand(),
+		newSnapshotCommand(),
+		newVMIPCommand(),
+		newVMSSHCommand(),
 		newSetVMCommand(),
 		newResizeDiskCommand(),
 		newRestartVMCommand(),
