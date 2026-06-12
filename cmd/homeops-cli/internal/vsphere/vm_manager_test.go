@@ -23,6 +23,17 @@ type fakeVMClient struct {
 	listCount    int
 	closeCalls   int
 	infoResponse *mo.VirtualMachine
+
+	reconfigSpecs []types.VirtualMachineConfigSpec
+	reconfigErr   error
+	snapsCreated  []string
+	snapsReverted []string
+	snapsRemoved  []string
+	clonedTo      []string
+	cloneErr      error
+	rebooted      int
+	consoleURL    string
+	templated     int
 }
 
 func (f *fakeVMClient) ListVMs() ([]*object.VirtualMachine, error) {
@@ -54,6 +65,51 @@ func (f *fakeVMClient) PowerOffVM(*object.VirtualMachine) error {
 
 func (f *fakeVMClient) DeleteVM(*object.VirtualMachine) error {
 	f.deleted++
+	return nil
+}
+
+func (f *fakeVMClient) ReconfigureVM(_ *object.VirtualMachine, spec types.VirtualMachineConfigSpec) error {
+	if f.reconfigErr != nil {
+		return f.reconfigErr
+	}
+	f.reconfigSpecs = append(f.reconfigSpecs, spec)
+	return nil
+}
+
+func (f *fakeVMClient) CreateVMSnapshot(_ *object.VirtualMachine, name string) error {
+	f.snapsCreated = append(f.snapsCreated, name)
+	return nil
+}
+
+func (f *fakeVMClient) RevertVMSnapshot(_ *object.VirtualMachine, name string) error {
+	f.snapsReverted = append(f.snapsReverted, name)
+	return nil
+}
+
+func (f *fakeVMClient) RemoveVMSnapshot(_ *object.VirtualMachine, name string) error {
+	f.snapsRemoved = append(f.snapsRemoved, name)
+	return nil
+}
+
+func (f *fakeVMClient) CloneVMTo(_ *object.VirtualMachine, newName string) error {
+	if f.cloneErr != nil {
+		return f.cloneErr
+	}
+	f.clonedTo = append(f.clonedTo, newName)
+	return nil
+}
+
+func (f *fakeVMClient) RebootVM(*object.VirtualMachine) error {
+	f.rebooted++
+	return nil
+}
+
+func (f *fakeVMClient) AcquireConsoleURL(*object.VirtualMachine) (string, error) {
+	return f.consoleURL, nil
+}
+
+func (f *fakeVMClient) MarkVMAsTemplate(*object.VirtualMachine) error {
+	f.templated++
 	return nil
 }
 

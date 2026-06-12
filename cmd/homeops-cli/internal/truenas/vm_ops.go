@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
+
+	"homeops-cli/internal/common"
 )
 
 // This file holds the day-2 VM operations (resources, disks, snapshots,
@@ -215,40 +216,6 @@ func (vm *VMManager) SetVMResources(name string, memoryMB, vcpus int) error {
 	return nil
 }
 
-// parseSizeSpec parses "20G"/"+20G"/"1T" style size specs into bytes and
-// whether the spec is relative (leading '+').
-func parseSizeSpec(spec string) (bytes int64, relative bool, err error) {
-	s := strings.TrimSpace(spec)
-	if strings.HasPrefix(s, "+") {
-		relative = true
-		s = strings.TrimPrefix(s, "+")
-	}
-	if s == "" {
-		return 0, false, fmt.Errorf("empty size spec")
-	}
-	unit := int64(1)
-	switch suffix := s[len(s)-1]; suffix {
-	case 'M', 'm':
-		unit = 1 << 20
-		s = s[:len(s)-1]
-	case 'G', 'g':
-		unit = 1 << 30
-		s = s[:len(s)-1]
-	case 'T', 't':
-		unit = 1 << 40
-		s = s[:len(s)-1]
-	default:
-		if suffix < '0' || suffix > '9' {
-			return 0, false, fmt.Errorf("unsupported size unit %q (use M, G, or T)", string(suffix))
-		}
-	}
-	n, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || n <= 0 {
-		return 0, false, fmt.Errorf("invalid size spec %q (use e.g. 20G or +20G)", spec)
-	}
-	return n * unit, relative, nil
-}
-
 // resolveVMDisk picks the zvol a disk selector refers to. Selector forms:
 // "" or "boot" (the boot zvol), a suffix like "openebs", or a full dataset
 // path.
@@ -293,7 +260,7 @@ func (vm *VMManager) ResizeVMDisk(name, disk, sizeSpec string) error {
 	if err != nil {
 		return err
 	}
-	specBytes, relative, err := parseSizeSpec(sizeSpec)
+	specBytes, relative, err := common.ParseSizeSpec(sizeSpec)
 	if err != nil {
 		return err
 	}

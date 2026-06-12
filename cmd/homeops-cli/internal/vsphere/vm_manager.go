@@ -5,6 +5,7 @@ import (
 
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
+	"github.com/vmware/govmomi/vim25/types"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/provider"
@@ -19,6 +20,14 @@ type vmClient interface {
 	PowerOnVM(vm *object.VirtualMachine) error
 	PowerOffVM(vm *object.VirtualMachine) error
 	DeleteVM(vm *object.VirtualMachine) error
+	ReconfigureVM(vm *object.VirtualMachine, spec types.VirtualMachineConfigSpec) error
+	CreateVMSnapshot(vm *object.VirtualMachine, name string) error
+	RevertVMSnapshot(vm *object.VirtualMachine, name string) error
+	RemoveVMSnapshot(vm *object.VirtualMachine, name string) error
+	CloneVMTo(vm *object.VirtualMachine, newName string) error
+	RebootVM(vm *object.VirtualMachine) error
+	AcquireConsoleURL(vm *object.VirtualMachine) (string, error)
+	MarkVMAsTemplate(vm *object.VirtualMachine) error
 	Close() error
 }
 
