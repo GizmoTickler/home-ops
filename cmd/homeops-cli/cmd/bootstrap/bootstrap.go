@@ -69,6 +69,8 @@ var (
 	bootstrapSleep            = time.Sleep
 	bootstrapChoose           = ui.Choose
 	bootstrapChooseMulti      = ui.ChooseMulti
+	bootstrapConfirm          = ui.Confirm
+	runBootstrapFn            = runBootstrap
 	bootstrapRunWithSpinner   = ui.RunWithSpinner
 	bootstrapResetTerminal    = ui.ResetTerminal
 	bootstrapWorkingDirectory = common.GetWorkingDirectory
@@ -344,7 +346,19 @@ talosctl bootstrap) instead.`,
   # Legacy Talos path
   homeops-cli bootstrap --provider talos`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runBootstrap(&config)
+			// A bare Enter in the interactive menu lands here; bootstrapping
+			// a cluster deserves an explicit yes (--yes/-y skips the prompt,
+			// --dry-run never mutates anything).
+			if !config.DryRun {
+				ok, err := bootstrapConfirm("Bootstrap the cluster now? (preflight, PKI, kubeadm, CRDs, helmfile)", false)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("bootstrap cancelled by user")
+				}
+			}
+			return runBootstrapFn(&config)
 		},
 	}
 

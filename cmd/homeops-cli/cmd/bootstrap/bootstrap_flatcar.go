@@ -524,7 +524,7 @@ type flatcarSSHRunner interface {
 func checkFlatcarNodeReady(sshUser string, node flatcarBootstrapNode, logger *common.ColorLogger) error {
 	runner := flatcarNewSSHRunner(sshUser, node.IP)
 	if err := runner.Connect(); err != nil {
-		return fmt.Errorf("ssh connect failed: %w", err)
+		return fmt.Errorf("ssh connect failed: %w (the nodes trust secrets.node_ssh_authorized_key — make sure its PRIVATE key is available to ssh: loaded in your ssh-agent, or an IdentityFile entry for the node IPs in ~/.ssh/config)", err)
 	}
 	defer func() { _ = runner.Close() }()
 

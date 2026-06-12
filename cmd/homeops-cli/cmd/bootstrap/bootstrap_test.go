@@ -968,3 +968,55 @@ secret4: op://vault/item4/field4
 		extractOnePasswordReferences(content)
 	}
 }
+
+func TestBootstrapCommandRequiresConfirmation(t *testing.T) {
+	origConfirm, origRun := bootstrapConfirm, runBootstrapFn
+	t.Cleanup(func() { bootstrapConfirm, runBootstrapFn = origConfirm, origRun })
+
+	ran := false
+	runBootstrapFn = func(config *BootstrapConfig) error { ran = true; return nil }
+
+	// Declined: bootstrap must not start.
+	bootstrapConfirm = func(message string, defaultYes bool) (bool, error) {
+		if defaultYes {
+			t.Fatal("bootstrap must not default to yes")
+		}
+		return false, nil
+	}
+	cmd := NewCommand()
+	cmd.SetArgs([]string{})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "cancelled") {
+		t.Fatalf("expected cancellation error, got %v", err)
+	}
+	if ran {
+		t.Fatal("bootstrap ran despite declined confirmation")
+	}
+
+	// Confirmed: proceeds.
+	bootstrapConfirm = func(string, bool) (bool, error) { return true, nil }
+	cmd = NewCommand()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("confirmed bootstrap failed: %v", err)
+	}
+	if !ran {
+		t.Fatal("bootstrap did not run after confirmation")
+	}
+
+	// Dry runs never prompt.
+	prompted := false
+	ran = false
+	bootstrapConfirm = func(string, bool) (bool, error) { prompted = true; return false, nil }
+	cmd = NewCommand()
+	cmd.SetArgs([]string{"--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run failed: %v", err)
+	}
+	if prompted {
+		t.Fatal("dry-run must not prompt for confirmation")
+	}
+	if !ran {
+		t.Fatal("dry-run did not reach runBootstrap")
+	}
+}
