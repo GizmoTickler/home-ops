@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"homeops-cli/internal/testutil"
 )
 
 func TestChangeVolsyncState(t *testing.T) {
@@ -574,4 +576,58 @@ func TestDiscoverReplicationSources(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, sources)
 	})
+}
+
+func TestVolsyncStateShowsWithoutArgs(t *testing.T) {
+	origKubectl := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = origKubectl })
+
+	var queried [][]string
+	kubectlOutputFn = func(args ...string) ([]byte, error) {
+		queried = append(queried, args)
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.Contains(joined, "kustomization"):
+			return []byte("true"), nil
+		case strings.Contains(joined, "helmrelease"):
+			return []byte(""), nil
+		case strings.Contains(joined, "deployment"):
+			return []byte("0 "), nil
+		}
+		return nil, fmt.Errorf("unexpected kubectl call: %s", joined)
+	}
+
+	cmd := newStateCommand()
+	cmd.SetArgs([]string{})
+	stdout, _, err := testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
+	require.NoError(t, err)
+	require.Len(t, queried, 3)
+	assert.Contains(t, stdout, "suspended")
+	assert.Contains(t, stdout, "active")
+	assert.Contains(t, stdout, "scaled to 0")
+	assert.Contains(t, stdout, "volsync state resume")
+}
+
+func TestVolsyncStatePositionalAction(t *testing.T) {
+	origFlux, origKubectl := fluxCombinedOutputFn, kubectlCombinedOutputFn
+	t.Cleanup(func() { fluxCombinedOutputFn, kubectlCombinedOutputFn = origFlux, origKubectl })
+
+	var fluxCalls [][]string
+	fluxCombinedOutputFn = func(args ...string) ([]byte, error) {
+		fluxCalls = append(fluxCalls, args)
+		return nil, nil
+	}
+	kubectlCombinedOutputFn = func(args ...string) ([]byte, error) { return nil, nil }
+
+	cmd := newStateCommand()
+	cmd.SetArgs([]string{"suspend"})
+	require.NoError(t, cmd.Execute())
+	require.Len(t, fluxCalls, 2)
+	assert.Contains(t, strings.Join(fluxCalls[0], " "), "suspend kustomization volsync")
+
+	cmd = newStateCommand()
+	cmd.SetArgs([]string{"bogus"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "suspend' or 'resume")
 }

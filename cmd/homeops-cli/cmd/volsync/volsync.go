@@ -169,24 +169,89 @@ func NewCommand() *cobra.Command {
 }
 
 func newStateCommand() *cobra.Command {
-	var state string
+	var action string
 
 	cmd := &cobra.Command{
-		Use:   "state",
-		Short: "Suspend or resume VolSync",
-		Long:  `Suspend or resume VolSync kustomization and HelmRelease`,
+		Use:   "state [suspend|resume]",
+		Short: "Show, suspend, or resume the VolSync controller",
+		Long: `Without arguments, show whether VolSync (Flux kustomization, HelmRelease,
+controller deployment) is suspended or running. Pass suspend or resume —
+positionally or via --action — to change it.`,
+		Args: cobra.MaximumNArgs(1),
+		Example: `  homeops-cli volsync state            # show the current state
+  homeops-cli volsync state suspend
+  homeops-cli volsync state resume`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			state := action
+			if len(args) > 0 {
+				state = args[0]
+			}
+			if state == "" {
+				return showVolsyncState()
+			}
 			if state != "suspend" && state != "resume" {
-				return fmt.Errorf("state must be 'suspend' or 'resume'")
+				return fmt.Errorf("state must be 'suspend' or 'resume' (or no argument to show the current state)")
 			}
 			return changeVolsyncState(state)
 		},
 	}
 
-	cmd.Flags().StringVar(&state, "action", "", "Action to perform: suspend or resume (required)")
-	_ = cmd.MarkFlagRequired("action")
+	cmd.Flags().StringVar(&action, "action", "", "suspend or resume (default: show the current state)")
 
 	return cmd
+}
+
+// showVolsyncState prints whether the VolSync Flux objects and controller
+// deployment are suspended or running.
+func showVolsyncState() error {
+	type check struct {
+		component string
+		args      []string
+		render    func(out string) string
+	}
+	suspendedRender := func(out string) string {
+		if strings.TrimSpace(out) == "true" {
+			return "suspended"
+		}
+		return "active"
+	}
+	checks := []check{
+		{"kustomization/volsync", []string{"--namespace", constants.NSVolsyncSystem, "get", "kustomization", "volsync", "-o", "jsonpath={.spec.suspend}"}, suspendedRender},
+		{"helmrelease/volsync", []string{"--namespace", constants.NSVolsyncSystem, "get", "helmrelease", "volsync", "-o", "jsonpath={.spec.suspend}"}, suspendedRender},
+		{"deployment/volsync", []string{"--namespace", constants.NSVolsyncSystem, "get", "deployment", "volsync", "-o", "jsonpath={.spec.replicas} {.status.readyReplicas}"}, func(out string) string {
+			fields := strings.Fields(out)
+			if len(fields) == 0 {
+				return "unknown"
+			}
+			ready := "0"
+			if len(fields) > 1 {
+				ready = fields[1]
+			}
+			if fields[0] == "0" {
+				return "scaled to 0 (suspended)"
+			}
+			return fmt.Sprintf("%s/%s ready", ready, fields[0])
+		}},
+	}
+
+	rows := make([][]string, 0, len(checks))
+	suspended := false
+	for _, c := range checks {
+		out, err := kubectlOutputFn(c.args...)
+		state := "unknown"
+		if err == nil {
+			state = c.render(string(out))
+		}
+		if strings.Contains(state, "suspended") {
+			suspended = true
+		}
+		rows = append(rows, []string{c.component, state})
+	}
+	ui.PrintTable([]string{"COMPONENT", "STATE"}, rows)
+	if suspended {
+		fmt.Println("\nVolSync is suspended — resume with 'homeops-cli volsync state resume'")
+	}
+	return nil
 }
 
 func changeVolsyncState(state string) error {

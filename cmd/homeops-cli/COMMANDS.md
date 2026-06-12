@@ -74,7 +74,7 @@ homeops-cli
 │   ├── show
 │   └── doctor [--network]
 ├── volsync
-│   ├── state
+│   ├── state [suspend|resume]
 │   ├── suspend [name]
 │   ├── resume [name]
 │   ├── snapshot
@@ -459,8 +459,9 @@ Notes:
 ### Controller State
 
 ```bash
-homeops-cli volsync state --action suspend
-homeops-cli volsync state --action resume
+homeops-cli volsync state            # show: kustomization / helmrelease / deployment
+homeops-cli volsync state suspend
+homeops-cli volsync state resume
 ```
 
 ### Resource Suspension and Resume
