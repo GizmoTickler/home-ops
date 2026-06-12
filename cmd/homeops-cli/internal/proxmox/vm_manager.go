@@ -464,6 +464,8 @@ func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
 type VMManager struct {
 	client          *Client
 	logger          *common.ColorLogger
+	host            string // API host, for building web console URLs
+	nodeName        string // Proxmox node, for building web console URLs
 	lookupVMHandle  func(string) (vmHandle, error)
 	listVMsFn       func() (proxmox.VirtualMachines, error)
 	getNextVMIDFn   func() (int, error)
@@ -472,6 +474,8 @@ type VMManager struct {
 	findVMByNameFn  func(string) (*proxmox.VirtualMachine, error)
 	uploadISOTaskFn func(string, string, string) (taskHandle, error)
 	verifyStorageFn func(string) error
+	// convertToTemplateFn overrides the template-flag conversion (tests).
+	convertToTemplateFn func(string) error
 }
 
 // NewVMManager creates a new VM manager
@@ -486,8 +490,10 @@ func NewVMManager(host, tokenID, secret, nodeName string, insecure bool) (*VMMan
 	}
 
 	return &VMManager{
-		client: client,
-		logger: common.NewColorLogger(),
+		client:   client,
+		logger:   common.NewColorLogger(),
+		host:     host,
+		nodeName: nodeName,
 	}, nil
 }
 
