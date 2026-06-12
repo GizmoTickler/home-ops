@@ -320,3 +320,38 @@ func TestVMConsoleAndIPDispatch(t *testing.T) {
 
 	assert.Equal(t, []string{"console-vsphere:vc0", "ip-vsphere:vc0"}, *calls)
 }
+
+func TestVMPositionalCommandsPromptWhenNameless(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	calls, _ := injectFakeVMLifecycle(t)
+
+	oldNames, oldChoose := getProxmoxVMNamesFn, chooseVMFunc
+	getProxmoxVMNamesFn = func() ([]string, error) { return []string{"dev0", "dev1"}, nil }
+	chooseVMFunc = func(prompt string, options []string) (string, error) {
+		assert.Contains(t, prompt, "show IPs for")
+		assert.Equal(t, []string{"dev0", "dev1"}, options)
+		return "dev1", nil
+	}
+	t.Cleanup(func() { getProxmoxVMNamesFn, chooseVMFunc = oldNames, oldChoose })
+
+	// No positional arg (the interactive-menu path): must prompt, not panic.
+	ip := newVMIPCommand()
+	ip.SetArgs([]string{})
+	require.NoError(t, ip.Execute())
+	assert.Equal(t, []string{"ip-proxmox:dev1"}, *calls)
+}
+
+func TestVMProviderGroupsHiddenButFunctional(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	vm := NewVMCommand()
+	hidden := 0
+	for _, sub := range vm.Commands() {
+		switch sub.Name() {
+		case "proxmox", "truenas", "vsphere":
+			assert.True(t, sub.Hidden, "provider alias group %q must be hidden from help/menu", sub.Name())
+			assert.True(t, sub.HasSubCommands(), "provider alias group %q must keep its verbs", sub.Name())
+			hidden++
+		}
+	}
+	assert.Equal(t, 3, hidden)
+}

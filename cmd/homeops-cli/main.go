@@ -203,7 +203,7 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 				return err
 			}
 		case target.RunE != nil:
-			if err := target.RunE(target, []string{}); err != nil {
+			if err := runMenuCommand(target); err != nil {
 				return err
 			}
 		case target.Run != nil:
@@ -262,7 +262,7 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 				}
 				// Call the command's RunE function directly if it exists
 				if subcmd.RunE != nil {
-					return subcmd.RunE(subcmd, []string{})
+					return runMenuCommand(subcmd)
 				}
 				// Fall back to Run if RunE doesn't exist
 				if subcmd.Run != nil {
@@ -274,6 +274,18 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 			}
 		}
 	}
+}
+
+// runMenuCommand executes a leaf command selected from the interactive menu
+// with no positional arguments. The menu bypasses cobra's argument parsing,
+// so validate first: a command that requires positionals gets its usage shown
+// instead of panicking on args[0].
+func runMenuCommand(cmd *cobra.Command) error {
+	if err := cmd.ValidateArgs([]string{}); err != nil {
+		fmt.Printf("%s needs arguments (%v) — run it directly:\n\n", cmd.CommandPath(), err)
+		return cmd.Help()
+	}
+	return cmd.RunE(cmd, []string{})
 }
 
 // newVersionCommand exposes the build info as `homeops-cli version` so

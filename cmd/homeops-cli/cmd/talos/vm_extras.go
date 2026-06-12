@@ -138,6 +138,21 @@ makes full clones.`,
 	return cmd
 }
 
+// vmNameFromArgsOrPrompt returns the positional VM name, or prompts with a
+// live VM picker when none was given (interactive menu / bare invocation).
+// Returns "" without error when the user cancels the picker.
+func vmNameFromArgsOrPrompt(args []string, provider, action string) (string, error) {
+	name := ""
+	if len(args) > 0 {
+		name = args[0]
+	}
+	normalized, err := normalizeVMProvider(provider)
+	if err != nil {
+		return "", err
+	}
+	return chooseVMNameForProvider(name, normalized, action)
+}
+
 // resolveVMIP finds a VM's IP: provider discovery first, cluster.nodes
 // fallback (covers providers that cannot report guest IPs, e.g. TrueNAS).
 func resolveVMIP(provider, name string) (string, error) {
@@ -158,15 +173,19 @@ func resolveVMIP(provider, name string) (string, error) {
 func newVMIPCommand() *cobra.Command {
 	var provider string
 	cmd := &cobra.Command{
-		Use:   "ip <name>",
+		Use:   "ip [name]",
 		Short: "Show a VM's IP addresses (guest agent / VMware Tools / cluster config)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		Example: `  homeops-cli vm ip dev-vm
   homeops-cli vm ip --provider vsphere vc-vm`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ips, err := vmIPAddressesFn(provider, args[0])
+			name, err := vmNameFromArgsOrPrompt(args, provider, "show IPs for")
+			if err != nil || name == "" {
+				return err
+			}
+			ips, err := vmIPAddressesFn(provider, name)
 			if err != nil {
-				if node, ok := versionconfig.Get().NodeByName(args[0]); ok && node.IP != "" {
+				if node, ok := versionconfig.Get().NodeByName(name); ok && node.IP != "" {
 					fmt.Println(node.IP)
 					return nil
 				}
@@ -186,13 +205,17 @@ func newVMIPCommand() *cobra.Command {
 func newVMSSHCommand() *cobra.Command {
 	var user, provider string
 	cmd := &cobra.Command{
-		Use:   "ssh <name>",
+		Use:   "ssh [name]",
 		Short: "SSH into a VM (IP discovered via the provider or cluster config)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		Example: `  homeops-cli vm ssh dev-vm --user ubuntu
   homeops-cli vm ssh k8s-0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ip, err := resolveVMIP(provider, args[0])
+			name, err := vmNameFromArgsOrPrompt(args, provider, "SSH into")
+			if err != nil || name == "" {
+				return err
+			}
+			ip, err := resolveVMIP(provider, name)
 			if err != nil {
 				return err
 			}
@@ -204,7 +227,7 @@ func newVMSSHCommand() *cobra.Command {
 			if sshUser != "" {
 				target = fmt.Sprintf("%s@%s", sshUser, ip)
 			}
-			common.NewColorLogger().Info("Connecting to %s (%s)...", args[0], target)
+			common.NewColorLogger().Info("Connecting to %s (%s)...", name, target)
 			return runInteractiveSSHFn(target)
 		},
 	}
@@ -217,9 +240,9 @@ func newVMSSHCommand() *cobra.Command {
 func newVMConsoleCommand() *cobra.Command {
 	var provider string
 	cmd := &cobra.Command{
-		Use:   "console <name>",
+		Use:   "console [name]",
 		Short: "Show a VM's console URL (noVNC/xterm.js, SPICE, or WebMKS)",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		Long: `Print the console endpoint for a VM:
   proxmox  noVNC and xterm.js web console URLs on the PVE node
   truenas  the display device's web console (or native SPICE) URL
@@ -227,7 +250,10 @@ func newVMConsoleCommand() *cobra.Command {
 		Example: `  homeops-cli vm console dev-vm
   homeops-cli vm console --provider truenas web0`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
+			name, err := vmNameFromArgsOrPrompt(args, provider, "open a console for")
+			if err != nil || name == "" {
+				return err
+			}
 			normalized, err := normalizeVMProvider(provider)
 			if err != nil {
 				return err

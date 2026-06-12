@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -222,5 +223,45 @@ func TestRunApp(t *testing.T) {
 
 		code := runApp(make(chan os.Signal, 1))
 		assert.Equal(t, 1, code)
+	})
+}
+
+func TestMenuGuardsPositionalCommands(t *testing.T) {
+	originalChoose := chooseFn
+	t.Cleanup(func() { chooseFn = originalChoose })
+
+	t.Run("required-arg command shows help instead of panicking", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "get - Get an item", nil
+		}
+		cmd := &cobra.Command{Use: "op"}
+		cmd.AddCommand(&cobra.Command{
+			Use:   "get <item>",
+			Short: "Get an item",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				return fmt.Errorf("touched %s", args[0]) // would panic pre-guard
+			},
+		})
+		require.NoError(t, showSubcommandMenu(cmd))
+	})
+
+	t.Run("optional-arg command still runs", func(t *testing.T) {
+		var got []string
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "ip - Show IPs", nil
+		}
+		cmd := &cobra.Command{Use: "vm"}
+		cmd.AddCommand(&cobra.Command{
+			Use:   "ip [name]",
+			Short: "Show IPs",
+			Args:  cobra.MaximumNArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				got = args
+				return nil
+			},
+		})
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.Empty(t, got)
 	})
 }

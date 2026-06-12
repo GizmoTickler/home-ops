@@ -2684,9 +2684,29 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
   homeops-cli vm info --provider truenas --name k8s-0
   homeops-cli vm delete --name old-vm --force`,
 	}
-	cmd.AddCommand(vmLifecycleSubcommands()...)
+	cmd.AddGroup(
+		&cobra.Group{ID: "provision", Title: "Provisioning:"},
+		&cobra.Group{ID: "day2", Title: "Day-2 operations:"},
+		&cobra.Group{ID: "power", Title: "Power & lifecycle:"},
+		&cobra.Group{ID: "access", Title: "Access:"},
+	)
+	subcommands := vmLifecycleSubcommands()
+	groupByName := map[string]string{
+		"create": "provision", "template": "provision", "clone": "provision",
+		"set": "day2", "resize-disk": "day2", "snapshot": "day2", "cleanup-zvols": "day2",
+		"list": "power", "start": "power", "stop": "power", "poweron": "power",
+		"poweroff": "power", "restart": "power", "delete": "power", "info": "power",
+		"ip": "access", "ssh": "access", "console": "access",
+	}
+	for _, sub := range subcommands {
+		if g, ok := groupByName[sub.Name()]; ok {
+			sub.GroupID = g
+		}
+	}
+	cmd.AddCommand(subcommands...)
 	// Provider-scoped subgroups: `vm proxmox list`, `vm truenas stop ...` —
-	// same commands with --provider pinned, for explicit per-provider ops.
+	// same commands with --provider pinned, for explicit per-provider ops
+	// (hidden from help/menu to avoid listing every verb four times).
 	for _, p := range []string{"proxmox", "truenas", "vsphere"} {
 		cmd.AddCommand(newProviderScopedVMGroup(p))
 	}
@@ -2728,10 +2748,14 @@ func lifecycleSubcommandSet() []*cobra.Command {
 
 // newProviderScopedVMGroup wraps the lifecycle commands with --provider
 // pinned to one hypervisor (and the flag hidden), e.g. `vm truenas list`.
+// Hidden from help and the interactive menu: the verbs are identical to the
+// top-level ones, and listing them three more times only adds noise. They
+// remain fully functional shortcuts for people who prefer the pinned form.
 func newProviderScopedVMGroup(provider string) *cobra.Command {
 	group := &cobra.Command{
-		Use:   provider,
-		Short: fmt.Sprintf("VM operations on %s", provider),
+		Use:    provider,
+		Short:  fmt.Sprintf("VM operations on %s (same verbs, provider pinned)", provider),
+		Hidden: true,
 	}
 	for _, sub := range vmLifecycleSubcommands() {
 		if f := sub.Flags().Lookup("provider"); f != nil {
