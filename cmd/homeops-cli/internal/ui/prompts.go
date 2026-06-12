@@ -492,3 +492,10 @@ func resetTerminal(tty *os.File) {
 
 	time.Sleep(50 * time.Millisecond)
 }
+
+// IsInteractive reports whether rich TUI prompts can run (real terminals on
+// stdin/stdout and interactivity not disabled). Exported for commands that
+// must decide between prompting and requiring flags.
+func IsInteractive() bool {
+	return isInteractive()
+}

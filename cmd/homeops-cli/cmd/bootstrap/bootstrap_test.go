@@ -1051,3 +1051,55 @@ func TestBootstrapCommandRequiresConfirmation(t *testing.T) {
 		t.Fatal("dry-run did not reach runBootstrap")
 	}
 }
+
+func TestBootstrapMenuOffersDryRun(t *testing.T) {
+	origConfirm, origRun, origInteractive := bootstrapConfirm, runBootstrapFn, bootstrapInteractive
+	origChoose, origChooseMulti := bootstrapChoose, bootstrapChooseMulti
+	t.Cleanup(func() {
+		bootstrapConfirm, runBootstrapFn, bootstrapInteractive = origConfirm, origRun, origInteractive
+		bootstrapChoose, bootstrapChooseMulti = origChoose, origChooseMulti
+	})
+
+	bootstrapInteractive = func() bool { return true }
+	bootstrapChoose = func(prompt string, options []string) (string, error) {
+		if !strings.Contains(strings.Join(options, "|"), "Dry-Run") {
+			t.Fatalf("mode prompt must offer a dry run, got %v", options)
+		}
+		return "Dry-Run - Preview what would be done without making changes", nil
+	}
+	bootstrapChooseMulti = func(string, []string, int) ([]string, error) { return nil, nil }
+	bootstrapConfirm = func(string, bool) (bool, error) {
+		t.Fatal("dry runs must not hit the bootstrap confirmation")
+		return false, nil
+	}
+
+	var got *BootstrapConfig
+	runBootstrapFn = func(config *BootstrapConfig) error { got = config; return nil }
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("interactive dry-run selection failed: %v", err)
+	}
+	if got == nil || !got.DryRun {
+		t.Fatal("selecting Dry-Run in the menu must set config.DryRun")
+	}
+}
+
+func TestBootstrapFlagsSkipOptionsPrompt(t *testing.T) {
+	origRun, origInteractive, origChoose := runBootstrapFn, bootstrapInteractive, bootstrapChoose
+	t.Cleanup(func() { runBootstrapFn, bootstrapInteractive, bootstrapChoose = origRun, origInteractive, origChoose })
+
+	bootstrapInteractive = func() bool { return true }
+	bootstrapChoose = func(string, []string) (string, error) {
+		t.Fatal("explicit flags must not trigger the options prompt")
+		return "", nil
+	}
+	runBootstrapFn = func(config *BootstrapConfig) error { return nil }
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"--dry-run"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("flagged dry run failed: %v", err)
+	}
+}

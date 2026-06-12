@@ -70,6 +70,7 @@ var (
 	bootstrapChoose           = ui.Choose
 	bootstrapChooseMulti      = ui.ChooseMulti
 	bootstrapConfirm          = ui.Confirm
+	bootstrapInteractive      = ui.IsInteractive
 	runBootstrapFn            = runBootstrap
 	bootstrapRunWithSpinner   = ui.RunWithSpinner
 	bootstrapResetTerminal    = ui.ResetTerminal
@@ -346,9 +347,16 @@ talosctl bootstrap) instead.`,
   # Legacy Talos path
   homeops-cli bootstrap --provider talos`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// A bare Enter in the interactive menu lands here; bootstrapping
-			// a cluster deserves an explicit yes (--yes/-y skips the prompt,
-			// --dry-run never mutates anything).
+			// Bare invocation on a terminal (CLI or interactive menu): offer
+			// the mode (dry-run vs real) and skip options first, so dry runs
+			// are one choice away instead of flag-only knowledge.
+			if cmd.Flags().NFlag() == 0 && bootstrapInteractive() {
+				if err := promptBootstrapOptions(&config, common.NewColorLogger()); err != nil {
+					return err
+				}
+			}
+			// Bootstrapping a cluster deserves an explicit yes (--yes/-y
+			// skips the prompt, dry runs never mutate anything).
 			if !config.DryRun {
 				ok, err := bootstrapConfirm("Bootstrap the cluster now? (preflight, PKI, kubeadm, CRDs, helmfile)", false)
 				if err != nil {
@@ -466,13 +474,6 @@ func runBootstrap(config *BootstrapConfig) error {
 	// directly, by leaving Provider empty.
 	if strings.EqualFold(config.Provider, "flatcar") {
 		return bootstrapRunFlatcar(config)
-	}
-
-	// If no flags were set, show interactive menus
-	if !config.DryRun && !config.SkipCRDs && !config.SkipResources && !config.SkipHelmfile && !config.SkipPreflight && !config.Verbose {
-		if err := promptBootstrapOptions(config, logger); err != nil {
-			return err
-		}
 	}
 
 	logger.Info("🚀 Starting cluster bootstrap process")
