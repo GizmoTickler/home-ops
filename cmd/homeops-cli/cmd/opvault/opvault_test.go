@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -333,4 +334,22 @@ func TestOpRevealShowsClearTextAndSingleField(t *testing.T) {
 	stdout, _, err = testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
 	require.NoError(t, err)
 	assert.Equal(t, "supersecret", strings.TrimSpace(stdout))
+}
+
+func TestVaultCompletionWiredEverywhere(t *testing.T) {
+	var check func(cmd *cobra.Command)
+	root := NewCommand()
+	check = func(cmd *cobra.Command) {
+		for _, flagName := range []string{"vault", "to-vault"} {
+			if cmd.Flags().Lookup(flagName) == nil {
+				continue
+			}
+			_, exists := cmd.GetFlagCompletionFunc(flagName)
+			assert.True(t, exists, "command %q must complete --%s", cmd.CommandPath(), flagName)
+		}
+		for _, sub := range cmd.Commands() {
+			check(sub)
+		}
+	}
+	check(root)
 }

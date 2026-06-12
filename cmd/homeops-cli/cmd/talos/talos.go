@@ -712,10 +712,15 @@ func ensureVMLifecycleProviderAvailable(provider, action string) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s VM lifecycle commands require %s: %w. Use `homeops-cli vm %s --provider %s --name <vm-name>` after configuring prerequisites",
+	hint := ""
+	if versionconfig.Get().Source == "" {
+		hint = " No homeops.yaml found — run 'homeops-cli config init' to scaffold one."
+	}
+	return fmt.Errorf("%s VM lifecycle commands require %s: %w.%s Use `homeops-cli vm %s --provider %s --name <vm-name>` after configuring prerequisites",
 		vmProviderDisplayName(normalizedProvider),
 		vmProviderPrerequisites(normalizedProvider),
 		capabilityErr,
+		hint,
 		action,
 		normalizedProvider)
 }
@@ -979,8 +984,9 @@ func upgradeNode(nodeIP, mode string) error {
 
 func newUpgradeK8sCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "upgrade-k8s",
-		Short: "Upgrade Kubernetes across the whole cluster",
+		Use:     "upgrade-k8s",
+		Short:   "Upgrade Kubernetes across the whole cluster",
+		Example: `  homeops-cli talos upgrade-k8s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return upgradeK8s()
 		},
@@ -1094,8 +1100,9 @@ func newShutdownClusterCommand() *cobra.Command {
 	var force bool
 
 	cmd := &cobra.Command{
-		Use:   "shutdown-cluster",
-		Short: "Shutdown Talos across the whole cluster",
+		Use:     "shutdown-cluster",
+		Short:   "Shutdown Talos across the whole cluster",
+		Example: `  homeops-cli talos shutdown-cluster --force`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !force {
 				confirmed, err := confirmActionFn("Shutdown the Talos cluster?", false)

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -135,6 +136,59 @@ func runOpItem(item, vault string, build func(vault string) []string) ([]byte, e
 
 var confirmFn = ui.Confirm
 
+// vaultNameCompletion completes --vault style flags from the live vault
+// list (short timeout so a hung op CLI can't stall the shell).
+func vaultNameCompletion(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	type result struct {
+		names []string
+		err   error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		out, err := runOpFn("vault", "list", "--format=json")
+		if err != nil {
+			ch <- result{nil, err}
+			return
+		}
+		var vaults []struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(out, &vaults); err != nil {
+			ch <- result{nil, err}
+			return
+		}
+		names := make([]string, 0, len(vaults))
+		for _, v := range vaults {
+			names = append(names, v.Name)
+		}
+		ch <- result{names, nil}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		return r.names, cobra.ShellCompDirectiveNoFileComp
+	case <-time.After(4 * time.Second):
+		return nil, cobra.ShellCompDirectiveError
+	}
+}
+
+// registerVaultCompletion wires vault-name completion onto every vault flag
+// in the op command tree.
+func registerVaultCompletion(cmd *cobra.Command) {
+	for _, flagName := range []string{"vault", "to-vault"} {
+		if cmd.Flags().Lookup(flagName) != nil {
+			if _, exists := cmd.GetFlagCompletionFunc(flagName); !exists {
+				_ = cmd.RegisterFlagCompletionFunc(flagName, vaultNameCompletion)
+			}
+		}
+	}
+	for _, sub := range cmd.Commands() {
+		registerVaultCompletion(sub)
+	}
+}
+
 // NewCommand builds the `op` command group.
 func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -146,6 +200,7 @@ masked on output unless --reveal is given.`,
 	}
 	cmd.AddCommand(newListCommand(), newGetCommand(), newRevealCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand(),
 		newVaultsCommand(), newMoveCommand(), newDuplicateCommand())
+	registerVaultCompletion(cmd)
 	return cmd
 }
 

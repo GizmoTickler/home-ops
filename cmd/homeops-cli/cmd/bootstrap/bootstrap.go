@@ -386,6 +386,9 @@ talosctl bootstrap) instead.`,
 	cmd.Flags().BoolVar(&config.FreshPKI, "fresh-pki", false, "Flatcar: mint a NEW cluster CA instead of restoring the persisted PKI from 1Password (breaks existing kubeconfigs)")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
 	cmd.Flags().StringVar(&config.Provider, "provider", "flatcar", "Node provisioning provider: flatcar (kubeadm, default) or talos (legacy)")
+	_ = cmd.RegisterFlagCompletionFunc("provider", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return []string{"flatcar", "talos"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	return cmd
 }

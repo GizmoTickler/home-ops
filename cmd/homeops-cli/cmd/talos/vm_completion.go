@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"homeops-cli/internal/images"
 )
 
 // vmNameCompletionTimeout bounds how long shell completion may block on a
@@ -41,9 +43,17 @@ func vmNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]s
 	}
 }
 
+// staticCompletion returns a completion func for a fixed value set.
+func staticCompletion(values ...string) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	return func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return values, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
 // registerVMNameCompletion wires live VM-name completion onto a vm
 // subcommand tree: every --name / --from-vm flag and the positional <name>
-// commands (ip, ssh, console). Already-registered flags are left alone.
+// commands (ip, ssh, console), plus static completion for --provider and
+// --os. Already-registered flags are left alone.
 func registerVMNameCompletion(cmd *cobra.Command) {
 	for _, flagName := range []string{"name", "from-vm"} {
 		if cmd.Flags().Lookup(flagName) == nil {
@@ -51,6 +61,16 @@ func registerVMNameCompletion(cmd *cobra.Command) {
 		}
 		if _, exists := cmd.GetFlagCompletionFunc(flagName); !exists {
 			_ = cmd.RegisterFlagCompletionFunc(flagName, vmNameCompletion)
+		}
+	}
+	if cmd.Flags().Lookup("provider") != nil {
+		if _, exists := cmd.GetFlagCompletionFunc("provider"); !exists {
+			_ = cmd.RegisterFlagCompletionFunc("provider", staticCompletion("proxmox", "truenas", "vsphere"))
+		}
+	}
+	if cmd.Flags().Lookup("os") != nil {
+		if _, exists := cmd.GetFlagCompletionFunc("os"); !exists {
+			_ = cmd.RegisterFlagCompletionFunc("os", staticCompletion(images.Known()...))
 		}
 	}
 	switch cmd.Name() {
