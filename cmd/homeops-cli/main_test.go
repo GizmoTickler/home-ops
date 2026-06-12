@@ -228,13 +228,37 @@ func TestRunApp(t *testing.T) {
 }
 
 func TestMenuGuardsPositionalCommands(t *testing.T) {
-	originalChoose := chooseFn
-	t.Cleanup(func() { chooseFn = originalChoose })
+	originalChoose, originalInput := chooseFn, menuArgsInputFn
+	t.Cleanup(func() { chooseFn, menuArgsInputFn = originalChoose, originalInput })
 
-	t.Run("required-arg command shows help instead of panicking", func(t *testing.T) {
+	t.Run("required-arg command prompts for the arguments", func(t *testing.T) {
 		chooseFn = func(prompt string, options []string) (string, error) {
 			return "get - Get an item", nil
 		}
+		menuArgsInputFn = func(prompt, placeholder string) (string, error) {
+			assert.Contains(t, prompt, "get <item>")
+			return "talosdeploy", nil
+		}
+		var got []string
+		cmd := &cobra.Command{Use: "op"}
+		cmd.AddCommand(&cobra.Command{
+			Use:   "get <item>",
+			Short: "Get an item",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				got = args
+				return nil
+			},
+		})
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.Equal(t, []string{"talosdeploy"}, got)
+	})
+
+	t.Run("empty prompt answer shows help instead of panicking", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "get - Get an item", nil
+		}
+		menuArgsInputFn = func(string, string) (string, error) { return "  ", nil }
 		cmd := &cobra.Command{Use: "op"}
 		cmd.AddCommand(&cobra.Command{
 			Use:   "get <item>",
@@ -245,6 +269,26 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 			},
 		})
 		require.NoError(t, showSubcommandMenu(cmd))
+	})
+
+	t.Run("wrong arg count from prompt shows help", func(t *testing.T) {
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "get - Get an item", nil
+		}
+		menuArgsInputFn = func(string, string) (string, error) { return "one two", nil }
+		ran := false
+		cmd := &cobra.Command{Use: "op"}
+		cmd.AddCommand(&cobra.Command{
+			Use:   "get <item>",
+			Short: "Get an item",
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				ran = true
+				return nil
+			},
+		})
+		require.NoError(t, showSubcommandMenu(cmd))
+		assert.False(t, ran)
 	})
 
 	t.Run("optional-arg command still runs", func(t *testing.T) {

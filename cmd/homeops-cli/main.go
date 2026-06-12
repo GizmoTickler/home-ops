@@ -278,16 +278,29 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 	}
 }
 
-// runMenuCommand executes a leaf command selected from the interactive menu
-// with no positional arguments. The menu bypasses cobra's argument parsing,
-// so validate first: a command that requires positionals gets its usage shown
-// instead of panicking on args[0].
+// menuArgsInputFn prompts for a command's positional arguments. Swappable
+// for tests.
+var menuArgsInputFn = ui.Input
+
+// runMenuCommand executes a leaf command selected from the interactive menu.
+// The menu bypasses cobra's argument parsing, so validate first: a command
+// that requires positionals gets an input prompt for them (and its usage when
+// the prompt is left empty) instead of panicking on args[0].
 func runMenuCommand(cmd *cobra.Command) error {
-	if err := cmd.ValidateArgs([]string{}); err != nil {
-		fmt.Printf("%s needs arguments (%v) — run it directly:\n\n", cmd.CommandPath(), err)
-		return cmd.Help()
+	args := []string{}
+	if err := cmd.ValidateArgs(args); err != nil {
+		raw, inputErr := menuArgsInputFn(fmt.Sprintf("Arguments for '%s':", cmd.Use), "")
+		if inputErr != nil || strings.TrimSpace(raw) == "" {
+			fmt.Printf("%s needs arguments (%v) — run it directly:\n\n", cmd.CommandPath(), err)
+			return cmd.Help()
+		}
+		args = strings.Fields(raw)
+		if err := cmd.ValidateArgs(args); err != nil {
+			fmt.Printf("%s: %v\n\n", cmd.CommandPath(), err)
+			return cmd.Help()
+		}
 	}
-	return cmd.RunE(cmd, []string{})
+	return cmd.RunE(cmd, args)
 }
 
 // resolveBuildInfo fills version/commit/date from the Go toolchain's
