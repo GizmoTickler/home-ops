@@ -149,32 +149,9 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 		params = []interface{}{}
 	}
 
-	result, err := c.Call("vm.query", params, 30)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query VMs: %w", err)
-	}
-
-	// Parse JSON-RPC response
-	var jsonRPCResponse map[string]interface{}
-	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
-	}
-
-	// Extract the result field
-	resultField, exists := jsonRPCResponse["result"]
-	if !exists {
-		return nil, fmt.Errorf("no result field in response")
-	}
-
-	// Convert result to JSON and then unmarshal as VM array
-	resultJSON, err := json.Marshal(resultField)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result field: %w", err)
-	}
-
 	var vms []VM
-	if err := json.Unmarshal(resultJSON, &vms); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal VMs: %w", err)
+	if err := c.callResult("vm.query", params, 30, &vms); err != nil {
+		return nil, fmt.Errorf("failed to query VMs: %w", err)
 	}
 
 	// Query devices for each VM
@@ -199,32 +176,9 @@ func (c *WorkingClient) QueryVMs(filters interface{}) ([]VM, error) {
 
 // CreateVM creates a new VM
 func (c *WorkingClient) CreateVM(vmConfig map[string]interface{}) (*VM, error) {
-	result, err := c.Call("vm.create", []interface{}{vmConfig}, 120)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create VM: %w", err)
-	}
-
-	// Parse JSON-RPC response
-	var jsonRPCResponse map[string]interface{}
-	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
-	}
-
-	// Extract the result field
-	resultField, exists := jsonRPCResponse["result"]
-	if !exists {
-		return nil, fmt.Errorf("no result field in response")
-	}
-
-	// Convert result to JSON and then unmarshal as VM
-	resultJSON, err := json.Marshal(resultField)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result field: %w", err)
-	}
-
 	var vm VM
-	if err := json.Unmarshal(resultJSON, &vm); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal created VM data: %w", err)
+	if err := c.callResult("vm.create", []interface{}{vmConfig}, 120, &vm); err != nil {
+		return nil, fmt.Errorf("failed to create VM: %w", err)
 	}
 
 	return &vm, nil
@@ -259,38 +213,9 @@ func (c *WorkingClient) QueryVMDevices(vmID int) ([]map[string]interface{}, erro
 
 	common.NewColorLogger().Debug("Querying VM devices for VM ID %d with params: %+v", vmID, params)
 
-	result, err := c.Call("vm.device.query", params, 30)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query VM devices: %w", err)
-	}
-
-	common.NewColorLogger().Debug("Raw vm.device.query response: %s", string(result))
-
-	// Parse JSON-RPC response
-	var jsonRPCResponse map[string]interface{}
-	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
-	}
-
-	common.NewColorLogger().Debug("Parsed JSON-RPC response: %+v", jsonRPCResponse)
-
-	// Extract the result field
-	resultField, exists := jsonRPCResponse["result"]
-	if !exists {
-		return nil, fmt.Errorf("no result field in response")
-	}
-
-	common.NewColorLogger().Debug("Result field: %+v", resultField)
-
-	// Convert result to JSON and then unmarshal as device array
-	resultJSON, err := json.Marshal(resultField)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result field: %w", err)
-	}
-
 	var devices []map[string]interface{}
-	if err := json.Unmarshal(resultJSON, &devices); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal VM device data: %w", err)
+	if err := c.callResult("vm.device.query", params, 30, &devices); err != nil {
+		return nil, fmt.Errorf("failed to query VM devices: %w", err)
 	}
 
 	common.NewColorLogger().Debug("Final devices array: %+v", devices)
@@ -307,32 +232,9 @@ func (c *WorkingClient) QueryDatasets(filters interface{}) ([]Dataset, error) {
 		params = []interface{}{}
 	}
 
-	result, err := c.Call("pool.dataset.query", params, 30)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query datasets: %w", err)
-	}
-
-	// Parse JSON-RPC response
-	var jsonRPCResponse map[string]interface{}
-	if err := json.Unmarshal(result, &jsonRPCResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal JSON-RPC response: %w", err)
-	}
-
-	// Extract the result field
-	resultField, exists := jsonRPCResponse["result"]
-	if !exists {
-		return nil, fmt.Errorf("no result field in response")
-	}
-
-	// Convert result to JSON and then unmarshal as dataset array
-	resultJSON, err := json.Marshal(resultField)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal result field: %w", err)
-	}
-
 	var datasets []Dataset
-	if err := json.Unmarshal(resultJSON, &datasets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal datasets: %w", err)
+	if err := c.callResult("pool.dataset.query", params, 30, &datasets); err != nil {
+		return nil, fmt.Errorf("failed to query datasets: %w", err)
 	}
 
 	return datasets, nil

@@ -62,13 +62,8 @@ func (pc *PerformanceCollector) TrackOperation(name string, fn func() error) err
 	metrics.TotalDuration += duration
 	metrics.LastExecution = start
 
-	// Update min/max durations
-	if duration < metrics.MinDuration {
-		metrics.MinDuration = duration
-	}
-	if duration > metrics.MaxDuration {
-		metrics.MaxDuration = duration
-	}
+	metrics.MinDuration = min(metrics.MinDuration, duration)
+	metrics.MaxDuration = max(metrics.MaxDuration, duration)
 
 	if err != nil {
 		metrics.Errors++
