@@ -144,7 +144,7 @@ func NewCommand() *cobra.Command {
 Secret values are passed via stdin templates (never command arguments) and are
 masked on output unless --reveal is given.`,
 	}
-	cmd.AddCommand(newListCommand(), newGetCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand(),
+	cmd.AddCommand(newListCommand(), newGetCommand(), newRevealCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand(),
 		newVaultsCommand(), newMoveCommand(), newDuplicateCommand())
 	return cmd
 }
@@ -352,6 +352,53 @@ func newListCommand() *cobra.Command {
 	return cmd
 }
 
+// showItem fetches an item (vault auto-detected when empty) and prints its
+// fields — one field's bare value when field is set, the labeled list
+// otherwise. Secrets are masked unless reveal.
+func showItem(item, vault, field string, reveal bool) error {
+	out, err := runOpItem(item, vault, func(v string) []string {
+		opArgs := []string{"item", "get", item, "--format=json"}
+		if v != "" {
+			opArgs = append(opArgs, "--vault", v)
+		}
+		return opArgs
+	})
+	if err != nil {
+		return err
+	}
+	var parsed struct {
+		Title  string `json:"title"`
+		Fields []struct {
+			Label string `json:"label"`
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		} `json:"fields"`
+	}
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return fmt.Errorf("parse op output: %w", err)
+	}
+	for _, f := range parsed.Fields {
+		if field != "" && f.Label != field {
+			continue
+		}
+		value := f.Value
+		if !reveal && (f.Type == "CONCEALED" || strings.Contains(strings.ToLower(f.Label), "key") || strings.Contains(strings.ToLower(f.Label), "secret") || strings.Contains(strings.ToLower(f.Label), "password") || strings.Contains(strings.ToLower(f.Label), "token")) {
+			value = "********"
+		}
+		if field != "" {
+			fmt.Println(value)
+			return nil
+		}
+		if f.Label != "" {
+			fmt.Printf("%-32s %s\n", f.Label, value)
+		}
+	}
+	if field != "" {
+		return fmt.Errorf("field %q not found on item %q", field, item)
+	}
+	return nil
+}
+
 func newGetCommand() *cobra.Command {
 	var vault, field string
 	var reveal bool
@@ -362,52 +409,36 @@ func newGetCommand() *cobra.Command {
 		Example: `  homeops-cli op get talosdeploy --vault Infrastructure
   homeops-cli op get talosdeploy --field TRUENAS_HOST --reveal`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			out, err := runOpItem(args[0], vault, func(v string) []string {
-				opArgs := []string{"item", "get", args[0], "--format=json"}
-				if v != "" {
-					opArgs = append(opArgs, "--vault", v)
-				}
-				return opArgs
-			})
-			if err != nil {
-				return err
-			}
-			var item struct {
-				Title  string `json:"title"`
-				Fields []struct {
-					Label string `json:"label"`
-					Type  string `json:"type"`
-					Value string `json:"value"`
-				} `json:"fields"`
-			}
-			if err := json.Unmarshal(out, &item); err != nil {
-				return fmt.Errorf("parse op output: %w", err)
-			}
-			for _, f := range item.Fields {
-				if field != "" && f.Label != field {
-					continue
-				}
-				value := f.Value
-				if !reveal && (f.Type == "CONCEALED" || strings.Contains(strings.ToLower(f.Label), "key") || strings.Contains(strings.ToLower(f.Label), "secret") || strings.Contains(strings.ToLower(f.Label), "password") || strings.Contains(strings.ToLower(f.Label), "token")) {
-					value = "********"
-				}
-				if field != "" {
-					fmt.Println(value)
-					return nil
-				}
-				if f.Label != "" {
-					fmt.Printf("%-32s %s\n", f.Label, value)
-				}
-			}
-			if field != "" {
-				return fmt.Errorf("field %q not found on item %q", field, args[0])
-			}
-			return nil
+			return showItem(args[0], vault, field, reveal)
 		},
 	}
 	cmd.Flags().StringVar(&vault, "vault", "", "vault containing the item")
 	cmd.Flags().StringVar(&field, "field", "", "print a single field's value")
 	cmd.Flags().BoolVar(&reveal, "reveal", false, "show secret values in clear text")
+	return cmd
+}
+
+// newRevealCommand is `get --reveal` as its own verb, with the field as an
+// optional positional — so the interactive menu (which collects positionals
+// but not flags) can show clear-text values too.
+func newRevealCommand() *cobra.Command {
+	var vault string
+	cmd := &cobra.Command{
+		Use:   "reveal <item> [field]",
+		Short: "Show an item's fields in clear text (optionally one field)",
+		Args:  cobra.RangeArgs(1, 2),
+		Example: `  homeops-cli op reveal talosdeploy
+  homeops-cli op reveal flatcar SSH_USER
+  homeops-cli op reveal my-svc --vault Infrastructure`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			field := ""
+			if len(args) > 1 {
+				field = args[1]
+			}
+			return showItem(args[0], vault, field, true)
+		},
+	}
+	cmd.Flags().StringVar(&vault, "vault", "", "vault containing the item")
 	return cmd
 }
 

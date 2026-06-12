@@ -313,3 +313,24 @@ func TestRunOpItemExplicitVaultSkipsDetection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
 }
+
+func TestOpRevealShowsClearTextAndSingleField(t *testing.T) {
+	item := `{"title":"svc","fields":[
+		{"label":"HOST","type":"STRING","value":"10.0.0.5"},
+		{"label":"API_TOKEN","type":"CONCEALED","value":"supersecret"}]}`
+	stubOp(t, []byte(item))
+
+	cmd := newRevealCommand()
+	cmd.SetArgs([]string{"svc"})
+	stdout, _, err := testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "supersecret", "reveal must not mask")
+	assert.NotContains(t, stdout, "********")
+
+	// field as the second positional prints the bare value
+	cmd = newRevealCommand()
+	cmd.SetArgs([]string{"svc", "API_TOKEN"})
+	stdout, _, err = testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
+	require.NoError(t, err)
+	assert.Equal(t, "supersecret", strings.TrimSpace(stdout))
+}

@@ -65,7 +65,7 @@ homeops-cli
 │   │   └── cleanup-zvols              # truenas only
 │   └── <verb>                         # hidden shorthand: hypervisors.default
 ├── op                       # 1Password item management
-│   ├── list / get / create / edit / delete
+│   ├── list / get / reveal / create / edit / delete
 │   ├── vaults list
 │   ├── move <item>
 │   └── duplicate <item>
@@ -356,6 +356,7 @@ Unsupported cells fail loudly and uniformly: `not supported on <provider>: <reas
 ```bash
 homeops-cli op list --vault Infrastructure
 homeops-cli op get my-item --field API_TOKEN --reveal
+homeops-cli op reveal my-item [field]             # clear text without flags (menu-friendly)
 homeops-cli op create my-svc --vault Infrastructure --field API_TOKEN=...   # values via stdin template
 homeops-cli op edit my-svc --field API_HOST=10.0.0.5
 homeops-cli op delete old-item --archive
