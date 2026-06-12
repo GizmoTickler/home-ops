@@ -129,3 +129,88 @@ func TestOpListErrorsPropagate(t *testing.T) {
 	cmd.SetArgs([]string{})
 	require.Error(t, cmd.Execute())
 }
+
+func TestOpVaultsList(t *testing.T) {
+	argvRun, _, _ := stubOp(t, []byte(`[{"id":"v2","name":"Private"},{"id":"v1","name":"Infrastructure"}]`))
+
+	cmd := newVaultsCommand()
+	cmd.SetArgs([]string{"list"})
+	out, _, err := testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"vault", "list", "--format=json"}, *argvRun)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.Len(t, lines, 2)
+	assert.Contains(t, lines[0], "Infrastructure") // sorted by name
+	assert.Contains(t, lines[1], "Private")
+}
+
+func TestOpMove(t *testing.T) {
+	argvRun, _, _ := stubOp(t, []byte("{}"))
+
+	cmd := newMoveCommand()
+	cmd.SetArgs([]string{"my-svc", "--vault", "Private", "--to-vault", "Infrastructure"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, []string{"item", "move", "my-svc", "--destination-vault", "Infrastructure", "--current-vault", "Private"}, *argvRun)
+}
+
+func TestOpMoveRequiresDestinationAndConfirm(t *testing.T) {
+	argvRun, _, _ := stubOp(t, []byte("{}"))
+
+	cmd := newMoveCommand()
+	cmd.SetArgs([]string{"my-svc"})
+	require.ErrorContains(t, cmd.Execute(), "--to-vault is required")
+
+	confirmFn = func(string, bool) (bool, error) { return false, nil }
+	cmd = newMoveCommand()
+	cmd.SetArgs([]string{"my-svc", "--to-vault", "Infrastructure"})
+	require.ErrorContains(t, cmd.Execute(), "cancelled")
+	assert.Nil(t, *argvRun, "declined confirm must not run op")
+}
+
+func TestOpDuplicate(t *testing.T) {
+	item := `{"title":"my-svc","category":"SECURE_NOTE","fields":[
+		{"label":"HOST","type":"STRING","value":"10.0.0.5"},
+		{"label":"API_TOKEN","type":"CONCEALED","value":"supersecret"},
+		{"label":"","type":"STRING","value":"ignored"},
+		{"label":"notes","type":"OTP","value":"weird"}]}`
+	argvRun, stdin, argvStdin := stubOp(t, []byte(item))
+
+	cmd := newDuplicateCommand()
+	cmd.SetArgs([]string{"my-svc", "--vault", "Private", "--to-vault", "Staging", "--name", "my-svc-copy"})
+	require.NoError(t, cmd.Execute())
+
+	// source read with --reveal from the right vault
+	assert.Equal(t, []string{"item", "get", "my-svc", "--format=json", "--reveal", "--vault", "Private"}, *argvRun)
+	// copy created via stdin template into the destination vault
+	assert.Equal(t, []string{"item", "create", "--vault", "Staging"}, *argvStdin)
+	assert.NotContains(t, strings.Join(*argvStdin, " "), "supersecret")
+
+	var tmpl struct {
+		Title    string `json:"title"`
+		Category string `json:"category"`
+		Fields   []struct {
+			Label string `json:"label"`
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		} `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(*stdin, &tmpl))
+	assert.Equal(t, "my-svc-copy", tmpl.Title)
+	assert.Equal(t, "SECURE_NOTE", tmpl.Category)
+	types := map[string]string{}
+	for _, f := range tmpl.Fields {
+		types[f.Label] = f.Type
+	}
+	assert.Equal(t, "STRING", types["HOST"])
+	assert.Equal(t, "CONCEALED", types["API_TOKEN"])
+	assert.Equal(t, "STRING", types["notes"], "unsupported field types degrade to STRING")
+	assert.NotContains(t, types, "", "unlabeled fields are skipped")
+}
+
+func TestOpDuplicateNeedsTarget(t *testing.T) {
+	stubOp(t, []byte("{}"))
+	cmd := newDuplicateCommand()
+	cmd.SetArgs([]string{"my-svc"})
+	require.ErrorContains(t, cmd.Execute(), "--to-vault and/or --name")
+}

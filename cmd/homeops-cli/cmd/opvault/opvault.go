@@ -50,7 +50,167 @@ func NewCommand() *cobra.Command {
 Secret values are passed via stdin templates (never command arguments) and are
 masked on output unless --reveal is given.`,
 	}
-	cmd.AddCommand(newListCommand(), newGetCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand())
+	cmd.AddCommand(newListCommand(), newGetCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand(),
+		newVaultsCommand(), newMoveCommand(), newDuplicateCommand())
+	return cmd
+}
+
+func newVaultsCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "vaults",
+		Short: "Work with vaults",
+	}
+	list := &cobra.Command{
+		Use:     "list",
+		Short:   "List available vaults",
+		Example: `  homeops-cli op vaults list`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			out, err := runOpFn("vault", "list", "--format=json")
+			if err != nil {
+				return err
+			}
+			var vaults []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			}
+			if err := json.Unmarshal(out, &vaults); err != nil {
+				return fmt.Errorf("parse op output: %w", err)
+			}
+			sort.Slice(vaults, func(i, j int) bool { return vaults[i].Name < vaults[j].Name })
+			for _, v := range vaults {
+				fmt.Printf("%-30s %s\n", v.Name, v.ID)
+			}
+			return nil
+		},
+	}
+	cmd.AddCommand(list)
+	return cmd
+}
+
+func newMoveCommand() *cobra.Command {
+	var vault, toVault string
+	cmd := &cobra.Command{
+		Use:   "move <item>",
+		Short: "Move an item to another vault",
+		Long: `Move an item between vaults via 'op item move'. 1Password implements a
+move as copy + delete, so the item gets a new ID in the destination vault.`,
+		Args:    cobra.ExactArgs(1),
+		Example: `  homeops-cli op move my-service --vault Private --to-vault Infrastructure`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if toVault == "" {
+				return fmt.Errorf("--to-vault is required")
+			}
+			ok, err := confirmFn(fmt.Sprintf("Move item %q to vault %q? (it gets a new item ID)", args[0], toVault), false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("cancelled by user")
+			}
+			opArgs := []string{"item", "move", args[0], "--destination-vault", toVault}
+			if vault != "" {
+				opArgs = append(opArgs, "--current-vault", vault)
+			}
+			if _, err := runOpFn(opArgs...); err != nil {
+				return err
+			}
+			common.NewColorLogger().Success("Moved item %q to vault %q", args[0], toVault)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&vault, "vault", "", "vault currently holding the item")
+	cmd.Flags().StringVar(&toVault, "to-vault", "", "destination vault (required)")
+	return cmd
+}
+
+func newDuplicateCommand() *cobra.Command {
+	var vault, toVault, newName string
+	cmd := &cobra.Command{
+		Use:   "duplicate <item>",
+		Short: "Copy an item (optionally into another vault / under a new name)",
+		Long: `Duplicate an item: read it as JSON and re-create it (fields travel via a
+stdin template, never argv). The source item is left untouched.`,
+		Args: cobra.ExactArgs(1),
+		Example: `  homeops-cli op duplicate prod-creds --to-vault Staging
+  homeops-cli op duplicate my-service --name my-service-copy`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if toVault == "" && newName == "" {
+				return fmt.Errorf("pass --to-vault and/or --name (a same-vault same-name copy is ambiguous)")
+			}
+			getArgs := []string{"item", "get", args[0], "--format=json", "--reveal"}
+			if vault != "" {
+				getArgs = append(getArgs, "--vault", vault)
+			}
+			out, err := runOpFn(getArgs...)
+			if err != nil {
+				return err
+			}
+			var item struct {
+				Title    string `json:"title"`
+				Category string `json:"category"`
+				Fields   []struct {
+					Label string `json:"label"`
+					Type  string `json:"type"`
+					Value string `json:"value"`
+				} `json:"fields"`
+			}
+			if err := json.Unmarshal(out, &item); err != nil {
+				return fmt.Errorf("parse op output: %w", err)
+			}
+
+			fields := make([]opField, 0, len(item.Fields))
+			for _, f := range item.Fields {
+				if f.Label == "" || f.Value == "" {
+					continue
+				}
+				typ := f.Type
+				if typ != "STRING" && typ != "CONCEALED" {
+					// Re-creation only supports the basic field types; keep
+					// secrets concealed, degrade the rest to strings.
+					typ = "STRING"
+					if strings.EqualFold(f.Type, "CONCEALED") {
+						typ = "CONCEALED"
+					}
+				}
+				fields = append(fields, opField{Label: f.Label, Type: typ, Value: f.Value})
+			}
+			if len(fields) == 0 {
+				return fmt.Errorf("item %q has no copyable fields", args[0])
+			}
+
+			title := item.Title
+			if newName != "" {
+				title = newName
+			}
+			category := item.Category
+			if category == "" {
+				category = "SECURE_NOTE"
+			}
+			tmpl := map[string]interface{}{"title": title, "category": category, "fields": fields}
+			doc, err := json.Marshal(tmpl)
+			if err != nil {
+				return err
+			}
+			createArgs := []string{"item", "create"}
+			if toVault != "" {
+				createArgs = append(createArgs, "--vault", toVault)
+			} else if vault != "" {
+				createArgs = append(createArgs, "--vault", vault)
+			}
+			if _, err := runOpStdinFn(doc, createArgs...); err != nil {
+				return err
+			}
+			dest := toVault
+			if dest == "" {
+				dest = "the same vault"
+			}
+			common.NewColorLogger().Success("Duplicated %q as %q in %s (%d fields)", args[0], title, dest, len(fields))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&vault, "vault", "", "vault holding the source item")
+	cmd.Flags().StringVar(&toVault, "to-vault", "", "vault to copy into (default: the source vault)")
+	cmd.Flags().StringVar(&newName, "name", "", "title for the copy (default: same as the source)")
 	return cmd
 }
 
