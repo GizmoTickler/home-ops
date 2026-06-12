@@ -1139,15 +1139,40 @@ func formatVMList(vms proxmox.VirtualMachines) string {
 }
 
 func writeVMList(w io.Writer, vms proxmox.VirtualMachines) {
-	rows := make([][]string, 0, len(vms))
-	for _, vmItem := range vms {
-		memMB := vmItem.MaxMem / (1024 * 1024)
+	summaries := summarizeVMs(vms)
+	rows := make([][]string, 0, len(summaries))
+	for _, s := range summaries {
 		rows = append(rows, []string{
-			fmt.Sprintf("%d", vmItem.VMID), vmItem.Name, vmItem.Status,
-			fmt.Sprintf("%d", memMB), fmt.Sprintf("%d", vmItem.CPUs), fmt.Sprintf("%d", vmItem.Uptime),
+			s.ID, s.Name, s.Status,
+			fmt.Sprintf("%d", s.MemoryMB), fmt.Sprintf("%d", s.CPUs), s.Details["uptime_seconds"],
 		})
 	}
 	_, _ = fmt.Fprintln(w, ui.Table([]string{"VMID", "NAME", "STATUS", "MEMORY(MB)", "CPUS", "UPTIME(S)"}, rows))
+}
+
+// summarizeVMs maps the Proxmox inventory onto the provider-neutral shape.
+func summarizeVMs(vms proxmox.VirtualMachines) []provider.VMSummary {
+	summaries := make([]provider.VMSummary, 0, len(vms))
+	for _, vmItem := range vms {
+		summaries = append(summaries, provider.VMSummary{
+			Name:     vmItem.Name,
+			ID:       fmt.Sprintf("%d", vmItem.VMID),
+			Status:   vmItem.Status,
+			MemoryMB: int(vmItem.MaxMem / (1024 * 1024)),
+			CPUs:     vmItem.CPUs,
+			Details:  map[string]string{"uptime_seconds": fmt.Sprintf("%d", vmItem.Uptime)},
+		})
+	}
+	return summaries
+}
+
+// VMSummaries returns the inventory in the provider-neutral shape.
+func (vm *VMManager) VMSummaries() ([]provider.VMSummary, error) {
+	vms, err := vm.listVMs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list VMs: %w", err)
+	}
+	return summarizeVMs(vms), nil
 }
 
 func formatVMInfo(name string, vmObj *proxmox.VirtualMachine) string {

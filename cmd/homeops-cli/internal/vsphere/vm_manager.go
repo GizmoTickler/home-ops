@@ -59,18 +59,44 @@ func (m *VMManager) Close() error {
 
 // ListVMs prints the inventory of VMs.
 func (m *VMManager) ListVMs() error {
+	summaries, err := m.VMSummaries()
+	if err != nil {
+		return err
+	}
+	rows := make([][]string, 0, len(summaries))
+	for _, s := range summaries {
+		rows = append(rows, []string{s.Name, s.Status, fmt.Sprintf("%d", s.MemoryMB), fmt.Sprintf("%d", s.CPUs)})
+	}
+	ui.PrintTable([]string{"NAME", "STATUS", "MEMORY(MB)", "CPUS"}, rows)
+	fmt.Printf("Total: %d VMs\n", len(summaries))
+	return nil
+}
+
+// VMSummaries returns the inventory in the provider-neutral shape. Hardware
+// and power state need a per-VM property fetch; failures degrade to a bare
+// name entry rather than failing the whole listing.
+func (m *VMManager) VMSummaries() ([]provider.VMSummary, error) {
 	vms, err := m.client.ListVMs()
 	if err != nil {
-		return fmt.Errorf("failed to list VMs: %w", err)
+		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}
-
-	rows := make([][]string, 0, len(vms))
+	summaries := make([]provider.VMSummary, 0, len(vms))
 	for _, vm := range vms {
-		rows = append(rows, []string{vm.Name()})
+		summary := provider.VMSummary{Name: "", Status: "unknown"}
+		if vm != nil {
+			summary.Name = vm.Name()
+		}
+		if info, err := m.client.GetVMInfo(vm); err == nil && info != nil {
+			summary.Status = string(info.Runtime.PowerState)
+			if info.Config != nil {
+				summary.MemoryMB = int(info.Config.Hardware.MemoryMB)
+				summary.CPUs = int(info.Config.Hardware.NumCPU)
+				summary.ID = info.Config.Uuid
+			}
+		}
+		summaries = append(summaries, summary)
 	}
-	ui.PrintTable([]string{"NAME"}, rows)
-	fmt.Printf("Total: %d VMs\n", len(vms))
-	return nil
+	return summaries, nil
 }
 
 // StartVM powers on the named VM.

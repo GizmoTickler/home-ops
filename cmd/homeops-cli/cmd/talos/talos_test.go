@@ -162,6 +162,10 @@ func (f *fakeTrueNASVMManager) DeployVM(config truenas.VMConfig) error {
 	return f.deployErr
 }
 func (f *fakeTrueNASVMManager) ListVMs() error { f.listCalls++; return nil }
+func (f *fakeTrueNASVMManager) VMSummaries() ([]vmprov.VMSummary, error) {
+	f.listCalls++
+	return []vmprov.VMSummary{{Name: "tn-vm", ID: "1", Status: "RUNNING", MemoryMB: 4096, CPUs: 2}}, nil
+}
 func (f *fakeTrueNASVMManager) StartVM(name string) error {
 	f.started = append(f.started, name)
 	return nil
@@ -251,6 +255,10 @@ type fakeProxmoxVMManager struct {
 
 func (f *fakeProxmoxVMManager) Close() error   { f.closeCalls++; return f.closeErr }
 func (f *fakeProxmoxVMManager) ListVMs() error { f.listCalls++; return nil }
+func (f *fakeProxmoxVMManager) VMSummaries() ([]vmprov.VMSummary, error) {
+	f.listCalls++
+	return []vmprov.VMSummary{{Name: "pve-vm", ID: "100", Status: "running", MemoryMB: 2048, CPUs: 2}}, nil
+}
 func (f *fakeProxmoxVMManager) StartVM(name string) error {
 	f.started = append(f.started, name)
 	return nil
@@ -1006,6 +1014,11 @@ func (f *fakeVMLifecycle) ListVMs() error {
 	return nil
 }
 
+func (f *fakeVMLifecycle) VMSummaries() ([]vmprov.VMSummary, error) {
+	*f.calls = append(*f.calls, "list-"+f.provider)
+	return []vmprov.VMSummary{{Name: "fake-vm", ID: "1", Status: "running"}}, nil
+}
+
 func (f *fakeVMLifecycle) StartVM(name string) error {
 	*f.calls = append(*f.calls, "start-"+f.provider+":"+name)
 	return nil
@@ -1147,7 +1160,7 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 	require.NoError(t, powerOnVM("px-vm", "proxmox"))
 	require.NoError(t, powerOnVM("esx-vm", "vsphere"))
 	require.NoError(t, powerOffVM("esx-vm", "vsphere"))
-	require.NoError(t, listVMs("proxmox"))
+	require.NoError(t, listVMs("proxmox", "table"))
 
 	assert.Equal(t, []string{
 		"start-truenas:tn-vm",
@@ -1799,7 +1812,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 		})
 		defer cleanup()
 
-		require.NoError(t, listVMs("truenas"))
+		require.NoError(t, listVMs("truenas", "table"))
 		require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
 		require.NoError(t, powerOffVM("tn-vm", "truenas"))
 		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", true))
@@ -1830,7 +1843,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 			return manager, nil
 		}
 
-		require.NoError(t, listVMs("proxmox"))
+		require.NoError(t, listVMs("proxmox", "table"))
 		require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
 		require.NoError(t, powerOffVM("px-vm", "proxmox"))
 		require.NoError(t, deleteVMWithConfirmation("px-vm", "proxmox", true))
@@ -1882,7 +1895,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 			}, nil
 		}
 
-		require.NoError(t, listVMs("vsphere"))
+		require.NoError(t, listVMs("vsphere", "table"))
 		require.NoError(t, infoVMWithProvider("esx-vm", "vsphere"))
 		require.NoError(t, powerOnVM("esx-vm", "vsphere"))
 		require.NoError(t, powerOffVM("esx-vm", "vsphere"))

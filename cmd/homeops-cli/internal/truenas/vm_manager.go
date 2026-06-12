@@ -9,6 +9,7 @@ import (
 
 	"homeops-cli/internal/common"
 	homeopscfg "homeops-cli/internal/config"
+	"homeops-cli/internal/provider"
 	"homeops-cli/internal/ui"
 )
 
@@ -133,6 +134,21 @@ func (vm *VMManager) ListVMs() error {
 	}
 
 	rows := make([][]string, 0, len(vms))
+	for _, s := range summarizeTrueNASVMs(vms) {
+		rows = append(rows, []string{
+			s.Name, s.ID, s.Status,
+			fmt.Sprintf("%d", s.MemoryMB), fmt.Sprintf("%d", s.CPUs), s.Details["autostart"],
+		})
+	}
+	ui.PrintTable([]string{"NAME", "ID", "STATUS", "MEMORY", "VCPUS", "AUTOSTART"}, rows)
+
+	return nil
+}
+
+// summarizeTrueNASVMs maps the middleware inventory onto the
+// provider-neutral shape.
+func summarizeTrueNASVMs(vms []VM) []provider.VMSummary {
+	summaries := make([]provider.VMSummary, 0, len(vms))
 	for _, vmItem := range vms {
 		status := "unknown"
 		if vmItem.Status != nil {
@@ -140,20 +156,29 @@ func (vm *VMManager) ListVMs() error {
 				status = fmt.Sprintf("%v", state)
 			}
 		}
-
 		autostart := "No"
 		if vmItem.Autostart {
 			autostart = "Yes"
 		}
-
-		rows = append(rows, []string{
-			vmItem.Name, fmt.Sprintf("%d", vmItem.ID), status,
-			fmt.Sprintf("%d", vmItem.Memory), fmt.Sprintf("%d", vmItem.VCPUs), autostart,
+		summaries = append(summaries, provider.VMSummary{
+			Name:     vmItem.Name,
+			ID:       fmt.Sprintf("%d", vmItem.ID),
+			Status:   status,
+			MemoryMB: vmItem.Memory,
+			CPUs:     vmItem.VCPUs,
+			Details:  map[string]string{"autostart": autostart},
 		})
 	}
-	ui.PrintTable([]string{"NAME", "ID", "STATUS", "MEMORY", "VCPUS", "AUTOSTART"}, rows)
+	return summaries
+}
 
-	return nil
+// VMSummaries returns the inventory in the provider-neutral shape.
+func (vm *VMManager) VMSummaries() ([]provider.VMSummary, error) {
+	vms, err := vm.client.QueryVMs(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query VMs: %w", err)
+	}
+	return summarizeTrueNASVMs(vms), nil
 }
 
 // StartVM starts a VM by name

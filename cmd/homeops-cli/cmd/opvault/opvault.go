@@ -154,10 +154,12 @@ func newVaultsCommand() *cobra.Command {
 		Use:   "vaults",
 		Short: "Work with vaults",
 	}
+	var output string
 	list := &cobra.Command{
-		Use:     "list",
-		Short:   "List available vaults",
-		Example: `  homeops-cli op vaults list`,
+		Use:   "list",
+		Short: "List available vaults",
+		Example: `  homeops-cli op vaults list
+  homeops-cli op vaults list --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out, err := runOpFn("vault", "list", "--format=json")
 			if err != nil {
@@ -171,6 +173,14 @@ func newVaultsCommand() *cobra.Command {
 				return fmt.Errorf("parse op output: %w", err)
 			}
 			sort.Slice(vaults, func(i, j int) bool { return vaults[i].Name < vaults[j].Name })
+			if output == "json" {
+				raw, err := json.MarshalIndent(vaults, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(raw))
+				return nil
+			}
 			rows := make([][]string, 0, len(vaults))
 			for _, v := range vaults {
 				rows = append(rows, []string{v.Name, v.ID})
@@ -179,6 +189,7 @@ func newVaultsCommand() *cobra.Command {
 			return nil
 		},
 	}
+	list.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
 	cmd.AddCommand(list)
 	return cmd
 }
@@ -314,12 +325,20 @@ stdin template, never argv). The source item is left untouched.`,
 	return cmd
 }
 
+// itemListing is one row of `op list`, shaped for both table and JSON.
+type itemListing struct {
+	Title    string `json:"title"`
+	Category string `json:"category"`
+	Vault    string `json:"vault"`
+}
+
 func newListCommand() *cobra.Command {
-	var vault string
+	var vault, output string
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "List items in a vault",
-		Example: `  homeops-cli op list --vault Infrastructure`,
+		Use:   "list",
+		Short: "List items in a vault",
+		Example: `  homeops-cli op list --vault Infrastructure
+  homeops-cli op list --output json | jq '.[].title'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opArgs := []string{"item", "list", "--format=json"}
 			if vault != "" {
@@ -340,15 +359,28 @@ func newListCommand() *cobra.Command {
 				return fmt.Errorf("parse op output: %w", err)
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Title < items[j].Title })
-			rows := make([][]string, 0, len(items))
+			listings := make([]itemListing, 0, len(items))
 			for _, it := range items {
-				rows = append(rows, []string{it.Title, strings.ToLower(it.Category), it.Vault.Name})
+				listings = append(listings, itemListing{Title: it.Title, Category: strings.ToLower(it.Category), Vault: it.Vault.Name})
+			}
+			if output == "json" {
+				raw, err := json.MarshalIndent(listings, "", "  ")
+				if err != nil {
+					return err
+				}
+				fmt.Println(string(raw))
+				return nil
+			}
+			rows := make([][]string, 0, len(listings))
+			for _, it := range listings {
+				rows = append(rows, []string{it.Title, it.Category, it.Vault})
 			}
 			ui.PrintTable([]string{"TITLE", "CATEGORY", "VAULT"}, rows)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&vault, "vault", "", "vault to list (default: all)")
+	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
 	return cmd
 }
 

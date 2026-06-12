@@ -1,6 +1,7 @@
 package talos
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vsphere"
 )
@@ -384,4 +386,41 @@ func TestVMProviderGroupPinsProvider(t *testing.T) {
 		"restart-truenas:web0",
 		"snap-create-vsphere:vc0:pre",
 	}, *calls)
+}
+
+func TestVMListOutputFormats(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	_, _ = injectFakeVMLifecycle(t)
+
+	origEnsure := ensureVMLifecycleProviderFn
+	ensureVMLifecycleProviderFn = func(string, string) error { return nil }
+	t.Cleanup(func() { ensureVMLifecycleProviderFn = origEnsure })
+
+	out, _, err := testutil.CaptureOutput(func() {
+		cmd := newListVMsCommand()
+		cmd.SetArgs([]string{"--provider", "truenas", "--output", "json"})
+		require.NoError(t, cmd.Execute())
+	})
+	require.NoError(t, err)
+	var inventory struct {
+		Provider string `json:"provider"`
+		VMs      []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"vms"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(out), &inventory))
+	assert.Equal(t, "truenas", inventory.Provider)
+	require.Len(t, inventory.VMs, 1)
+	assert.Equal(t, "fake-vm", inventory.VMs[0].Name)
+
+	// yaml works; unknown format errors
+	cmd := newListVMsCommand()
+	cmd.SetArgs([]string{"--output", "yaml"})
+	_, _, err = testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
+	require.NoError(t, err)
+
+	cmd = newListVMsCommand()
+	cmd.SetArgs([]string{"--output", "csv"})
+	require.ErrorContains(t, cmd.Execute(), "unsupported output format")
 }

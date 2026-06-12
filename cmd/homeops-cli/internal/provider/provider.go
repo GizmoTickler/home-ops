@@ -62,6 +62,17 @@ type CloneOptions struct {
 	Linked bool
 }
 
+// VMSummary is one VM in a provider's inventory, shaped for both table
+// rendering and machine-readable output (vm list --output json).
+type VMSummary struct {
+	Name     string            `json:"name" yaml:"name"`
+	ID       string            `json:"id,omitempty" yaml:"id,omitempty"`
+	Status   string            `json:"status" yaml:"status"`
+	MemoryMB int               `json:"memory_mb,omitempty" yaml:"memory_mb,omitempty"`
+	CPUs     int               `json:"cpus,omitempty" yaml:"cpus,omitempty"`
+	Details  map[string]string `json:"details,omitempty" yaml:"details,omitempty"`
+}
+
 // VMLifecycle is the name-addressed VM lifecycle contract. Construction and
 // provider-specific options (credentials, storage cleanup behaviour) live
 // with each implementation; everything past construction is uniform.
@@ -78,6 +89,7 @@ type CloneOptions struct {
 //     silent no-op. Capabilities() advertises those gaps up front.
 type VMLifecycle interface {
 	ListVMs() error
+	VMSummaries() ([]VMSummary, error)
 	StartVM(name string) error
 	StopVM(name string, force bool) error
 	RestartVM(name string) error

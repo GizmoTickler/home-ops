@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -173,6 +175,7 @@ type trueNASVMManager interface {
 	Close() error
 	DeployVM(truenas.VMConfig) error
 	ListVMs() error
+	VMSummaries() ([]vmprov.VMSummary, error)
 	StartVM(string) error
 	StopVM(string, bool) error
 	RestartVM(string) error
@@ -2829,33 +2832,85 @@ Provider prerequisites:
 }
 
 func newListVMsCommand() *cobra.Command {
-	var provider string
+	var provider, output string
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all VMs on Proxmox, TrueNAS, or vSphere",
+		Example: `  homeops-cli vm proxmox list
+  homeops-cli vm truenas list --output json | jq '.vms[].name'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := ensureVMLifecycleProviderFn(provider, "list"); err != nil {
 				return err
 			}
-			return listVMs(provider)
+			return listVMs(provider, output)
 		},
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 
 	return cmd
 }
 
-func listVMs(provider string) error {
+// vmInventory is the machine-readable shape of `vm list --output json|yaml`.
+type vmInventory struct {
+	Provider string             `json:"provider" yaml:"provider"`
+	VMs      []vmprov.VMSummary `json:"vms" yaml:"vms"`
+}
+
+func listVMs(provider, output string) error {
 	normalizedProvider, err := normalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
 
 	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
-		return lifecycle.ListVMs()
+		summaries, err := lifecycle.VMSummaries()
+		if err != nil {
+			return err
+		}
+		return renderVMInventory(vmInventory{Provider: normalizedProvider, VMs: summaries}, output)
 	})
+}
+
+func renderVMInventory(inventory vmInventory, output string) error {
+	switch output {
+	case "", "table":
+		if len(inventory.VMs) == 0 {
+			fmt.Println("No virtual machines found.")
+			return nil
+		}
+		rows := make([][]string, 0, len(inventory.VMs))
+		for _, s := range inventory.VMs {
+			details := make([]string, 0, len(s.Details))
+			for _, k := range slices.Sorted(maps.Keys(s.Details)) {
+				details = append(details, k+"="+s.Details[k])
+			}
+			rows = append(rows, []string{
+				s.Name, s.ID, s.Status,
+				fmt.Sprintf("%d", s.MemoryMB), fmt.Sprintf("%d", s.CPUs), strings.Join(details, " "),
+			})
+		}
+		ui.PrintTable([]string{"NAME", "ID", "STATUS", "MEMORY(MB)", "CPUS", "DETAILS"}, rows)
+		return nil
+	case "json":
+		raw, err := json.MarshalIndent(inventory, "", "  ")
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(raw))
+		return nil
+	case "yaml":
+		raw, err := yaml.Marshal(inventory)
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(raw))
+		return nil
+	default:
+		return fmt.Errorf("unsupported output format %q (table, json, yaml)", output)
+	}
 }
 
 func newStartVMCommand() *cobra.Command {
