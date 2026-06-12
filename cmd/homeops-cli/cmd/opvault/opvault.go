@@ -6,7 +6,10 @@ package opvault
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -22,7 +25,7 @@ var runOpFn = func(args ...string) ([]byte, error) {
 	c.Stdin = nil
 	out, err := c.Output()
 	if err != nil {
-		return nil, fmt.Errorf("op %s: %w", args[0], err)
+		return nil, opCommandError(args, err)
 	}
 	return out, nil
 }
@@ -34,9 +37,33 @@ var runOpStdinFn = func(stdin []byte, args ...string) ([]byte, error) {
 	c.Stdin = bytes.NewReader(stdin)
 	out, err := c.Output()
 	if err != nil {
-		return nil, fmt.Errorf("op %s: %w", args[0], err)
+		return nil, opCommandError(args, err)
 	}
 	return out, nil
+}
+
+// opErrorPrefix strips op's "[ERROR] 2026/06/12 19:40:12 " stderr preamble.
+var opErrorPrefix = regexp.MustCompile(`^\[ERROR\]\s+\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\s+`)
+
+// opCommandError surfaces op's actual stderr message ("isn't an item",
+// "no account found", ...) instead of a bare "exit status 1".
+func opCommandError(args []string, err error) error {
+	context := "op"
+	if len(args) >= 2 {
+		context = "op " + strings.Join(args[:2], " ")
+	} else if len(args) == 1 {
+		context = "op " + args[0]
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		for _, line := range strings.Split(strings.TrimSpace(string(exitErr.Stderr)), "\n") {
+			line = strings.TrimSpace(opErrorPrefix.ReplaceAllString(strings.TrimSpace(line), ""))
+			if line != "" {
+				return fmt.Errorf("%s: %s", context, line)
+			}
+		}
+	}
+	return fmt.Errorf("%s: %w", context, err)
 }
 
 var confirmFn = ui.Confirm

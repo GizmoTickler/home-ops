@@ -3,6 +3,7 @@ package opvault
 import (
 	"encoding/json"
 	"errors"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -214,4 +215,16 @@ func TestOpDuplicateNeedsTarget(t *testing.T) {
 	cmd := newDuplicateCommand()
 	cmd.SetArgs([]string{"my-svc"})
 	require.ErrorContains(t, cmd.Execute(), "--to-vault and/or --name")
+}
+
+func TestOpCommandErrorSurfacesStderr(t *testing.T) {
+	exitErr := &exec.ExitError{
+		Stderr: []byte(`[ERROR] 2026/06/12 19:40:12 "ghost" isn't an item. Specify the item with its UUID, name, or domain.`),
+	}
+	err := opCommandError([]string{"item", "get", "ghost", "--format=json"}, exitErr)
+	assert.Equal(t, `op item get: "ghost" isn't an item. Specify the item with its UUID, name, or domain.`, err.Error())
+
+	// no stderr: keep the wrapped error
+	err = opCommandError([]string{"vault", "list"}, errors.New("exit status 1"))
+	assert.Equal(t, "op vault list: exit status 1", err.Error())
 }
