@@ -183,3 +183,23 @@ func TestDetectControllerFallback(t *testing.T) {
 	assert.Equal(t, "deployment", controller)
 	assert.Contains(t, err.Error(), "defaulting to deployment")
 }
+
+func TestParseKopiaSnapshotsPicksNewestAsLatest(t *testing.T) {
+	// kopia lists each source oldest-first; "latest" must be the newest
+	// line (the one kopia tags latest-1), not the first.
+	output := `radarr@downloads:/data
+2025-12-31 18:05:35 UTC oldannual 27.3 MB (monthly-7,annual-2)
+2026-05-31 18:05:35 UTC oldmonthly 27.9 MB (monthly-1)
+2026-06-12 06:00:12 UTC newest123 28.1 MB (latest-1,hourly-1,daily-1)
++ 30 identical snapshots until 2026-06-11 06:00:12 UTC
+`
+
+	snapshots, err := parseKopiaSnapshots(output, "")
+	require.NoError(t, err)
+	require.Len(t, snapshots, 1)
+	assert.Equal(t, "2026-06-12 06:00:12 UTC", snapshots[0].LatestTime)
+	assert.Equal(t, "newest123", snapshots[0].LatestID)
+	assert.Equal(t, "28.1 MB", snapshots[0].Size)
+	assert.Contains(t, snapshots[0].RetentionTags, "latest-1")
+	assert.Equal(t, 33, snapshots[0].Count)
+}

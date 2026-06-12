@@ -1348,6 +1348,7 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 
 	var currentApp AppSnapshot
 	var inSnapshotBlock bool
+	var currentLatest time.Time
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -1381,6 +1382,7 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 						Namespace:    namespace,
 						AllSnapshots: []string{},
 					}
+					currentLatest = time.Time{}
 					inSnapshotBlock = true
 				}
 			}
@@ -1415,8 +1417,14 @@ func parseKopiaSnapshots(output, appFilter string) ([]AppSnapshot, error) {
 					retentionTags = line[retentionStart+1 : retentionEnd]
 				}
 
-				// If this is the first snapshot for this app, set as latest
-				if currentApp.Count == 0 {
+				// Keep the newest snapshot as "latest". kopia lists each
+				// source oldest-first, so trusting the first line showed the
+				// oldest retained (annual/monthly) snapshot instead.
+				ts, terr := time.Parse("2006-01-02 15:04:05", fields[0]+" "+fields[1])
+				if currentApp.Count == 0 || (terr == nil && ts.After(currentLatest)) {
+					if terr == nil {
+						currentLatest = ts
+					}
 					currentApp.LatestTime = timestamp
 					currentApp.LatestID = snapshotID
 					currentApp.Size = fullSize
