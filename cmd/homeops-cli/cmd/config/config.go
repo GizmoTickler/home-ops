@@ -277,29 +277,38 @@ never shown — only their references.`,
 
 func newDoctorCommand() *cobra.Command {
 	var skipSecrets bool
+	var network bool
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Validate the configuration and check that secrets resolve",
 		Long: `Run health checks against the effective configuration: config file syntax,
 required binaries, cluster topology sanity, state-store access, and (unless
 --skip-secrets) that every configured secret reference actually resolves.
-Secret values are never printed.`,
-		Example: `  # Full check
+Secret values are never printed.
+
+With --network, doctor additionally probes each configured hypervisor API
+(Proxmox, TrueNAS, vSphere — providers without credentials are skipped) and
+HEAD-checks the cloud-image catalog URLs used by 'vm create'.`,
+		Example: `  # Full offline check
   homeops-cli config doctor
+
+  # Also probe hypervisor APIs and image URLs
+  homeops-cli config doctor --network
 
   # Skip resolving secret references (no 1Password/backend calls)
   homeops-cli config doctor --skip-secrets`,
 		// A failed health check is not a usage error — don't dump help text.
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(skipSecrets)
+			return runDoctor(skipSecrets, network)
 		},
 	}
 	cmd.Flags().BoolVar(&skipSecrets, "skip-secrets", false, "skip resolving secret references")
+	cmd.Flags().BoolVar(&network, "network", false, "probe hypervisor APIs and image URLs (network calls)")
 	return cmd
 }
 
-func runDoctor(skipSecrets bool) error {
+func runDoctor(skipSecrets, network bool) error {
 	logger := common.NewColorLogger()
 	failures := 0
 	warn := func(format string, args ...interface{}) { logger.Warn(format, args...) }
@@ -384,6 +393,11 @@ func runDoctor(skipSecrets bool) error {
 			}
 		}
 		logger.Success("secrets: %d/%d references resolve", resolved, resolved+missed)
+	}
+
+	// 6. Network probes (opt-in)
+	if network {
+		runNetworkChecks(logger, cfg, fail)
 	}
 
 	if failures > 0 {
