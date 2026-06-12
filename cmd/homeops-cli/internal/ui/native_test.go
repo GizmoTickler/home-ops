@@ -80,3 +80,7 @@ func TestSuccessBoxOffTerminal(t *testing.T) {
 	// Tests run without a TTY: the flourish must vanish so CI logs stay plain.
 	assert.Empty(t, SuccessBox("done", "line"))
 }
+
+func TestInfoBoxOffTerminal(t *testing.T) {
+	assert.Empty(t, InfoBox("plan", "line"))
+}

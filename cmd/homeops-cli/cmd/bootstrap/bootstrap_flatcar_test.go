@@ -412,3 +412,37 @@ func (f *fakeSSHRunner) ExecuteCommand(string) (string, error) {
 	}
 	return f.out, nil
 }
+
+func TestFlatcarStepTotalAccountsForSkips(t *testing.T) {
+	cases := []struct {
+		name   string
+		config BootstrapConfig
+		want   int
+	}{
+		{"full", BootstrapConfig{}, 10},
+		{"skip kubeadm", BootstrapConfig{SkipKubeadm: true}, 7},
+		{"skip helmfile", BootstrapConfig{SkipHelmfile: true}, 8},
+		{"skip everything skippable", BootstrapConfig{SkipKubeadm: true, SkipResources: true, SkipCRDs: true, SkipHelmfile: true}, 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := flatcarStepTotal(&tc.config); got != tc.want {
+				t.Fatalf("flatcarStepTotal(%+v) = %d, want %d", tc.config, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBootstrapStepperNumbering(t *testing.T) {
+	steps := &bootstrapStepper{total: 4}
+	if got := steps.next("🎯", "init"); got != "🎯 Step 1/4: init" {
+		t.Fatalf("unexpected first step label: %q", got)
+	}
+	steps.next("➕", "join nodes")
+	if got := steps.sub("➕", "join k8s-1"); got != "➕ Step 2/4: join k8s-1" {
+		t.Fatalf("sub must keep the step number: %q", got)
+	}
+	if got := steps.next("🕸️", "cilium"); got != "🕸️ Step 3/4: cilium" {
+		t.Fatalf("unexpected third step label: %q", got)
+	}
+}

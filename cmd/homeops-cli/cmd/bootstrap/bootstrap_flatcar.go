@@ -12,6 +12,7 @@ import (
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/ui"
 )
 
 // This file adds an end-to-end kubeadm bootstrap path for the Talos->Flatcar
@@ -150,6 +151,43 @@ func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.Vers
 	}
 }
 
+// bootstrapStepper numbers the steps that will actually run (skips excluded)
+// so progress reads "Step 3/7" instead of a fixed count that lies under
+// --skip-* flags.
+type bootstrapStepper struct {
+	current, total int
+}
+
+// flatcarStepTotal counts the steps the configured flags will execute.
+func flatcarStepTotal(config *BootstrapConfig) int {
+	total := 10 // init, kubeconfig, join, cilium, nodes, namespaces, resources, crds, helmfile, flux
+	if config.SkipKubeadm {
+		total -= 3 // init, kubeconfig, join
+	}
+	if config.SkipResources {
+		total--
+	}
+	if config.SkipCRDs {
+		total--
+	}
+	if config.SkipHelmfile {
+		total -= 2 // helmfile sync + flux wait
+	}
+	return total
+}
+
+// next returns the spinner title for the next step.
+func (s *bootstrapStepper) next(emoji, text string) string {
+	s.current++
+	return fmt.Sprintf("%s Step %d/%d: %s", emoji, s.current, s.total, text)
+}
+
+// sub keeps the current step number for repeated work inside one step
+// (e.g. joining each remaining control-plane node).
+func (s *bootstrapStepper) sub(emoji, text string) string {
+	return fmt.Sprintf("%s Step %d/%d: %s", emoji, s.current, s.total, text)
+}
+
 // runBootstrapFlatcar executes the Flatcar/kubeadm bootstrap in order:
 //
 //	preflight -> init node0 -> fetch+save kubeconfig -> join node1/node2
@@ -186,6 +224,26 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 		return err
 	}
 
+	// Plan panel (TTY only; the Info lines above cover CI logs).
+	nodeDescs := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		nodeDescs = append(nodeDescs, fmt.Sprintf("%s (%s)", n.Name, n.IP))
+	}
+	mode := "apply"
+	if config.DryRun {
+		mode = "DRY RUN — no changes will be made"
+	}
+	ui.PrintInfoBox("Flatcar/kubeadm bootstrap",
+		"nodes:    "+strings.Join(nodeDescs, ", "),
+		fmt.Sprintf("k8s:      %s   kube-vip: %s", versions.KubernetesVersion, versions.KubeVipVersion),
+		"VIP:      "+versionconfig.Get().Cluster.ControlPlaneVIP,
+		"mode:     "+mode)
+	if config.DryRun {
+		logger.Info("DRY RUN: every step below only describes what it would do")
+	}
+
+	steps := &bootstrapStepper{total: flatcarStepTotal(config)}
+
 	// Step 0: Preflight (tools + node reachability + kubelet present).
 	if !config.SkipPreflight {
 		if err := bootstrapRunWithSpinner("🔍 Running Flatcar preflight checks", config.Verbose, logger, func() error {
@@ -213,7 +271,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 		logger.Warn("⚠️  Skipping kubeadm init/join (--skip-kubeadm): using existing control plane")
 	}
 	if !config.SkipKubeadm {
-		if err := bootstrapRunWithSpinner(fmt.Sprintf("🎯 Step 1: kubeadm init on %s (%s)", node0.Name, node0.IP), config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("🎯", fmt.Sprintf("kubeadm init on %s (%s)", node0.Name, node0.IP)), config.Verbose, logger, func() error {
 			if config.DryRun {
 				logger.Info("[DRY RUN] Would render kubeadm init config and run kubeadm init on %s", node0.IP)
 				kubeadmResult = &flatcar.KubeadmResult{}
@@ -242,7 +300,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 	// validate helpers from bootstrap.go). Skipped with --skip-kubeadm; the
 	// caller must pass --kubeconfig for an already-built control plane.
 	if !config.SkipKubeadm {
-		if err := bootstrapRunWithSpinner("🔑 Step 2: Fetching and validating kubeconfig", config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("🔑", "Fetching and validating kubeconfig"), config.Verbose, logger, func() error {
 			return fetchFlatcarKubeconfig(config, orch, node0, logger)
 		}); err != nil {
 			return err
@@ -253,9 +311,10 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 3: Join the remaining control-plane nodes (via the VIP).
 	if !config.SkipKubeadm {
+		steps.next("➕", "kubeadm join remaining control-plane nodes")
 		for _, node := range nodes[1:] {
 			node := node
-			if err := bootstrapRunWithSpinner(fmt.Sprintf("➕ Step 3: kubeadm join %s (%s) as control-plane", node.Name, node.IP), config.Verbose, logger, func() error {
+			if err := bootstrapRunWithSpinner(steps.sub("➕", fmt.Sprintf("kubeadm join %s (%s) as control-plane", node.Name, node.IP)), config.Verbose, logger, func() error {
 				if config.DryRun {
 					logger.Info("[DRY RUN] Would render kubeadm join config and join %s via VIP %s", node.IP, versionconfig.Get().Cluster.ControlPlaneVIP)
 					return nil
@@ -281,21 +340,21 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 4: Install Cilium (CNI) BEFORE Flux so nodes go Ready and the
 	// VIP/LoadBalancer plane works.
-	if err := bootstrapRunWithSpinner("🕸️  Step 4: Installing Cilium CNI", config.Verbose, logger, func() error {
+	if err := bootstrapRunWithSpinner(steps.next("🕸️ ", "Installing Cilium CNI"), config.Verbose, logger, func() error {
 		return flatcarInstallCilium(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed to install Cilium: %w", err)
 	}
 
 	// Step 5: Wait for nodes to be ready (generic; reused).
-	if err := bootstrapRunWithSpinner("⏳ Step 5: Waiting for nodes to be ready", config.Verbose, logger, func() error {
+	if err := bootstrapRunWithSpinner(steps.next("⏳", "Waiting for nodes to be ready"), config.Verbose, logger, func() error {
 		return bootstrapWaitForNodes(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed waiting for nodes: %w", err)
 	}
 
 	// Step 6: Namespaces (generic; reused).
-	if err := bootstrapRunWithSpinner("📦 Step 6: Creating initial namespaces", config.Verbose, logger, func() error {
+	if err := bootstrapRunWithSpinner(steps.next("📦", "Creating initial namespaces"), config.Verbose, logger, func() error {
 		return bootstrapApplyNamespaces(config, logger)
 	}); err != nil {
 		return fmt.Errorf("failed to apply namespaces: %w", err)
@@ -303,7 +362,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 7: Initial resources (generic; reused).
 	if !config.SkipResources {
-		if err := bootstrapRunWithSpinner("🔧 Step 7: Applying initial resources", config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("🔧", "Applying initial resources"), config.Verbose, logger, func() error {
 			return bootstrapApplyResources(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply resources: %w", err)
@@ -312,7 +371,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 8: CRDs (generic; reused).
 	if !config.SkipCRDs {
-		if err := bootstrapRunWithSpinner("📜 Step 8: Applying Custom Resource Definitions", config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("📜", "Applying Custom Resource Definitions"), config.Verbose, logger, func() error {
 			return bootstrapApplyCRDs(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to apply CRDs: %w", err)
@@ -322,7 +381,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 	// Step 9: Helm releases via helmfile (generic; reused). This installs the
 	// remaining stack (coredns, spegel, cert-manager, external-secrets, flux).
 	if !config.SkipHelmfile {
-		if err := bootstrapRunWithSpinner("⚙️  Step 9: Syncing Helm releases", config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("⚙️ ", "Syncing Helm releases"), config.Verbose, logger, func() error {
 			return bootstrapSyncHelmReleases(config, logger)
 		}); err != nil {
 			return fmt.Errorf("failed to sync Helm releases: %w", err)
@@ -331,7 +390,7 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 
 	// Step 10: Wait for Flux initial reconciliation (generic; reused).
 	if !config.SkipHelmfile {
-		if err := bootstrapRunWithSpinner("🔄 Step 10: Waiting for Flux initial reconciliation", config.Verbose, logger, func() error {
+		if err := bootstrapRunWithSpinner(steps.next("🔄", "Waiting for Flux initial reconciliation"), config.Verbose, logger, func() error {
 			return bootstrapWaitForFlux(config, logger)
 		}); err != nil {
 			logger.Warn("Flux reconciliation wait completed with warnings: %v", err)
@@ -339,7 +398,18 @@ func runBootstrapFlatcar(config *BootstrapConfig) error {
 		}
 	}
 
+	if config.DryRun {
+		logger.Success("✅ Dry run complete — no changes were made (%d step(s) planned)", steps.total)
+		ui.PrintInfoBox("Dry run complete",
+			fmt.Sprintf("%d step(s) would run against %d node(s).", steps.total, len(nodes)),
+			"Re-run without --dry-run to apply.")
+		return nil
+	}
 	logger.Success("🎉 Flatcar/kubeadm cluster bootstrapped and Flux reconciliation initiated")
+	ui.PrintSuccessBox("🎉 Cluster bootstrapped!",
+		"Flux has completed initial reconciliation.",
+		"kubectl get nodes        # say hello to your cluster",
+		"flux get kustomizations  # watch the apps roll out")
 	return nil
 }
 

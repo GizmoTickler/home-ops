@@ -452,6 +452,12 @@ func runBootstrap(config *BootstrapConfig) error {
 	// Initialize logger with colors
 	logger := common.NewColorLogger()
 
+	// A dry run's whole output IS the plan: log every step directly instead
+	// of hiding the "[DRY RUN] would ..." lines behind spinners.
+	if config.DryRun {
+		config.Verbose = true
+	}
+
 	// Provider dispatch: Flatcar/kubeadm is the default for the CLI (the
 	// `--provider` flag defaults to "flatcar", so a bare `homeops-cli bootstrap`
 	// runs this path). It replaces the Talos-specific pre-CNI steps but reuses
@@ -2123,22 +2129,24 @@ func extractGatewayAPIVersion(rawURL string) string {
 // the GitOps flow (kubernetes/apps/network/kgateway/gateway-api-crds/) but need
 // to be present before Flux starts reconciling.
 func applyGatewayAPICRDs(config *BootstrapConfig, logger *common.ColorLogger) error {
-	if config.KubeConfig == "" {
-		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation - ensure KUBECONFIG environment variable is set")
-	}
-
 	url, err := getGatewayAPICRDsURL(config.RootDir)
 	if err != nil {
 		return err
 	}
 
 	version := extractGatewayAPIVersion(url)
-	logger.Info("Applying Gateway API CRDs %s from %s", version, url)
 
+	// Dry runs must not require a kubeconfig: on a fresh machine it doesn't
+	// exist until the real bootstrap fetches it (step 2).
 	if config.DryRun {
 		logger.Info("[DRY RUN] Would apply Gateway API CRDs %s from %s", version, url)
 		return nil
 	}
+	if config.KubeConfig == "" {
+		return fmt.Errorf("kubeconfig path is required for Gateway API CRD installation - ensure KUBECONFIG environment variable is set")
+	}
+
+	logger.Info("Applying Gateway API CRDs %s from %s", version, url)
 
 	if output, err := kubectlCombinedOutput(config, "apply", "--server-side", "--filename", url); err != nil {
 		return fmt.Errorf("failed to apply Gateway API CRDs %s from %s: %w\nKubectl output: %s", version, url, err, redactCommandOutput(output))

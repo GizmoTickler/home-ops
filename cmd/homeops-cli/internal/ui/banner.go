@@ -75,3 +75,28 @@ func PrintSuccessBox(title string, lines ...string) {
 		fmt.Println(box)
 	}
 }
+
+// InfoBox renders a neutral bordered panel for section headers (e.g. the
+// bootstrap plan). Returns "" off-terminal — callers keep their plain logger
+// lines as the CI/pipe fallback.
+func InfoBox(title string, lines ...string) string {
+	if !isStyledOutput() {
+		return ""
+	}
+	body := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("75")).Render(title)
+	if len(lines) > 0 {
+		body += "\n" + strings.Join(lines, "\n")
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("75")).
+		Padding(0, 2).
+		Render(body)
+}
+
+// PrintInfoBox writes InfoBox to stdout (no-op off-terminal).
+func PrintInfoBox(title string, lines ...string) {
+	if box := InfoBox(title, lines...); box != "" {
+		fmt.Println(box)
+	}
+}
