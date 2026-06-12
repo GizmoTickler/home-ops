@@ -57,17 +57,20 @@ func TestNewCommand(t *testing.T) {
 
 	// Test subcommands are present
 	subcommands := cmd.Commands()
-	assert.Len(t, subcommands, 2)
+	assert.Len(t, subcommands, 3)
 
-	var brewCmd, krewCmd bool
+	var brewCmd, krewCmd, setupCmd bool
 	for _, subcmd := range subcommands {
 		switch subcmd.Use {
 		case "brew":
 			brewCmd = true
 		case "krew":
 			krewCmd = true
+		case "setup":
+			setupCmd = true
 		}
 	}
+	assert.True(t, setupCmd, "setup subcommand should exist")
 	assert.True(t, brewCmd, "brew subcommand should be present")
 	assert.True(t, krewCmd, "krew subcommand should be present")
 }

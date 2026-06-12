@@ -83,6 +83,7 @@ homeops-cli
 │   ├── restore-all
 │   └── snapshots
 └── workstation
+    ├── setup [--all] [--upgrade] [--dry-run]
     ├── brew
     └── krew
 ```
@@ -513,11 +514,21 @@ Notes:
 ## Workstation
 
 ```bash
-homeops-cli workstation brew
-homeops-cli workstation krew
+homeops-cli workstation setup             # detect OS, scan tools, pick what to install
+homeops-cli workstation setup --all       # install everything missing (CI-friendly)
+homeops-cli workstation setup --all --upgrade   # ...and upgrade installed tools to latest
+homeops-cli workstation setup --dry-run   # status table only
+homeops-cli workstation brew              # apply the embedded Brewfile wholesale
+homeops-cli workstation krew              # install kubectl plugins
 ```
 
-These install or validate local workstation dependencies used by the rest of the CLI.
+`setup` detects the platform (macOS / Linux distro, architecture, Homebrew
+availability), scans a curated catalog (kubectl, helm, helmfile, flux,
+talosctl, cilium, k9s, jq, yq, gh, op, ...) with installed versions, and
+installs the selection through Homebrew — the one package manager carrying
+all of these at their latest versions on both macOS and Linux. macOS-only
+casks (1password-cli) are marked unavailable on Linux with a hint instead of
+failing.
 
 ## Completion
 

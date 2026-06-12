@@ -41,11 +41,14 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "workstation",
 		Short: "Setup workstation tools and dependencies",
-		Long:  `Commands for setting up workstation tools including Homebrew packages and Krew plugins`,
+		Long: `Commands for setting up workstation tools: 'setup' detects the OS and
+installs the curated tool catalog at latest versions, 'brew' applies the
+embedded Brewfile wholesale, and 'krew' installs kubectl plugins.`,
 	}
 
 	// Add subcommands
 	cmd.AddCommand(
+		newSetupCommand(),
 		newBrewCommand(),
 		newKrewCommand(),
 	)

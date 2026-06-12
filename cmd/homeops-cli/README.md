@@ -54,7 +54,7 @@ homeops-cli flatcar --help       # current provider (Flatcar Container Linux + k
 homeops-cli talos --help         # legacy provider (retained for reference/rollback)
 homeops-cli k8s --help
 homeops-cli volsync --help
-homeops-cli workstation --help
+homeops-cli workstation --help   # OS-aware tool setup (see workstation setup)
 homeops-cli vm --help            # provider-agnostic VM platform (see below)
 homeops-cli op --help            # 1Password item management
 homeops-cli config --help        # config scaffold / show / doctor
