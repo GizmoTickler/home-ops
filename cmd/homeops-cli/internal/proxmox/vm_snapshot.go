@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/luthermonson/go-proxmox"
+
+	"homeops-cli/internal/ui"
 )
 
 // SnapshotVM creates a snapshot of a VM.
@@ -38,7 +40,7 @@ func (vm *VMManager) ListVMSnapshots(name string) error {
 		fmt.Printf("No snapshots for VM %s\n", name)
 		return nil
 	}
-	fmt.Printf("%-30s %-22s %s\n", "NAME", "CREATED", "DESCRIPTION")
+	var rows [][]string
 	for _, s := range snaps {
 		if s.Name == "current" {
 			continue
@@ -47,8 +49,9 @@ func (vm *VMManager) ListVMSnapshots(name string) error {
 		if s.Snaptime > 0 {
 			created = time.Unix(s.Snaptime, 0).Format("2006-01-02 15:04:05")
 		}
-		fmt.Printf("%-30s %-22s %s\n", s.Name, created, s.Description)
+		rows = append(rows, []string{s.Name, created, s.Description})
 	}
+	ui.PrintTable([]string{"NAME", "CREATED", "DESCRIPTION"}, rows)
 	return nil
 }
 

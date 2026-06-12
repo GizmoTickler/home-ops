@@ -14,6 +14,7 @@ import (
 	"github.com/vmware/govmomi/vim25/types"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/ui"
 )
 
 // This file holds the day-2 VM operations (resources, disks, snapshots,
@@ -333,16 +334,17 @@ func (m *VMManager) ListVMSnapshots(name string) error {
 		fmt.Printf("No snapshots for VM %s\n", name)
 		return nil
 	}
-	fmt.Printf("%-30s %-22s %s\n", "NAME", "CREATED", "DESCRIPTION")
+	var rows [][]string
 	var walk func(snaps []types.VirtualMachineSnapshotTree, depth int)
 	walk = func(snaps []types.VirtualMachineSnapshotTree, depth int) {
 		for _, s := range snaps {
 			indent := strings.Repeat("  ", depth)
-			fmt.Printf("%-30s %-22s %s\n", indent+s.Name, s.CreateTime.Format("2006-01-02 15:04:05"), s.Description)
+			rows = append(rows, []string{indent + s.Name, s.CreateTime.Format("2006-01-02 15:04:05"), s.Description})
 			walk(s.ChildSnapshotList, depth+1)
 		}
 	}
 	walk(info.Snapshot.RootSnapshotList, 0)
+	ui.PrintTable([]string{"NAME", "CREATED", "DESCRIPTION"}, rows)
 	return nil
 }
 

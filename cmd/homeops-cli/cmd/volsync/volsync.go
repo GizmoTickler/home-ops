@@ -1441,25 +1441,19 @@ func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) 
 	logger.Info("VolSync Snapshots Summary:")
 	logger.Info("")
 
-	// Header
-	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "APP", "NAMESPACE", "COUNT", "LATEST", "SIZE", "RETENTION")
-	fmt.Printf("%-15s %-12s %-8s %-20s %-10s %s\n", "---", "---------", "-----", "------", "----", "---------")
-
-	// Rows
+	rows := make([][]string, 0, len(snapshots))
 	for _, snap := range snapshots {
 		// Safely truncate LatestTime to avoid index out of bounds
 		displayTime := snap.LatestTime
 		if len(displayTime) > 19 {
 			displayTime = displayTime[0:19]
 		}
-		fmt.Printf("%-15s %-12s %-8d %-20s %-10s %s\n",
-			snap.App,
-			snap.Namespace,
-			snap.Count,
-			displayTime,
-			snap.Size,
-			snap.RetentionTags)
+		rows = append(rows, []string{
+			snap.App, snap.Namespace, fmt.Sprintf("%d", snap.Count),
+			displayTime, snap.Size, snap.RetentionTags,
+		})
 	}
+	ui.PrintTable([]string{"APP", "NAMESPACE", "COUNT", "LATEST", "SIZE", "RETENTION"}, rows)
 
 	fmt.Printf("\nTotal applications: %d\n", len(snapshots))
 }

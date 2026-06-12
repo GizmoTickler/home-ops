@@ -11,6 +11,7 @@ import (
 	"homeops-cli/internal/common"
 	homeopscfg "homeops-cli/internal/config"
 	"homeops-cli/internal/provider"
+	"homeops-cli/internal/ui"
 
 	"github.com/luthermonson/go-proxmox"
 )
@@ -1138,14 +1139,15 @@ func formatVMList(vms proxmox.VirtualMachines) string {
 }
 
 func writeVMList(w io.Writer, vms proxmox.VirtualMachines) {
-	_, _ = fmt.Fprintf(w, "%-6s %-20s %-10s %-12s %-6s %-12s\n", "VMID", "Name", "Status", "Memory(MB)", "CPUs", "Uptime(s)")
-	_, _ = fmt.Fprintln(w, strings.Repeat("-", 75))
-
+	rows := make([][]string, 0, len(vms))
 	for _, vmItem := range vms {
 		memMB := vmItem.MaxMem / (1024 * 1024)
-		_, _ = fmt.Fprintf(w, "%-6d %-20s %-10s %-12d %-6d %-12d\n",
-			vmItem.VMID, vmItem.Name, vmItem.Status, memMB, vmItem.CPUs, vmItem.Uptime)
+		rows = append(rows, []string{
+			fmt.Sprintf("%d", vmItem.VMID), vmItem.Name, vmItem.Status,
+			fmt.Sprintf("%d", memMB), fmt.Sprintf("%d", vmItem.CPUs), fmt.Sprintf("%d", vmItem.Uptime),
+		})
 	}
+	_, _ = fmt.Fprintln(w, ui.Table([]string{"VMID", "NAME", "STATUS", "MEMORY(MB)", "CPUS", "UPTIME(S)"}, rows))
 }
 
 func formatVMInfo(name string, vmObj *proxmox.VirtualMachine) string {

@@ -140,9 +140,10 @@ func TestOpVaultsList(t *testing.T) {
 
 	assert.Equal(t, []string{"vault", "list", "--format=json"}, *argvRun)
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	require.Len(t, lines, 2)
-	assert.Contains(t, lines[0], "Infrastructure") // sorted by name
-	assert.Contains(t, lines[1], "Private")
+	require.Len(t, lines, 3) // header + 2 vaults
+	assert.Contains(t, lines[0], "NAME")
+	assert.Contains(t, lines[1], "Infrastructure") // sorted by name
+	assert.Contains(t, lines[2], "Private")
 }
 
 func TestOpMove(t *testing.T) {

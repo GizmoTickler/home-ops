@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/ui"
 )
 
 // This file holds the day-2 VM operations (resources, disks, snapshots,
@@ -348,10 +349,11 @@ func (vm *VMManager) ListVMSnapshots(name string) error {
 		}
 		return all[i].Dataset < all[j].Dataset
 	})
-	fmt.Printf("%-30s %-40s %s\n", "NAME", "DATASET", "CREATED")
+	rows := make([][]string, 0, len(all))
 	for _, s := range all {
-		fmt.Printf("%-30s %-40s %s\n", s.SnapshotName, s.Dataset, s.Created())
+		rows = append(rows, []string{s.SnapshotName, s.Dataset, s.Created()})
 	}
+	ui.PrintTable([]string{"NAME", "DATASET", "CREATED"}, rows)
 	return nil
 }
 

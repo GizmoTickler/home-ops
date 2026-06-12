@@ -9,6 +9,7 @@ import (
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/provider"
+	"homeops-cli/internal/ui"
 )
 
 // vmClient is the slice of Client that VMManager composes over; narrow so
@@ -63,12 +64,12 @@ func (m *VMManager) ListVMs() error {
 		return fmt.Errorf("failed to list VMs: %w", err)
 	}
 
-	fmt.Println("\nVMs on vSphere:")
-	fmt.Println("================")
+	rows := make([][]string, 0, len(vms))
 	for _, vm := range vms {
-		fmt.Printf("- %s\n", vm.Name())
+		rows = append(rows, []string{vm.Name()})
 	}
-	fmt.Printf("\nTotal: %d VMs\n", len(vms))
+	ui.PrintTable([]string{"NAME"}, rows)
+	fmt.Printf("Total: %d VMs\n", len(vms))
 	return nil
 }
 

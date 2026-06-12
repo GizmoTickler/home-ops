@@ -77,9 +77,11 @@ func newVaultsCommand() *cobra.Command {
 				return fmt.Errorf("parse op output: %w", err)
 			}
 			sort.Slice(vaults, func(i, j int) bool { return vaults[i].Name < vaults[j].Name })
+			rows := make([][]string, 0, len(vaults))
 			for _, v := range vaults {
-				fmt.Printf("%-30s %s\n", v.Name, v.ID)
+				rows = append(rows, []string{v.Name, v.ID})
 			}
+			ui.PrintTable([]string{"NAME", "ID"}, rows)
 			return nil
 		},
 	}
@@ -240,9 +242,11 @@ func newListCommand() *cobra.Command {
 				return fmt.Errorf("parse op output: %w", err)
 			}
 			sort.Slice(items, func(i, j int) bool { return items[i].Title < items[j].Title })
+			rows := make([][]string, 0, len(items))
 			for _, it := range items {
-				fmt.Printf("%-40s %-15s %s\n", it.Title, strings.ToLower(it.Category), it.Vault.Name)
+				rows = append(rows, []string{it.Title, strings.ToLower(it.Category), it.Vault.Name})
 			}
+			ui.PrintTable([]string{"TITLE", "CATEGORY", "VAULT"}, rows)
 			return nil
 		},
 	}

@@ -9,6 +9,7 @@ import (
 
 	"homeops-cli/internal/common"
 	homeopscfg "homeops-cli/internal/config"
+	"homeops-cli/internal/ui"
 )
 
 var sleepForOperation = time.Sleep
@@ -131,9 +132,7 @@ func (vm *VMManager) ListVMs() error {
 		return nil
 	}
 
-	fmt.Printf("%-20s %-5s %-10s %-8s %-6s %-10s\n", "Name", "ID", "Status", "Memory", "vCPUs", "Autostart")
-	fmt.Println(strings.Repeat("-", 70))
-
+	rows := make([][]string, 0, len(vms))
 	for _, vmItem := range vms {
 		status := "unknown"
 		if vmItem.Status != nil {
@@ -147,9 +146,12 @@ func (vm *VMManager) ListVMs() error {
 			autostart = "Yes"
 		}
 
-		fmt.Printf("%-20s %-5d %-10s %-8d %-6d %-10s\n",
-			vmItem.Name, vmItem.ID, status, vmItem.Memory, vmItem.VCPUs, autostart)
+		rows = append(rows, []string{
+			vmItem.Name, fmt.Sprintf("%d", vmItem.ID), status,
+			fmt.Sprintf("%d", vmItem.Memory), fmt.Sprintf("%d", vmItem.VCPUs), autostart,
+		})
 	}
+	ui.PrintTable([]string{"NAME", "ID", "STATUS", "MEMORY", "VCPUS", "AUTOSTART"}, rows)
 
 	return nil
 }
