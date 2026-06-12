@@ -8,6 +8,8 @@ import (
 
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vsphere"
 )
 
 // runVMCreate executes the create command with stubbed staging/deploy seams
@@ -113,9 +115,141 @@ func TestVMCreateValidation(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown OS")
 
-	_, _, err = runVMCreate(t, "--name", "x", "--provider", "truenas")
+	// TrueNAS VM names cannot contain dashes.
+	_, _, err = runVMCreate(t, "--name", "dev-vm", "--provider", "truenas")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "proxmox")
+	assert.Contains(t, err.Error(), "cannot contain dashes")
+
+	// Flags a provider cannot honour are rejected with the uniform message.
+	_, _, err = runVMCreate(t, "--name", "dev0", "--provider", "truenas", "--vlan", "999")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported on truenas")
+
+	_, _, err = runVMCreate(t, "--name", "dev-vm", "--provider", "vsphere", "--storage", "ds1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported on vsphere")
+
+	// vSphere needs a template (flag or config).
+	_, _, err = runVMCreate(t, "--name", "dev-vm", "--provider", "vsphere")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "--template")
+}
+
+func TestVMCreateTrueNASDispatch(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{
+			TrueNAS: versionconfig.TrueNASConfig{
+				ISODir:   "/mnt/tank/ISO",
+				ImageDir: "/mnt/tank/images",
+				VM:       versionconfig.VMDefaults{BootStorage: "tank/VM", NetworkBridge: "br7"},
+			},
+		},
+		Secrets: map[string]string{
+			versionconfig.KeyNodeSSHAuthorizedKey: "literal://ssh-ed25519 KEY",
+		},
+	})
+	defer restore()
+
+	var got truenas.CloudImageVMConfig
+	orig := createTrueNASCloudVMFn
+	createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error { got = cfg; return nil }
+	t.Cleanup(func() { createTrueNASCloudVMFn = orig })
+
+	cmd := newCreateVMCommand()
+	cmd.SetArgs([]string{"--provider", "truenas", "--name", "dev0", "--os", "ubuntu",
+		"--memory", "2048", "--cores", "2", "--disk-gb", "30",
+		"--ip", "192.168.120.50/22", "--gateway", "192.168.123.254", "--nameserver", "192.168.123.249"})
+	require.NoError(t, cmd.Execute())
+
+	assert.Equal(t, "dev0", got.Name)
+	assert.Equal(t, "tank/VM", got.Pool)
+	assert.Equal(t, "/mnt/tank/images", got.ImageDir)
+	assert.Equal(t, "br7", got.NetworkBridge)
+	assert.Equal(t, 2048, got.MemoryMB)
+	assert.Equal(t, 30, got.DiskGB)
+	assert.Contains(t, got.ImageRef, "ubuntu")
+	assert.NotEmpty(t, got.SeedISO)
+	assert.True(t, got.PowerOn)
+}
+
+func TestVMCreateVSphereDispatch(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{
+			VSphere: versionconfig.VSphereConfig{Template: "ubuntu-tpl"},
+		},
+		Secrets: map[string]string{
+			versionconfig.KeyNodeSSHAuthorizedKey: "literal://ssh-ed25519 KEY",
+		},
+	})
+	defer restore()
+
+	var got vsphere.CloudInitVMConfig
+	orig := createVSphereCloudVMFn
+	createVSphereCloudVMFn = func(cfg vsphere.CloudInitVMConfig) error { got = cfg; return nil }
+	t.Cleanup(func() { createVSphereCloudVMFn = orig })
+
+	cmd := newCreateVMCommand()
+	cmd.SetArgs([]string{"--provider", "vsphere", "--name", "dev-vm", "--memory", "8192"})
+	require.NoError(t, cmd.Execute())
+
+	assert.Equal(t, "ubuntu-tpl", got.TemplateName) // from config default
+	assert.Equal(t, "dev-vm", got.Name)
+	assert.Equal(t, 8192, got.MemoryMB)
+	assert.Contains(t, got.Userdata, "#cloud-config")
+	assert.Contains(t, got.Userdata, "ubuntu") // default user from --os default
+	assert.Contains(t, got.Metadata, "instance-id")
+	assert.True(t, got.PowerOn)
+}
+
+func TestVMTemplateImportDispatch(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Images: map[string]string{"rhel": "/var/lib/vz/template/cache/rhel.qcow2"},
+		Secrets: map[string]string{
+			versionconfig.KeyProxmoxHost:          "literal://pve.test",
+			versionconfig.KeyNodeSSHAuthorizedKey: "literal://ssh-ed25519 KEY",
+		},
+	})
+	defer restore()
+
+	var imported []proxmox.VMConfig
+	origImport := importProxmoxTemplateFn
+	importProxmoxTemplateFn = func(cfg proxmox.VMConfig) error { imported = append(imported, cfg); return nil }
+	t.Cleanup(func() { importProxmoxTemplateFn = origImport })
+
+	// Proxmox image import (local path: no staging).
+	cmd := newVMTemplateImportCommand()
+	cmd.SetArgs([]string{"--name", "rhel-tpl", "--os", "rhel"})
+	require.NoError(t, cmd.Execute())
+	require.Len(t, imported, 1)
+	assert.Equal(t, "rhel-tpl", imported[0].Name)
+	assert.Equal(t, "/var/lib/vz/template/cache/rhel.qcow2", imported[0].ImageDiskPath)
+	require.NotNil(t, imported[0].CloudInit)
+	assert.Equal(t, "cloud-user", imported[0].CloudInit.User)
+
+	// TrueNAS: uniform unsupported.
+	cmd = newVMTemplateImportCommand()
+	cmd.SetArgs([]string{"--name", "x", "--provider", "truenas"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported on truenas")
+
+	// vSphere image mode: uniform unsupported with the govc/--from-vm hint.
+	cmd = newVMTemplateImportCommand()
+	cmd.SetArgs([]string{"--name", "x", "--provider", "vsphere"})
+	err = cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not supported on vsphere")
+	assert.Contains(t, err.Error(), "--from-vm")
+
+	// vSphere --from-vm conversion.
+	var marked []string
+	origMark := markVSphereTemplateFn
+	markVSphereTemplateFn = func(name string) error { marked = append(marked, name); return nil }
+	t.Cleanup(func() { markVSphereTemplateFn = origMark })
+	cmd = newVMTemplateImportCommand()
+	cmd.SetArgs([]string{"--from-vm", "golden", "--provider", "vsphere"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, []string{"golden"}, marked)
 }
 
 func TestVMHardwareCommandsValidate(t *testing.T) {
@@ -133,15 +267,56 @@ func TestVMHardwareCommandsValidate(t *testing.T) {
 	require.Error(t, resize.Execute()) // mutually exclusive
 }
 
-func TestVMSetDispatchesToManager(t *testing.T) {
+func TestVMSetDispatchesToLifecycle(t *testing.T) {
 	defer versionconfig.SetForTesting(nil)()
-	orig := withProxmoxManagerFn
-	called := false
-	withProxmoxManagerFn = func(fn func(*proxmox.VMManager) error) error { called = true; return nil }
-	t.Cleanup(func() { withProxmoxManagerFn = orig })
+	calls, closed := injectFakeVMLifecycle(t)
 
 	set := newSetVMCommand()
 	set.SetArgs([]string{"--name", "x", "--memory", "8192"})
 	require.NoError(t, set.Execute())
-	assert.True(t, called)
+	assert.Equal(t, []string{"set-proxmox:x:8192:0"}, *calls)
+	assert.Equal(t, 1, *closed)
+}
+
+func TestVMHardwareLifecycleDispatch(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	calls, _ := injectFakeVMLifecycle(t)
+
+	resize := newResizeDiskCommand()
+	resize.SetArgs([]string{"--provider", "truenas", "--name", "web0", "--disk", "openebs", "--grow", "20G"})
+	require.NoError(t, resize.Execute())
+
+	restart := newRestartVMCommand()
+	restart.SetArgs([]string{"--provider", "vsphere", "--name", "vc0"})
+	require.NoError(t, restart.Execute())
+
+	clone := newCloneVMCommand()
+	clone.SetArgs([]string{"--name", "a", "--to", "b", "--vmid", "123"})
+	require.NoError(t, clone.Execute())
+
+	snapCreate := newSnapshotCommand()
+	snapCreate.SetArgs([]string{"create", "--provider", "truenas", "--name", "web0", "--snap", "pre"})
+	require.NoError(t, snapCreate.Execute())
+
+	assert.Equal(t, []string{
+		"resize-truenas:web0:openebs:+20G",
+		"restart-vsphere:vc0",
+		"clone-proxmox:a:b:123:false",
+		"snap-create-truenas:web0:pre",
+	}, *calls)
+}
+
+func TestVMConsoleAndIPDispatch(t *testing.T) {
+	defer versionconfig.SetForTesting(nil)()
+	calls, _ := injectFakeVMLifecycle(t)
+
+	console := newVMConsoleCommand()
+	console.SetArgs([]string{"--provider", "vsphere", "vc0"})
+	require.NoError(t, console.Execute())
+
+	ip := newVMIPCommand()
+	ip.SetArgs([]string{"--provider", "vsphere", "vc0"})
+	require.NoError(t, ip.Execute())
+
+	assert.Equal(t, []string{"console-vsphere:vc0", "ip-vsphere:vc0"}, *calls)
 }

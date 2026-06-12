@@ -193,9 +193,15 @@ hypervisors:
     iso_dir: /mnt/tank/ISO
     iso_file: metal-amd64.iso
     #spice_host: 0.0.0.0
+    # Where 'vm create' stages cloud images and NoCloud seed ISOs on the NAS
+    # (default: an "images" dir next to iso_dir):
+    #image_dir: /mnt/tank/images
     #vm:
     #  boot_storage: tank/VM    # zvol parent dataset
   #vsphere:
+  #  # Default template 'vm create --provider vsphere' clones (see
+  #  # 'vm template import --help'); override per-call with --template.
+  #  template: ubuntu-cloud-template
   #  vm:
   #    boot_storage: local-nvme1     # boot datastore
   #    openebs_storage: truenas-iscsi

@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -116,6 +117,27 @@ func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, e
 		Args:    append(c.sshArgs(), remoteArgs...),
 		Timeout: defaultSSHCommandTimeout,
 	})
+}
+
+// UploadBytes streams content to remotePath on the remote host via ssh stdin
+// (sudo tee), so binary payloads never touch argv or a temp file.
+func (c *SSHClient) UploadBytes(content []byte, remotePath string) error {
+	c.logger.Debug("Uploading %d bytes to %s", len(content), remotePath)
+	mkdir := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath)))
+	if _, err := c.ExecuteCommand(mkdir); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", remotePath, err)
+	}
+	command := fmt.Sprintf("sudo tee %s > /dev/null", common.ShellQuote(remotePath))
+	result, err := runCommand(context.Background(), common.CommandOptions{
+		Name:    "ssh",
+		Args:    append(c.sshArgs(), command),
+		Timeout: defaultSSHCommandTimeout,
+		Stdin:   bytes.NewReader(content),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload to %s: %w\nOutput: %s", remotePath, err, combinedCommandOutput(result))
+	}
+	return nil
 }
 
 func (c *SSHClient) sshArgs() []string {

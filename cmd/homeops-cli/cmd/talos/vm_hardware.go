@@ -6,35 +6,21 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"homeops-cli/internal/common"
-	"homeops-cli/internal/constants"
-	"homeops-cli/internal/proxmox"
+	vmprov "homeops-cli/internal/provider"
 )
 
-// withProxmoxManager runs fn against a connected Proxmox VM manager.
-var withProxmoxManagerFn = func(fn func(*proxmox.VMManager) error) error {
-	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
-	if err != nil {
-		return err
-	}
-	manager, err := proxmox.NewVMManager(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = manager.Close() }()
-	return fn(manager)
-}
-
-func requireProxmox(provider, what string) error {
+// runLifecycleOp normalizes the provider then runs op against a freshly
+// constructed lifecycle for it (closed afterwards).
+func runLifecycleOp(provider string, op func(vmprov.VMLifecycle) error) error {
 	normalized, err := normalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
-	if normalized != "proxmox" {
-		return fmt.Errorf("vm %s currently supports --provider proxmox (got %q)", what, provider)
-	}
-	return nil
+	return withVMLifecycle(normalized, op)
 }
+
+// providerFlagUsage is the shared --provider help text for vm subcommands.
+const providerFlagUsage = "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)"
 
 // newSetVMCommand updates VM hardware (memory/cores).
 func newSetVMCommand() *cobra.Command {
@@ -44,23 +30,20 @@ func newSetVMCommand() *cobra.Command {
 		Use:   "set",
 		Short: "Update a VM's hardware (memory, cores)",
 		Example: `  homeops-cli vm set --name dev-vm --memory 8192
-  homeops-cli vm set --name dev-vm --cores 4 --memory 16384`,
+  homeops-cli vm set --provider truenas --name dev-vm --cores 4 --memory 16384`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("--name is required")
 			}
-			if err := requireProxmox(provider, "set"); err != nil {
-				return err
-			}
-			return withProxmoxManagerFn(func(m *proxmox.VMManager) error {
-				return m.SetVMResources(name, memory, cores)
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
+				return lc.SetVMResources(name, memory, cores)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.Flags().IntVar(&memory, "memory", 0, "new memory in MB (0 = unchanged)")
-	cmd.Flags().IntVar(&cores, "cores", 0, "new CPU cores (0 = unchanged)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "hypervisor (currently: proxmox)")
+	cmd.Flags().IntVar(&cores, "cores", 0, "new CPU cores/vCPUs (0 = unchanged)")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -73,14 +56,12 @@ func newResizeDiskCommand() *cobra.Command {
 		Example: `  # Grow the boot disk by 20G
   homeops-cli vm resize-disk --name dev-vm --grow 20G
 
-  # Set an absolute size
-  homeops-cli vm resize-disk --name dev-vm --disk scsi1 --size 200G`,
+  # Set an absolute size on a specific disk
+  homeops-cli vm resize-disk --name dev-vm --disk scsi1 --size 200G
+  homeops-cli vm resize-disk --provider truenas --name dev-vm --disk openebs --grow 100G`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return fmt.Errorf("--name is required")
-			}
-			if err := requireProxmox(provider, "resize-disk"); err != nil {
-				return err
 			}
 			spec := ""
 			switch {
@@ -93,16 +74,16 @@ func newResizeDiskCommand() *cobra.Command {
 			default:
 				return fmt.Errorf("pass --grow <N>G or --size <N>G")
 			}
-			return withProxmoxManagerFn(func(m *proxmox.VMManager) error {
-				return m.ResizeVMDisk(name, disk, spec)
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
+				return lc.ResizeVMDisk(name, disk, spec)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.Flags().StringVar(&disk, "disk", "scsi0", "disk to resize (e.g. scsi0, scsi1)")
+	cmd.Flags().StringVar(&disk, "disk", "", "disk to resize (default: boot disk; proxmox: scsi0/scsi1..., truenas: boot/openebs/zvol path, vsphere: scsiN or device label)")
 	cmd.Flags().StringVar(&grow, "grow", "", "grow by this much (e.g. 20G)")
 	cmd.Flags().StringVar(&size, "size", "", "grow to this absolute size (e.g. 200G)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "hypervisor (currently: proxmox)")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -117,15 +98,12 @@ func newRestartVMCommand() *cobra.Command {
 			if name == "" {
 				return fmt.Errorf("--name is required")
 			}
-			if err := requireProxmox(provider, "restart"); err != nil {
-				return err
-			}
-			return withProxmoxManagerFn(func(m *proxmox.VMManager) error {
-				return m.RestartVM(name)
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
+				return lc.RestartVM(name)
 			})
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "hypervisor (currently: proxmox)")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
 	return cmd
 }

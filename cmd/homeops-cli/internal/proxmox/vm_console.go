@@ -41,6 +41,16 @@ func (vm *VMManager) ImportTemplate(config VMConfig) error {
 	return nil
 }
 
+// ConvertVMToTemplate flips the Proxmox template flag on an existing VM
+// (the VM must be stopped; clones can then be made from it).
+func (vm *VMManager) ConvertVMToTemplate(name string) error {
+	if err := vm.convertToTemplate(name); err != nil {
+		return err
+	}
+	vm.logger.Success("VM %s is now a template", name)
+	return nil
+}
+
 // convertToTemplate flips the Proxmox template flag on an existing VM.
 func (vm *VMManager) convertToTemplate(name string) error {
 	if vm.convertToTemplateFn != nil {

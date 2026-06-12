@@ -40,7 +40,11 @@ func (vm *VMManager) SetVMResources(name string, memoryMB, cores int) error {
 
 // ResizeVMDisk grows a disk (e.g. scsi0) by sizeSpec ("+20G") or to an
 // absolute size ("100G"). Proxmox disks can only grow, never shrink.
+// An empty or "boot" disk selector means the boot disk (scsi0).
 func (vm *VMManager) ResizeVMDisk(name, disk, sizeSpec string) error {
+	if disk == "" || disk == "boot" {
+		disk = "scsi0"
+	}
 	vmObj, err := vm.findVMByName(name)
 	if err != nil {
 		return err

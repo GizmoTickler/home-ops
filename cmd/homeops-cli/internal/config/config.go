@@ -123,6 +123,10 @@ type TrueNASConfig struct {
 	// SpiceHost is the address SPICE consoles bind to; defaults to the
 	// TrueNAS host itself when empty.
 	SpiceHost string `yaml:"spice_host,omitempty"`
+	// ImageDir is where cloud images and NoCloud seed ISOs are staged on
+	// the NAS for `vm create`. Defaults to an "images" directory next to
+	// ISODir.
+	ImageDir string `yaml:"image_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, zvol pool, network).
 	// BootStorage doubles as the zvol parent dataset (e.g. "flashstor/VM").
 	VM VMDefaults `yaml:"vm,omitempty"`
@@ -132,6 +136,10 @@ type TrueNASConfig struct {
 type VSphereConfig struct {
 	// VM overrides the default VM composition (sizing, datastores).
 	VM VMDefaults `yaml:"vm,omitempty"`
+	// Template is the default VM template `vm create` clones (cloud image
+	// imported once with govc/ovftool or converted via
+	// `vm template import --from-vm`). Override per-call with --template.
+	Template string `yaml:"template,omitempty"`
 }
 
 // HypervisorsConfig groups per-hypervisor settings.

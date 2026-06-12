@@ -7,12 +7,16 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"homeops-cli/internal/cloudinit"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/images"
+	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vsphere"
 )
 
 // stageImageFn downloads a cloud image onto the hypervisor host over SSH
@@ -46,14 +50,302 @@ var deployCloudInitVMFn = func(cfg proxmox.VMConfig) error {
 	return manager.DeployVM(cfg)
 }
 
+// createTrueNASCloudVMFn deploys a cloud-image VM on TrueNAS (NoCloud seed
+// ISO over SSH). Swappable for tests.
+var createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error {
+	host, apiKey, err := getTrueNASCredentialsFn()
+	if err != nil {
+		return err
+	}
+	sshClient := ssh.NewSSHClient(ssh.SSHConfig{Host: host, Username: trueNASSSHUser(), Port: "22"})
+	if err := sshClient.Connect(); err != nil {
+		return fmt.Errorf("connect to NAS over SSH (image staging): %w", err)
+	}
+	defer func() { _ = sshClient.Close() }()
+
+	manager := truenas.NewVMManager(host, apiKey, 443, true)
+	if err := manager.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
+	}
+	defer func() { _ = manager.Close() }()
+	return manager.CreateCloudImageVM(cfg, sshClient)
+}
+
+// createVSphereCloudVMFn deploys a template clone with guestinfo cloud-init
+// on vSphere. Swappable for tests.
+var createVSphereCloudVMFn = func(cfg vsphere.CloudInitVMConfig) error {
+	host, username, password, err := getVSphereCredsFn()
+	if err != nil {
+		return err
+	}
+	manager, err := vsphere.NewVMManager(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = manager.Close() }()
+	return manager.CreateCloudInitVM(cfg)
+}
+
+// trueNASSSHUser resolves the SSH login used for staging files on the NAS:
+// secrets.truenas_username, falling back to TrueNAS SCALE's standard admin
+// account.
+func trueNASSSHUser() string {
+	if user := resolveSecretKey(versionconfig.KeyTrueNASUsername); user != "" {
+		return user
+	}
+	return "truenas_admin"
+}
+
+// resolveCloudImage resolves --os/--image to a concrete image reference and
+// the cloud-init login user.
+func resolveCloudImage(osKey, image, user string) (imageRef, ciUser string, err error) {
+	imageRef = image
+	ciUser = user
+	if imageRef == "" {
+		img, err := images.Resolve(osKey)
+		if err != nil {
+			return "", "", err
+		}
+		imageRef = img.URL
+		if ciUser == "" {
+			ciUser = img.User
+		}
+	}
+	if ciUser == "" {
+		ciUser = "admin"
+	}
+	return imageRef, ciUser, nil
+}
+
+// resolveAuthorizedKey returns --ssh-key or the configured node key, warning
+// when neither resolves.
+func resolveAuthorizedKey(logger *common.ColorLogger, sshKey string) string {
+	authorizedKey := sshKey
+	if authorizedKey == "" {
+		authorizedKey = strings.TrimSpace(resolveSecretKey(versionconfig.KeyNodeSSHAuthorizedKey))
+	}
+	if authorizedKey == "" {
+		logger.Warn("No SSH key (--ssh-key or secrets.node_ssh_authorized_key) — you may not be able to log in")
+	}
+	return authorizedKey
+}
+
+// splitNameservers turns a comma-separated --nameserver value into a slice.
+func splitNameservers(nameserver string) []string {
+	if strings.TrimSpace(nameserver) == "" {
+		return nil
+	}
+	var out []string
+	for _, ns := range strings.Split(nameserver, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
+// staticIPCIDR normalizes the --ip flag: "" for DHCP, the CIDR otherwise.
+func staticIPCIDR(ipCfg string) string {
+	if ipCfg == "" || ipCfg == "dhcp" {
+		return ""
+	}
+	return ipCfg
+}
+
+// createSpec carries the resolved, provider-independent inputs of vm create.
+type createSpec struct {
+	name, ciUser, sshKey, imageRef      string
+	memory, cores, diskGB               int
+	storage, bridge                     string
+	vlan, mtu                           int
+	ipCfg, gateway, nameserver, sshUser string
+	template                            string
+	start                               bool
+}
+
+func createProxmoxVM(logger *common.ColorLogger, spec createSpec) error {
+	cfg := versionconfig.Get()
+
+	// Stage remote URLs onto the hypervisor for import-from.
+	imagePath := spec.imageRef
+	if strings.HasPrefix(spec.imageRef, "http://") || strings.HasPrefix(spec.imageRef, "https://") {
+		pveHost := resolveSecretKey(versionconfig.KeyProxmoxHost)
+		if pveHost == "" {
+			return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
+		}
+		imagePath = "/var/lib/vz/template/cache/" + path.Base(spec.imageRef)
+		sshUser := spec.sshUser
+		if sshUser == "" {
+			sshUser = "root"
+		}
+		logger.Info("Staging %s on %s:%s ...", path.Base(spec.imageRef), pveHost, imagePath)
+		if err := stageImageFn(sshUser, pveHost, spec.imageRef, imagePath); err != nil {
+			return err
+		}
+	}
+
+	vmDefaults := cfg.Hypervisors.Proxmox.VM
+	storage := spec.storage
+	if storage == "" {
+		storage = vmDefaults.BootStorage
+	}
+	if storage == "" {
+		storage = "local-lvm"
+	}
+	bridge := spec.bridge
+	if bridge == "" {
+		bridge = vmDefaults.NetworkBridge
+	}
+	if bridge == "" {
+		bridge = "vmbr0"
+	}
+
+	ip := "ip=dhcp"
+	if cidr := staticIPCIDR(spec.ipCfg); cidr != "" {
+		ip = "ip=" + cidr
+		if spec.gateway != "" {
+			ip += ",gw=" + spec.gateway
+		}
+	}
+
+	vmConfig := proxmox.VMConfig{
+		Name:          spec.name,
+		Memory:        spec.memory,
+		Cores:         spec.cores,
+		Sockets:       1,
+		BootDiskSize:  spec.diskGB,
+		BootStorage:   storage,
+		ImageDiskPath: imagePath,
+		NetworkBridge: bridge,
+		NetworkMTU:    spec.mtu,
+		VLANID:        spec.vlan,
+		Discard:       true,
+		IOThread:      true,
+		PowerOn:       spec.start,
+		CloudInit: &proxmox.CloudInitConfig{
+			User:       spec.ciUser,
+			SSHKeys:    spec.sshKey,
+			IPConfig:   ip,
+			Nameserver: spec.nameserver,
+		},
+	}
+	logger.Info("Creating VM %s (%s, %dMB/%d cores, %dGB on %s)...", spec.name, path.Base(imagePath), spec.memory, spec.cores, spec.diskGB, storage)
+	if err := deployCloudInitVMFn(vmConfig); err != nil {
+		return err
+	}
+	logger.Success("VM %s created — log in as %s@<vm-ip> once cloud-init finishes", spec.name, spec.ciUser)
+	return nil
+}
+
+func createTrueNASVM(logger *common.ColorLogger, spec createSpec) error {
+	if spec.vlan != 0 {
+		return vmprov.Unsupported("truenas", "VLAN tagging lives on the TrueNAS bridge; create a tagged bridge and pass it with --bridge")
+	}
+	if spec.mtu != 0 {
+		return vmprov.Unsupported("truenas", "MTU is a property of the TrueNAS bridge interface, not the VM NIC")
+	}
+	if err := validateVMName(spec.name); err != nil {
+		return err
+	}
+	cfg := versionconfig.Get()
+
+	pool := spec.storage
+	if pool == "" {
+		pool = cfg.Hypervisors.TrueNAS.VM.BootStorage
+	}
+	bridge := spec.bridge
+	if bridge == "" {
+		bridge = cfg.Hypervisors.TrueNAS.VM.NetworkBridge
+	}
+	if bridge == "" {
+		bridge = trueNASNetworkBridge()
+	}
+
+	userdata, err := cloudinit.Userdata(spec.ciUser, spec.sshKey, spec.name)
+	if err != nil {
+		return err
+	}
+	networkConfig, err := cloudinit.NetworkConfigV2(staticIPCIDR(spec.ipCfg), spec.gateway, splitNameservers(spec.nameserver))
+	if err != nil {
+		return err
+	}
+	seedISO, err := cloudinit.BuildNoCloudSeedISO(userdata, cloudinit.Metadata(spec.name, spec.name), networkConfig)
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Creating VM %s on TrueNAS (%dMB/%d vCPUs, %dGB on %s)...", spec.name, spec.memory, spec.cores, spec.diskGB, pool)
+	if err := createTrueNASCloudVMFn(truenas.CloudImageVMConfig{
+		Name:          spec.name,
+		MemoryMB:      spec.memory,
+		VCPUs:         spec.cores,
+		DiskGB:        spec.diskGB,
+		Pool:          pool,
+		ImageRef:      spec.imageRef,
+		ImageDir:      cfg.Hypervisors.TrueNAS.ImageDir,
+		SeedISO:       seedISO,
+		NetworkBridge: bridge,
+		PowerOn:       spec.start,
+	}); err != nil {
+		return err
+	}
+	logger.Success("VM %s created — log in as %s@<vm-ip> once cloud-init finishes", spec.name, spec.ciUser)
+	return nil
+}
+
+func createVSphereVM(logger *common.ColorLogger, spec createSpec) error {
+	switch {
+	case spec.storage != "":
+		return vmprov.Unsupported("vsphere", "the clone inherits the template's datastore; omit --storage")
+	case spec.bridge != "":
+		return vmprov.Unsupported("vsphere", "the clone inherits the template's network; omit --bridge")
+	case spec.vlan != 0:
+		return vmprov.Unsupported("vsphere", "VLANs come from the template's port group; omit --vlan")
+	case spec.mtu != 0:
+		return vmprov.Unsupported("vsphere", "MTU comes from the template's network; omit --mtu")
+	}
+	template := spec.template
+	if template == "" {
+		template = versionconfig.Get().Hypervisors.VSphere.Template
+	}
+	if template == "" {
+		return fmt.Errorf("no template: pass --template or set hypervisors.vsphere.template in homeops.yaml ('vm template import --help' explains how to make one)")
+	}
+
+	userdata, err := cloudinit.Userdata(spec.ciUser, spec.sshKey, spec.name)
+	if err != nil {
+		return err
+	}
+	metadata, err := cloudinit.VSphereMetadata(spec.name, staticIPCIDR(spec.ipCfg), spec.gateway, splitNameservers(spec.nameserver))
+	if err != nil {
+		return err
+	}
+
+	logger.Info("Creating VM %s on vSphere from template %s (%dMB/%d CPUs)...", spec.name, template, spec.memory, spec.cores)
+	if err := createVSphereCloudVMFn(vsphere.CloudInitVMConfig{
+		TemplateName: template,
+		Name:         spec.name,
+		MemoryMB:     spec.memory,
+		Cores:        spec.cores,
+		DiskGB:       spec.diskGB,
+		Userdata:     userdata,
+		Metadata:     metadata,
+		PowerOn:      spec.start,
+	}); err != nil {
+		return err
+	}
+	logger.Success("VM %s created — log in as %s@<vm-ip> once cloud-init finishes", spec.name, spec.ciUser)
+	return nil
+}
+
 // newCreateVMCommand deploys a general-purpose VM from a cloud image
 // (Ubuntu/Rocky/Debian/Fedora/RHEL or any qcow2) with cloud-init.
 func newCreateVMCommand() *cobra.Command {
 	var (
-		name, osKey, image, storage, bridge, ipCfg, gateway, nameserver, user, sshKey, sshUser string
-		memory, cores, diskGB, vlan, mtu                                                       int
-		start                                                                                  bool
-		provider                                                                               string
+		name, osKey, image, storage, bridge, ipCfg, gateway, nameserver, user, sshKey, sshUser, template string
+		memory, cores, diskGB, vlan, mtu                                                                 int
+		start                                                                                            bool
+		provider                                                                                         string
 	)
 	cmd := &cobra.Command{
 		Use:   "create",
@@ -64,9 +356,13 @@ the distros' latest stable cloud images; override or add OSes via the images:
 map in homeops.yaml (RHEL requires this — its KVM guest image is
 subscription-gated). Any qcow2 URL or hypervisor-local path works via --image.
 
-Currently implemented for Proxmox. The image is staged onto the Proxmox host
-over SSH (root by default), imported as the boot disk, and configured via a
-cloud-init drive.`,
+Per provider:
+  proxmox  the image is staged onto the PVE host over SSH, imported as the
+           boot disk, and configured via a native cloud-init drive
+  truenas  the image is staged onto the NAS over SSH, written to a new boot
+           zvol, and seeded with a NoCloud ISO (built locally, uploaded)
+  vsphere  a template (--template / hypervisors.vsphere.template) is cloned
+           and cloud-init is delivered through guestinfo`,
 		Example: `  # Latest Ubuntu LTS with DHCP and your default SSH key
   homeops-cli vm create --name dev-vm --os ubuntu
 
@@ -74,8 +370,11 @@ cloud-init drive.`,
   homeops-cli vm create --name rocky0 --os rocky --memory 8192 --cores 4 \
     --disk-gb 80 --ip 192.168.120.50/22 --gateway 192.168.123.254
 
-  # RHEL 10.1 (set images.rhel in homeops.yaml first)
-  homeops-cli vm create --name rhel0 --os rhel
+  # On TrueNAS (note: TrueNAS VM names cannot contain dashes)
+  homeops-cli vm create --provider truenas --name dev0 --os ubuntu
+
+  # On vSphere from an existing template
+  homeops-cli vm create --provider vsphere --name dev-vm --template ubuntu-tpl
 
   # Any qcow2 already on the hypervisor
   homeops-cli vm create --name custom0 --image /var/lib/vz/template/cache/custom.qcow2`,
@@ -88,98 +387,40 @@ cloud-init drive.`,
 			if err != nil {
 				return err
 			}
-			if normalized != "proxmox" {
-				return fmt.Errorf("vm create currently supports --provider proxmox (got %q); TrueNAS/vSphere support is planned", provider)
-			}
 
-			cfg := versionconfig.Get()
-			imageRef := image
-			ciUser := user
-			if imageRef == "" {
-				img, err := images.Resolve(osKey)
+			spec := createSpec{
+				name: name, memory: memory, cores: cores, diskGB: diskGB,
+				storage: storage, bridge: bridge, vlan: vlan, mtu: mtu,
+				ipCfg: ipCfg, gateway: gateway, nameserver: nameserver,
+				sshUser: sshUser, template: template, start: start,
+			}
+			// vSphere clones a template, so no qcow2 resolution is needed —
+			// only the login user convention.
+			if normalized == "vsphere" {
+				spec.ciUser = user
+				if spec.ciUser == "" {
+					spec.ciUser = images.DefaultUser(osKey)
+				}
+				if spec.ciUser == "" {
+					spec.ciUser = "admin"
+				}
+			} else {
+				spec.imageRef, spec.ciUser, err = resolveCloudImage(osKey, image, user)
 				if err != nil {
 					return err
 				}
-				imageRef = img.URL
-				if ciUser == "" {
-					ciUser = img.User
-				}
 			}
-			if ciUser == "" {
-				ciUser = "admin"
-			}
+			spec.sshKey = resolveAuthorizedKey(logger, sshKey)
 
-			// Stage remote URLs onto the hypervisor for import-from.
-			imagePath := imageRef
-			if strings.HasPrefix(imageRef, "http://") || strings.HasPrefix(imageRef, "https://") {
-				pveHost := resolveSecretKey(versionconfig.KeyProxmoxHost)
-				if pveHost == "" {
-					return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
-				}
-				imagePath = "/var/lib/vz/template/cache/" + path.Base(imageRef)
-				logger.Info("Staging %s on %s:%s ...", path.Base(imageRef), pveHost, imagePath)
-				if err := stageImageFn(sshUser, pveHost, imageRef, imagePath); err != nil {
-					return err
-				}
+			switch normalized {
+			case "proxmox":
+				return createProxmoxVM(logger, spec)
+			case "truenas":
+				return createTrueNASVM(logger, spec)
+			case "vsphere":
+				return createVSphereVM(logger, spec)
 			}
-
-			authorizedKey := sshKey
-			if authorizedKey == "" {
-				authorizedKey = strings.TrimSpace(resolveSecretKey(versionconfig.KeyNodeSSHAuthorizedKey))
-			}
-			if authorizedKey == "" {
-				logger.Warn("No SSH key (--ssh-key or secrets.node_ssh_authorized_key) — you may not be able to log in")
-			}
-
-			vmDefaults := cfg.Hypervisors.Proxmox.VM
-			if storage == "" {
-				storage = vmDefaults.BootStorage
-			}
-			if storage == "" {
-				storage = "local-lvm"
-			}
-			if bridge == "" {
-				bridge = vmDefaults.NetworkBridge
-			}
-			if bridge == "" {
-				bridge = "vmbr0"
-			}
-
-			ip := "ip=dhcp"
-			if ipCfg != "" && ipCfg != "dhcp" {
-				ip = "ip=" + ipCfg
-				if gateway != "" {
-					ip += ",gw=" + gateway
-				}
-			}
-
-			vmConfig := proxmox.VMConfig{
-				Name:          name,
-				Memory:        memory,
-				Cores:         cores,
-				Sockets:       1,
-				BootDiskSize:  diskGB,
-				BootStorage:   storage,
-				ImageDiskPath: imagePath,
-				NetworkBridge: bridge,
-				NetworkMTU:    mtu,
-				VLANID:        vlan,
-				Discard:       true,
-				IOThread:      true,
-				PowerOn:       start,
-				CloudInit: &proxmox.CloudInitConfig{
-					User:       ciUser,
-					SSHKeys:    authorizedKey,
-					IPConfig:   ip,
-					Nameserver: nameserver,
-				},
-			}
-			logger.Info("Creating VM %s (%s, %dMB/%d cores, %dGB on %s)...", name, path.Base(imagePath), memory, cores, diskGB, storage)
-			if err := deployCloudInitVMFn(vmConfig); err != nil {
-				return err
-			}
-			logger.Success("VM %s created — log in as %s@<vm-ip> once cloud-init finishes", name, ciUser)
-			return nil
+			return fmt.Errorf("unsupported provider: %s", provider)
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
@@ -188,17 +429,18 @@ cloud-init drive.`,
 	cmd.Flags().IntVar(&memory, "memory", 4096, "memory in MB")
 	cmd.Flags().IntVar(&cores, "cores", 2, "CPU cores")
 	cmd.Flags().IntVar(&diskGB, "disk-gb", 40, "boot disk size in GB")
-	cmd.Flags().StringVar(&storage, "storage", "", "storage pool (default: hypervisors.proxmox.vm.boot_storage)")
-	cmd.Flags().StringVar(&bridge, "bridge", "", "network bridge (default: hypervisors.proxmox.vm.network_bridge)")
-	cmd.Flags().IntVar(&vlan, "vlan", 0, "VLAN tag (0 = none)")
-	cmd.Flags().IntVar(&mtu, "mtu", 0, "network MTU (0 = default)")
+	cmd.Flags().StringVar(&storage, "storage", "", "storage pool (default: the provider's vm.boot_storage; vsphere: from the template)")
+	cmd.Flags().StringVar(&bridge, "bridge", "", "network bridge (default: the provider's vm.network_bridge; vsphere: from the template)")
+	cmd.Flags().IntVar(&vlan, "vlan", 0, "VLAN tag (proxmox only; 0 = none)")
+	cmd.Flags().IntVar(&mtu, "mtu", 0, "network MTU (proxmox only; 0 = default)")
 	cmd.Flags().StringVar(&ipCfg, "ip", "dhcp", "IP config: dhcp or CIDR (e.g. 192.168.120.50/22)")
 	cmd.Flags().StringVar(&gateway, "gateway", "", "default gateway (with --ip CIDR)")
-	cmd.Flags().StringVar(&nameserver, "nameserver", "", "DNS server(s) for cloud-init")
+	cmd.Flags().StringVar(&nameserver, "nameserver", "", "DNS server(s) for cloud-init (comma-separated)")
 	cmd.Flags().StringVar(&user, "user", "", "cloud-init login user (default: per-OS convention)")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key (default: secrets.node_ssh_authorized_key)")
-	cmd.Flags().StringVar(&sshUser, "ssh-user", "root", "SSH user on the hypervisor for image staging")
+	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH user on the hypervisor for image staging (default: root on proxmox; secrets.truenas_username on truenas)")
 	cmd.Flags().BoolVar(&start, "start", true, "power on after creation")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "hypervisor (currently: proxmox)")
+	cmd.Flags().StringVar(&template, "template", "", "vSphere template to clone (default: hypervisors.vsphere.template)")
+	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
 	return cmd
 }

@@ -63,6 +63,10 @@ func applyDefaults(c *Config) {
 	if c.Hypervisors.TrueNAS.ISOFile == "" {
 		c.Hypervisors.TrueNAS.ISOFile = DefaultTrueNASISOFile
 	}
+	if c.Hypervisors.TrueNAS.ImageDir == "" {
+		// Stage cloud images next to the ISO dataset by default.
+		c.Hypervisors.TrueNAS.ImageDir = filepath.Join(filepath.Dir(c.Hypervisors.TrueNAS.ISODir), "images")
+	}
 	if c.State.Kubeconfig.Backend == "" {
 		c.State.Kubeconfig.Backend = "file"
 	}

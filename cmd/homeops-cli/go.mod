@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/coreos/butane v0.23.0
+	github.com/diskfs/go-diskfs v1.9.3
 	github.com/fatih/color v1.19.0
 	github.com/luthermonson/go-proxmox v0.5.1
 	github.com/mattn/go-isatty v0.0.22
@@ -50,7 +51,6 @@ require (
 	github.com/coreos/ignition/v2 v2.20.0 // indirect
 	github.com/coreos/vcontext v0.0.0-20230201181013-d72178a18687 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/diskfs/go-diskfs v1.9.3 // indirect
 	github.com/djherbis/times v1.6.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect

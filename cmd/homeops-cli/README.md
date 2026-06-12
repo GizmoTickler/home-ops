@@ -63,26 +63,48 @@ homeops-cli version
 
 ## VM Platform (`homeops-cli vm`)
 
-Provider-agnostic VM management — any OS, not just k8s nodes:
+Provider-agnostic VM management — any OS, not just k8s nodes. Every
+subcommand takes `--provider proxmox|truenas|vsphere` (default:
+`hypervisors.default` in homeops.yaml) and is also nested per provider
+(`vm truenas list`, `vm vsphere snapshot create ...`).
 
 ```bash
 # Create general-purpose VMs from cloud images (latest stable resolved automatically)
 homeops-cli vm create --name dev-vm --os ubuntu
 homeops-cli vm create --name rocky0 --os rocky --memory 8192 --ip 192.168.120.50/22 --gateway 192.168.123.254
-homeops-cli vm create --name rhel0 --os rhel          # set images.rhel in homeops.yaml first
+homeops-cli vm create --name rhel0 --os rhel                    # set images.rhel in homeops.yaml first
+homeops-cli vm create --provider truenas --name dev0 --os ubuntu       # NoCloud seed ISO over SSH
+homeops-cli vm create --provider vsphere --name dev-vm --template ubuntu-tpl  # template clone + guestinfo
 
-# Day-2 lifecycle (also nested per provider: vm proxmox|truenas|vsphere <op>)
+# Reusable templates
+homeops-cli vm template import --name ubuntu-tpl --os ubuntu    # proxmox: image + template flag
+homeops-cli vm template import --from-vm golden --provider vsphere  # convert an existing VM
+
+# Day-2 lifecycle
 homeops-cli vm list / start / stop / info / delete / restart
 homeops-cli vm set --name dev-vm --memory 16384 --cores 8
-homeops-cli vm resize-disk --name dev-vm --grow 20G
+homeops-cli vm resize-disk --name dev-vm --grow 20G             # truenas: --disk boot|openebs|<zvol>
 homeops-cli vm snapshot create|list|rollback|delete --name dev-vm --snap pre-upgrade
 homeops-cli vm clone --name template --to dev-vm2
-homeops-cli vm ip dev-vm                               # guest-agent discovery
+homeops-cli vm ip dev-vm                                        # guest agent / VMware Tools / cluster config
 homeops-cli vm ssh dev-vm --user ubuntu
+homeops-cli vm console dev-vm                                   # noVNC+xterm.js / SPICE / WebMKS URL
 ```
 
-`vm create/set/resize-disk/restart/snapshot/clone/ip/ssh` are Proxmox-first;
-list/start/stop/info/delete work on all three hypervisors.
+The full matrix (create, set, resize-disk, restart, snapshot CRUD, clone, ip,
+ssh, console, plus list/start/stop/info/delete) works on all three
+hypervisors. Where a platform genuinely lacks a capability the command says
+so uniformly — `not supported on <provider>: <reason>` — never a silent
+no-op. The known gaps: TrueNAS cannot report guest IPs (no guest agent; the
+`ip`/`ssh` commands fall back to `cluster.nodes`), TrueNAS has no template
+concept, vSphere imports templates only from an existing VM (`--from-vm`),
+and vSphere clones are always full (no `--linked`/`--vmid`).
+
+Provider-specific config (homeops.yaml): `hypervisors.truenas.image_dir`
+(where cloud images and seed ISOs are staged on the NAS; defaults to an
+`images` dir next to `iso_dir`), `hypervisors.vsphere.template` (default
+template for `vm create --provider vsphere`). TrueNAS staging SSH uses
+`secrets.truenas_username` (default: `truenas_admin`).
 
 ## Flatcar VM Workflows (current)
 

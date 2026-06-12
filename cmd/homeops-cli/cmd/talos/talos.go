@@ -172,20 +172,29 @@ type trueNASVMManager interface {
 	ListVMs() error
 	StartVM(string) error
 	StopVM(string, bool) error
+	RestartVM(string) error
 	DeleteVM(string, bool, string) error
 	GetVMInfo(string) error
+	SetVMResources(string, int, int) error
+	ResizeVMDisk(string, string, string) error
+	SnapshotVM(string, string) error
+	ListVMSnapshots(string) error
+	RollbackVM(string, string) error
+	DeleteVMSnapshot(string, string) error
+	Clone(string, string, vmprov.CloneOptions) error
+	VMIPAddresses(string) ([]string, error)
+	ConsoleURL(string) (string, error)
+	Capabilities() vmprov.Capabilities
 	CleanupOrphanedZVols(string, string) error
 }
 
 type proxmoxVMManager interface {
-	Close() error
-	ListVMs() error
-	StartVM(string) error
-	StopVM(string, bool) error
-	DeleteVM(string) error
-	GetVMInfo(string) error
+	vmprov.VMLifecycle
 	UploadISOFromURL(string, string, string) error
 	DeployVM(proxmox.VMConfig) error
+	ImportTemplate(proxmox.VMConfig) error
+	ConvertVMToTemplate(string) error
+	ConsoleURLs(string) (string, string, error)
 }
 
 type vsphereClient interface {
@@ -2688,10 +2697,12 @@ other). --provider defaults to hypervisors.default in homeops.yaml.`,
 func vmLifecycleSubcommands() []*cobra.Command {
 	return []*cobra.Command{
 		newCreateVMCommand(),
+		newVMTemplateCommand(),
 		newCloneVMCommand(),
 		newSnapshotCommand(),
 		newVMIPCommand(),
 		newVMSSHCommand(),
+		newVMConsoleCommand(),
 		newSetVMCommand(),
 		newResizeDiskCommand(),
 		newRestartVMCommand(),

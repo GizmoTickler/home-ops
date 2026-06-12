@@ -25,6 +25,9 @@ type CommandOptions struct {
 	Args     []string
 	Timeout  time.Duration
 	Redactor Redactor
+	// Stdin, when set, is wired to the process's standard input (e.g. to
+	// stream file content through ssh without touching argv).
+	Stdin io.Reader
 }
 
 // CommandResult contains redacted command output streams and process metadata.
@@ -86,6 +89,9 @@ func RunCommand(ctx context.Context, opts CommandOptions) (CommandResult, error)
 	// can't be held hostage by orphaned grandchildren that inherited them
 	// (e.g. a shell's `sleep` child surviving the shell's SIGKILL).
 	cmd.WaitDelay = 3 * time.Second
+	if opts.Stdin != nil {
+		cmd.Stdin = opts.Stdin
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
