@@ -3,6 +3,7 @@ package opvault
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -227,4 +228,88 @@ func TestOpCommandErrorSurfacesStderr(t *testing.T) {
 	// no stderr: keep the wrapped error
 	err = opCommandError([]string{"vault", "list"}, errors.New("exit status 1"))
 	assert.Equal(t, "op vault list: exit status 1", err.Error())
+}
+
+func TestRunOpItemAutoDetectsVaultForServiceAccounts(t *testing.T) {
+	origRun := runOpFn
+	t.Cleanup(func() { runOpFn = origRun })
+
+	serviceAccountErr := errors.New(`op item get: a vault query must be provided when this command is called by a service account`)
+	var calls [][]string
+	runOpFn = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(joined, "item get ghost"):
+			if strings.Contains(joined, "--vault") {
+				return []byte(`{"title":"ghost"}`), nil
+			}
+			return nil, serviceAccountErr
+		case joined == "vault list --format=json":
+			return []byte(`[{"id":"v1","name":"Infrastructure"},{"id":"v2","name":"Private"}]`), nil
+		case strings.HasPrefix(joined, "item list --vault Infrastructure"):
+			return []byte(`[{"id":"abc","title":"Ghost"}]`), nil
+		case strings.HasPrefix(joined, "item list --vault Private"):
+			return []byte(`[]`), nil
+		}
+		return nil, fmt.Errorf("unexpected op call: %s", joined)
+	}
+
+	out, err := runOpItem("ghost", "", func(v string) []string {
+		args := []string{"item", "get", "ghost", "--format=json"}
+		if v != "" {
+			args = append(args, "--vault", v)
+		}
+		return args
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "ghost")
+	// last call carries the detected vault (case-insensitive title match)
+	last := calls[len(calls)-1]
+	assert.Contains(t, strings.Join(last, " "), "--vault Infrastructure")
+}
+
+func TestRunOpItemAmbiguousVault(t *testing.T) {
+	origRun := runOpFn
+	t.Cleanup(func() { runOpFn = origRun })
+
+	runOpFn = func(args ...string) ([]byte, error) {
+		joined := strings.Join(args, " ")
+		switch {
+		case strings.HasPrefix(joined, "item get dup"):
+			return nil, errors.New("a vault query must be provided when this command is called by a service account")
+		case joined == "vault list --format=json":
+			return []byte(`[{"id":"v1","name":"A"},{"id":"v2","name":"B"}]`), nil
+		case strings.HasPrefix(joined, "item list"):
+			return []byte(`[{"id":"x","title":"dup"}]`), nil
+		}
+		return nil, fmt.Errorf("unexpected op call: %s", joined)
+	}
+
+	_, err := runOpItem("dup", "", func(v string) []string {
+		args := []string{"item", "get", "dup"}
+		if v != "" {
+			args = append(args, "--vault", v)
+		}
+		return args
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple vaults")
+	assert.Contains(t, err.Error(), "A, B")
+}
+
+func TestRunOpItemExplicitVaultSkipsDetection(t *testing.T) {
+	origRun := runOpFn
+	t.Cleanup(func() { runOpFn = origRun })
+
+	var calls int
+	runOpFn = func(args ...string) ([]byte, error) {
+		calls++
+		return []byte("{}"), nil
+	}
+	_, err := runOpItem("thing", "Infrastructure", func(v string) []string {
+		return []string{"item", "get", "thing", "--vault", v}
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
 }

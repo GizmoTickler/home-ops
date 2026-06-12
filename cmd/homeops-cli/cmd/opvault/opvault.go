@@ -66,6 +66,73 @@ func opCommandError(args []string, err error) error {
 	return fmt.Errorf("%s: %w", context, err)
 }
 
+// needsVaultQuery matches the service-account restriction: item operations
+// must name a vault.
+func needsVaultQuery(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "vault query must be provided")
+}
+
+// findVaultForItem locates the single vault containing the item (by title or
+// ID) so vault-less item commands keep working under service accounts, which
+// may list vaults but not query items account-wide.
+func findVaultForItem(item string) (string, error) {
+	out, err := runOpFn("vault", "list", "--format=json")
+	if err != nil {
+		return "", err
+	}
+	var vaults []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(out, &vaults); err != nil {
+		return "", fmt.Errorf("parse op output: %w", err)
+	}
+
+	var matches []string
+	for _, vault := range vaults {
+		listing, err := runOpFn("item", "list", "--vault", vault.Name, "--format=json")
+		if err != nil {
+			continue
+		}
+		var items []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(listing, &items); err != nil {
+			continue
+		}
+		for _, it := range items {
+			if strings.EqualFold(it.Title, item) || it.ID == item {
+				matches = append(matches, vault.Name)
+				break
+			}
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("item %q not found in any of the %d vaults this account can see", item, len(vaults))
+	default:
+		return "", fmt.Errorf("item %q exists in multiple vaults (%s) — pass --vault", item, strings.Join(matches, ", "))
+	}
+}
+
+// runOpItem runs an op item command, auto-detecting the vault when none was
+// given and the account requires one (1Password service accounts).
+func runOpItem(item, vault string, build func(vault string) []string) ([]byte, error) {
+	out, err := runOpFn(build(vault)...)
+	if vault != "" || !needsVaultQuery(err) {
+		return out, err
+	}
+	detected, findErr := findVaultForItem(item)
+	if findErr != nil {
+		return nil, fmt.Errorf("%w\n(vault auto-detect: %v)", err, findErr)
+	}
+	common.NewColorLogger().Info("Found %q in vault %q", item, detected)
+	return runOpFn(build(detected)...)
+}
+
 var confirmFn = ui.Confirm
 
 // NewCommand builds the `op` command group.
@@ -136,11 +203,13 @@ move as copy + delete, so the item gets a new ID in the destination vault.`,
 			if !ok {
 				return fmt.Errorf("cancelled by user")
 			}
-			opArgs := []string{"item", "move", args[0], "--destination-vault", toVault}
-			if vault != "" {
-				opArgs = append(opArgs, "--current-vault", vault)
-			}
-			if _, err := runOpFn(opArgs...); err != nil {
+			if _, err := runOpItem(args[0], vault, func(v string) []string {
+				opArgs := []string{"item", "move", args[0], "--destination-vault", toVault}
+				if v != "" {
+					opArgs = append(opArgs, "--current-vault", v)
+				}
+				return opArgs
+			}); err != nil {
 				return err
 			}
 			common.NewColorLogger().Success("Moved item %q to vault %q", args[0], toVault)
@@ -166,11 +235,13 @@ stdin template, never argv). The source item is left untouched.`,
 			if toVault == "" && newName == "" {
 				return fmt.Errorf("pass --to-vault and/or --name (a same-vault same-name copy is ambiguous)")
 			}
-			getArgs := []string{"item", "get", args[0], "--format=json", "--reveal"}
-			if vault != "" {
-				getArgs = append(getArgs, "--vault", vault)
-			}
-			out, err := runOpFn(getArgs...)
+			out, err := runOpItem(args[0], vault, func(v string) []string {
+				getArgs := []string{"item", "get", args[0], "--format=json", "--reveal"}
+				if v != "" {
+					getArgs = append(getArgs, "--vault", v)
+				}
+				return getArgs
+			})
 			if err != nil {
 				return err
 			}
@@ -291,11 +362,13 @@ func newGetCommand() *cobra.Command {
 		Example: `  homeops-cli op get talosdeploy --vault Infrastructure
   homeops-cli op get talosdeploy --field TRUENAS_HOST --reveal`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			opArgs := []string{"item", "get", args[0], "--format=json"}
-			if vault != "" {
-				opArgs = append(opArgs, "--vault", vault)
-			}
-			out, err := runOpFn(opArgs...)
+			out, err := runOpItem(args[0], vault, func(v string) []string {
+				opArgs := []string{"item", "get", args[0], "--format=json"}
+				if v != "" {
+					opArgs = append(opArgs, "--vault", v)
+				}
+				return opArgs
+			})
 			if err != nil {
 				return err
 			}
@@ -427,14 +500,16 @@ func newEditCommand() *cobra.Command {
 			// so values briefly appear in this process's argv (same exposure as
 			// using the op CLI directly). For new secrets prefer `op create`,
 			// which passes everything via a stdin template.
-			opArgs := []string{"item", "edit", args[0]}
-			if vault != "" {
-				opArgs = append(opArgs, "--vault", vault)
-			}
-			for _, f := range fields {
-				opArgs = append(opArgs, fmt.Sprintf("%s=%s", f.Label, f.Value))
-			}
-			if _, err := runOpFn(opArgs...); err != nil {
+			if _, err := runOpItem(args[0], vault, func(v string) []string {
+				opArgs := []string{"item", "edit", args[0]}
+				if v != "" {
+					opArgs = append(opArgs, "--vault", v)
+				}
+				for _, f := range fields {
+					opArgs = append(opArgs, fmt.Sprintf("%s=%s", f.Label, f.Value))
+				}
+				return opArgs
+			}); err != nil {
 				return err
 			}
 			common.NewColorLogger().Success("Updated %d field(s) on %q", len(fields), args[0])
@@ -462,14 +537,16 @@ func newDeleteCommand() *cobra.Command {
 			if !ok {
 				return fmt.Errorf("cancelled by user")
 			}
-			opArgs := []string{"item", "delete", args[0]}
-			if vault != "" {
-				opArgs = append(opArgs, "--vault", vault)
-			}
-			if archive {
-				opArgs = append(opArgs, "--archive")
-			}
-			if _, err := runOpFn(opArgs...); err != nil {
+			if _, err := runOpItem(args[0], vault, func(v string) []string {
+				opArgs := []string{"item", "delete", args[0]}
+				if v != "" {
+					opArgs = append(opArgs, "--vault", v)
+				}
+				if archive {
+					opArgs = append(opArgs, "--archive")
+				}
+				return opArgs
+			}); err != nil {
 				return err
 			}
 			common.NewColorLogger().Success("Deleted item %q", args[0])
