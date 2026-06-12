@@ -220,6 +220,21 @@ homeops-cli volsync suspend --all -n default
 homeops-cli volsync resume --all -n default
 ```
 
+## Quality Gates
+
+Every change must pass the full gate (CI runs the same steps via
+`.github/workflows/homeops-cli.yaml` on anything touching `cmd/homeops-cli`):
+
+```bash
+make check        # fmt + vet + golangci-lint (.golangci.yml) + tests
+```
+
+Scripting/automation: list commands emit machine-readable output —
+`vm list --output json|yaml`, `op list --output json`, `op vaults list
+--output json`, `volsync snapshots --format json|yaml`. All tables degrade to
+plain aligned columns when piped (no ANSI), and prompts are disabled with
+`HOMEOPS_NO_INTERACTIVE=1` (pass `--yes`/`--all` style flags in CI).
+
 ## Development Notes
 
 - `make build` outputs `homeops-cli` in this directory.
