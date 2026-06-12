@@ -54,3 +54,35 @@ func TestRunWithSpinner(t *testing.T) {
 	assert.True(t, called)
 	assert.Len(t, logger.infos, 1)
 }
+
+func TestSetAssumeYesAutoConfirms(t *testing.T) {
+	SetAssumeYes(true)
+	t.Cleanup(func() { SetAssumeYes(false) })
+
+	ok, err := Confirm("dangerous?", false)
+	if err != nil || !ok {
+		t.Fatalf("assume-yes must confirm without input: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestStyleOffTerminalIsPlain(t *testing.T) {
+	// Tests run without a TTY: Style must return the text unstyled so piped
+	// output stays clean.
+	got := Style("hello", StyleOptions{Foreground: "99", Bold: true})
+	if got != "hello" {
+		t.Fatalf("expected plain text off-terminal, got %q", got)
+	}
+}
+
+func TestBannerOffTerminalIsEmpty(t *testing.T) {
+	if Banner("tagline") != "" {
+		t.Fatal("banner must vanish off-terminal")
+	}
+	PrintBanner("tagline") // must not panic or print escape codes
+}
+
+func TestBoxPrintersOffTerminal(t *testing.T) {
+	// All box printers are TTY-gated no-ops here; they must not panic.
+	PrintSuccessBox("done", "line")
+	PrintInfoBox("plan", "line")
+}

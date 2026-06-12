@@ -12,7 +12,8 @@ import (
 
 // isStyledOutput reports whether stdout is a terminal that should get the
 // lipgloss-styled rendering (piped/CI output stays plain and parseable).
-func isStyledOutput() bool {
+// A var so tests can exercise the styled renderers without a TTY.
+var isStyledOutput = func() bool {
 	return !isInteractiveDisabled() && isatty.IsTerminal(os.Stdout.Fd())
 }
 

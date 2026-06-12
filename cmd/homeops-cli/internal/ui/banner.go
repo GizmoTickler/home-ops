@@ -20,7 +20,7 @@ const bannerArt = `
 // Banner renders the homeops wordmark with a vertical color gradient plus a
 // tagline. Returns "" off-terminal (scripts/CI never see it).
 func Banner(tagline string) string {
-	if !isInteractive() {
+	if !isStyledOutput() {
 		return ""
 	}
 	// magenta -> violet -> blue gradient, one shade per art line

@@ -42,3 +42,30 @@ func TestStyledTableRendersBordersAndCells(t *testing.T) {
 	assert.Contains(t, out, "web0")
 	assert.Contains(t, out, "╭", "styled mode draws a border")
 }
+
+func forceStyled(t *testing.T) {
+	t.Helper()
+	orig := isStyledOutput
+	isStyledOutput = func() bool { return true }
+	t.Cleanup(func() { isStyledOutput = orig })
+}
+
+func TestStyledRenderersUnderForcedTTY(t *testing.T) {
+	forceStyled(t)
+
+	out := Table([]string{"A"}, [][]string{{"1"}})
+	assert.Contains(t, out, "╭", "forced TTY must take the styled path")
+
+	box := SuccessBox("done", "next steps")
+	require.NotEmpty(t, box)
+	assert.Contains(t, box, "done")
+
+	info := InfoBox("plan", "nodes: 3")
+	require.NotEmpty(t, info)
+	assert.Contains(t, info, "plan")
+	assert.Contains(t, info, "nodes: 3")
+
+	banner := Banner("tagline")
+	require.NotEmpty(t, banner)
+	assert.Contains(t, banner, "tagline")
+}
