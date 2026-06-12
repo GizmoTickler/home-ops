@@ -900,8 +900,21 @@ func TestExtractGatewayAPIVersion(t *testing.T) {
 // TestApplyGatewayAPICRDsValidation tests input validation for applyGatewayAPICRDs
 func TestApplyGatewayAPICRDsValidation(t *testing.T) {
 	t.Run("empty kubeconfig", func(t *testing.T) {
+		// Real applies (not dry runs) still require a kubeconfig; the check
+		// runs after URL resolution, so give the fixture a valid root.
+		tmpDir := t.TempDir()
+		kustomizationDir := filepath.Join(tmpDir, "kubernetes", "apps", "network", "kgateway", "gateway-api-crds")
+		if err := os.MkdirAll(kustomizationDir, 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+		content := `resources:
+  - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml`
+		if err := os.WriteFile(filepath.Join(kustomizationDir, "kustomization.yaml"), []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
 		config := &BootstrapConfig{
-			RootDir:    "/tmp",
+			RootDir:    tmpDir,
 			KubeConfig: "",
 		}
 		logger := common.NewColorLogger()
@@ -912,6 +925,24 @@ func TestApplyGatewayAPICRDsValidation(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "kubeconfig path is required") {
 			t.Errorf("Expected kubeconfig error, got: %v", err)
+		}
+	})
+
+	t.Run("dry run does not require a kubeconfig", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		kustomizationDir := filepath.Join(tmpDir, "kubernetes", "apps", "network", "kgateway", "gateway-api-crds")
+		if err := os.MkdirAll(kustomizationDir, 0755); err != nil {
+			t.Fatalf("Failed to create test directory: %v", err)
+		}
+		content := `resources:
+  - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/experimental-install.yaml`
+		if err := os.WriteFile(filepath.Join(kustomizationDir, "kustomization.yaml"), []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		config := &BootstrapConfig{RootDir: tmpDir, KubeConfig: "", DryRun: true}
+		if err := applyGatewayAPICRDs(config, common.NewColorLogger()); err != nil {
+			t.Errorf("Dry run must not require a kubeconfig (fresh machines have none yet): %v", err)
 		}
 	})
 
