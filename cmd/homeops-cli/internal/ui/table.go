@@ -53,7 +53,7 @@ func plainTable(headers []string, rows [][]string) string {
 			if i == len(cells)-1 || i == len(widths)-1 {
 				b.WriteString(cell)
 			} else {
-				b.WriteString(fmt.Sprintf("%-*s  ", widths[i], cell))
+				fmt.Fprintf(&b, "%-*s  ", widths[i], cell)
 			}
 		}
 		b.WriteString("\n")

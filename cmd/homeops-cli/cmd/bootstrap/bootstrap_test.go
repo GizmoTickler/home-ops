@@ -457,8 +457,8 @@ func TestResolve1PasswordReferences(t *testing.T) {
 			if err != nil && tt.name == "no references" {
 				t.Errorf("Unexpected error for content without references: %v", err)
 			}
-			if tt.name == "no references" && string(result) != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, string(result))
+			if tt.name == "no references" && result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
 			}
 		})
 	}

@@ -136,7 +136,7 @@ func (fc *FactoryClient) CreateSchematic(config *SchematicConfig, talosVersion s
 
 	// Create the HTTP request
 	url := fmt.Sprintf("%s/schematics", fc.baseURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -272,7 +272,7 @@ func (fc *FactoryClient) validateISORequest(req ISOGenerationRequest) error {
 
 // validateISOURL performs a HEAD request to check if the ISO URL is accessible
 func (fc *FactoryClient) validateISOURL(url string) error {
-	req, err := http.NewRequest("HEAD", url, nil)
+	req, err := http.NewRequest(http.MethodHead, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create HEAD request: %w", err)
 	}

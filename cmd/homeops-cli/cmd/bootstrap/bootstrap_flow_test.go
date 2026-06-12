@@ -218,7 +218,7 @@ func TestPreflightCheckHelpers(t *testing.T) {
 		t.Cleanup(func() { bootstrapHTTPDo = oldHTTPDo })
 
 		bootstrapHTTPDo = func(req *http.Request) (*http.Response, error) {
-			if req.Method != "HEAD" || req.URL.String() != "https://github.com" {
+			if req.Method != http.MethodHead || req.URL.String() != "https://github.com" {
 				t.Fatalf("unexpected request: %s %s", req.Method, req.URL.String())
 			}
 			return &http.Response{Body: io.NopCloser(strings.NewReader(""))}, nil

@@ -818,10 +818,10 @@ func newRenderIgnitionCommand() *cobra.Command {
 				if err := os.WriteFile(outFile, ign, 0o644); err != nil {
 					return fmt.Errorf("failed to write ignition to %s: %w", outFile, err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "Ignition written to %s\n", outFile)
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Ignition written to %s\n", outFile)
 				return nil
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), string(ign))
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(ign))
 			return nil
 		},
 	}
@@ -865,7 +865,7 @@ func newGenKubeadmCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), out)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), out)
 			case "join":
 				if err := flatcar.ValidateJoinMaterial(token, caCertHash, certKey); err != nil {
 					return err
@@ -877,7 +877,7 @@ func newGenKubeadmCommand() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintln(cmd.OutOrStdout(), out)
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), out)
 			default:
 				return fmt.Errorf("invalid --mode %q (want init or join)", mode)
 			}
@@ -1224,7 +1224,7 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 			logger.Info("[DRY RUN] would deploy %s (boot=%s, mac=%s, vmid via predefined)",
 				n.name, deployBootSource(opts.imagePath, opts.imageVolume), cfg.MacAddress)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
 		return nil
 	}
 
@@ -1239,7 +1239,7 @@ func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 			logger.Info("[DRY RUN] would clone Flatcar VM %s from template %s onto datastore %s (Ignition via guestinfo, %d bytes)",
 				n.name, opts.vsphereTemplate, opts.datastore, len(n.ignition))
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
 		return nil
 	}
 
@@ -1290,7 +1290,7 @@ func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s:%s/ignition-%s.json and create Flatcar VM %s on pool %s (Ignition via fw_cfg)",
 				len(n.ignition), dst, ignitionDir, n.name, n.name, opts.truenasPool)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
 		return nil
 	}
 

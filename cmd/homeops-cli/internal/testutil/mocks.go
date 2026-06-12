@@ -44,7 +44,7 @@ func (m *MockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	return &http.Response{
-		StatusCode: 404,
+		StatusCode: http.StatusNotFound,
 		Body:       io.NopCloser(strings.NewReader("not found")),
 	}, nil
 }

@@ -117,7 +117,7 @@ func RenderIgnition(env NodeEnv) ([]byte, error) {
 	// 1Password miss for SSH_AUTHORIZED_KEY/K8S_ENDPOINT would otherwise produce
 	// a node with a garbage SSH key (unreachable -> bootstrap silently fails).
 	if m := unresolvedPlaceholderRe.FindString(butaneDoc); m != "" {
-		return nil, fmt.Errorf("Butane controlplane has unresolved placeholder %s: missing required ENV value (1Password miss for SSH key / domain?)", m)
+		return nil, fmt.Errorf("butane controlplane has unresolved placeholder %s: missing required ENV value (1Password miss for SSH key / domain?)", m)
 	}
 
 	// 2. Materialize local: files into a temp FilesDir, layout mirroring the

@@ -61,7 +61,7 @@ func (h proxmoxVMHandle) VMID() int {
 }
 
 func (h proxmoxVMHandle) Status() string {
-	return string(h.vm.Status)
+	return h.vm.Status
 }
 
 func (h proxmoxVMHandle) Start(ctx context.Context) (taskHandle, error) {

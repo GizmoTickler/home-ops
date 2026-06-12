@@ -938,7 +938,7 @@ func upgradeNode(nodeIP, mode string) error {
 	processor := localyaml.NewProcessor(nil, metricsCollector)
 
 	// Parse YAML content into a map
-	configData, err := processor.ParseString(string(configOutput))
+	configData, err := processor.ParseString(configOutput)
 	if err != nil {
 		return fmt.Errorf("failed to parse controlplane config: %w", err)
 	}

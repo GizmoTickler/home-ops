@@ -1048,7 +1048,7 @@ func checkNetworkConnectivity(config *BootstrapConfig, logger *common.ColorLogge
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	req, _ := http.NewRequestWithContext(ctx, "HEAD", "https://github.com", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodHead, "https://github.com", nil)
 	resp, err := bootstrapHTTPDo(req)
 	if err != nil {
 		return &PreflightResult{

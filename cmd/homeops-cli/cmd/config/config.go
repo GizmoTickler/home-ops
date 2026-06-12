@@ -235,7 +235,7 @@ state:
 secrets:
 `)
 	for _, key := range config.KnownSecretKeys() {
-		b.WriteString(fmt.Sprintf("  %s: %s\n", key, scaffoldRef(key, backend)))
+		fmt.Fprintf(&b, "  %s: %s\n", key, scaffoldRef(key, backend))
 	}
 	return b.String()
 }
