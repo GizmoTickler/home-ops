@@ -6,7 +6,6 @@ metadata:
   name: vmauth
 spec:
   port: "8427"
-  replicas: 1
   # Select all VMUser CRDs in any namespace
   selectAllByDefault: true
   # Unauthorized access config — routes traffic by host and path
