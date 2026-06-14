@@ -125,12 +125,14 @@ spec:
         externalURL: ""
         routePrefix: /
         storage:
-          accessModes:
-            - ReadWriteOnce
-          storageClassName: ceph-block
-          resources:
-            requests:
-              storage: 2Gi
+          volumeClaimTemplate:
+            spec:
+              accessModes:
+                - ReadWriteOnce
+              storageClassName: ceph-block
+              resources:
+                requests:
+                  storage: 2Gi
       useManagedConfig: true
       config:
         route:
