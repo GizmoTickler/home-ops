@@ -55,9 +55,9 @@ spec:
     defaultRules:
       create: true
       groups:
-        # Disable Alertmanager cluster rules (we run single replica)
+        # Alertmanager cluster-health rules enabled (HA: 2 replicas gossip-clustered)
         alertmanager:
-          create: false
+          create: true
         # Disable container_memory_swap rule (swap is disabled on all nodes)
         k8sContainerMemorySwap:
           create: false
@@ -116,11 +116,21 @@ spec:
       labels: {}
       annotations: {}
       spec:
-        replicaCount: 1
+        # HA: 2 replicas gossip-cluster silences + notification dedup.
+        # Persistent storage so silences/nflog survive pod restarts
+        # (single-replica emptyDir previously dropped all silences on restart).
+        replicaCount: 2
         port: "9093"
         selectAllByDefault: true
         externalURL: ""
         routePrefix: /
+        storage:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: ceph-block
+          resources:
+            requests:
+              storage: 2Gi
       useManagedConfig: true
       config:
         route:
