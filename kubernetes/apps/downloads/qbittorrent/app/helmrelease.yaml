@@ -35,7 +35,7 @@ spec:
               - coredns
             image:
               repository: mirror.gcr.io/library/alpine
-              tag: "3.23"
+              tag: "3.24"
             command:
               - /bin/sh
               - -c
