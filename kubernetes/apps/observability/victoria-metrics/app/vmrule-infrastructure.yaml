@@ -236,8 +236,11 @@ spec:
             component: kubernetes
 
         - alert: KubernetesAPIServerHighLatency
+          # Exclude long-lived streaming subresources (log/exec/attach/portforward/proxy):
+          # their request duration is the client stream lifetime, not server latency, so
+          # they spuriously trip the p99 threshold (e.g. a 30s `kubectl logs -f`).
           expr: |-
-            histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH"}[5m])) by (le, verb)) > 1
+            histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH", subresource!~"log|exec|attach|portforward|proxy"}[5m])) by (le, verb)) > 1
           for: 10m
           keep_firing_for: 5m
           annotations:

@@ -21,6 +21,14 @@ spec:
     # VictoriaMetrics Operator - DISABLE Prometheus CRD converter
     victoria-metrics-operator:
       enabled: true
+      # Pin operator image to v0.72.0 to work around the v0.71.0 /metrics
+      # deadlock (upstream #2280: operator_object_status collector holds a
+      # mutex while writing the prometheus channel, hanging /metrics once
+      # tracked objects exceed ~250; :8081 health stays up so it's invisible
+      # to readiness). k8s-stack 0.83.0 bundles the broken v0.71.0; upstream
+      # says skip it. Remove this pin once a k8s-stack chart ships v0.72.0.
+      image:
+        tag: v0.72.0
       crds:
         plain: true
         cleanup:
