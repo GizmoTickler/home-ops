@@ -444,3 +444,45 @@ spec:
           labels:
             severity: warning
             component: infrastructure
+
+    # Flow telemetry (nflo0 ntopng -> ClickHouse export health)
+    # Watchdog for the silent-stall failure mode: ntopng stopped exporting
+    # flows to ClickHouse after a 2026-06-02 reboot and went unnoticed for
+    # ~2 weeks (host stayed healthy; only the data stopped). The freshness
+    # gauge is emitted by a 60s node_exporter textfile timer on nflo0.
+    - name: flow-telemetry.rules
+      interval: 1m
+      rules:
+        - alert: NtopngFlowExportStale
+          expr: |-
+            (time() - ntopng_flows_last_seen_timestamp_seconds) > 900
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "ntopng flow export to ClickHouse is stale (nflo0)"
+            description: |-
+              No new flows written to the ntopng.flows ClickHouse table for
+              {{ $value | humanizeDuration }} (threshold 15m). The ntopng->ClickHouse
+              export on nflo0 has likely stalled — live capture (XDP/ERSPAN) can be
+              fine while persistence is dead. Check ntopng on nflo0 and its
+              ClickHouse export connection; a `systemctl restart ntopng` reconnects it.
+            runbook_url: https://docs.victoriametrics.com/
+          labels:
+            severity: warning
+            component: observability
+
+        - alert: NtopngFlowFreshnessMetricMissing
+          expr: |-
+            absent(ntopng_flows_last_seen_timestamp_seconds)
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "ntopng flow-freshness watchdog metric is missing"
+            description: |-
+              ntopng_flows_last_seen_timestamp_seconds is absent — the freshness
+              exporter (ntopng-flow-freshness.timer on nflo0) or the nflo0
+              node_exporter scrape is down, so flow-export health is unobservable.
+              Check the timer on nflo0 and the node-exporter target for netflow.
+          labels:
+            severity: warning
+            component: observability
