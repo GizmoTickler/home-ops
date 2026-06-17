@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/mattn/go-isatty"
 
 	"homeops-cli/internal/common"
@@ -62,7 +62,7 @@ var errCancelled = fmt.Errorf("cancelled by user")
 // runField runs a single huh field as a form with the shared theme, mapping
 // user aborts to the package's cancellation error.
 func runField(field huh.Field) error {
-	form := huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeCharm())
+	form := huh.NewForm(huh.NewGroup(field)).WithTheme(huh.ThemeFunc(huh.ThemeCharm))
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return errCancelled
@@ -288,8 +288,8 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case spinnerTickMsg:
 		return m, spinnerTick()
-	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC {
+	case tea.KeyPressMsg:
+		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		return m, nil
@@ -302,9 +302,9 @@ func (m spinnerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 var spinnerElapsedStyle = lipgloss.NewStyle().Faint(true)
 
-func (m spinnerModel) View() string {
+func (m spinnerModel) View() tea.View {
 	elapsed := time.Since(m.start).Round(time.Second)
-	return fmt.Sprintf("%s%s %s", m.spin.View(), m.title, spinnerElapsedStyle.Render(fmt.Sprintf("(%s)", elapsed)))
+	return tea.NewView(fmt.Sprintf("%s%s %s", m.spin.View(), m.title, spinnerElapsedStyle.Render(fmt.Sprintf("(%s)", elapsed))))
 }
 
 // Spin displays a spinner while executing a command.

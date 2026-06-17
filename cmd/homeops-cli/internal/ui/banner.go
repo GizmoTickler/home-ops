@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 )
 
 // bannerArt is the homeops wordmark (ANSI Shadow-ish, hand-tuned to stay
