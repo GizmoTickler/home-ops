@@ -62,7 +62,7 @@ func (vm *VMManager) RollbackVM(name, snapName string) error {
 	if err != nil {
 		return err
 	}
-	task, err := vmObj.SnapshotRollback(vm.client.Context(), snapName)
+	task, err := vmObj.Snapshot(snapName).Rollback(vm.client.Context())
 	if err != nil {
 		return fmt.Errorf("rollback VM %s to %s: %w", name, snapName, err)
 	}
@@ -79,7 +79,7 @@ func (vm *VMManager) DeleteVMSnapshot(name, snapName string) error {
 	if err != nil {
 		return err
 	}
-	task, err := vmObj.DeleteSnapshot(vm.client.Context(), snapName)
+	task, err := vmObj.Snapshot(snapName).Delete(vm.client.Context())
 	if err != nil {
 		return fmt.Errorf("delete snapshot %s of VM %s: %w", snapName, name, err)
 	}
@@ -104,7 +104,7 @@ func (vm *VMManager) CloneVM(name, newName string, newVMID int, full bool) error
 	}
 	opts := &proxmox.VirtualMachineCloneOptions{NewID: newVMID, Name: newName}
 	if full {
-		opts.Full = 1
+		opts.Full = true
 	}
 	id, task, err := vmObj.Clone(vm.client.Context(), opts)
 	if err != nil {

@@ -1189,13 +1189,30 @@ func formatVMInfo(name string, vmObj *proxmox.VirtualMachine) string {
 		config := vmObj.VirtualMachineConfig
 		fmt.Fprintln(&b, "\nConfiguration:")
 		fmt.Fprintf(&b, "  Name: %s\n", config.Name)
-		fmt.Fprintf(&b, "  Cores: %d\n", config.Cores)
-		fmt.Fprintf(&b, "  Sockets: %d\n", config.Sockets)
-		fmt.Fprintf(&b, "  BIOS: %s\n", config.Bios)
-		fmt.Fprintf(&b, "  SCSI HW: %s\n", config.SCSIHW)
+		fmt.Fprintf(&b, "  Cores: %d\n", derefInt(config.Cores))
+		fmt.Fprintf(&b, "  Sockets: %d\n", derefInt(config.Sockets))
+		fmt.Fprintf(&b, "  BIOS: %s\n", derefStr(config.Bios))
+		fmt.Fprintf(&b, "  SCSI HW: %s\n", derefStr(config.SCSIHW))
 	}
 
 	return b.String()
+}
+
+// derefInt / derefStr safely dereference go-proxmox's *int / *string config
+// fields (e.g. Cores, Sockets, Bios, SCSIHW), returning the zero value when the
+// pointer is nil so display formatting never prints a pointer address (#199).
+func derefInt(p *int) int {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (vm *VMManager) getVMHandle(name string) (vmHandle, error) {
