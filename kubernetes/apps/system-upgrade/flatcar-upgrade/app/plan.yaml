@@ -25,7 +25,7 @@ spec:
   #   moves — no label gate needed: the script no-ops when the node is already at (or
   #   has staged) the target, so the SUC baseline run is harmless.
   # renovate: datasource=custom.flatcar depName=flatcar
-  version: 4593.2.2
+  version: 4593.2.3
   concurrency: 1
   nodeSelector:
     matchExpressions:
