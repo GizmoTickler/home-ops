@@ -229,10 +229,10 @@ func TestVMManagerListAndInfoFormatting(t *testing.T) {
 				Uptime: 123,
 				VirtualMachineConfig: &proxmox.VirtualMachineConfig{
 					Name:    name,
-					Cores:   4,
-					Sockets: 1,
-					Bios:    "ovmf",
-					SCSIHW:  "virtio-scsi-single",
+					Cores:   intPtr(4),
+					Sockets: intPtr(1),
+					Bios:    strPtr("ovmf"),
+					SCSIHW:  strPtr("virtio-scsi-single"),
 				},
 			}, nil
 		},
@@ -248,6 +248,12 @@ func TestVMManagerListAndInfoFormatting(t *testing.T) {
 	assert.Contains(t, output, "VM Information for: cp-0")
 	assert.Contains(t, output, "SCSI HW: virtio-scsi-single")
 }
+
+// intPtr / strPtr return pointers to their argument. go-proxmox's
+// VirtualMachineConfig models Cores/Sockets as *int and Bios/SCSIHW as *string
+// so the PVE server default is preserved when a field is unset (#199).
+func intPtr(i int) *int       { return &i }
+func strPtr(s string) *string { return &s }
 
 func TestProxmoxFormattingHelpers(t *testing.T) {
 	assert.Equal(t, "No virtual machines found.\n", formatVMList(nil))
