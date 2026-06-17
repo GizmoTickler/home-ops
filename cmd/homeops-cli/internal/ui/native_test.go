@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/huh"
+	"charm.land/huh/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -67,7 +67,7 @@ func TestStyleOffTerminalIsIdentity(t *testing.T) {
 
 func TestSpinnerModelView(t *testing.T) {
 	m := newSpinnerModel("doing things")
-	view := m.View()
+	view := m.View().Content
 	assert.Contains(t, view, "doing things")
 	assert.True(t, strings.Contains(view, "(0s)") || strings.Contains(view, "(1s)"))
 
