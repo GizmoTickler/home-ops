@@ -106,3 +106,9 @@ clusterDomain: cluster.local
 clusterDNS:
   - 10.43.0.10                        # CoreDNS Service clusterIP (verify vs coredns HR)
 maxPods: 250
+# The Rook Ceph mon shares this node's root/EPHEMERAL fs with the containerd image
+# store. kubelet's default imageGC high=85 lets the image cache grow until Ceph's
+# mon_data_avail_warn (30% avail / 70% used) flags MON_DISK_LOW on the busiest node.
+# Trim earlier so kubelet GCs unused images before Ceph complains.
+imageGCHighThresholdPercent: 60
+imageGCLowThresholdPercent: 50
