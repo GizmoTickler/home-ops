@@ -30,12 +30,11 @@ import (
 	"homeops-cli/internal/templates"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/ui"
+	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 	localyaml "homeops-cli/internal/yaml"
 
 	"github.com/spf13/cobra"
-	"github.com/vmware/govmomi/object"
-	"github.com/vmware/govmomi/vim25/mo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,28 +43,15 @@ import (
 const talosCommandTimeout = 10 * time.Minute
 
 var (
-	chooseVMFunc                = ui.Choose
-	chooseTalosNodeFn           = ui.Choose
-	chooseOptionFn              = ui.Choose
-	inputPromptFn               = ui.Input
-	confirmActionFn             = ui.Confirm
-	getTrueNASVMNamesFn         = getTrueNASVMNames
-	getProxmoxVMNamesFn         = getProxmoxVMNames
-	getESXiVMNamesFn            = getESXiVMNames
-	vsphereGetVMNamesFn         = vsphere.GetVMNames
-	proxmoxGetTalosNodeConfigFn = proxmox.GetTalosNodeConfig
-	proxmoxDefaultVMConfig      = proxmox.GetDefaultVMConfig
-	getProxmoxCredentialsFn     = proxmox.GetCredentials
-	getTalosNodeIPsFn           = talos.GetNodeIPs
-	resolveSecretKeyFn          = func(key string) string {
-		return versionconfig.Get().ResolveSecretSilent(key)
-	}
+	chooseTalosNodeFn                 = ui.Choose
+	chooseOptionFn                    = ui.Choose
+	inputPromptFn                     = ui.Input
+	confirmActionFn                   = ui.Confirm
+	proxmoxGetTalosNodeConfigFn       = proxmox.GetTalosNodeConfig
+	proxmoxDefaultVMConfig            = proxmox.GetDefaultVMConfig
+	getTalosNodeIPsFn                 = talos.GetNodeIPs
 	getTalosTemplateFn                = templates.GetTalosTemplate
 	workingDirectoryFn                = common.GetWorkingDirectory
-	getVSphereCredsFn                 = getVSphereCredentials
-	getVSphereHostFn                  = getVSphereHost
-	getTrueNASCredentialsFn           = getTrueNASCredentials
-	ensureVMLifecycleProviderFn       = ensureVMLifecycleProviderAvailable
 	getMachineTypeFromNodeFn          = getMachineTypeFromNode
 	renderMachineConfigFromEmbeddedFn = renderMachineConfigFromEmbedded
 	injectSecretsFn                   = secrets.Inject
@@ -108,7 +94,6 @@ var (
 	pullKubeconfigFn = func(destPath string, logger *common.ColorLogger) error {
 		return state.NewKubeconfigStore(versionconfig.Get().State.Kubeconfig).Pull(destPath, logger)
 	}
-	newVMLifecycleFn                   = newVMLifecycle
 	prepareISOForTrueNASFn             = prepareISOForTrueNAS
 	prepareISOForProxmoxFn             = prepareISOForProxmox
 	prepareISOForVSphereFn             = prepareISOForVSphere
@@ -124,18 +109,6 @@ var (
 	controlplaneTemplatePath = "cmd/homeops-cli/internal/templates/talos/controlplane.yaml"
 	newISODownloaderFn       = func() isoDownloader {
 		return iso.NewDownloader()
-	}
-	newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
-		return truenas.NewVMManager(host, apiKey, port, useSSL)
-	}
-	newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
-		return proxmox.NewVMManager(host, tokenID, secret, nodeName, insecure)
-	}
-	newVSphereClientFn = func(host, username, password string, insecure bool) vsphereClient {
-		return vsphere.NewClient(host, username, password, insecure)
-	}
-	newVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
-		return vsphere.NewVMManager(host, username, password, insecure)
 	}
 	newTalosFactoryClientFn = func() talosFactoryClient {
 		return talos.NewFactoryClient()
@@ -168,51 +141,6 @@ type trueNASSSHClient interface {
 	Connect() error
 	Close() error
 	VerifyFile(string) (bool, int64, error)
-}
-
-type trueNASVMManager interface {
-	Connect() error
-	Close() error
-	DeployVM(truenas.VMConfig) error
-	ListVMs() error
-	VMSummaries() ([]vmprov.VMSummary, error)
-	StartVM(string) error
-	StopVM(string, bool) error
-	RestartVM(string) error
-	DeleteVM(string, bool, string) error
-	GetVMInfo(string) error
-	SetVMResources(string, int, int) error
-	ResizeVMDisk(string, string, string) error
-	SnapshotVM(string, string) error
-	ListVMSnapshots(string) error
-	RollbackVM(string, string) error
-	DeleteVMSnapshot(string, string) error
-	Clone(string, string, vmprov.CloneOptions) error
-	VMIPAddresses(string) ([]string, error)
-	ConsoleURL(string) (string, error)
-	Capabilities() vmprov.Capabilities
-	CleanupOrphanedZVols(string, string) error
-}
-
-type proxmoxVMManager interface {
-	vmprov.VMLifecycle
-	UploadISOFromURL(string, string, string) error
-	DeployVM(proxmox.VMConfig) error
-	ImportTemplate(proxmox.VMConfig) error
-	ConvertVMToTemplate(string) error
-	ConsoleURLs(string) (string, string, error)
-}
-
-type vsphereClient interface {
-	Connect(string, string, string, bool) error
-	Close() error
-	FindVM(string) (*object.VirtualMachine, error)
-	ListVMs() ([]*object.VirtualMachine, error)
-	GetVMInfo(*object.VirtualMachine) (*mo.VirtualMachine, error)
-	UploadISOToDatastore(string, string, string) error
-	PowerOnVM(*object.VirtualMachine) error
-	PowerOffVM(*object.VirtualMachine) error
-	DeleteVM(*object.VirtualMachine) error
 }
 
 type vsphereVMDeployer interface {
@@ -275,218 +203,6 @@ Use ` + "`homeops-cli vm`" + ` for VM lifecycle operations such as list, start, 
 	)
 
 	return cmd
-}
-
-// getEnvOrDefault returns the value of an environment variable or a default value
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-// getTrueNASCredentials retrieves TrueNAS credentials through the shared
-// provider client (configured secret references + env fallback).
-func getTrueNASCredentials() (host, apiKey string, err error) {
-	return truenas.GetCredentials()
-}
-
-// resolveSecretKey resolves a semantic secret key through the homeops config
-// ("" on miss).
-func resolveSecretKey(key string) string {
-	return resolveSecretKeyFn(key)
-}
-
-// truenasDefaultPool returns the configured TrueNAS VM storage pool
-// (hypervisors.truenas.vm.boot_storage in homeops.yaml), or fallback.
-func truenasDefaultPool(fallback string) string {
-	if p := versionconfig.Get().Hypervisors.TrueNAS.VM.BootStorage; p != "" {
-		return p
-	}
-	return fallback
-}
-
-// getSpicePassword retrieves the SPICE password through the configured secret
-// reference, with environment-variable fallback.
-func getSpicePassword() string {
-	password := resolveSecretKey(versionconfig.KeyTrueNASSpicePassword)
-	if password != "" {
-		return password
-	}
-	return os.Getenv(constants.EnvSPICEPassword)
-}
-
-func getVSphereCredentials() (host, username, password string, err error) {
-	host = resolveSecretKey(versionconfig.KeyVSphereHost)
-	username = resolveSecretKey(versionconfig.KeyVSphereUsername)
-	password = resolveSecretKey(versionconfig.KeyVSpherePassword)
-
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	if username == "" {
-		username = os.Getenv(constants.EnvVSphereUsername)
-	}
-	if password == "" {
-		password = os.Getenv(constants.EnvVSpherePassword)
-	}
-
-	if host == "" || username == "" || password == "" {
-		return "", "", "", fmt.Errorf("vSphere credentials not found: configure secrets.%s/%s/%s in your homeops config or set %s/%s/%s ('homeops-cli config doctor' shows what resolves)",
-			versionconfig.KeyVSphereHost, versionconfig.KeyVSphereUsername, versionconfig.KeyVSpherePassword,
-			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
-	}
-
-	return host, username, password, nil
-}
-
-func withTrueNASVMManager(logger *common.ColorLogger, fn func(trueNASVMManager) error) error {
-	host, apiKey, err := getTrueNASCredentialsFn()
-	if err != nil {
-		return err
-	}
-
-	vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
-	if err := vmManager.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return fn(vmManager)
-}
-
-func withProxmoxVMManager(logger *common.ColorLogger, fn func(proxmoxVMManager) error) error {
-	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
-	if err != nil {
-		return err
-	}
-
-	vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
-	if err != nil {
-		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-	}
-	defer func() {
-		if closeErr := vmManager.Close(); closeErr != nil {
-			logger.Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-
-	return fn(vmManager)
-}
-
-func withVSphereClient(logger *common.ColorLogger, fn func(vsphereClient) error) error {
-	host, username, password, err := getVSphereCredsFn()
-	if err != nil {
-		return err
-	}
-
-	client := newVSphereClientFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
-	if err := client.Connect(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false)); err != nil {
-		return fmt.Errorf("failed to connect to vSphere: %w", err)
-	}
-	defer func() {
-		if closeErr := client.Close(); closeErr != nil {
-			logger.Warn("Failed to close vSphere connection: %v", closeErr)
-		}
-	}()
-
-	return fn(client)
-}
-
-// truenasLifecycleAdapter narrows the TrueNAS manager to the shared
-// provider.VMLifecycle contract. TrueNAS deletion takes storage options;
-// they are fixed at construction because the CLI runs one lifecycle
-// operation per invocation.
-type truenasLifecycleAdapter struct {
-	trueNASVMManager
-	deleteZVols bool
-	storagePool string
-}
-
-func (a truenasLifecycleAdapter) DeleteVM(name string) error {
-	return a.trueNASVMManager.DeleteVM(name, a.deleteZVols, a.storagePool)
-}
-
-var _ vmprov.VMLifecycle = truenasLifecycleAdapter{}
-
-// newVMLifecycle builds the lifecycle implementation for a normalized
-// provider name. All VM lifecycle dispatch (list/start/stop/info/delete/
-// poweron/poweroff) funnels through here instead of per-action switches.
-func newVMLifecycle(normalizedProvider string) (vmprov.VMLifecycle, error) {
-	switch normalizedProvider {
-	case "truenas":
-		host, apiKey, err := getTrueNASCredentialsFn()
-		if err != nil {
-			return nil, err
-		}
-		vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
-		if err := vmManager.Connect(); err != nil {
-			return nil, fmt.Errorf("failed to connect to TrueNAS: %w", err)
-		}
-		return truenasLifecycleAdapter{
-			trueNASVMManager: vmManager,
-			deleteZVols:      true,
-			storagePool:      getEnvOrDefault("STORAGE_POOL", truenasDefaultPool("flashstor")),
-		}, nil
-	case "proxmox":
-		host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
-		if err != nil {
-			return nil, err
-		}
-		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Proxmox VM manager: %w", err)
-		}
-		return vmManager, nil
-	case "vsphere":
-		host, username, password, err := getVSphereCredsFn()
-		if err != nil {
-			return nil, err
-		}
-		return newVSphereVMManagerFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
-	}
-	return nil, fmt.Errorf("unsupported provider: %s", normalizedProvider)
-}
-
-// withVMLifecycle runs fn against a freshly constructed provider lifecycle
-// and always closes it afterwards.
-func withVMLifecycle(normalizedProvider string, fn func(vmprov.VMLifecycle) error) error {
-	lifecycle, err := newVMLifecycleFn(normalizedProvider)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if closeErr := lifecycle.Close(); closeErr != nil {
-			common.NewColorLogger().Warn("Failed to close VM manager: %v", closeErr)
-		}
-	}()
-	return fn(lifecycle)
-}
-
-// runVMLifecycleAction normalizes the provider, resolves the VM name
-// (prompting interactively when not given), then runs op against the
-// provider's lifecycle implementation.
-func runVMLifecycleAction(name, providerName, action string, op func(vmprov.VMLifecycle, string) error) error {
-	normalizedProvider, err := normalizeVMProvider(providerName)
-	if err != nil {
-		return err
-	}
-
-	name, err = chooseVMNameForProvider(name, normalizedProvider, action)
-	if err != nil {
-		return err
-	}
-	if name == "" {
-		return nil
-	}
-
-	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
-		return op(lifecycle, name)
-	})
 }
 
 type talosConfigInfo struct {
@@ -629,123 +345,6 @@ func applyNodeConfig(nodeIP, mode string, dryRun bool) error {
 	return nil
 }
 
-// getESXiVMNames retrieves the list of VM names from ESXi/vSphere
-func getESXiVMNames() ([]string, error) {
-	return vsphereGetVMNamesFn()
-}
-
-func normalizeVMProvider(provider string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "", "proxmox":
-		return "proxmox", nil
-	case "truenas":
-		return "truenas", nil
-	case "vsphere", "esxi":
-		return "vsphere", nil
-	default:
-		return "", fmt.Errorf("unsupported provider: %s. Supported providers: proxmox, truenas, vsphere", provider)
-	}
-}
-
-func getVMNamesForProvider(provider string) ([]string, error) {
-	normalized, err := normalizeVMProvider(provider)
-	if err != nil {
-		return nil, err
-	}
-
-	switch normalized {
-	case "truenas":
-		return getTrueNASVMNamesFn()
-	case "proxmox":
-		return getProxmoxVMNamesFn()
-	case "vsphere":
-		return getESXiVMNamesFn()
-	default:
-		return nil, fmt.Errorf("unsupported provider: %s", provider)
-	}
-}
-
-func vmProviderDisplayName(provider string) string {
-	switch provider {
-	case "truenas":
-		return "TrueNAS"
-	case "vsphere":
-		return "vSphere/ESXi"
-	default:
-		return "Proxmox"
-	}
-}
-
-func vmProviderPrerequisites(provider string) string {
-	switch provider {
-	case "truenas":
-		return fmt.Sprintf("secrets.%s/%s in your homeops config, or %s/%s environment variables",
-			versionconfig.KeyTrueNASHost, versionconfig.KeyTrueNASAPIKey,
-			constants.EnvTrueNASHost, constants.EnvTrueNASAPIKey)
-	case "vsphere":
-		return fmt.Sprintf("secrets.%s/%s/%s in your homeops config, or %s/%s/%s environment variables",
-			versionconfig.KeyVSphereHost, versionconfig.KeyVSphereUsername, versionconfig.KeyVSpherePassword,
-			constants.EnvVSphereHost, constants.EnvVSphereUsername, constants.EnvVSpherePassword)
-	default:
-		return fmt.Sprintf("secrets.%s/%s/%s in your homeops config, or the PROXMOX_* environment variables",
-			versionconfig.KeyProxmoxHost, versionconfig.KeyProxmoxTokenID, versionconfig.KeyProxmoxTokenSecret)
-	}
-}
-
-func ensureVMLifecycleProviderAvailable(provider, action string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
-	if err != nil {
-		return err
-	}
-
-	var capabilityErr error
-	switch normalizedProvider {
-	case "truenas":
-		_, _, capabilityErr = getTrueNASCredentialsFn()
-	case "proxmox":
-		_, _, _, _, capabilityErr = getProxmoxCredentialsFn()
-	case "vsphere":
-		_, _, _, capabilityErr = getVSphereCredsFn()
-	}
-
-	if capabilityErr == nil {
-		return nil
-	}
-
-	hint := ""
-	if versionconfig.Get().Source == "" {
-		hint = " No homeops.yaml found — run 'homeops-cli config init' to scaffold one."
-	}
-	return fmt.Errorf("%s VM lifecycle commands require %s: %w.%s Use `homeops-cli vm %s --provider %s --name <vm-name>` after configuring prerequisites",
-		vmProviderDisplayName(normalizedProvider),
-		vmProviderPrerequisites(normalizedProvider),
-		capabilityErr,
-		hint,
-		action,
-		normalizedProvider)
-}
-
-func chooseVMNameForProvider(name, provider, action string) (string, error) {
-	if strings.TrimSpace(name) != "" {
-		return name, nil
-	}
-
-	vmNames, err := getVMNamesForProvider(provider)
-	if err != nil {
-		return "", err
-	}
-
-	selectedVM, err := chooseVMFunc(fmt.Sprintf("Select VM to %s:", action), vmNames)
-	if err != nil {
-		if ui.IsCancellation(err) {
-			return "", nil
-		}
-		return "", fmt.Errorf("VM selection failed: %w", err)
-	}
-
-	return selectedVM, nil
-}
-
 func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 	var (
 		provider string
@@ -758,7 +357,7 @@ func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 		Hidden: true,
 		Short:  fmt.Sprintf("Use 'homeops-cli vm %s'", action),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			normalizedProvider, err := normalizeVMProvider(provider)
+			normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {
 				normalizedProvider = provider
 			}
@@ -777,7 +376,7 @@ func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	if action != "list" {
 		cmd.Flags().StringVar(&name, "name", "", "VM name")
 	}
@@ -786,82 +385,6 @@ func newVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 	}
 
 	return cmd
-}
-
-// getTrueNASVMNames retrieves the list of VM names from TrueNAS
-func getTrueNASVMNames() ([]string, error) {
-	// Get TrueNAS connection details
-	host, apiKey, err := truenas.GetCredentials()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create TrueNAS client and connect
-	client := truenas.NewWorkingClient(host, apiKey, 443, true)
-	if err := client.Connect(); err != nil {
-		return nil, fmt.Errorf("failed to connect to TrueNAS: %w", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	// Query VMs
-	vms, err := client.QueryVMs(nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query VMs: %w", err)
-	}
-
-	// Extract VM names
-	vmNames := make([]string, 0, len(vms))
-	for _, vm := range vms {
-		if vm.Name != "" {
-			vmNames = append(vmNames, vm.Name)
-		}
-	}
-
-	if len(vmNames) == 0 {
-		return nil, fmt.Errorf("no VMs found on TrueNAS")
-	}
-
-	return vmNames, nil
-}
-
-// getProxmoxVMNames retrieves the list of VM names from Proxmox
-func getProxmoxVMNames() ([]string, error) {
-	// Get Proxmox connection details
-	host, tokenID, secret, nodeName, err := proxmox.GetCredentials()
-	if err != nil {
-		return nil, err
-	}
-
-	// Create Proxmox client and connect
-	client, err := proxmox.NewClient(host, tokenID, secret, common.EnvBool(constants.EnvProxmoxInsecure, false))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Proxmox client: %w", err)
-	}
-	defer func() { _ = client.Close() }()
-
-	if err := client.Connect(nodeName); err != nil {
-		return nil, fmt.Errorf("failed to connect to Proxmox: %w", err)
-	}
-
-	// Query VMs
-	vms, err := client.ListVMs()
-	if err != nil {
-		return nil, fmt.Errorf("failed to query VMs: %w", err)
-	}
-
-	// Extract VM names
-	vmNames := make([]string, 0, len(vms))
-	for _, vm := range vms {
-		if vm.Name != "" {
-			vmNames = append(vmNames, vm.Name)
-		}
-	}
-
-	if len(vmNames) == 0 {
-		return nil, fmt.Errorf("no VMs found on Proxmox")
-	}
-
-	return vmNames, nil
 }
 
 func getMachineTypeFromNode(nodeIP string) (string, error) {
@@ -1005,7 +528,7 @@ func upgradeK8s() error {
 	}
 
 	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
-	k8sVersion := getEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion)
+	k8sVersion := vmlifecycle.GetEnvOrDefault("KUBERNETES_VERSION", versionConfig.KubernetesVersion)
 	if k8sVersion == "" {
 		return fmt.Errorf("KUBERNETES_VERSION environment variable not set")
 	}
@@ -1652,7 +1175,7 @@ If no flags are provided, presents an interactive menu with default and custom p
 				}
 			}
 
-			normalizedProvider, err := normalizeVMProvider(provider)
+			normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {
 				return err
 			}
@@ -1680,9 +1203,9 @@ If no flags are provided, presents an interactive menu with default and custom p
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
-	cmd.Flags().StringVar(&pool, "pool", truenasDefaultPool("flashstor/VM"), "Storage pool (TrueNAS only)")
+	cmd.Flags().StringVar(&pool, "pool", vmlifecycle.TruenasDefaultPool("flashstor/VM"), "Storage pool (TrueNAS only)")
 	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
 	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
 	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB (default: 250GB)")
@@ -1702,18 +1225,6 @@ If no flags are provided, presents an interactive menu with default and custom p
 	cmd.Flags().IntVar(&startIndex, "start-index", 0, "Starting index for generated VM names in batch deployments")
 
 	return cmd
-}
-
-func getVSphereHost() (string, error) {
-	host := resolveSecretKey(versionconfig.KeyVSphereHost)
-	if host == "" {
-		host = os.Getenv(constants.EnvVSphereHost)
-	}
-	if host == "" {
-		return "", fmt.Errorf("ESXi host not found. Please set %s environment variable or configure 1Password", constants.EnvVSphereHost)
-	}
-
-	return host, nil
 }
 
 func buildVSphereVMNames(baseName string, nodeCount, startIndex int) ([]string, error) {
@@ -2081,7 +1592,7 @@ func trueNASPreparedISORequiredError() error {
 }
 
 func requiredSpicePassword() (string, error) {
-	password := getSpicePassword()
+	password := vmlifecycle.GetSpicePassword()
 	if password == "" {
 		return "", fmt.Errorf("SPICE password is required - use SPICE_PASSWORD env var or configure 1Password")
 	}
@@ -2090,7 +1601,7 @@ func requiredSpicePassword() (string, error) {
 
 func resolveTrueNASDeploymentAccess(logger *common.ColorLogger) (host, apiKey, spicePassword string, err error) {
 	logger.Debug("Retrieving TrueNAS credentials")
-	host, apiKey, err = getTrueNASCredentials()
+	host, apiKey, err = vmlifecycle.GetTrueNASCredentials()
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to get TrueNAS credentials: %w", err)
 	}
@@ -2106,9 +1617,9 @@ func resolveTrueNASDeploymentAccess(logger *common.ColorLogger) (host, apiKey, s
 	return host, apiKey, spicePassword, nil
 }
 
-func connectedTrueNASVMManager(logger *common.ColorLogger, host, apiKey string) (trueNASVMManager, error) {
+func connectedTrueNASVMManager(logger *common.ColorLogger, host, apiKey string) (vmlifecycle.TrueNASVMManager, error) {
 	logger.Debug("Creating VM manager for TrueNAS host: %s", host)
-	vmManager := newTrueNASVMManagerFn(host, apiKey, 443, true)
+	vmManager := vmlifecycle.NewTrueNASVMManagerFn(host, apiKey, 443, true)
 	if vmManager == nil {
 		return nil, fmt.Errorf("failed to create VM manager")
 	}
@@ -2122,10 +1633,10 @@ func connectedTrueNASVMManager(logger *common.ColorLogger, host, apiKey string) 
 }
 
 func trueNASNetworkBridge() string {
-	return getEnvOrDefault("NETWORK_BRIDGE", "br0")
+	return vmlifecycle.GetEnvOrDefault("NETWORK_BRIDGE", "br0")
 }
 
-func executeTrueNASVMDeployment(logger *common.ColorLogger, vmManager trueNASVMManager, config truenas.VMConfig) error {
+func executeTrueNASVMDeployment(logger *common.ColorLogger, vmManager vmlifecycle.TrueNASVMManager, config truenas.VMConfig) error {
 	if err := spinWithFuncFn(fmt.Sprintf("Deploying VM %s", config.Name), func() error {
 		logger.Debug("Calling vmManager.DeployVM with configuration")
 		if err := vmManager.DeployVM(config); err != nil {
@@ -2243,7 +1754,7 @@ func verifyPreparedTrueNASISO(logger *common.ColorLogger, host string) (*trueNAS
 
 	sshConfig := ssh.SSHConfig{
 		Host:     host,
-		Username: resolveSecretKey(versionconfig.KeyTrueNASUsername),
+		Username: vmlifecycle.ResolveSecretKey(versionconfig.KeyTrueNASUsername),
 		Port:     "22",
 	}
 	sshClient := newTrueNASSSHClientFn(sshConfig)
@@ -2290,7 +1801,7 @@ func resolveTrueNASISOSelection(logger *common.ColorLogger, host string, generat
 
 func executeProxmoxDeploymentPlan(logger *common.ColorLogger, host, tokenID, secret, nodeName string, plan *proxmoxDeploymentPlan) error {
 	if len(plan.Configs) == 1 || plan.Concurrent == 1 {
-		vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
+		vmManager, err := vmlifecycle.NewProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
 		if err != nil {
 			return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
 		}
@@ -2426,7 +1937,7 @@ func deployVMOnProxmox(baseName string, memory, vcpus, diskSize, openebsSize int
 	logNamedVMDeploymentStart(logger, "Proxmox VE", plan.VMNames)
 
 	// Get Proxmox credentials
-	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
+	host, tokenID, secret, nodeName, err := vmlifecycle.GetProxmoxCredentialsFn()
 	if err != nil {
 		return err
 	}
@@ -2541,7 +2052,7 @@ func deployProxmoxVMsConcurrently(host, tokenID, secret, nodeName string, config
 			defer func() { <-sem }()
 
 			logger.Info("Starting Proxmox deployment worker for %s", cfg.Name)
-			vmManager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
+			vmManager, err := vmlifecycle.NewProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
 			if err != nil {
 				mu.Lock()
 				failures = append(failures, fmt.Sprintf("%s: failed to create Proxmox VM manager: %v", cfg.Name, err))
@@ -2583,7 +2094,7 @@ func prepareISOForProxmox() error {
 		deployCommand:  "homeops-cli talos deploy-vm --provider proxmox --name <vm_name> [other flags]",
 		summaryMessage: "Custom ISO generated and uploaded to Proxmox local storage",
 		uploadISO: func(isoInfo *talos.ISOInfo) error {
-			return withProxmoxVMManager(common.NewColorLogger(), func(vmManager proxmoxVMManager) error {
+			return vmlifecycle.WithProxmoxVMManager(common.NewColorLogger(), func(vmManager vmlifecycle.ProxmoxVMManager) error {
 				if err := vmManager.UploadISOFromURL(isoInfo.URL, isoFilename, "local"); err != nil {
 					return fmt.Errorf("failed to upload custom ISO to Proxmox: %w", err)
 				}
@@ -2672,14 +2183,6 @@ func deployVMWithPattern(name, pool string, memory, vcpus, diskSize, openebsSize
 
 	logger.Debug("VM deployment function completed successfully")
 	return nil
-}
-
-// defaultProviderName returns hypervisors.default from homeops.yaml.
-func defaultProviderName() string {
-	if p := versionconfig.Get().Hypervisors.Default; p != "" {
-		return p
-	}
-	return "proxmox"
 }
 
 // vmVerbGroups organizes the lifecycle verbs in help output.
@@ -2847,14 +2350,14 @@ func newListVMsCommand() *cobra.Command {
 		Example: `  homeops-cli vm proxmox list
   homeops-cli vm truenas list --output json | jq '.vms[].name'`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "list"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "list"); err != nil {
 				return err
 			}
 			return listVMs(provider, output)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 
 	return cmd
@@ -2867,12 +2370,12 @@ type vmInventory struct {
 }
 
 func listVMs(provider, output string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
+	normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
 
-	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
+	return vmlifecycle.WithVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
 		summaries, err := lifecycle.VMSummaries()
 		if err != nil {
 			return err
@@ -2931,14 +2434,14 @@ func newStartVMCommand() *cobra.Command {
 		Short: "Start a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Start a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "start"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "start"); err != nil {
 				return err
 			}
 			return startVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -2949,21 +2452,21 @@ func newStartVMCommand() *cobra.Command {
 
 // startVMWithProvider starts a VM on the specified provider with interactive selector
 func startVMWithProvider(name, provider string) error {
-	return runVMLifecycleAction(name, provider, "start", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+	return vmlifecycle.RunVMLifecycleAction(name, provider, "start", func(lifecycle vmprov.VMLifecycle, vmName string) error {
 		return lifecycle.StartVM(vmName)
 	})
 }
 
 // stopVMWithProvider stops a VM on the specified provider with interactive selector
 func stopVMWithProvider(name, provider string) error {
-	return runVMLifecycleAction(name, provider, "stop", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+	return vmlifecycle.RunVMLifecycleAction(name, provider, "stop", func(lifecycle vmprov.VMLifecycle, vmName string) error {
 		return lifecycle.StopVM(vmName, false)
 	})
 }
 
 // infoVMWithProvider gets VM info from the specified provider with interactive selector
 func infoVMWithProvider(name, provider string) error {
-	return runVMLifecycleAction(name, provider, "get info", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+	return vmlifecycle.RunVMLifecycleAction(name, provider, "get info", func(lifecycle vmprov.VMLifecycle, vmName string) error {
 		return lifecycle.GetVMInfo(vmName)
 	})
 }
@@ -2979,14 +2482,14 @@ func newStopVMCommand() *cobra.Command {
 		Short: "Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Stop a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "stop"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "stop"); err != nil {
 				return err
 			}
 			return stopVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -3007,14 +2510,14 @@ func newDeleteVMCommand() *cobra.Command {
 		Short: "Delete a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Delete a VM on Proxmox, TrueNAS (with ZVols), or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "delete"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "delete"); err != nil {
 				return err
 			}
 			return deleteVMWithConfirmation(name, provider, force)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 
@@ -3025,12 +2528,12 @@ func newDeleteVMCommand() *cobra.Command {
 }
 
 func deleteVMWithConfirmation(name, provider string, force bool) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
+	normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
 
-	name, err = chooseVMNameForProvider(name, normalizedProvider, "delete")
+	name, err = vmlifecycle.ChooseVMNameForProvider(name, normalizedProvider, "delete")
 	if err != nil {
 		return err
 	}
@@ -3059,7 +2562,7 @@ func deleteVMWithConfirmation(name, provider string, force bool) error {
 		}
 	}
 
-	return withVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
+	return vmlifecycle.WithVMLifecycle(normalizedProvider, func(lifecycle vmprov.VMLifecycle) error {
 		return lifecycle.DeleteVM(name)
 	})
 }
@@ -3075,14 +2578,14 @@ func newInfoVMCommand() *cobra.Command {
 		Short: "Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Get detailed information about a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "info"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "info"); err != nil {
 				return err
 			}
 			return infoVMWithProvider(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -3112,7 +2615,7 @@ and deploy multiple VMs using the same custom configuration.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Storage provider: proxmox, truenas, or vsphere/esxi (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Storage provider: proxmox, truenas, or vsphere/esxi (default: hypervisors.default in homeops.yaml)")
 
 	return cmd
 }
@@ -3130,7 +2633,7 @@ type isoPreparationTarget struct {
 
 // prepareISOWithProvider handles the ISO generation and upload process for different providers
 func prepareISOWithProvider(provider string) error {
-	normalizedProvider, err := normalizeVMProvider(provider)
+	normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
@@ -3287,7 +2790,7 @@ func uploadISOToVSphere(isoURL string) error {
 	logger.Success("ISO downloaded to temporary file: %s", tempFile)
 
 	// Upload to vSphere datastore
-	return withVSphereClient(logger, func(client vsphereClient) error {
+	return vmlifecycle.WithVSphereClient(logger, func(client vmlifecycle.VSphereClient) error {
 		logger.Info("Uploading ISO to vSphere datastore1...")
 		if err := client.UploadISOToDatastore(tempFile, vsphere.DefaultISODatastore, vsphere.DefaultISOFilename); err != nil {
 			return fmt.Errorf("failed to upload ISO to datastore: %w", err)
@@ -3438,7 +2941,7 @@ func newCleanupZVolsCommand() *cobra.Command {
 func cleanupOrphanedZVols(vmName, storagePool string) error {
 	logger := common.NewColorLogger()
 	logger.Info("Starting cleanup of orphaned ZVols for VM: %s", vmName)
-	return withTrueNASVMManager(logger, func(vmManager trueNASVMManager) error {
+	return vmlifecycle.WithTrueNASVMManager(logger, func(vmManager vmlifecycle.TrueNASVMManager) error {
 		if err := vmManager.CleanupOrphanedZVols(vmName, storagePool); err != nil {
 			return fmt.Errorf("failed to cleanup orphaned ZVols: %w", err)
 		}
@@ -3453,7 +2956,7 @@ func deployVMOnVSphere(baseName string, memory, vcpus, diskSize, openebsSize int
 	logger := common.NewColorLogger()
 	logger.Info("Starting vSphere/ESXi VM deployment with enhanced configuration")
 
-	host, err := getVSphereHostFn()
+	host, err := vmlifecycle.GetVSphereHostFn()
 	if err != nil {
 		return err
 	}
@@ -3518,7 +3021,7 @@ func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, op
 func deployGenericVMOnVSphere(baseName string, host string, memory, vcpus, diskSize, openebsSize int, macAddress, datastore, network string, generateISO bool, concurrent, nodeCount, startIndex int) error {
 	logger := common.NewColorLogger()
 
-	_, username, password, err := getVSphereCredsFn()
+	_, username, password, err := vmlifecycle.GetVSphereCredsFn()
 	if err != nil {
 		return err
 	}
@@ -3580,14 +3083,14 @@ func newPowerOnVMCommand() *cobra.Command {
 		Short: "Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Power on a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "poweron"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "poweron"); err != nil {
 				return err
 			}
 			return powerOnVM(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -3607,14 +3110,14 @@ func newPowerOffVMCommand() *cobra.Command {
 		Short: "Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi",
 		Long:  `Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := ensureVMLifecycleProviderFn(provider, "poweroff"); err != nil {
+			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "poweroff"); err != nil {
 				return err
 			}
 			return powerOffVM(name, provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -3625,14 +3128,14 @@ func newPowerOffVMCommand() *cobra.Command {
 
 // powerOnVM powers on a VM on the specified provider with interactive selector
 func powerOnVM(name, provider string) error {
-	return runVMLifecycleAction(name, provider, "power on", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+	return vmlifecycle.RunVMLifecycleAction(name, provider, "power on", func(lifecycle vmprov.VMLifecycle, vmName string) error {
 		return lifecycle.StartVM(vmName)
 	})
 }
 
 // powerOffVM force-stops a VM on the specified provider with interactive selector
 func powerOffVM(name, provider string) error {
-	return runVMLifecycleAction(name, provider, "power off", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+	return vmlifecycle.RunVMLifecycleAction(name, provider, "power off", func(lifecycle vmprov.VMLifecycle, vmName string) error {
 		return lifecycle.StopVM(vmName, true)
 	})
 }

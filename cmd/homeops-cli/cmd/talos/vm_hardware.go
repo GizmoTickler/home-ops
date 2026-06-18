@@ -7,16 +7,17 @@ import (
 	"github.com/spf13/cobra"
 
 	vmprov "homeops-cli/internal/provider"
+	"homeops-cli/internal/vmlifecycle"
 )
 
 // runLifecycleOp normalizes the provider then runs op against a freshly
 // constructed lifecycle for it (closed afterwards).
 func runLifecycleOp(provider string, op func(vmprov.VMLifecycle) error) error {
-	normalized, err := normalizeVMProvider(provider)
+	normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 	if err != nil {
 		return err
 	}
-	return withVMLifecycle(normalized, op)
+	return vmlifecycle.WithVMLifecycle(normalized, op)
 }
 
 // providerFlagUsage is the shared --provider help text for vm subcommands.
@@ -43,7 +44,7 @@ func newSetVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.Flags().IntVar(&memory, "memory", 0, "new memory in MB (0 = unchanged)")
 	cmd.Flags().IntVar(&cores, "cores", 0, "new CPU cores/vCPUs (0 = unchanged)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -83,7 +84,7 @@ func newResizeDiskCommand() *cobra.Command {
 	cmd.Flags().StringVar(&disk, "disk", "", "disk to resize (default: boot disk; proxmox: scsi0/scsi1..., truenas: boot/openebs/zvol path, vsphere: scsiN or device label)")
 	cmd.Flags().StringVar(&grow, "grow", "", "grow by this much (e.g. 20G)")
 	cmd.Flags().StringVar(&size, "size", "", "grow to this absolute size (e.g. 200G)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -104,6 +105,6 @@ func newRestartVMCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }

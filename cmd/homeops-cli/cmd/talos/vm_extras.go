@@ -9,6 +9,7 @@ import (
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	vmprov "homeops-cli/internal/provider"
+	"homeops-cli/internal/vmlifecycle"
 )
 
 // runInteractiveSSHFn execs ssh wired to the terminal. Swappable for tests.
@@ -103,7 +104,7 @@ name (crash-consistent while the VM runs).`,
 
 	cmd.PersistentFlags().StringVar(&name, "name", "", "VM name (required)")
 	cmd.PersistentFlags().StringVar(&snap, "snap", "", "snapshot name")
-	cmd.PersistentFlags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.PersistentFlags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	cmd.AddCommand(create, list, rollback, del)
 	return cmd
 }
@@ -134,7 +135,7 @@ makes full clones.`,
 	cmd.Flags().StringVar(&to, "to", "", "new VM name (required)")
 	cmd.Flags().IntVar(&vmid, "vmid", 0, "VMID for the clone (proxmox only; 0 = auto)")
 	cmd.Flags().BoolVar(&linked, "linked", false, "linked clone instead of full (proxmox; truenas clones are always ZFS-linked)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -146,11 +147,11 @@ func vmNameFromArgsOrPrompt(args []string, provider, action string) (string, err
 	if len(args) > 0 {
 		name = args[0]
 	}
-	normalized, err := normalizeVMProvider(provider)
+	normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 	if err != nil {
 		return "", err
 	}
-	return chooseVMNameForProvider(name, normalized, action)
+	return vmlifecycle.ChooseVMNameForProvider(name, normalized, action)
 }
 
 // resolveVMIP finds a VM's IP: provider discovery first, cluster.nodes
@@ -197,7 +198,7 @@ func newVMIPCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -221,7 +222,7 @@ func newVMSSHCommand() *cobra.Command {
 			}
 			sshUser := user
 			if sshUser == "" {
-				sshUser = resolveSecretKey(versionconfig.KeyNodeSSHUser)
+				sshUser = vmlifecycle.ResolveSecretKey(versionconfig.KeyNodeSSHUser)
 			}
 			target := ip
 			if sshUser != "" {
@@ -232,7 +233,7 @@ func newVMSSHCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (default: secrets.node_ssh_user)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
 
@@ -254,14 +255,14 @@ func newVMConsoleCommand() *cobra.Command {
 			if err != nil || name == "" {
 				return err
 			}
-			normalized, err := normalizeVMProvider(provider)
+			normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {
 				return err
 			}
 			// Proxmox has two console flavours worth printing; the uniform
 			// path prints the single provider URL.
 			if normalized == "proxmox" {
-				return withProxmoxVMManager(common.NewColorLogger(), func(m proxmoxVMManager) error {
+				return vmlifecycle.WithProxmoxVMManager(common.NewColorLogger(), func(m vmlifecycle.ProxmoxVMManager) error {
 					novnc, xtermjs, err := m.ConsoleURLs(name)
 					if err != nil {
 						return err
@@ -270,7 +271,7 @@ func newVMConsoleCommand() *cobra.Command {
 					return nil
 				})
 			}
-			return withVMLifecycle(normalized, func(lc vmprov.VMLifecycle) error {
+			return vmlifecycle.WithVMLifecycle(normalized, func(lc vmprov.VMLifecycle) error {
 				url, err := lc.ConsoleURL(name)
 				if err != nil {
 					return err
@@ -280,6 +281,6 @@ func newVMConsoleCommand() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }

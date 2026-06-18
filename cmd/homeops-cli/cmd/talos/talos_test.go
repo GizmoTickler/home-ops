@@ -26,6 +26,7 @@ import (
 	"homeops-cli/internal/ssh"
 	internaltalos "homeops-cli/internal/talos"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vmlifecycle"
 
 	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/vsphere"
@@ -467,7 +468,7 @@ func TestGetEnvOrDefault(t *testing.T) {
 				defer cleanup()
 			}
 
-			result := getEnvOrDefault(tt.key, tt.defaultValue)
+			result := vmlifecycle.GetEnvOrDefault(tt.key, tt.defaultValue)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -491,7 +492,7 @@ func TestNormalizeVMProvider(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := normalizeVMProvider(tt.input)
+			got, err := vmlifecycle.NormalizeVMProvider(tt.input)
 			if tt.expectErr {
 				require.Error(t, err)
 				return
@@ -503,52 +504,52 @@ func TestNormalizeVMProvider(t *testing.T) {
 }
 
 func TestGetVMNamesForProvider(t *testing.T) {
-	oldTrueNAS := getTrueNASVMNamesFn
-	oldProxmox := getProxmoxVMNamesFn
-	oldESXi := getESXiVMNamesFn
+	oldTrueNAS := vmlifecycle.GetTrueNASVMNamesFn
+	oldProxmox := vmlifecycle.GetProxmoxVMNamesFn
+	oldESXi := vmlifecycle.GetESXiVMNamesFn
 	t.Cleanup(func() {
-		getTrueNASVMNamesFn = oldTrueNAS
-		getProxmoxVMNamesFn = oldProxmox
-		getESXiVMNamesFn = oldESXi
+		vmlifecycle.GetTrueNASVMNamesFn = oldTrueNAS
+		vmlifecycle.GetProxmoxVMNamesFn = oldProxmox
+		vmlifecycle.GetESXiVMNamesFn = oldESXi
 	})
 
-	getTrueNASVMNamesFn = func() ([]string, error) { return []string{"tn-1"}, nil }
-	getProxmoxVMNamesFn = func() ([]string, error) { return []string{"px-1"}, nil }
-	getESXiVMNamesFn = func() ([]string, error) { return []string{"esx-1"}, nil }
+	vmlifecycle.GetTrueNASVMNamesFn = func() ([]string, error) { return []string{"tn-1"}, nil }
+	vmlifecycle.GetProxmoxVMNamesFn = func() ([]string, error) { return []string{"px-1"}, nil }
+	vmlifecycle.GetESXiVMNamesFn = func() ([]string, error) { return []string{"esx-1"}, nil }
 
-	names, err := getVMNamesForProvider("truenas")
+	names, err := vmlifecycle.GetVMNamesForProvider("truenas")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"tn-1"}, names)
 
-	names, err = getVMNamesForProvider("proxmox")
+	names, err = vmlifecycle.GetVMNamesForProvider("proxmox")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"px-1"}, names)
 
-	names, err = getVMNamesForProvider("esxi")
+	names, err = vmlifecycle.GetVMNamesForProvider("esxi")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"esx-1"}, names)
 }
 
 func TestChooseVMNameForProvider(t *testing.T) {
-	oldChoose := chooseVMFunc
-	oldProxmox := getProxmoxVMNamesFn
+	oldChoose := vmlifecycle.ChooseVMFunc
+	oldProxmox := vmlifecycle.GetProxmoxVMNamesFn
 	t.Cleanup(func() {
-		chooseVMFunc = oldChoose
-		getProxmoxVMNamesFn = oldProxmox
+		vmlifecycle.ChooseVMFunc = oldChoose
+		vmlifecycle.GetProxmoxVMNamesFn = oldProxmox
 	})
 
-	getProxmoxVMNamesFn = func() ([]string, error) { return []string{"vm-a", "vm-b"}, nil }
-	chooseVMFunc = func(prompt string, options []string) (string, error) {
+	vmlifecycle.GetProxmoxVMNamesFn = func() ([]string, error) { return []string{"vm-a", "vm-b"}, nil }
+	vmlifecycle.ChooseVMFunc = func(prompt string, options []string) (string, error) {
 		assert.Equal(t, "Select VM to start:", prompt)
 		assert.Equal(t, []string{"vm-a", "vm-b"}, options)
 		return "vm-b", nil
 	}
 
-	selected, err := chooseVMNameForProvider("", "proxmox", "start")
+	selected, err := vmlifecycle.ChooseVMNameForProvider("", "proxmox", "start")
 	require.NoError(t, err)
 	assert.Equal(t, "vm-b", selected)
 
-	selected, err = chooseVMNameForProvider("already-set", "proxmox", "start")
+	selected, err = vmlifecycle.ChooseVMNameForProvider("already-set", "proxmox", "start")
 	require.NoError(t, err)
 	assert.Equal(t, "already-set", selected)
 }
@@ -661,17 +662,17 @@ func TestBuildTrueNASVMConfig(t *testing.T) {
 }
 
 func TestTrueNASDeploymentHelpers(t *testing.T) {
-	oldSecret := resolveSecretKeyFn
-	oldManagerFactory := newTrueNASVMManagerFn
+	oldSecret := vmlifecycle.ResolveSecretKeyFn
+	oldManagerFactory := vmlifecycle.NewTrueNASVMManagerFn
 	oldSpin := spinWithFuncFn
 	t.Cleanup(func() {
-		resolveSecretKeyFn = oldSecret
-		newTrueNASVMManagerFn = oldManagerFactory
+		vmlifecycle.ResolveSecretKeyFn = oldSecret
+		vmlifecycle.NewTrueNASVMManagerFn = oldManagerFactory
 		spinWithFuncFn = oldSpin
 	})
 
 	t.Run("required spice password errors when missing", func(t *testing.T) {
-		resolveSecretKeyFn = func(string) string { return "" }
+		vmlifecycle.ResolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, constants.EnvSPICEPassword, "")
 		defer cleanup()
 
@@ -683,7 +684,7 @@ func TestTrueNASDeploymentHelpers(t *testing.T) {
 
 	t.Run("resolve truenas deployment access from env and 1password", func(t *testing.T) {
 		stubUnavailable1PasswordCLI(t)
-		resolveSecretKeyFn = func(ref string) string {
+		vmlifecycle.ResolveSecretKeyFn = func(ref string) string {
 			if ref == versionconfig.KeyTrueNASSpicePassword {
 				return "op-spice"
 			}
@@ -704,7 +705,7 @@ func TestTrueNASDeploymentHelpers(t *testing.T) {
 
 	t.Run("connected truenas vm manager uses seam", func(t *testing.T) {
 		manager := &fakeTrueNASVMManager{}
-		newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
+		vmlifecycle.NewTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
 			assert.Equal(t, "truenas.local", host)
 			assert.Equal(t, "api-key", apiKey)
 			assert.Equal(t, 443, port)
@@ -754,18 +755,18 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 	oldFactory := newTalosFactoryClientFn
 	oldDownloader := newISODownloaderFn
 	oldSSHClient := newTrueNASSSHClientFn
-	oldSecret := resolveSecretKeyFn
+	oldSecret := vmlifecycle.ResolveSecretKeyFn
 	oldWorkdir := workingDirectoryFn
 	t.Cleanup(func() {
 		newTalosFactoryClientFn = oldFactory
 		newISODownloaderFn = oldDownloader
 		newTrueNASSSHClientFn = oldSSHClient
-		resolveSecretKeyFn = oldSecret
+		vmlifecycle.ResolveSecretKeyFn = oldSecret
 		workingDirectoryFn = oldWorkdir
 	})
 
 	workingDirectoryFn = func() string { return "." }
-	resolveSecretKeyFn = func(ref string) string {
+	vmlifecycle.ResolveSecretKeyFn = func(ref string) string {
 		switch ref {
 		case versionconfig.KeyTrueNASHost:
 			return "truenas.local"
@@ -776,7 +777,7 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 		}
 	}
 	// iso.GetDefaultConfig resolves through the homeops config (env://
-	// defaults in tests), not through resolveSecretKeyFn.
+	// defaults in tests), not through vmlifecycle.ResolveSecretKeyFn.
 	t.Setenv("TRUENAS_HOST", "truenas.local")
 	t.Setenv("TRUENAS_USERNAME", "admin")
 
@@ -834,15 +835,15 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 }
 
 func TestDeployGenericVMOnVSphereSingleUsesSeam(t *testing.T) {
-	oldCreds := getVSphereCredsFn
+	oldCreds := vmlifecycle.GetVSphereCredsFn
 	oldFactory := newVSphereDeployerFn
 	t.Cleanup(func() {
-		getVSphereCredsFn = oldCreds
+		vmlifecycle.GetVSphereCredsFn = oldCreds
 		newVSphereDeployerFn = oldFactory
 	})
 
 	fake := &fakeVSphereDeployer{}
-	getVSphereCredsFn = func() (string, string, string, error) {
+	vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
 		return "esxi.local", "user", "pass", nil
 	}
 	newVSphereDeployerFn = func(host, username, password string) (vsphereVMDeployer, error) {
@@ -863,15 +864,15 @@ func TestDeployGenericVMOnVSphereSingleUsesSeam(t *testing.T) {
 }
 
 func TestDeployGenericVMOnVSphereMultiUsesConcurrentDeploy(t *testing.T) {
-	oldCreds := getVSphereCredsFn
+	oldCreds := vmlifecycle.GetVSphereCredsFn
 	oldFactory := newVSphereDeployerFn
 	t.Cleanup(func() {
-		getVSphereCredsFn = oldCreds
+		vmlifecycle.GetVSphereCredsFn = oldCreds
 		newVSphereDeployerFn = oldFactory
 	})
 
 	fake := &fakeVSphereDeployer{}
-	getVSphereCredsFn = func() (string, string, string, error) {
+	vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
 		return "esxi.local", "user", "pass", nil
 	}
 	newVSphereDeployerFn = func(host, username, password string) (vsphereVMDeployer, error) {
@@ -914,23 +915,23 @@ func TestDeployK8sVMViaSSHUsesSeam(t *testing.T) {
 }
 
 func TestDeployVMOnVSphereRoutesK8sBaseNamesToSSH(t *testing.T) {
-	oldHost := getVSphereHostFn
+	oldHost := vmlifecycle.GetVSphereHostFn
 	oldK8s := newESXiK8sVMDeployerFn
 	oldVSphere := newVSphereDeployerFn
-	oldCreds := getVSphereCredsFn
+	oldCreds := vmlifecycle.GetVSphereCredsFn
 	t.Cleanup(func() {
-		getVSphereHostFn = oldHost
+		vmlifecycle.GetVSphereHostFn = oldHost
 		newESXiK8sVMDeployerFn = oldK8s
 		newVSphereDeployerFn = oldVSphere
-		getVSphereCredsFn = oldCreds
+		vmlifecycle.GetVSphereCredsFn = oldCreds
 	})
 
 	fakeSSH := &fakeESXiK8sVMDeployer{}
-	getVSphereHostFn = func() (string, error) { return "esxi.local", nil }
+	vmlifecycle.GetVSphereHostFn = func() (string, error) { return "esxi.local", nil }
 	newESXiK8sVMDeployerFn = func(host, username string) (esxiK8sVMDeployer, error) {
 		return fakeSSH, nil
 	}
-	getVSphereCredsFn = func() (string, string, string, error) {
+	vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
 		return "esxi.local", "user", "pass", nil
 	}
 	newVSphereDeployerFn = func(host, username, password string) (vsphereVMDeployer, error) {
@@ -1102,12 +1103,12 @@ func (f *fakeVMLifecycle) Close() error {
 // that record into the returned slice, restoring it after the test.
 func injectFakeVMLifecycle(t *testing.T) (*[]string, *int) {
 	t.Helper()
-	oldFactory := newVMLifecycleFn
-	t.Cleanup(func() { newVMLifecycleFn = oldFactory })
+	oldFactory := vmlifecycle.NewVMLifecycleFn
+	t.Cleanup(func() { vmlifecycle.NewVMLifecycleFn = oldFactory })
 
 	calls := &[]string{}
 	closed := new(int)
-	newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+	vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls, closed: closed}, nil
 	}
 	return calls, closed
@@ -1241,19 +1242,19 @@ func TestBuildProxmoxDeploymentPlanPresetBatchDetails(t *testing.T) {
 }
 
 func TestVMLifecycleCommandWrappers(t *testing.T) {
-	oldEnsureProvider := ensureVMLifecycleProviderFn
-	oldFactory := newVMLifecycleFn
+	oldEnsureProvider := vmlifecycle.EnsureVMLifecycleProviderFn
+	oldFactory := vmlifecycle.NewVMLifecycleFn
 	t.Cleanup(func() {
-		ensureVMLifecycleProviderFn = oldEnsureProvider
-		newVMLifecycleFn = oldFactory
+		vmlifecycle.EnsureVMLifecycleProviderFn = oldEnsureProvider
+		vmlifecycle.NewVMLifecycleFn = oldFactory
 	})
 
 	calls := &[]string{}
-	ensureVMLifecycleProviderFn = func(provider, action string) error {
+	vmlifecycle.EnsureVMLifecycleProviderFn = func(provider, action string) error {
 		*calls = append(*calls, "check:"+provider+":"+action)
 		return nil
 	}
-	newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+	vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
 	}
 
@@ -1300,28 +1301,28 @@ func TestDeployVMCommandProviderValidation(t *testing.T) {
 }
 
 func TestSecretAndHostResolution(t *testing.T) {
-	oldSecret := resolveSecretKeyFn
+	oldSecret := vmlifecycle.ResolveSecretKeyFn
 	t.Cleanup(func() {
-		resolveSecretKeyFn = oldSecret
+		vmlifecycle.ResolveSecretKeyFn = oldSecret
 	})
 
 	t.Run("spice password prefers 1password then env", func(t *testing.T) {
-		resolveSecretKeyFn = func(ref string) string {
+		vmlifecycle.ResolveSecretKeyFn = func(ref string) string {
 			if ref == versionconfig.KeyTrueNASSpicePassword {
 				return "op-secret"
 			}
 			return ""
 		}
-		assert.Equal(t, "op-secret", getSpicePassword())
+		assert.Equal(t, "op-secret", vmlifecycle.GetSpicePassword())
 
-		resolveSecretKeyFn = func(string) string { return "" }
+		vmlifecycle.ResolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, "SPICE_PASSWORD", "env-secret")
 		defer cleanup()
-		assert.Equal(t, "env-secret", getSpicePassword())
+		assert.Equal(t, "env-secret", vmlifecycle.GetSpicePassword())
 	})
 
 	t.Run("vsphere credentials resolve from secret source", func(t *testing.T) {
-		resolveSecretKeyFn = func(ref string) string {
+		vmlifecycle.ResolveSecretKeyFn = func(ref string) string {
 			switch ref {
 			case versionconfig.KeyVSphereHost:
 				return "esxi.local"
@@ -1334,7 +1335,7 @@ func TestSecretAndHostResolution(t *testing.T) {
 			}
 		}
 
-		host, username, password, err := getVSphereCredentials()
+		host, username, password, err := vmlifecycle.GetVSphereCredentials()
 		require.NoError(t, err)
 		assert.Equal(t, "esxi.local", host)
 		assert.Equal(t, "root", username)
@@ -1342,11 +1343,11 @@ func TestSecretAndHostResolution(t *testing.T) {
 	})
 
 	t.Run("vsphere host falls back to env", func(t *testing.T) {
-		resolveSecretKeyFn = func(string) string { return "" }
+		vmlifecycle.ResolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnv(t, "VSPHERE_HOST", "env-esxi.local")
 		defer cleanup()
 
-		host, err := getVSphereHost()
+		host, err := vmlifecycle.GetVSphereHost()
 		require.NoError(t, err)
 		assert.Equal(t, "env-esxi.local", host)
 	})
@@ -1435,12 +1436,12 @@ func TestPrepareISOForTarget(t *testing.T) {
 
 func TestPrepareISOProviderTargets(t *testing.T) {
 	oldPrepareTarget := prepareISOForTargetFn
-	oldSecret := resolveSecretKeyFn
+	oldSecret := vmlifecycle.ResolveSecretKeyFn
 	oldDownloader := newISODownloaderFn
 	oldUploadVSphere := uploadISOToVSphereFn
 	t.Cleanup(func() {
 		prepareISOForTargetFn = oldPrepareTarget
-		resolveSecretKeyFn = oldSecret
+		vmlifecycle.ResolveSecretKeyFn = oldSecret
 		newISODownloaderFn = oldDownloader
 		uploadISOToVSphereFn = oldUploadVSphere
 	})
@@ -1692,13 +1693,13 @@ func TestTalosUpgradeAndLifecycleFlows(t *testing.T) {
 }
 
 func TestTalosCommandWrappersAndEdges(t *testing.T) {
-	oldSecret := resolveSecretKeyFn
+	oldSecret := vmlifecycle.ResolveSecretKeyFn
 	oldTalosctlOutput := talosctlOutputFn
 	oldCombined := talosctlCombinedOutputFn
 	oldConfirm := confirmActionFn
 	oldSpin := spinCommandFn
 	t.Cleanup(func() {
-		resolveSecretKeyFn = oldSecret
+		vmlifecycle.ResolveSecretKeyFn = oldSecret
 		talosctlOutputFn = oldTalosctlOutput
 		talosctlCombinedOutputFn = oldCombined
 		confirmActionFn = oldConfirm
@@ -1706,7 +1707,7 @@ func TestTalosCommandWrappersAndEdges(t *testing.T) {
 	})
 
 	t.Run("vsphere credentials fall back to environment", func(t *testing.T) {
-		resolveSecretKeyFn = func(string) string { return "" }
+		vmlifecycle.ResolveSecretKeyFn = func(string) string { return "" }
 		cleanup := testutil.SetEnvs(t, map[string]string{
 			constants.EnvVSphereHost:     "env-host",
 			constants.EnvVSphereUsername: "env-user",
@@ -1714,7 +1715,7 @@ func TestTalosCommandWrappersAndEdges(t *testing.T) {
 		})
 		defer cleanup()
 
-		host, username, password, err := getVSphereCredentials()
+		host, username, password, err := vmlifecycle.GetVSphereCredentials()
 		require.NoError(t, err)
 		assert.Equal(t, "env-host", host)
 		assert.Equal(t, "env-user", username)
@@ -1778,19 +1779,19 @@ func TestTalosCommandWrappersAndEdges(t *testing.T) {
 }
 
 func TestHypervisorWrapperFlows(t *testing.T) {
-	oldTrueNASFactory := newTrueNASVMManagerFn
-	oldProxmoxFactory := newProxmoxVMManagerFn
-	oldVSphereFactory := newVSphereClientFn
-	oldProxmoxCreds := getProxmoxCredentialsFn
-	oldVSphereCreds := getVSphereCredsFn
+	oldTrueNASFactory := vmlifecycle.NewTrueNASVMManagerFn
+	oldProxmoxFactory := vmlifecycle.NewProxmoxVMManagerFn
+	oldVSphereFactory := vmlifecycle.NewVSphereClientFn
+	oldProxmoxCreds := vmlifecycle.GetProxmoxCredentialsFn
+	oldVSphereCreds := vmlifecycle.GetVSphereCredsFn
 	oldPrepareTarget := prepareISOForTargetFn
 	oldHTTPGet := httpGetFn
 	t.Cleanup(func() {
-		newTrueNASVMManagerFn = oldTrueNASFactory
-		newProxmoxVMManagerFn = oldProxmoxFactory
-		newVSphereClientFn = oldVSphereFactory
-		getProxmoxCredentialsFn = oldProxmoxCreds
-		getVSphereCredsFn = oldVSphereCreds
+		vmlifecycle.NewTrueNASVMManagerFn = oldTrueNASFactory
+		vmlifecycle.NewProxmoxVMManagerFn = oldProxmoxFactory
+		vmlifecycle.NewVSphereClientFn = oldVSphereFactory
+		vmlifecycle.GetProxmoxCredentialsFn = oldProxmoxCreds
+		vmlifecycle.GetVSphereCredsFn = oldVSphereCreds
 		prepareISOForTargetFn = oldPrepareTarget
 		httpGetFn = oldHTTPGet
 	})
@@ -1798,7 +1799,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 	t.Run("truenas wrappers", func(t *testing.T) {
 		stubUnavailable1PasswordCLI(t)
 		manager := &fakeTrueNASVMManager{}
-		newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
+		vmlifecycle.NewTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
 			assert.Equal(t, "truenas.local", host)
 			assert.Equal(t, "api-key", apiKey)
 			assert.Equal(t, 443, port)
@@ -1831,10 +1832,10 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 
 	t.Run("proxmox wrappers", func(t *testing.T) {
 		manager := &fakeProxmoxVMManager{}
-		getProxmoxCredentialsFn = func() (string, string, string, string, error) {
+		vmlifecycle.GetProxmoxCredentialsFn = func() (string, string, string, string, error) {
 			return "px.local", "token", "secret", "pve", nil
 		}
-		newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
+		vmlifecycle.NewProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (vmlifecycle.ProxmoxVMManager, error) {
 			assert.Equal(t, "px.local", host)
 			assert.Equal(t, "token", tokenID)
 			assert.Equal(t, "secret", secret)
@@ -1867,18 +1868,18 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 
 	t.Run("vsphere wrappers", func(t *testing.T) {
 		client := &fakeVSphereClient{}
-		getVSphereCredsFn = func() (string, string, string, error) {
+		vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
 			return "esxi.local", "root", "secret", nil
 		}
-		newVSphereClientFn = func(host, username, password string, insecure bool) vsphereClient {
+		vmlifecycle.NewVSphereClientFn = func(host, username, password string, insecure bool) vmlifecycle.VSphereClient {
 			return client
 		}
 
-		oldVSphereVMManagerFactory := newVSphereVMManagerFn
-		t.Cleanup(func() { newVSphereVMManagerFn = oldVSphereVMManagerFactory })
+		oldVSphereVMManagerFactory := vmlifecycle.NewVSphereVMManagerFn
+		t.Cleanup(func() { vmlifecycle.NewVSphereVMManagerFn = oldVSphereVMManagerFactory })
 		calls := &[]string{}
 		var constructed int
-		newVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
+		vmlifecycle.NewVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
 			assert.Equal(t, "esxi.local", host)
 			assert.Equal(t, "root", username)
 			assert.Equal(t, "secret", password)
@@ -1984,14 +1985,14 @@ func TestKubeconfigFlows(t *testing.T) {
 
 func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 	oldConfirm := confirmActionFn
-	oldFactory := newVMLifecycleFn
-	oldTrueNASFactory := newTrueNASVMManagerFn
-	oldTrueNASCreds := getTrueNASCredentialsFn
+	oldFactory := vmlifecycle.NewVMLifecycleFn
+	oldTrueNASFactory := vmlifecycle.NewTrueNASVMManagerFn
+	oldTrueNASCreds := vmlifecycle.GetTrueNASCredentialsFn
 	t.Cleanup(func() {
 		confirmActionFn = oldConfirm
-		newVMLifecycleFn = oldFactory
-		newTrueNASVMManagerFn = oldTrueNASFactory
-		getTrueNASCredentialsFn = oldTrueNASCreds
+		vmlifecycle.NewVMLifecycleFn = oldFactory
+		vmlifecycle.NewTrueNASVMManagerFn = oldTrueNASFactory
+		vmlifecycle.GetTrueNASCredentialsFn = oldTrueNASCreds
 	})
 
 	t.Run("delete vm confirmation uses provider-specific warning", func(t *testing.T) {
@@ -2001,7 +2002,7 @@ func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 			return true, nil
 		}
 		calls := &[]string{}
-		newVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+		vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
 			return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
 		}
 
@@ -2012,10 +2013,10 @@ func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
 
 	t.Run("cleanup zvol command force wrapper", func(t *testing.T) {
 		manager := &fakeTrueNASVMManager{}
-		getTrueNASCredentialsFn = func() (string, string, error) {
+		vmlifecycle.GetTrueNASCredentialsFn = func() (string, string, error) {
 			return "truenas.local", "api-key", nil
 		}
-		newTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) trueNASVMManager {
+		vmlifecycle.NewTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
 			return manager
 		}
 
@@ -2231,32 +2232,32 @@ func TestPromptDeployVMOptions(t *testing.T) {
 }
 
 func TestRemainingTalosHelpers(t *testing.T) {
-	oldVSphereNames := vsphereGetVMNamesFn
+	oldVSphereNames := vmlifecycle.VSphereGetVMNamesFn
 	oldTalosNodeOutput := talosctlNodeOutputFn
-	oldProxmoxFactory := newProxmoxVMManagerFn
-	oldProxmoxCreds := getProxmoxCredentialsFn
+	oldProxmoxFactory := vmlifecycle.NewProxmoxVMManagerFn
+	oldProxmoxCreds := vmlifecycle.GetProxmoxCredentialsFn
 	oldProxmoxNodeConfig := proxmoxGetTalosNodeConfigFn
 	oldProxmoxDefault := proxmoxDefaultVMConfig
 	oldPrepareProxmoxISO := prepareISOForProxmoxFn
 	t.Cleanup(func() {
-		vsphereGetVMNamesFn = oldVSphereNames
+		vmlifecycle.VSphereGetVMNamesFn = oldVSphereNames
 		talosctlNodeOutputFn = oldTalosNodeOutput
-		newProxmoxVMManagerFn = oldProxmoxFactory
-		getProxmoxCredentialsFn = oldProxmoxCreds
+		vmlifecycle.NewProxmoxVMManagerFn = oldProxmoxFactory
+		vmlifecycle.GetProxmoxCredentialsFn = oldProxmoxCreds
 		proxmoxGetTalosNodeConfigFn = oldProxmoxNodeConfig
 		proxmoxDefaultVMConfig = oldProxmoxDefault
 		prepareISOForProxmoxFn = oldPrepareProxmoxISO
 	})
 
 	t.Run("vm name and machine type helpers", func(t *testing.T) {
-		vsphereGetVMNamesFn = func() ([]string, error) { return []string{"esx-1", "esx-2"}, nil }
+		vmlifecycle.VSphereGetVMNamesFn = func() ([]string, error) { return []string{"esx-1", "esx-2"}, nil }
 		talosctlNodeOutputFn = func(nodeIP string, args ...string) ([]byte, error) {
 			assert.Equal(t, "10.0.0.201", nodeIP)
 			assert.Equal(t, []string{"get", "machinetypes", "--output=jsonpath={.spec}"}, args)
 			return []byte("controlplane\n"), nil
 		}
 
-		names, err := getESXiVMNames()
+		names, err := vmlifecycle.GetESXiVMNames()
 		require.NoError(t, err)
 		assert.Equal(t, []string{"esx-1", "esx-2"}, names)
 
@@ -2267,10 +2268,10 @@ func TestRemainingTalosHelpers(t *testing.T) {
 
 	t.Run("deploy proxmox custom and predefined", func(t *testing.T) {
 		manager := &fakeProxmoxVMManager{}
-		getProxmoxCredentialsFn = func() (string, string, string, string, error) {
+		vmlifecycle.GetProxmoxCredentialsFn = func() (string, string, string, string, error) {
 			return "px.local", "token", "secret", "pve", nil
 		}
-		newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
+		vmlifecycle.NewProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (vmlifecycle.ProxmoxVMManager, error) {
 			return manager, nil
 		}
 		proxmoxDefaultVMConfig = func() proxmox.VMConfig {
@@ -2333,10 +2334,10 @@ func TestRemainingTalosHelpers(t *testing.T) {
 			closeCalls   int
 		)
 
-		getProxmoxCredentialsFn = func() (string, string, string, string, error) {
+		vmlifecycle.GetProxmoxCredentialsFn = func() (string, string, string, string, error) {
 			return "px.local", "token", "secret", "pve", nil
 		}
-		newProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (proxmoxVMManager, error) {
+		vmlifecycle.NewProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (vmlifecycle.ProxmoxVMManager, error) {
 			mu.Lock()
 			factoryCalls++
 			mu.Unlock()
@@ -2386,7 +2387,7 @@ type proxmoxVMManagerWithCloseCounterImpl struct {
 	closeCalls *int
 }
 
-func proxmoxVMManagerWithCloseCounter(manager *fakeProxmoxVMManager, mu *sync.Mutex, closeCalls *int) proxmoxVMManager {
+func proxmoxVMManagerWithCloseCounter(manager *fakeProxmoxVMManager, mu *sync.Mutex, closeCalls *int) vmlifecycle.ProxmoxVMManager {
 	return &proxmoxVMManagerWithCloseCounterImpl{fakeProxmoxVMManager: manager, mu: mu, closeCalls: closeCalls}
 }
 
@@ -2508,7 +2509,7 @@ func TestGetTrueNASCredentials(t *testing.T) {
 		t.Setenv(constants.EnvTrueNASHost, "test-host")
 		t.Setenv(constants.EnvTrueNASAPIKey, "test-key")
 
-		host, apiKey, err := getTrueNASCredentials()
+		host, apiKey, err := vmlifecycle.GetTrueNASCredentials()
 
 		assert.NoError(t, err)
 		assert.Equal(t, "test-host", host)
@@ -2516,7 +2517,7 @@ func TestGetTrueNASCredentials(t *testing.T) {
 	})
 
 	t.Run("function signature exists", func(t *testing.T) {
-		host, apiKey, err := getTrueNASCredentials()
+		host, apiKey, err := vmlifecycle.GetTrueNASCredentials()
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "TrueNAS credentials")

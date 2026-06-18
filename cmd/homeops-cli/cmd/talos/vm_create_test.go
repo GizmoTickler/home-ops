@@ -11,6 +11,7 @@ import (
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 )
 
@@ -327,14 +328,14 @@ func TestVMPositionalCommandsPromptWhenNameless(t *testing.T) {
 	defer versionconfig.SetForTesting(nil)()
 	calls, _ := injectFakeVMLifecycle(t)
 
-	oldNames, oldChoose := getProxmoxVMNamesFn, chooseVMFunc
-	getProxmoxVMNamesFn = func() ([]string, error) { return []string{"dev0", "dev1"}, nil }
-	chooseVMFunc = func(prompt string, options []string) (string, error) {
+	oldNames, oldChoose := vmlifecycle.GetProxmoxVMNamesFn, vmlifecycle.ChooseVMFunc
+	vmlifecycle.GetProxmoxVMNamesFn = func() ([]string, error) { return []string{"dev0", "dev1"}, nil }
+	vmlifecycle.ChooseVMFunc = func(prompt string, options []string) (string, error) {
 		assert.Contains(t, prompt, "show IPs for")
 		assert.Equal(t, []string{"dev0", "dev1"}, options)
 		return "dev1", nil
 	}
-	t.Cleanup(func() { getProxmoxVMNamesFn, chooseVMFunc = oldNames, oldChoose })
+	t.Cleanup(func() { vmlifecycle.GetProxmoxVMNamesFn, vmlifecycle.ChooseVMFunc = oldNames, oldChoose })
 
 	// No positional arg (the interactive-menu path): must prompt, not panic.
 	ip := newVMIPCommand()
@@ -392,9 +393,9 @@ func TestVMListOutputFormats(t *testing.T) {
 	defer versionconfig.SetForTesting(nil)()
 	_, _ = injectFakeVMLifecycle(t)
 
-	origEnsure := ensureVMLifecycleProviderFn
-	ensureVMLifecycleProviderFn = func(string, string) error { return nil }
-	t.Cleanup(func() { ensureVMLifecycleProviderFn = origEnsure })
+	origEnsure := vmlifecycle.EnsureVMLifecycleProviderFn
+	vmlifecycle.EnsureVMLifecycleProviderFn = func(string, string) error { return nil }
+	t.Cleanup(func() { vmlifecycle.EnsureVMLifecycleProviderFn = origEnsure })
 
 	out, _, err := testutil.CaptureOutput(func() {
 		cmd := newListVMsCommand()

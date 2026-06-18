@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"homeops-cli/internal/images"
+	"homeops-cli/internal/vmlifecycle"
 )
 
 // vmNameCompletionTimeout bounds how long shell completion may block on a
@@ -13,12 +14,12 @@ import (
 var vmNameCompletionTimeout = 4 * time.Second
 
 // vmNamesForCompletionFn lists VM names for completion. Swappable for tests.
-var vmNamesForCompletionFn = getVMNamesForProvider
+var vmNamesForCompletionFn = vmlifecycle.GetVMNamesForProvider
 
 // vmNameCompletion completes VM names live from the hypervisor selected by
 // the command's --provider flag (or the configured default).
 func vmNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	provider := defaultProviderName()
+	provider := vmlifecycle.DefaultProviderName()
 	if f := cmd.Flags().Lookup("provider"); f != nil && f.Value.String() != "" {
 		provider = f.Value.String()
 	}

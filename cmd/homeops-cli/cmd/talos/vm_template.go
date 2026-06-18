@@ -13,13 +13,14 @@ import (
 	"homeops-cli/internal/images"
 	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 )
 
 // importProxmoxTemplateFn deploys + converts a cloud-image template on
 // Proxmox. Swappable for tests.
 var importProxmoxTemplateFn = func(cfg proxmox.VMConfig) error {
-	return withProxmoxVMManager(common.NewColorLogger(), func(m proxmoxVMManager) error {
+	return vmlifecycle.WithProxmoxVMManager(common.NewColorLogger(), func(m vmlifecycle.ProxmoxVMManager) error {
 		return m.ImportTemplate(cfg)
 	})
 }
@@ -27,7 +28,7 @@ var importProxmoxTemplateFn = func(cfg proxmox.VMConfig) error {
 // markVSphereTemplateFn converts an existing vSphere VM into a template.
 // Swappable for tests.
 var markVSphereTemplateFn = func(name string) error {
-	host, username, password, err := getVSphereCredsFn()
+	host, username, password, err := vmlifecycle.GetVSphereCredsFn()
 	if err != nil {
 		return err
 	}
@@ -78,7 +79,7 @@ Per provider:
   homeops-cli vm template import --name golden-vm --from-vm golden-vm --provider vsphere`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
-			normalized, err := normalizeVMProvider(provider)
+			normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {
 				return err
 			}
@@ -87,7 +88,7 @@ Per provider:
 			if fromVM != "" {
 				switch normalized {
 				case "proxmox":
-					return withProxmoxVMManager(logger, func(m proxmoxVMManager) error {
+					return vmlifecycle.WithProxmoxVMManager(logger, func(m vmlifecycle.ProxmoxVMManager) error {
 						return m.ConvertVMToTemplate(fromVM)
 					})
 				case "vsphere":
@@ -117,7 +118,7 @@ Per provider:
 
 			imagePath := imageRef
 			if strings.HasPrefix(imageRef, "http://") || strings.HasPrefix(imageRef, "https://") {
-				pveHost := resolveSecretKey(versionconfig.KeyProxmoxHost)
+				pveHost := vmlifecycle.ResolveSecretKey(versionconfig.KeyProxmoxHost)
 				if pveHost == "" {
 					return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
 				}
@@ -178,6 +179,6 @@ Per provider:
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key baked into the template (default: secrets.node_ssh_authorized_key)")
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH user on the hypervisor for image staging (default: root)")
 	cmd.Flags().StringVar(&fromVM, "from-vm", "", "convert this existing VM into a template instead of importing an image")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }

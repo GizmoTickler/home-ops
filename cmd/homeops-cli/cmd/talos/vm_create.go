@@ -16,6 +16,7 @@ import (
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 )
 
@@ -38,11 +39,11 @@ var stageImageFn = func(sshUser, host, url, destPath string) error {
 
 // deployCloudInitVMFn creates the VM via the Proxmox manager. Swappable for tests.
 var deployCloudInitVMFn = func(cfg proxmox.VMConfig) error {
-	host, tokenID, secret, nodeName, err := getProxmoxCredentialsFn()
+	host, tokenID, secret, nodeName, err := vmlifecycle.GetProxmoxCredentialsFn()
 	if err != nil {
 		return err
 	}
-	manager, err := newProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
+	manager, err := vmlifecycle.NewProxmoxVMManagerFn(host, tokenID, secret, nodeName, common.EnvBool(constants.EnvProxmoxInsecure, false))
 	if err != nil {
 		return err
 	}
@@ -53,7 +54,7 @@ var deployCloudInitVMFn = func(cfg proxmox.VMConfig) error {
 // createTrueNASCloudVMFn deploys a cloud-image VM on TrueNAS (NoCloud seed
 // ISO over SSH). Swappable for tests.
 var createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error {
-	host, apiKey, err := getTrueNASCredentialsFn()
+	host, apiKey, err := vmlifecycle.GetTrueNASCredentialsFn()
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,7 @@ var createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error {
 // createVSphereCloudVMFn deploys a template clone with guestinfo cloud-init
 // on vSphere. Swappable for tests.
 var createVSphereCloudVMFn = func(cfg vsphere.CloudInitVMConfig) error {
-	host, username, password, err := getVSphereCredsFn()
+	host, username, password, err := vmlifecycle.GetVSphereCredsFn()
 	if err != nil {
 		return err
 	}
@@ -90,7 +91,7 @@ var createVSphereCloudVMFn = func(cfg vsphere.CloudInitVMConfig) error {
 // secrets.truenas_username, falling back to TrueNAS SCALE's standard admin
 // account.
 func trueNASSSHUser() string {
-	if user := resolveSecretKey(versionconfig.KeyTrueNASUsername); user != "" {
+	if user := vmlifecycle.ResolveSecretKey(versionconfig.KeyTrueNASUsername); user != "" {
 		return user
 	}
 	return "truenas_admin"
@@ -122,7 +123,7 @@ func resolveCloudImage(osKey, image, user string) (imageRef, ciUser string, err 
 func resolveAuthorizedKey(logger *common.ColorLogger, sshKey string) string {
 	authorizedKey := sshKey
 	if authorizedKey == "" {
-		authorizedKey = strings.TrimSpace(resolveSecretKey(versionconfig.KeyNodeSSHAuthorizedKey))
+		authorizedKey = strings.TrimSpace(vmlifecycle.ResolveSecretKey(versionconfig.KeyNodeSSHAuthorizedKey))
 	}
 	if authorizedKey == "" {
 		logger.Warn("No SSH key (--ssh-key or secrets.node_ssh_authorized_key) — you may not be able to log in")
@@ -169,7 +170,7 @@ func createProxmoxVM(logger *common.ColorLogger, spec createSpec) error {
 	// Stage remote URLs onto the hypervisor for import-from.
 	imagePath := spec.imageRef
 	if strings.HasPrefix(spec.imageRef, "http://") || strings.HasPrefix(spec.imageRef, "https://") {
-		pveHost := resolveSecretKey(versionconfig.KeyProxmoxHost)
+		pveHost := vmlifecycle.ResolveSecretKey(versionconfig.KeyProxmoxHost)
 		if pveHost == "" {
 			return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
 		}
@@ -383,7 +384,7 @@ Per provider:
 			if name == "" {
 				return fmt.Errorf("--name is required")
 			}
-			normalized, err := normalizeVMProvider(provider)
+			normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {
 				return err
 			}
@@ -441,6 +442,6 @@ Per provider:
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH user on the hypervisor for image staging (default: root on proxmox; secrets.truenas_username on truenas)")
 	cmd.Flags().BoolVar(&start, "start", true, "power on after creation")
 	cmd.Flags().StringVar(&template, "template", "", "vSphere template to clone (default: hypervisors.vsphere.template)")
-	cmd.Flags().StringVar(&provider, "provider", defaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
