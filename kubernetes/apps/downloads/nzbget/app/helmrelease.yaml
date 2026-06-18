@@ -18,7 +18,7 @@ spec:
           init-config:
             image:
               repository: ghcr.io/nzbgetcom/nzbget
-              tag: v26.1@sha256:932578cb6be6a7cf921a7a2aada845bf65f572d7adbc57e414db9ef0be2c59b4
+              tag: v26.2@sha256:ea467bb0dc08449f8c884c3f49e4043b563347225ed533f1802c5a81e712a11b
             command:
               - /bin/sh
               - -c
@@ -56,7 +56,7 @@ spec:
           app:
             image:
               repository: ghcr.io/nzbgetcom/nzbget
-              tag: v26.1@sha256:932578cb6be6a7cf921a7a2aada845bf65f572d7adbc57e414db9ef0be2c59b4
+              tag: v26.2@sha256:ea467bb0dc08449f8c884c3f49e4043b563347225ed533f1802c5a81e712a11b
             env:
               PUID: "1000"
               PGID: "1000"
