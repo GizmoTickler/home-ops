@@ -523,3 +523,21 @@ func DefaultProviderName() string {
 	}
 	return "proxmox"
 }
+
+// ValidateVMName checks that a VM name contains no characters that break
+// downstream naming conventions (e.g. ZVol names that forbid dashes).
+func ValidateVMName(name string) error {
+	if strings.Contains(name, "-") {
+		return fmt.Errorf("VM name '%s' cannot contain dashes (-). Use underscores (_) or alphanumeric characters only", name)
+	}
+	if name == "" {
+		return fmt.Errorf("VM name cannot be empty")
+	}
+	return nil
+}
+
+// TrueNASNetworkBridge returns the configured network bridge (NETWORK_BRIDGE)
+// or the br0 default.
+func TrueNASNetworkBridge() string {
+	return GetEnvOrDefault("NETWORK_BRIDGE", "br0")
+}

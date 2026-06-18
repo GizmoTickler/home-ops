@@ -1,4 +1,4 @@
-package talos
+package vm
 
 import (
 	"fmt"

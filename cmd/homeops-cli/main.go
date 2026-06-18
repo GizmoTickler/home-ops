@@ -18,6 +18,7 @@ import (
 	"homeops-cli/cmd/kubernetes"
 	opvault "homeops-cli/cmd/opvault"
 	"homeops-cli/cmd/talos"
+	"homeops-cli/cmd/vm"
 	"homeops-cli/cmd/volsync"
 	"homeops-cli/cmd/workstation"
 	"homeops-cli/internal/common"
@@ -130,7 +131,7 @@ Environment:
 		flatcar.NewCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
-		talos.NewVMCommand(),
+		vm.NewVMCommand(),
 		opvault.NewCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),

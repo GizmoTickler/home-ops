@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/vim25/mo"
+	"homeops-cli/cmd/vm"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
@@ -339,69 +340,6 @@ func (f *fakeProxmoxVMManager) ConvertVMToTemplate(name string) error {
 }
 func (f *fakeProxmoxVMManager) Capabilities() vmprov.Capabilities { return vmprov.Capabilities{} }
 
-type fakeVSphereClient struct {
-	connectCalls int
-	closeCalls   int
-	connectArgs  []string
-	foundNames   []string
-	listCount    int
-	uploads      []string
-	poweredOn    int
-	poweredOff   int
-	deleted      int
-	connectErr   error
-	closeErr     error
-	findErr      error
-	listErr      error
-	infoErr      error
-	uploadErr    error
-	powerOnErr   error
-	powerOffErr  error
-	deleteErr    error
-	listVMs      []*object.VirtualMachine
-	infoResponse *mo.VirtualMachine
-}
-
-func (f *fakeVSphereClient) Connect(host, username, password string, insecure bool) error {
-	f.connectCalls++
-	f.connectArgs = []string{host, username, password, fmt.Sprintf("%t", insecure)}
-	return f.connectErr
-}
-func (f *fakeVSphereClient) Close() error { f.closeCalls++; return f.closeErr }
-func (f *fakeVSphereClient) FindVM(name string) (*object.VirtualMachine, error) {
-	f.foundNames = append(f.foundNames, name)
-	if f.findErr != nil {
-		return nil, f.findErr
-	}
-	return nil, nil
-}
-func (f *fakeVSphereClient) ListVMs() ([]*object.VirtualMachine, error) {
-	f.listCount++
-	return f.listVMs, f.listErr
-}
-func (f *fakeVSphereClient) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error) {
-	if f.infoErr != nil {
-		return nil, f.infoErr
-	}
-	return f.infoResponse, nil
-}
-func (f *fakeVSphereClient) UploadISOToDatastore(localFilePath, datastoreName, remoteFileName string) error {
-	f.uploads = append(f.uploads, localFilePath+"|"+datastoreName+"|"+remoteFileName)
-	return f.uploadErr
-}
-func (f *fakeVSphereClient) PowerOnVM(vm *object.VirtualMachine) error {
-	f.poweredOn++
-	return f.powerOnErr
-}
-func (f *fakeVSphereClient) PowerOffVM(vm *object.VirtualMachine) error {
-	f.poweredOff++
-	return f.powerOffErr
-}
-func (f *fakeVSphereClient) DeleteVM(vm *object.VirtualMachine) error {
-	f.deleted++
-	return f.deleteErr
-}
-
 func TestNewCommand(t *testing.T) {
 	cmd := NewCommand()
 	assert.NotNil(t, cmd)
@@ -722,7 +660,7 @@ func TestTrueNASDeploymentHelpers(t *testing.T) {
 	t.Run("truenas network bridge falls back to default", func(t *testing.T) {
 		cleanup := testutil.SetEnv(t, "NETWORK_BRIDGE", "")
 		defer cleanup()
-		assert.Equal(t, "br0", trueNASNetworkBridge())
+		assert.Equal(t, "br0", vmlifecycle.TrueNASNetworkBridge())
 	})
 
 	t.Run("execute truenas deployment uses spinner seam", func(t *testing.T) {
@@ -977,20 +915,20 @@ func TestVMLifecycleHelpMakesVMGroupDiscoverable(t *testing.T) {
 
 	// vm help is provider-first: the three hypervisors are the visible
 	// children, each holding the verb set.
-	vmOutput, err := testutil.ExecuteCommand(NewVMCommand(), "--help")
+	vmOutput, err := testutil.ExecuteCommand(vm.NewVMCommand(), "--help")
 	require.NoError(t, err)
 	assert.Contains(t, vmOutput, "proxmox")
 	assert.Contains(t, vmOutput, "truenas")
 	assert.Contains(t, vmOutput, "vsphere")
 
-	providerOutput, err := testutil.ExecuteCommand(NewVMCommand(), "truenas", "--help")
+	providerOutput, err := testutil.ExecuteCommand(vm.NewVMCommand(), "truenas", "--help")
 	require.NoError(t, err)
 	assert.Contains(t, providerOutput, "start")
 	assert.Contains(t, providerOutput, "stop")
 	assert.Contains(t, providerOutput, "delete")
 	assert.Contains(t, providerOutput, "cleanup-zvols")
 
-	manageOutput, err := testutil.ExecuteCommand(newManageVMCommand(), "--help")
+	manageOutput, err := testutil.ExecuteCommand(vm.NewManageVMCommand(), "--help")
 	require.NoError(t, err)
 	assert.Contains(t, manageOutput, "start")
 	assert.Contains(t, manageOutput, "delete")
@@ -1001,188 +939,6 @@ func TestRootVMLifecycleAliasReturnsManageVMGuidance(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "homeops-cli vm start")
 	assert.Contains(t, err.Error(), "--provider truenas")
-}
-
-// fakeVMLifecycle records lifecycle calls for dispatch tests.
-type fakeVMLifecycle struct {
-	provider string
-	calls    *[]string
-	closed   *int
-}
-
-func (f *fakeVMLifecycle) ListVMs() error {
-	*f.calls = append(*f.calls, "list-"+f.provider)
-	return nil
-}
-
-func (f *fakeVMLifecycle) VMSummaries() ([]vmprov.VMSummary, error) {
-	*f.calls = append(*f.calls, "list-"+f.provider)
-	return []vmprov.VMSummary{{Name: "fake-vm", ID: "1", Status: "running"}}, nil
-}
-
-func (f *fakeVMLifecycle) StartVM(name string) error {
-	*f.calls = append(*f.calls, "start-"+f.provider+":"+name)
-	return nil
-}
-
-func (f *fakeVMLifecycle) StopVM(name string, force bool) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("stop-%s:%s:%t", f.provider, name, force))
-	return nil
-}
-
-func (f *fakeVMLifecycle) DeleteVM(name string) error {
-	*f.calls = append(*f.calls, "delete-"+f.provider+":"+name)
-	return nil
-}
-
-func (f *fakeVMLifecycle) GetVMInfo(name string) error {
-	*f.calls = append(*f.calls, "info-"+f.provider+":"+name)
-	return nil
-}
-
-func (f *fakeVMLifecycle) RestartVM(name string) error {
-	*f.calls = append(*f.calls, "restart-"+f.provider+":"+name)
-	return nil
-}
-
-func (f *fakeVMLifecycle) SetVMResources(name string, memoryMB, cores int) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("set-%s:%s:%d:%d", f.provider, name, memoryMB, cores))
-	return nil
-}
-
-func (f *fakeVMLifecycle) ResizeVMDisk(name, disk, spec string) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("resize-%s:%s:%s:%s", f.provider, name, disk, spec))
-	return nil
-}
-
-func (f *fakeVMLifecycle) SnapshotVM(name, snap string) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("snap-create-%s:%s:%s", f.provider, name, snap))
-	return nil
-}
-
-func (f *fakeVMLifecycle) ListVMSnapshots(name string) error {
-	*f.calls = append(*f.calls, "snap-list-"+f.provider+":"+name)
-	return nil
-}
-
-func (f *fakeVMLifecycle) RollbackVM(name, snap string) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("snap-rollback-%s:%s:%s", f.provider, name, snap))
-	return nil
-}
-
-func (f *fakeVMLifecycle) DeleteVMSnapshot(name, snap string) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("snap-delete-%s:%s:%s", f.provider, name, snap))
-	return nil
-}
-
-func (f *fakeVMLifecycle) Clone(name, newName string, opts vmprov.CloneOptions) error {
-	*f.calls = append(*f.calls, fmt.Sprintf("clone-%s:%s:%s:%d:%t", f.provider, name, newName, opts.VMID, opts.Linked))
-	return nil
-}
-
-func (f *fakeVMLifecycle) VMIPAddresses(name string) ([]string, error) {
-	*f.calls = append(*f.calls, "ip-"+f.provider+":"+name)
-	return []string{"10.0.0.50"}, nil
-}
-
-func (f *fakeVMLifecycle) ConsoleURL(name string) (string, error) {
-	*f.calls = append(*f.calls, "console-"+f.provider+":"+name)
-	return "https://console.example/" + name, nil
-}
-
-func (f *fakeVMLifecycle) Capabilities() vmprov.Capabilities { return vmprov.Capabilities{} }
-
-func (f *fakeVMLifecycle) Close() error {
-	if f.closed != nil {
-		*f.closed++
-	}
-	return nil
-}
-
-// injectFakeVMLifecycle swaps the lifecycle factory for one returning fakes
-// that record into the returned slice, restoring it after the test.
-func injectFakeVMLifecycle(t *testing.T) (*[]string, *int) {
-	t.Helper()
-	oldFactory := vmlifecycle.NewVMLifecycleFn
-	t.Cleanup(func() { vmlifecycle.NewVMLifecycleFn = oldFactory })
-
-	calls := &[]string{}
-	closed := new(int)
-	vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
-		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls, closed: closed}, nil
-	}
-	return calls, closed
-}
-
-func TestVMLifecycleProviderCapabilityError(t *testing.T) {
-	calls, _ := injectFakeVMLifecycle(t)
-
-	stubUnavailable1PasswordCLI(t)
-	t.Setenv(constants.EnvTrueNASHost, "")
-	t.Setenv(constants.EnvTrueNASAPIKey, "")
-
-	_, err := testutil.ExecuteCommand(newStartVMCommand(), "--provider", "truenas", "--name", "tn-vm")
-	require.Error(t, err)
-	assert.Empty(t, *calls, "provider operation should not run when config-level prerequisites are missing")
-	assert.Contains(t, err.Error(), "TrueNAS VM lifecycle commands require")
-	assert.Contains(t, err.Error(), "homeops-cli vm start --provider truenas --name <vm-name>")
-	assert.Contains(t, err.Error(), constants.EnvTrueNASHost)
-	assert.Contains(t, err.Error(), constants.EnvTrueNASAPIKey)
-}
-
-func TestPowerOffVMDispatchesForceStop(t *testing.T) {
-	calls, _ := injectFakeVMLifecycle(t)
-
-	require.NoError(t, powerOffVM("tn-vm", "truenas"))
-	require.NoError(t, powerOffVM("px-vm", "proxmox"))
-
-	assert.Equal(t, []string{
-		"stop-truenas:tn-vm:true",
-		"stop-proxmox:px-vm:true",
-	}, *calls)
-}
-
-func TestProviderLifecycleDispatch(t *testing.T) {
-	calls, closed := injectFakeVMLifecycle(t)
-
-	require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
-	require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
-	require.NoError(t, startVMWithProvider("esx-vm", "vsphere"))
-	require.NoError(t, stopVMWithProvider("tn-vm", "truenas"))
-	require.NoError(t, stopVMWithProvider("px-vm", "proxmox"))
-	require.NoError(t, stopVMWithProvider("esx-vm", "vsphere"))
-	require.NoError(t, infoVMWithProvider("tn-vm", "truenas"))
-	require.NoError(t, infoVMWithProvider("px-vm", "proxmox"))
-	require.NoError(t, infoVMWithProvider("esx-vm", "vsphere"))
-	require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", true))
-	require.NoError(t, deleteVMWithConfirmation("px-vm", "proxmox", true))
-	require.NoError(t, deleteVMWithConfirmation("esx-vm", "vsphere", true))
-	require.NoError(t, powerOnVM("tn-vm", "truenas"))
-	require.NoError(t, powerOnVM("px-vm", "proxmox"))
-	require.NoError(t, powerOnVM("esx-vm", "vsphere"))
-	require.NoError(t, powerOffVM("esx-vm", "vsphere"))
-	require.NoError(t, listVMs("proxmox", "table"))
-
-	assert.Equal(t, []string{
-		"start-truenas:tn-vm",
-		"start-proxmox:px-vm",
-		"start-vsphere:esx-vm",
-		"stop-truenas:tn-vm:false",
-		"stop-proxmox:px-vm:false",
-		"stop-vsphere:esx-vm:false",
-		"info-truenas:tn-vm",
-		"info-proxmox:px-vm",
-		"info-vsphere:esx-vm",
-		"delete-truenas:tn-vm",
-		"delete-proxmox:px-vm",
-		"delete-vsphere:esx-vm",
-		"start-truenas:tn-vm",
-		"start-proxmox:px-vm",
-		"start-vsphere:esx-vm",
-		"stop-vsphere:esx-vm:true",
-		"list-proxmox",
-	}, *calls)
-	assert.Equal(t, 17, *closed, "every lifecycle instance must be closed")
 }
 
 func TestDeployDryRunPaths(t *testing.T) {
@@ -1239,59 +995,6 @@ func TestBuildProxmoxDeploymentPlanPresetBatchDetails(t *testing.T) {
 	require.Len(t, plan.Presets, 2)
 	assert.Equal(t, "k8s-1", plan.Configs[0].Name)
 	assert.Equal(t, "k8s-2", plan.Configs[1].Name)
-}
-
-func TestVMLifecycleCommandWrappers(t *testing.T) {
-	oldEnsureProvider := vmlifecycle.EnsureVMLifecycleProviderFn
-	oldFactory := vmlifecycle.NewVMLifecycleFn
-	t.Cleanup(func() {
-		vmlifecycle.EnsureVMLifecycleProviderFn = oldEnsureProvider
-		vmlifecycle.NewVMLifecycleFn = oldFactory
-	})
-
-	calls := &[]string{}
-	vmlifecycle.EnsureVMLifecycleProviderFn = func(provider, action string) error {
-		*calls = append(*calls, "check:"+provider+":"+action)
-		return nil
-	}
-	vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
-		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
-	}
-
-	_, err := testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "proxmox", "--name", "k8s-0", "--dry-run")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "truenas", "--name", "app01", "--pool", "flashstor/VM", "--dry-run")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "esxi", "--name", "worker", "--datastore", "fast-ds", "--network", "vl999", "--dry-run")
-	require.NoError(t, err)
-
-	_, err = testutil.ExecuteCommand(newStartVMCommand(), "--provider", "proxmox", "--name", "px-vm")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newStopVMCommand(), "--provider", "proxmox", "--name", "px-vm")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newDeleteVMCommand(), "--provider", "proxmox", "--name", "px-vm", "--force")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newInfoVMCommand(), "--provider", "proxmox", "--name", "px-vm")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newPowerOnVMCommand(), "--provider", "vsphere", "--name", "esx-vm")
-	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newPowerOffVMCommand(), "--provider", "vsphere", "--name", "esx-vm")
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{
-		"check:proxmox:start",
-		"start-proxmox:px-vm",
-		"check:proxmox:stop",
-		"stop-proxmox:px-vm:false",
-		"check:proxmox:delete",
-		"delete-proxmox:px-vm",
-		"check:proxmox:info",
-		"info-proxmox:px-vm",
-		"check:vsphere:poweron",
-		"start-vsphere:esx-vm",
-		"check:vsphere:poweroff",
-		"stop-vsphere:esx-vm:true",
-	}, *calls)
 }
 
 func TestDeployVMCommandProviderValidation(t *testing.T) {
@@ -1778,149 +1481,6 @@ func TestTalosCommandWrappersAndEdges(t *testing.T) {
 	})
 }
 
-func TestHypervisorWrapperFlows(t *testing.T) {
-	oldTrueNASFactory := vmlifecycle.NewTrueNASVMManagerFn
-	oldProxmoxFactory := vmlifecycle.NewProxmoxVMManagerFn
-	oldVSphereFactory := vmlifecycle.NewVSphereClientFn
-	oldProxmoxCreds := vmlifecycle.GetProxmoxCredentialsFn
-	oldVSphereCreds := vmlifecycle.GetVSphereCredsFn
-	oldPrepareTarget := prepareISOForTargetFn
-	oldHTTPGet := httpGetFn
-	t.Cleanup(func() {
-		vmlifecycle.NewTrueNASVMManagerFn = oldTrueNASFactory
-		vmlifecycle.NewProxmoxVMManagerFn = oldProxmoxFactory
-		vmlifecycle.NewVSphereClientFn = oldVSphereFactory
-		vmlifecycle.GetProxmoxCredentialsFn = oldProxmoxCreds
-		vmlifecycle.GetVSphereCredsFn = oldVSphereCreds
-		prepareISOForTargetFn = oldPrepareTarget
-		httpGetFn = oldHTTPGet
-	})
-
-	t.Run("truenas wrappers", func(t *testing.T) {
-		stubUnavailable1PasswordCLI(t)
-		manager := &fakeTrueNASVMManager{}
-		vmlifecycle.NewTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
-			assert.Equal(t, "truenas.local", host)
-			assert.Equal(t, "api-key", apiKey)
-			assert.Equal(t, 443, port)
-			assert.True(t, useSSL)
-			return manager
-		}
-		cleanup := testutil.SetEnvs(t, map[string]string{
-			constants.EnvTrueNASHost:   "truenas.local",
-			constants.EnvTrueNASAPIKey: "api-key",
-			"STORAGE_POOL":             "flashstor",
-		})
-		defer cleanup()
-
-		require.NoError(t, listVMs("truenas", "table"))
-		require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
-		require.NoError(t, powerOffVM("tn-vm", "truenas"))
-		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", true))
-		require.NoError(t, infoVMWithProvider("tn-vm", "truenas"))
-		require.NoError(t, cleanupOrphanedZVols("tn-vm", "flashstor"))
-
-		assert.Equal(t, 6, manager.connectCalls)
-		assert.Equal(t, 6, manager.closeCalls)
-		assert.Equal(t, 1, manager.listCalls)
-		assert.Equal(t, []string{"tn-vm"}, manager.started)
-		assert.Equal(t, []string{"tn-vm:true"}, manager.stopped)
-		assert.Equal(t, []string{"tn-vm:true:flashstor"}, manager.deleted)
-		assert.Equal(t, []string{"tn-vm"}, manager.infoNames)
-		assert.Equal(t, []string{"tn-vm:flashstor"}, manager.cleanupPairs)
-	})
-
-	t.Run("proxmox wrappers", func(t *testing.T) {
-		manager := &fakeProxmoxVMManager{}
-		vmlifecycle.GetProxmoxCredentialsFn = func() (string, string, string, string, error) {
-			return "px.local", "token", "secret", "pve", nil
-		}
-		vmlifecycle.NewProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (vmlifecycle.ProxmoxVMManager, error) {
-			assert.Equal(t, "px.local", host)
-			assert.Equal(t, "token", tokenID)
-			assert.Equal(t, "secret", secret)
-			assert.Equal(t, "pve", nodeName)
-			assert.False(t, insecure) // verify-by-default; PROXMOX_INSECURE unset in tests
-			return manager, nil
-		}
-
-		require.NoError(t, listVMs("proxmox", "table"))
-		require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
-		require.NoError(t, powerOffVM("px-vm", "proxmox"))
-		require.NoError(t, deleteVMWithConfirmation("px-vm", "proxmox", true))
-		require.NoError(t, infoVMWithProvider("px-vm", "proxmox"))
-
-		prepareISOForTargetFn = func(target isoPreparationTarget) error {
-			assert.Equal(t, "Proxmox", target.providerName)
-			return target.uploadISO(&internaltalos.ISOInfo{URL: "https://example.com/proxmox.iso"})
-		}
-		require.NoError(t, prepareISOForProxmox())
-
-		assert.Equal(t, 6, manager.closeCalls)
-		assert.Equal(t, 1, manager.listCalls)
-		assert.Equal(t, []string{"px-vm"}, manager.started)
-		assert.Equal(t, []string{"px-vm:true"}, manager.stopped)
-		assert.Equal(t, []string{"px-vm"}, manager.deleted)
-		assert.Equal(t, []string{"px-vm"}, manager.infoNames)
-		require.Len(t, manager.uploads, 1)
-		assert.Contains(t, manager.uploads[0], "https://example.com/proxmox.iso")
-	})
-
-	t.Run("vsphere wrappers", func(t *testing.T) {
-		client := &fakeVSphereClient{}
-		vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
-			return "esxi.local", "root", "secret", nil
-		}
-		vmlifecycle.NewVSphereClientFn = func(host, username, password string, insecure bool) vmlifecycle.VSphereClient {
-			return client
-		}
-
-		oldVSphereVMManagerFactory := vmlifecycle.NewVSphereVMManagerFn
-		t.Cleanup(func() { vmlifecycle.NewVSphereVMManagerFn = oldVSphereVMManagerFactory })
-		calls := &[]string{}
-		var constructed int
-		vmlifecycle.NewVSphereVMManagerFn = func(host, username, password string, insecure bool) (vmprov.VMLifecycle, error) {
-			assert.Equal(t, "esxi.local", host)
-			assert.Equal(t, "root", username)
-			assert.Equal(t, "secret", password)
-			assert.False(t, insecure) // verify-by-default; VSPHERE_INSECURE unset in tests
-			constructed++
-			return &fakeVMLifecycle{provider: "vsphere", calls: calls}, nil
-		}
-
-		httpGetFn = func(url string) (*http.Response, error) {
-			return &http.Response{
-				StatusCode:    http.StatusOK,
-				Body:          io.NopCloser(strings.NewReader("iso-bytes")),
-				ContentLength: int64(len("iso-bytes")),
-			}, nil
-		}
-
-		require.NoError(t, listVMs("vsphere", "table"))
-		require.NoError(t, infoVMWithProvider("esx-vm", "vsphere"))
-		require.NoError(t, powerOnVM("esx-vm", "vsphere"))
-		require.NoError(t, powerOffVM("esx-vm", "vsphere"))
-		require.NoError(t, deleteVMWithConfirmation("esx-vm", "vsphere", true))
-		require.NoError(t, uploadISOToVSphere("https://example.com/vsphere.iso"))
-
-		assert.Equal(t, 5, constructed, "each lifecycle op constructs and closes a manager")
-		assert.Equal(t, []string{
-			"list-vsphere",
-			"info-vsphere:esx-vm",
-			"start-vsphere:esx-vm",
-			"stop-vsphere:esx-vm:true",
-			"delete-vsphere:esx-vm",
-		}, *calls)
-
-		// ISO upload still flows through the raw vSphere client.
-		assert.Equal(t, 1, client.connectCalls)
-		assert.Equal(t, 1, client.closeCalls)
-		require.Len(t, client.uploads, 1)
-		assert.Contains(t, client.uploads[0], vsphere.DefaultISODatastore)
-		assert.Contains(t, client.uploads[0], vsphere.DefaultISOFilename)
-	})
-}
-
 func TestKubeconfigFlows(t *testing.T) {
 	oldWorkdir := workingDirectoryFn
 	oldGen := generateKubeconfigFn
@@ -1980,49 +1540,6 @@ func TestKubeconfigFlows(t *testing.T) {
 		require.NoError(t, err)
 		_, err = testutil.ExecuteCommand(newKubeconfigCommand(), "--pull")
 		require.NoError(t, err)
-	})
-}
-
-func TestDeleteAndCleanupConfirmationFlows(t *testing.T) {
-	oldConfirm := confirmActionFn
-	oldFactory := vmlifecycle.NewVMLifecycleFn
-	oldTrueNASFactory := vmlifecycle.NewTrueNASVMManagerFn
-	oldTrueNASCreds := vmlifecycle.GetTrueNASCredentialsFn
-	t.Cleanup(func() {
-		confirmActionFn = oldConfirm
-		vmlifecycle.NewVMLifecycleFn = oldFactory
-		vmlifecycle.NewTrueNASVMManagerFn = oldTrueNASFactory
-		vmlifecycle.GetTrueNASCredentialsFn = oldTrueNASCreds
-	})
-
-	t.Run("delete vm confirmation uses provider-specific warning", func(t *testing.T) {
-		var message string
-		confirmActionFn = func(msg string, defaultYes bool) (bool, error) {
-			message = msg
-			return true, nil
-		}
-		calls := &[]string{}
-		vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
-			return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
-		}
-
-		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", false))
-		assert.Contains(t, message, "all its ZVols on TrueNAS")
-		assert.Equal(t, []string{"delete-truenas:tn-vm"}, *calls)
-	})
-
-	t.Run("cleanup zvol command force wrapper", func(t *testing.T) {
-		manager := &fakeTrueNASVMManager{}
-		vmlifecycle.GetTrueNASCredentialsFn = func() (string, string, error) {
-			return "truenas.local", "api-key", nil
-		}
-		vmlifecycle.NewTrueNASVMManagerFn = func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
-			return manager
-		}
-
-		_, err := testutil.ExecuteCommand(newCleanupZVolsCommand(), "--vm-name", "tn-vm", "--force")
-		require.NoError(t, err)
-		assert.Equal(t, []string{"tn-vm:flashstor"}, manager.cleanupPairs)
 	})
 }
 
@@ -2491,7 +2008,7 @@ func TestValidateVMName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateVMName(tt.vmName)
+			err := vmlifecycle.ValidateVMName(tt.vmName)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
@@ -2864,7 +2381,7 @@ func BenchmarkValidateVMName(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, name := range names {
-			_ = validateVMName(name)
+			_ = vmlifecycle.ValidateVMName(name)
 		}
 	}
 }
@@ -2932,4 +2449,139 @@ func TestProviderProvidersGivePredictableSummary(t *testing.T) {
 			})
 		})
 	}
+}
+
+type fakeVSphereClient struct {
+	connectCalls int
+	closeCalls   int
+	connectArgs  []string
+	foundNames   []string
+	listCount    int
+	uploads      []string
+	poweredOn    int
+	poweredOff   int
+	deleted      int
+	connectErr   error
+	closeErr     error
+	findErr      error
+	listErr      error
+	infoErr      error
+	uploadErr    error
+	powerOnErr   error
+	powerOffErr  error
+	deleteErr    error
+	listVMs      []*object.VirtualMachine
+	infoResponse *mo.VirtualMachine
+}
+
+func (f *fakeVSphereClient) Connect(host, username, password string, insecure bool) error {
+	f.connectCalls++
+	f.connectArgs = []string{host, username, password, fmt.Sprintf("%t", insecure)}
+	return f.connectErr
+}
+func (f *fakeVSphereClient) Close() error { f.closeCalls++; return f.closeErr }
+func (f *fakeVSphereClient) FindVM(name string) (*object.VirtualMachine, error) {
+	f.foundNames = append(f.foundNames, name)
+	if f.findErr != nil {
+		return nil, f.findErr
+	}
+	return nil, nil
+}
+func (f *fakeVSphereClient) ListVMs() ([]*object.VirtualMachine, error) {
+	f.listCount++
+	return f.listVMs, f.listErr
+}
+func (f *fakeVSphereClient) GetVMInfo(vm *object.VirtualMachine) (*mo.VirtualMachine, error) {
+	if f.infoErr != nil {
+		return nil, f.infoErr
+	}
+	return f.infoResponse, nil
+}
+func (f *fakeVSphereClient) UploadISOToDatastore(localFilePath, datastoreName, remoteFileName string) error {
+	f.uploads = append(f.uploads, localFilePath+"|"+datastoreName+"|"+remoteFileName)
+	return f.uploadErr
+}
+func (f *fakeVSphereClient) PowerOnVM(vm *object.VirtualMachine) error {
+	f.poweredOn++
+	return f.powerOnErr
+}
+func (f *fakeVSphereClient) PowerOffVM(vm *object.VirtualMachine) error {
+	f.poweredOff++
+	return f.powerOffErr
+}
+func (f *fakeVSphereClient) DeleteVM(vm *object.VirtualMachine) error {
+	f.deleted++
+	return f.deleteErr
+}
+
+// TestHypervisorPrepareISOFlows exercises the real ISO-upload plumbing for the
+// provider managers/clients that the prepare-iso commands drive (kept in
+// cmd/talos alongside prepare-iso; the VM-lifecycle wrappers moved to cmd/vm).
+func TestHypervisorPrepareISOFlows(t *testing.T) {
+	oldProxmoxFactory := vmlifecycle.NewProxmoxVMManagerFn
+	oldProxmoxCreds := vmlifecycle.GetProxmoxCredentialsFn
+	oldVSphereFactory := vmlifecycle.NewVSphereClientFn
+	oldVSphereCreds := vmlifecycle.GetVSphereCredsFn
+	oldPrepareTarget := prepareISOForTargetFn
+	oldHTTPGet := httpGetFn
+	t.Cleanup(func() {
+		vmlifecycle.NewProxmoxVMManagerFn = oldProxmoxFactory
+		vmlifecycle.GetProxmoxCredentialsFn = oldProxmoxCreds
+		vmlifecycle.NewVSphereClientFn = oldVSphereFactory
+		vmlifecycle.GetVSphereCredsFn = oldVSphereCreds
+		prepareISOForTargetFn = oldPrepareTarget
+		httpGetFn = oldHTTPGet
+	})
+
+	t.Run("proxmox upload plumbing", func(t *testing.T) {
+		manager := &fakeProxmoxVMManager{}
+		vmlifecycle.GetProxmoxCredentialsFn = func() (string, string, string, string, error) {
+			return "px.local", "token", "secret", "pve", nil
+		}
+		vmlifecycle.NewProxmoxVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (vmlifecycle.ProxmoxVMManager, error) {
+			return manager, nil
+		}
+		prepareISOForTargetFn = func(target isoPreparationTarget) error {
+			assert.Equal(t, "Proxmox", target.providerName)
+			return target.uploadISO(&internaltalos.ISOInfo{URL: "https://example.com/proxmox.iso"})
+		}
+		require.NoError(t, prepareISOForProxmox())
+		require.Len(t, manager.uploads, 1)
+		assert.Contains(t, manager.uploads[0], "https://example.com/proxmox.iso")
+	})
+
+	t.Run("vsphere upload plumbing", func(t *testing.T) {
+		client := &fakeVSphereClient{}
+		vmlifecycle.GetVSphereCredsFn = func() (string, string, string, error) {
+			return "esxi.local", "root", "secret", nil
+		}
+		vmlifecycle.NewVSphereClientFn = func(host, username, password string, insecure bool) vmlifecycle.VSphereClient {
+			return client
+		}
+		httpGetFn = func(url string) (*http.Response, error) {
+			return &http.Response{
+				StatusCode:    http.StatusOK,
+				Body:          io.NopCloser(strings.NewReader("iso-bytes")),
+				ContentLength: int64(len("iso-bytes")),
+			}, nil
+		}
+		require.NoError(t, uploadISOToVSphere("https://example.com/vsphere.iso"))
+		assert.Equal(t, 1, client.connectCalls)
+		assert.Equal(t, 1, client.closeCalls)
+		require.Len(t, client.uploads, 1)
+		assert.Contains(t, client.uploads[0], vsphere.DefaultISODatastore)
+		assert.Contains(t, client.uploads[0], vsphere.DefaultISOFilename)
+	})
+}
+
+// TestDeployVMCommandDryRunFlags verifies the deploy-vm command accepts each
+// provider's flag set in dry-run mode (command-level wiring; the dry-run plan
+// logic itself is covered by TestDeployDryRunPaths).
+func TestDeployVMCommandDryRunFlags(t *testing.T) {
+	_, err := testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "proxmox", "--name", "k8s-0", "--dry-run")
+	require.NoError(t, err)
+	_, err = testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "truenas", "--name", "app01", "--pool", "flashstor/VM", "--dry-run")
+	require.NoError(t, err)
+	_, err = testutil.ExecuteCommand(newDeployVMCommand(), "--provider", "esxi", "--name", "worker", "--datastore", "fast-ds", "--network", "vl999", "--dry-run")
+	require.NoError(t, err)
 }

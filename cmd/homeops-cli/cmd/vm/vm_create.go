@@ -1,4 +1,4 @@
-package talos
+package vm
 
 import (
 	"fmt"
@@ -245,7 +245,7 @@ func createTrueNASVM(logger *common.ColorLogger, spec createSpec) error {
 	if spec.mtu != 0 {
 		return vmprov.Unsupported("truenas", "MTU is a property of the TrueNAS bridge interface, not the VM NIC")
 	}
-	if err := validateVMName(spec.name); err != nil {
+	if err := vmlifecycle.ValidateVMName(spec.name); err != nil {
 		return err
 	}
 	cfg := versionconfig.Get()
@@ -259,7 +259,7 @@ func createTrueNASVM(logger *common.ColorLogger, spec createSpec) error {
 		bridge = cfg.Hypervisors.TrueNAS.VM.NetworkBridge
 	}
 	if bridge == "" {
-		bridge = trueNASNetworkBridge()
+		bridge = vmlifecycle.TrueNASNetworkBridge()
 	}
 
 	userdata, err := cloudinit.Userdata(spec.ciUser, spec.sshKey, spec.name)
