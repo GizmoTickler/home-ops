@@ -291,9 +291,11 @@ func newDuplicateCommand() *cobra.Command {
 	var vault, toVault, newName string
 	cmd := &cobra.Command{
 		Use:   "duplicate <item>",
-		Short: "Copy an item (optionally into another vault / under a new name)",
-		Long: `Duplicate an item: read it as JSON and re-create it (fields travel via a
-stdin template, never argv). The source item is left untouched.`,
+		Short: "Re-create a simplified copy of an item",
+		Long: `Re-create an item by reading it as JSON and creating a new item from the
+copyable field subset (fields travel via a stdin template, never argv). The
+source item is left untouched, but attachments and richer item structure do
+not carry over.`,
 		Args: cobra.ExactArgs(1),
 		Example: `  homeops-cli op duplicate prod-creds --to-vault Staging
   homeops-cli op duplicate my-service --name my-service-copy`,

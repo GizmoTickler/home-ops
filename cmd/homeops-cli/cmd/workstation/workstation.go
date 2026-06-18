@@ -46,7 +46,7 @@ func NewCommand() *cobra.Command {
 		Use:   "workstation",
 		Short: "Setup workstation tools and dependencies",
 		Long: `Commands for setting up workstation tools: 'setup' detects the OS and
-installs the curated tool catalog at latest versions, 'brew' applies the
+installs the curated tool catalog where supported on the detected platform, 'brew' applies the
 embedded Brewfile wholesale, and 'krew' installs kubectl plugins.`,
 	}
 

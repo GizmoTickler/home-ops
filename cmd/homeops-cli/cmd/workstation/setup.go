@@ -41,8 +41,8 @@ type workstationTool struct {
 }
 
 // toolCatalog is the curated set of tools the repo's workflows use. Installs
-// go through Homebrew because it is the one package manager that carries all
-// of these at their latest versions on both macOS and Linux.
+// prefer Homebrew where available, but some tools remain platform-specific
+// and are surfaced as unavailable rather than overpromised.
 var toolCatalog = []workstationTool{
 	{Name: "kubectl", Binary: "kubectl", Brew: "kubernetes-cli", Description: "Kubernetes CLI", VersionArgs: []string{"version", "--client"}},
 	{Name: "helm", Binary: "helm", Brew: "helm", Description: "Kubernetes package manager", VersionArgs: []string{"version", "--short"}},

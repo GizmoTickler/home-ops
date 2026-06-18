@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"homeops-cli/internal/config"
+
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -309,6 +311,41 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 		require.NoError(t, showSubcommandMenu(cmd))
 		assert.Empty(t, got)
 	})
+
+	t.Run("flag-driven command is redirected to help", func(t *testing.T) {
+		var ran bool
+		chooseFn = func(prompt string, options []string) (string, error) {
+			return "suspend - Suspend", nil
+		}
+		cmd := &cobra.Command{Use: "homeops-cli"}
+		volsyncCmd := &cobra.Command{Use: "volsync"}
+		sub := &cobra.Command{
+			Use:   "suspend [name]",
+			Short: "Suspend",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				ran = true
+				return nil
+			},
+		}
+		sub.Flags().Bool("all", false, "all")
+		volsyncCmd.AddCommand(sub)
+		cmd.AddCommand(volsyncCmd)
+		require.NoError(t, showSubcommandMenu(volsyncCmd))
+		assert.False(t, ran)
+	})
+}
+
+func TestRootCommandHonorsExplicitConfigErrors(t *testing.T) {
+	config.ResetForTesting()
+	t.Cleanup(config.ResetForTesting)
+	t.Setenv(config.EnvConfigFile, "/definitely/missing/homeops.yaml")
+	originalExplicit := configPath
+	t.Cleanup(func() { configPath = originalExplicit })
+
+	cmd := newRootCommand(context.Background())
+	err := cmd.PersistentPreRunE(cmd, nil)
+	require.Error(t, err)
+	assert.True(t, config.IsExplicitLoadError(err))
 }
 
 func TestApplyBuildInfoFallsBackToVCS(t *testing.T) {

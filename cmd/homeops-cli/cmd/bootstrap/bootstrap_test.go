@@ -1017,8 +1017,8 @@ func TestBootstrapCommandRequiresConfirmation(t *testing.T) {
 	cmd := NewCommand()
 	cmd.SetArgs([]string{})
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "cancelled") {
-		t.Fatalf("expected cancellation error, got %v", err)
+	if err != nil {
+		t.Fatalf("expected clean cancellation, got %v", err)
 	}
 	if ran {
 		t.Fatal("bootstrap ran despite declined confirmation")

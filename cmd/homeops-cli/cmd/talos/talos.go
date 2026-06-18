@@ -464,7 +464,8 @@ func upgradeNode(nodeIP, mode string) error {
 func newUpgradeK8sCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "upgrade-k8s",
-		Short:   "Upgrade Kubernetes across the whole cluster",
+		Short:   "Legacy direct Talos Kubernetes upgrade path",
+		Long:    `Runs 'talosctl upgrade-k8s' directly against the cluster. This bypasses the GitOps-driven kubeadm upgrade flow used by the current Flatcar/kubeadm path, so treat it as a legacy Talos-oriented escape hatch rather than the primary upgrade workflow.`,
 		Example: `  homeops-cli talos upgrade-k8s`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return upgradeK8s()
@@ -977,7 +978,9 @@ func promptIntWithDefault(prompt, placeholder string, defaultValue int) (int, er
 	}
 
 	value := defaultValue
-	_, _ = fmt.Sscanf(input, "%d", &value)
+	if _, err := fmt.Sscanf(input, "%d", &value); err != nil {
+		return 0, fmt.Errorf("invalid numeric input %q for %s", input, prompt)
+	}
 	return value, nil
 }
 

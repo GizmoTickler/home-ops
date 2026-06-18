@@ -539,6 +539,63 @@ func TestBrowsePVC(t *testing.T) {
 	assert.Equal(t, []string{"browse-pvc", "--namespace", "media", "--image", "alpine:latest", "paperless"}, interactiveArgs)
 }
 
+func TestBrowsePVCPromptsForNamespaceWhenOmitted(t *testing.T) {
+	oldKubectlOutput := kubectlOutputFn
+	oldChoose := chooseOptionFn
+	oldKubectlRun := kubectlRunFn
+	oldLookPath := lookPathFn
+	oldInstallPlugin := installKubectlPluginFn
+	oldKubectlInteractive := kubectlRunInteractiveFn
+	oldSleep := sleepFn
+	oldSelectNamespace := selectNamespaceFn
+	t.Cleanup(func() {
+		kubectlOutputFn = oldKubectlOutput
+		chooseOptionFn = oldChoose
+		kubectlRunFn = oldKubectlRun
+		lookPathFn = oldLookPath
+		installKubectlPluginFn = oldInstallPlugin
+		kubectlRunInteractiveFn = oldKubectlInteractive
+		sleepFn = oldSleep
+		selectNamespaceFn = oldSelectNamespace
+	})
+
+	selectNamespaceFn = func(prompt string, includeAllOption bool) (string, error) {
+		assert.Equal(t, "Select namespace:", prompt)
+		assert.False(t, includeAllOption)
+		return "media", nil
+	}
+	kubectlOutputFn = func(args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "get pvc -n media -o jsonpath={.items[*].metadata.name}":
+			return []byte("paperless"), nil
+		case "get pods --namespace media -o jsonpath={.items[*].metadata.name}":
+			return []byte(""), nil
+		default:
+			return nil, fmt.Errorf("unexpected kubectl output args: %s", strings.Join(args, " "))
+		}
+	}
+	chooseOptionFn = func(prompt string, options []string) (string, error) {
+		assert.Equal(t, []string{"paperless"}, options)
+		return "paperless", nil
+	}
+	kubectlRunFn = func(args ...string) error { return nil }
+	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
+	installKubectlPluginFn = func(plugin string) error {
+		t.Fatalf("plugin should already exist: %s", plugin)
+		return nil
+	}
+
+	var interactiveArgs []string
+	kubectlRunInteractiveFn = func(args ...string) error {
+		interactiveArgs = args
+		return nil
+	}
+	sleepFn = func(time.Duration) {}
+
+	require.NoError(t, browsePVC("", "", "alpine:latest"))
+	assert.Equal(t, []string{"browse-pvc", "--namespace", "media", "--image", "alpine:latest", "paperless"}, interactiveArgs)
+}
+
 func TestNodeShell(t *testing.T) {
 	oldKubectlOutput := kubectlOutputFn
 	oldChoose := chooseOptionFn

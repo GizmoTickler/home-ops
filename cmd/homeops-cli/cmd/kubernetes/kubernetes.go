@@ -431,13 +431,13 @@ func newBrowsePVCCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "browse-pvc",
 		Short: "Mount a PVC to a temporary container for browsing",
-		Long:  `Creates a temporary pod with the specified PVC mounted for interactive browsing. If --claim is not specified, presents an interactive selector.`,
+		Long:  `Creates a temporary pod with the specified PVC mounted for interactive browsing. If --namespace or --claim is not specified, presents interactive selectors.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return browsePVC(namespace, claim, image)
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "default", "Kubernetes namespace")
+	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&claim, "claim", "", "PVC name (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&image, "image", "docker.io/library/alpine:latest", "Container image to use")
 
@@ -449,6 +449,20 @@ func newBrowsePVCCommand() *cobra.Command {
 
 func browsePVC(namespace, claim, image string) error {
 	logger := common.NewColorLogger()
+
+	if strings.TrimSpace(namespace) == "" {
+		selectedNamespace, err := selectNamespaceFn("Select namespace:", false)
+		if err != nil {
+			if ui.IsCancellation(err) {
+				return nil
+			}
+			return fmt.Errorf("namespace selection failed: %w", err)
+		}
+		if strings.TrimSpace(selectedNamespace) == "" {
+			return nil
+		}
+		namespace = selectedNamespace
+	}
 
 	// If claim is not provided, prompt for selection
 	if claim == "" {
@@ -1329,7 +1343,7 @@ func newForceSyncExternalSecretCommand() *cobra.Command {
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "Kubernetes namespace")
 	cmd.Flags().BoolVar(&all, "all", false, "Sync all ExternalSecrets in namespace")
-	cmd.Flags().IntVar(&timeout, "timeout", 60, "Timeout in seconds to wait for sync")
+	cmd.Flags().IntVar(&timeout, "timeout", 60, "Deprecated: currently unused wait timeout placeholder")
 
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 
@@ -1587,6 +1601,8 @@ func applyKustomization(ksPath, ksName string, dryRun bool) error {
 		return nil
 	}
 
+	logger.Warn("Applying rendered manifests directly bypasses Flux and can create GitOps drift; commit kubernetes/ changes for durable reconciliation.")
+
 	err = spinWithFuncFn("Applying Kustomization", func() error { return kubectlApplyManifestFn(outputStr) })
 	if err != nil {
 		return fmt.Errorf("failed to apply kustomization: %w", err)
@@ -1635,8 +1651,10 @@ func selectKustomizationFile() (string, string, error) {
 	// Use Filter for better search experience with many files
 	selected, err := filterOptionFn("Search for Kustomization:", relativeFiles)
 	if err != nil {
-		// User cancelled - exit gracefully without error
-		return "", "", nil
+		if ui.IsCancellation(err) {
+			return "", "", nil
+		}
+		return "", "", fmt.Errorf("kustomization selection failed: %w", err)
 	}
 
 	fullPath := fmt.Sprintf("%s/%s", gitRoot, selected)
@@ -1655,7 +1673,10 @@ func selectKustomizationFile() (string, string, error) {
 
 	selectedTarget, err := filterOptionFn("Select Kustomization document:", choices)
 	if err != nil {
-		return "", "", nil
+		if ui.IsCancellation(err) {
+			return "", "", nil
+		}
+		return "", "", fmt.Errorf("kustomization document selection failed: %w", err)
 	}
 
 	selectedName := strings.TrimSpace(strings.SplitN(selectedTarget, " (", 2)[0])
@@ -1711,6 +1732,7 @@ func deleteKustomization(ksPath, ksName string) error {
 	}
 
 	// Delete the rendered output
+	logger.Warn("Deleting rendered manifests directly bypasses git state; Flux may recreate these resources until the source is removed from the repository.")
 	logger.Info("Deleting resources from Kustomization")
 	if err := spinWithFuncFn("Deleting Kustomization resources", func() error {
 		return kubectlDeleteManifestFn(string(output))

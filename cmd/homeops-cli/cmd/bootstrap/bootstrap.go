@@ -352,6 +352,9 @@ talosctl bootstrap) instead.`,
 			// are one choice away instead of flag-only knowledge.
 			if cmd.Flags().NFlag() == 0 && bootstrapInteractive() {
 				if err := promptBootstrapOptions(&config, common.NewColorLogger()); err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
 					return err
 				}
 			}
@@ -360,10 +363,14 @@ talosctl bootstrap) instead.`,
 			if !config.DryRun {
 				ok, err := bootstrapConfirm("Bootstrap the cluster now? (preflight, PKI, kubeadm, CRDs, helmfile)", false)
 				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
 					return err
 				}
 				if !ok {
-					return fmt.Errorf("bootstrap cancelled by user")
+					common.NewColorLogger().Info("Bootstrap cancelled")
+					return nil
 				}
 			}
 			return runBootstrapFn(&config)

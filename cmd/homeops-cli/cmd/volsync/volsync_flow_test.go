@@ -414,6 +414,7 @@ func TestRestoreApp(t *testing.T) {
 	oldFluxRun := fluxRunFn
 	oldRenderTemplate := renderVolsyncTemplateFn
 	oldApplyYAML := kubectlApplyYAMLFn
+	oldWaitForJob := waitForJobToAppearFn
 	oldSleep := volsyncSleep
 	oldFilter := filterOptionFn
 	oldConfirm := confirmActionFn
@@ -426,6 +427,7 @@ func TestRestoreApp(t *testing.T) {
 		fluxRunFn = oldFluxRun
 		renderVolsyncTemplateFn = oldRenderTemplate
 		kubectlApplyYAMLFn = oldApplyYAML
+		waitForJobToAppearFn = oldWaitForJob
 		volsyncSleep = oldSleep
 		filterOptionFn = oldFilter
 		confirmActionFn = oldConfirm
@@ -470,6 +472,8 @@ func TestRestoreApp(t *testing.T) {
 			switch key {
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.sourcePVC}`:
 				return []byte("paperless"), nil
+			case `--namespace media get pvc paperless --output=jsonpath={.spec.resources.requests.storage}`:
+				return []byte("250Gi"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheStorageClassName}`:
 				return []byte("ceph-block"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheCapacity}`:
@@ -506,6 +510,91 @@ func TestRestoreApp(t *testing.T) {
 		volsyncSleep = func(time.Duration) {}
 
 		require.NoError(t, restoreApp("media", "paperless", "17", true, time.Minute))
+	})
+
+	t.Run("failed restore resumes flux and cleans up destination", func(t *testing.T) {
+		var fluxCalls []string
+		var runCalls []string
+
+		kubectlRunFn = func(args ...string) error {
+			switch {
+			case len(args) == 3 && args[0] == "get" && args[1] == "namespace" && args[2] == "media":
+				return nil
+			case len(args) >= 5 && args[0] == "--namespace" && args[1] == "media" && args[2] == "get" && args[3] == "deployment" && args[4] == "paperless":
+				return nil
+			default:
+				return fmt.Errorf("unexpected kubectlRun args: %v", args)
+			}
+		}
+		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+			switch {
+			case len(args) >= 4 && args[0] == "--namespace" && args[2] == "scale":
+				return []byte("scaled"), nil
+			default:
+				return nil, fmt.Errorf("unexpected combined args: %v", args)
+			}
+		}
+		commandRunFn = func(name string, args ...string) error {
+			runCalls = append(runCalls, strings.Join(args, " "))
+			switch {
+			case len(args) >= 4 && args[0] == "--namespace" && args[2] == "wait" && args[3] == "pod":
+				return nil
+			case len(args) >= 4 && args[0] == "--namespace" && args[2] == "delete" && args[3] == "replicationdestination":
+				return nil
+			default:
+				return fmt.Errorf("unexpected run args: %v", args)
+			}
+		}
+		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+			key := strings.Join(args, " ")
+			switch key {
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.sourcePVC}`:
+				return []byte("paperless"), nil
+			case `--namespace media get pvc paperless --output=jsonpath={.spec.resources.requests.storage}`:
+				return []byte("250Gi"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheStorageClassName}`:
+				return []byte("ceph-block"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheCapacity}`:
+				return []byte("10Gi"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsUser}`:
+				return []byte("1000"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsGroup}`:
+				return []byte("1000"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.storageClassName}`:
+				return []byte("ceph-block"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.volumeSnapshotClassName}`:
+				return []byte("csi-ceph-blockpool"), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.accessModes}`:
+				return []byte(`["ReadWriteOnce"]`), nil
+			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheAccessModes}`:
+				return []byte(`["ReadWriteOnce"]`), nil
+			default:
+				return nil, fmt.Errorf("unexpected output args: %s", key)
+			}
+		}
+		fluxRunFn = func(args ...string) error {
+			fluxCalls = append(fluxCalls, strings.Join(args, " "))
+			return nil
+		}
+		renderVolsyncTemplateFn = func(name string, env map[string]string) (string, error) {
+			return "kind: ReplicationDestination", nil
+		}
+		kubectlApplyYAMLFn = func(yaml string) ([]byte, error) {
+			return []byte("applied"), nil
+		}
+		waitForJobToAppearFn = func(namespace, jobName string, timeout time.Duration) error {
+			return errors.New("job never appeared")
+		}
+		volsyncSleep = func(time.Duration) {}
+
+		err := restoreApp("media", "paperless", "17", true, time.Minute)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "job never appeared")
+		assert.Contains(t, runCalls, "--namespace media delete replicationdestination paperless-manual")
+		assert.Contains(t, fluxCalls, "--namespace media resume kustomization paperless")
+		assert.Contains(t, fluxCalls, "--namespace media resume helmrelease paperless")
+		assert.Contains(t, fluxCalls, "--namespace media reconcile kustomization paperless --with-source")
+		assert.Contains(t, fluxCalls, "--namespace media reconcile helmrelease paperless --force")
 	})
 
 	t.Run("cancelled confirmation exits with error", func(t *testing.T) {

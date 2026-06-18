@@ -158,3 +158,16 @@ func TestLocateSkipsDiscoveryInTests(t *testing.T) {
 	assert.Equal(t, "/tmp/explicit.yaml", path)
 	assert.True(t, explicit)
 }
+
+func TestGetKeepsExplicitLoadErrorsFatal(t *testing.T) {
+	ResetForTesting()
+	t.Cleanup(ResetForTesting)
+
+	explicitPath = "/definitely/missing/homeops.yaml"
+
+	cfg := Get()
+	require.NotNil(t, cfg)
+	require.Error(t, LoadError())
+	assert.True(t, IsExplicitLoadError(LoadError()))
+	assert.Equal(t, "/definitely/missing/homeops.yaml", loadPath)
+}

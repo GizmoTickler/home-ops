@@ -28,6 +28,7 @@ import (
 
 	"charm.land/fang/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var (
@@ -94,7 +95,7 @@ Environment:
   HOMEOPS_CONFIG          path to the config file (same as --config)
   HOMEOPS_NO_INTERACTIVE  set to 1 to disable interactive prompts (CI mode)`,
 		Version: fmt.Sprintf("%s (commit: %s, built: %s)", version, commit, date),
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Set global log level from flag (if provided) before any command runs
 			if logLevel != "" {
 				common.SetGlobalLogLevel(logLevel)
@@ -104,11 +105,19 @@ Environment:
 			if configPath != "" {
 				config.SetExplicitPath(configPath)
 			}
+			config.Get()
+			if err := config.LoadError(); err != nil && config.IsExplicitLoadError(err) {
+				return err
+			}
+			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := config.LoadError(); err != nil && config.IsExplicitLoadError(err) {
+				return err
+			}
 			// Only launch the interactive menu on a real terminal; when stdin is
 			// piped or redirected (scripts, CI), print help instead of blocking.
-			if !stdinIsTerminal() {
+			if !stdinIsTerminal() || os.Getenv(constants.EnvHomeOpsNoInteract) == "1" {
 				return cmd.Help()
 			}
 			return showInteractiveMenu(cmd)
@@ -158,6 +167,9 @@ func stdinIsTerminal() bool {
 }
 
 func showInteractiveMenu(rootCmd *cobra.Command) error {
+	if err := config.LoadError(); err != nil && config.IsExplicitLoadError(err) {
+		return err
+	}
 	ui.PrintBanner(fmt.Sprintf("homeops %s — clusters, VMs, and secrets from one CLI", version))
 	for {
 		// Build the menu from the live command tree so it never drifts from the
@@ -165,6 +177,9 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 		var labels []string
 		for _, c := range rootCmd.Commands() {
 			if c.Hidden || c.Name() == "completion" || c.Name() == "help" {
+				continue
+			}
+			if menuUnsupportedCommands[c.CommandPath()] {
 				continue
 			}
 			label := c.Name()
@@ -223,6 +238,9 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 		var subcommands []string
 		for _, subcmd := range cmd.Commands() {
 			if subcmd.Hidden {
+				continue
+			}
+			if menuUnsupportedCommands[subcmd.CommandPath()] {
 				continue
 			}
 			subcommands = append(subcommands, fmt.Sprintf("%s - %s", subcmd.Name(), subcmd.Short))
@@ -288,6 +306,10 @@ var menuArgsInputFn = ui.Input
 // that requires positionals gets an input prompt for them (and its usage when
 // the prompt is left empty) instead of panicking on args[0].
 func runMenuCommand(cmd *cobra.Command) error {
+	if requiresFlagDrivenInvocation(cmd) {
+		fmt.Printf("%s requires flags or structured options that the interactive menu cannot safely collect yet.\n\n", cmd.CommandPath())
+		return cmd.Help()
+	}
 	args := []string{}
 	if err := cmd.ValidateArgs(args); err != nil {
 		raw, inputErr := menuArgsInputFn(fmt.Sprintf("Arguments for '%s':", cmd.Use), "")
@@ -302,6 +324,38 @@ func runMenuCommand(cmd *cobra.Command) error {
 		}
 	}
 	return cmd.RunE(cmd, args)
+}
+
+func requiresFlagDrivenInvocation(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if menuUnsupportedCommands[cmd.CommandPath()] {
+		return true
+	}
+	flags := cmd.Flags()
+	requiredFlags := false
+	flags.VisitAll(func(flag *pflag.Flag) {
+		if requiredFlags {
+			return
+		}
+		if flag.Annotations != nil {
+			if _, ok := flag.Annotations[cobra.BashCompOneRequiredFlag]; ok {
+				requiredFlags = true
+			}
+		}
+	})
+	return requiredFlags
+}
+
+var menuUnsupportedCommands = map[string]bool{
+	"homeops-cli k8s force-sync-externalsecret": true,
+	"homeops-cli op move":                       true,
+	"homeops-cli op duplicate":                  true,
+	"homeops-cli op create":                     true,
+	"homeops-cli op edit":                       true,
+	"homeops-cli volsync suspend":               true,
+	"homeops-cli volsync resume":                true,
 }
 
 // resolveBuildInfo fills version/commit/date from the Go toolchain's

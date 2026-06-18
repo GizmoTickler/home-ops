@@ -65,6 +65,7 @@ var (
 	volsyncNow              = time.Now
 	snapshotAppFn           = snapshotApp
 	restoreAppFn            = restoreApp
+	waitForJobToAppearFn    = waitForJobToAppear
 )
 
 const (
@@ -887,7 +888,7 @@ func newRestoreCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "restore",
 		Short: "Restore an application from a VolSync snapshot",
-		Long:  `Restores an application's PVC from a previous VolSync snapshot. If app or snapshot is not specified, presents interactive selectors.`,
+		Long:  `Restores an application's PVC from a previous VolSync snapshot. This flow currently expects a Kopia-backed ReplicationSource. If app or snapshot is not specified, it presents interactive selectors.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return restoreApp(namespace, app, previous, force, restoreTimeout)
 		},
@@ -997,6 +998,42 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 
 	logger.Info("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
 
+	var (
+		suspendedFlux      bool
+		scaledDown         bool
+		restoreCreatedDest bool
+		restoreFailed      bool
+		destName           = fmt.Sprintf("%s-manual", app)
+	)
+	defer func() {
+		if !restoreCreatedDest && !suspendedFlux {
+			return
+		}
+		if restoreCreatedDest {
+			if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", destName); err != nil {
+				logger.Warn("Failed to delete ReplicationDestination during cleanup: %v", err)
+			}
+		}
+		if suspendedFlux {
+			logger.Info("Resuming application...")
+			if err := fluxRunFn("--namespace", namespace, "resume", "kustomization", app); err != nil {
+				logger.Warn("Failed to resume kustomization during cleanup: %v", err)
+			}
+			if err := fluxRunFn("--namespace", namespace, "resume", "helmrelease", app); err != nil {
+				logger.Warn("Failed to resume helmrelease during cleanup: %v", err)
+			}
+			if err := fluxRunFn("--namespace", namespace, "reconcile", "kustomization", app, "--with-source"); err != nil {
+				logger.Warn("Failed to reconcile kustomization during cleanup: %v", err)
+			}
+			if err := fluxRunFn("--namespace", namespace, "reconcile", "helmrelease", app, "--force"); err != nil {
+				logger.Warn("Failed to reconcile helmrelease during cleanup: %v", err)
+			}
+		}
+		if restoreFailed && scaledDown {
+			logger.Warn("Restore failed after scaling down %s/%s; wait for reconciliation to bring the workload back.", namespace, app)
+		}
+	}()
+
 	// Get controller type by checking what exists
 	controller, err := detectController(namespace, app)
 	controllerFound := err == nil
@@ -1015,14 +1052,17 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	if err := fluxRunFn("--namespace", namespace, "suspend", "helmrelease", app); err != nil {
 		logger.Warn("Failed to suspend helmrelease: %v", err)
 	}
+	suspendedFlux = true
 
 	// Step 2: Scale down application (only if controller found)
 	if controllerFound {
 		logger.Info("Scaling down %s/%s...", controller, app)
 
 		if output, err := commandCombinedOutputFn("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0"); err != nil {
+			restoreFailed = true
 			return fmt.Errorf("failed to scale down: %w\n%s", err, output)
 		}
+		scaledDown = true
 
 		// Wait for pods to be deleted
 		logger.Info("Waiting for pods to terminate...")
@@ -1043,15 +1083,23 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.sourcePVC}")
 	if err != nil {
+		restoreFailed = true
 		return fmt.Errorf("failed to get PVC name: %w", err)
 	}
 	claim := strings.TrimSpace(string(output))
 
+	output, err = commandOutputFn("kubectl", "--namespace", namespace, "get", "pvc", claim,
+		"--output=jsonpath={.spec.resources.requests.storage}")
+	if err != nil {
+		restoreFailed = true
+		return fmt.Errorf("failed to get PVC capacity: %w", err)
+	}
+	pvcCapacity := strings.TrimSpace(string(output))
+
 	// Get other required fields for Snapshot copyMethod
-	fields := map[string]string{
+	jsonPathFields := map[string]string{
 		"CACHE_STORAGE_CLASS": "{.spec.kopia.cacheStorageClassName}",
 		"CACHE_CAPACITY":      "{.spec.kopia.cacheCapacity}",
-		"CAPACITY":            "{.spec.kopia.cacheCapacity}",
 		"PUID":                "{.spec.kopia.moverSecurityContext.runAsUser}",
 		"PGID":                "{.spec.kopia.moverSecurityContext.runAsGroup}",
 		"STORAGE_CLASS":       "{.spec.kopia.storageClassName}",
@@ -1063,16 +1111,23 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		"APP":      app,
 		"PREVIOUS": previous,
 		"CLAIM":    claim,
+		"CAPACITY": pvcCapacity,
 	}
 
-	for envKey, jsonPath := range fields {
+	for envKey, jsonPath := range jsonPathFields {
 		output, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
 			fmt.Sprintf("replicationsources/%s", app),
 			fmt.Sprintf("--output=jsonpath=%s", jsonPath))
 		if err != nil {
+			restoreFailed = true
 			return fmt.Errorf("failed to get %s: %w", envKey, err)
 		}
-		env[envKey] = strings.TrimSpace(string(output))
+		value := strings.TrimSpace(string(output))
+		if value == "" {
+			restoreFailed = true
+			return fmt.Errorf("ReplicationSource %s/%s is missing required Kopia field %s", namespace, app, envKey)
+		}
+		env[envKey] = value
 	}
 
 	// Handle ACCESS_MODES separately to convert from JSON to YAML format
@@ -1080,6 +1135,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.kopia.accessModes}")
 	if err != nil {
+		restoreFailed = true
 		return fmt.Errorf("failed to get ACCESS_MODES: %w", err)
 	}
 	accessModesStr := strings.TrimSpace(string(accessModesOutput))
@@ -1096,6 +1152,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		fmt.Sprintf("replicationsources/%s", app),
 		"--output=jsonpath={.spec.kopia.cacheAccessModes}")
 	if err != nil {
+		restoreFailed = true
 		return fmt.Errorf("failed to get CACHE_ACCESS_MODES: %w", err)
 	}
 	cacheAccessModesStr := strings.TrimSpace(string(cacheAccessModesOutput))
@@ -1112,12 +1169,15 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	// Create the ReplicationDestination YAML using embedded template
 	rdYAML, err := renderVolsyncTemplateFn("replicationdestination.yaml.j2", env)
 	if err != nil {
+		restoreFailed = true
 		return fmt.Errorf("failed to render ReplicationDestination template: %w", err)
 	}
 
 	if output, err := kubectlApplyYAMLFn(rdYAML); err != nil {
+		restoreFailed = true
 		return fmt.Errorf("failed to create ReplicationDestination: %w\n%s", err, output)
 	}
+	restoreCreatedDest = true
 
 	// Step 5: Wait for restore job to complete
 	jobName := fmt.Sprintf("volsync-dst-%s-manual", app)
@@ -1127,7 +1187,8 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	// 5 minutes, but never below 30s (small --timeout values would otherwise
 	// abort before slow clusters can even schedule the job).
 	jobAppearTimeout := max(min(restoreTimeout/4, 5*time.Minute), 30*time.Second)
-	if err := waitForJobToAppear(namespace, jobName, jobAppearTimeout); err != nil {
+	if err := waitForJobToAppearFn(namespace, jobName, jobAppearTimeout); err != nil {
+		restoreFailed = true
 		return fmt.Errorf("restore %w", err)
 	}
 
@@ -1136,14 +1197,16 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		fmt.Sprintf("job/%s", jobName),
 		"--for=condition=complete",
 		fmt.Sprintf("--timeout=%ds", int(restoreTimeout.Seconds()))); err != nil {
+		restoreFailed = true
 		return fmt.Errorf("restore job failed: %w", err)
 	}
 
 	// Step 6: Clean up ReplicationDestination
 	logger.Info("Cleaning up...")
-	if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", fmt.Sprintf("%s-manual", app)); err != nil {
+	if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", destName); err != nil {
 		logger.Warn("Failed to delete ReplicationDestination: %v", err)
 	}
+	restoreCreatedDest = false
 
 	// Step 7: Resume Flux resources
 	logger.Info("Resuming application...")
@@ -1163,6 +1226,7 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	if err := fluxRunFn("--namespace", namespace, "reconcile", "helmrelease", app, "--force"); err != nil {
 		logger.Warn("Failed to reconcile helmrelease: %v", err)
 	}
+	suspendedFlux = false
 
 	// Wait for pods to be ready
 	logger.Info("Waiting for application to be ready...")

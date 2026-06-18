@@ -495,12 +495,16 @@ func NewCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "flatcar",
 		Short: "Manage Flatcar Container Linux + kubeadm nodes",
-		Long: `Provision Flatcar Container Linux control-plane nodes with kubeadm.
+		Long: `Provision and manage Flatcar Container Linux + kubeadm nodes and cluster state.
 
 Subcommands:
-  deploy-vm        Deploy Flatcar k8s VM(s) on Proxmox (Ignition via fw_cfg)
-  render-ignition  Render and print the Ignition JSON for a node (debug)
-  gen-kubeadm      Render the kubeadm init/join config for a node`,
+  deploy-vm        Deploy Flatcar VM(s) on Proxmox, vSphere/ESXi, or TrueNAS
+  render-ignition  Render and print the Ignition JSON for a node
+  gen-kubeadm      Render kubeadm init/join config for a node
+  save-pki         Persist cluster PKI into the configured state store
+  kubeconfig       Pull or save kubeconfig via node or configured state store
+  reset-node       Reset a single Flatcar/kubeadm node
+  reset-cluster    Reset the entire Flatcar/kubeadm cluster`,
 	}
 
 	cmd.AddCommand(

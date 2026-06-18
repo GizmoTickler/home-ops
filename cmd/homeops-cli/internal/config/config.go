@@ -15,6 +15,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -205,6 +206,7 @@ var (
 	loadOnce sync.Once
 	loaded   *Config
 	loadErr  error
+	loadPath string
 
 	// explicitPath is set by the root command's --config flag before any
 	// command runs.
@@ -225,9 +227,16 @@ func SetExplicitPath(path string) {
 // fall back to defaults with a warning so read-only commands keep working.
 func Get() *Config {
 	loadOnce.Do(func() {
-		loaded, loadErr = load()
+		loaded, loadPath, loadErr = load()
 		if loadErr != nil {
-			common.NewColorLogger().Warn("homeops config: %v — continuing with built-in defaults", loadErr)
+			if loadPath != "" {
+				common.NewColorLogger().Warn("homeops config %s: %v — continuing with built-in defaults", loadPath, loadErr)
+			} else {
+				common.NewColorLogger().Warn("homeops config: %v — continuing with built-in defaults", loadErr)
+			}
+			loaded = defaultConfig()
+		}
+		if loaded == nil {
 			loaded = defaultConfig()
 		}
 		registerKeymap(loaded)
@@ -238,6 +247,17 @@ func Get() *Config {
 // LoadError returns the error (if any) encountered loading the config file.
 // Get() must have been called first.
 func LoadError() error { return loadErr }
+
+// ResetForTesting clears cached config state so tests can force a fresh load.
+func ResetForTesting() {
+	loadOnce = sync.Once{}
+	loaded = nil
+	loadErr = nil
+	loadPath = ""
+	explicitPathMu.Lock()
+	explicitPath = ""
+	explicitPathMu.Unlock()
+}
 
 // SetForTesting replaces the loaded config for the duration of a test.
 // Returns a restore function the caller should defer.
@@ -269,19 +289,39 @@ func registerKeymap(c *Config) {
 	})
 }
 
-func load() (*Config, error) {
+func load() (*Config, string, error) {
 	path, explicit := Locate()
 	if path == "" {
-		return defaultConfig(), nil
+		return defaultConfig(), "", nil
 	}
 	cfg, err := LoadFile(path)
 	if err != nil {
 		if explicit {
-			return nil, err
+			return nil, path, explicitLoadError{path: path, err: err}
 		}
-		return nil, fmt.Errorf("discovered config %s failed to load: %w", path, err)
+		return nil, path, fmt.Errorf("discovered config %s failed to load: %w", path, err)
 	}
-	return cfg, nil
+	return cfg, path, nil
+}
+
+type explicitLoadError struct {
+	path string
+	err  error
+}
+
+func (e explicitLoadError) Error() string {
+	return e.err.Error()
+}
+
+func (e explicitLoadError) Unwrap() error {
+	return e.err
+}
+
+// IsExplicitLoadError reports whether the config failure came from an explicit
+// --config or HOMEOPS_CONFIG request and therefore must be treated as fatal.
+func IsExplicitLoadError(err error) bool {
+	var explicitErr explicitLoadError
+	return err != nil && errors.As(err, &explicitErr)
 }
 
 // Locate finds the config file. Returns the path (or "") and whether the
