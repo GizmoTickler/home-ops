@@ -62,6 +62,16 @@ var (
 		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
 		return orch.ResetNode(nodeIP)
 	}
+	// rebootNodeFn reboots a node over SSH (swappable for tests).
+	rebootNodeFn = func(sshUser, nodeIP string) error {
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
+		return orch.RebootNode(nodeIP)
+	}
+	// shutdownNodeFn powers a node off over SSH (swappable for tests).
+	shutdownNodeFn = func(sshUser, nodeIP string) error {
+		orch := flatcar.NewOrchestrator(flatcar.OrchestratorConfig{SSHUser: sshUser})
+		return orch.ShutdownNode(nodeIP)
+	}
 	// savePKIFn persists captured PKI fields to the configured PKI store
 	// (1Password item or local directory). Swappable for tests.
 	savePKIFn = func(fields map[string]string) error {
@@ -145,9 +155,9 @@ type flatcarNode struct {
 // The rendered Ignition is identical across hypervisors; only the transport
 // (StageIgnition) and the create-time attach (DeployNode) differ:
 //   - Proxmox: upload to the snippets dir on the PVE host; attach via fw_cfg.
-//   - vSphere: base64 the config; attach via guestinfo ExtraConfig.        (planned, #13)
+//   - vSphere: base64 the config; attach via guestinfo ExtraConfig.
 //   - TrueNAS: write to a dataset on nas01; attach via command_line_args
-//     fw_cfg file=.                                                        (planned, #14)
+//     fw_cfg file=.
 //
 // This is the seam the provider×hypervisor matrix plugs into — deployFlatcarNodes
 // drives it without knowing which hypervisor it is talking to.
@@ -499,6 +509,8 @@ Subcommands:
 		newDeployVMCommand(),
 		newSavePKICommand(),
 		newKubeconfigCommand(),
+		newRebootNodeCommand(),
+		newShutdownClusterCommand(),
 		newResetNodeCommand(),
 		newResetClusterCommand(),
 	)
@@ -578,6 +590,83 @@ func flatcarSSHUser() string {
 		return u
 	}
 	return "core"
+}
+
+// newRebootNodeCommand reboots a single Flatcar node over SSH (non-destructive).
+func newRebootNodeCommand() *cobra.Command {
+	var node string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "reboot-node",
+		Short: "Reboot a Flatcar node over SSH",
+		Long: `SSH to a node and reboot it ('systemctl reboot'). Non-destructive (cluster state
+is preserved), but the node briefly leaves the cluster — on a quorum-sensitive
+control plane, reboot one node at a time. Prompts for confirmation unless --force.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			if node == "" {
+				return fmt.Errorf("--node is required (one of: %s)", strings.Join(nodeNames(), ", "))
+			}
+			nodeConfig, ok := getFlatcarNodeConfigFn(node)
+			if !ok {
+				return fmt.Errorf("unknown flatcar node %q (known: %s)", node, strings.Join(nodeNames(), ", "))
+			}
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Reboot node %s (%s)?", node, nodeConfig.NodeIP), false)
+				if err != nil || !ok {
+					return fmt.Errorf("reboot cancelled")
+				}
+			}
+			logger.Warn("Rebooting node %s (%s)...", node, nodeConfig.NodeIP)
+			if err := rebootNodeFn(flatcarSSHUser(), nodeConfig.NodeIP); err != nil {
+				return err
+			}
+			logger.Success("Node %s reboot initiated", node)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reboot (required)")
+	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	return cmd
+}
+
+// newShutdownClusterCommand powers off every Flatcar node over SSH (non-destructive).
+func newShutdownClusterCommand() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "shutdown-cluster",
+		Short: "Power off ALL Flatcar nodes over SSH",
+		Long: `SSH to every node and power it off ('systemctl poweroff'). Non-destructive
+(cluster state is preserved) but takes the whole cluster offline. Nodes are
+powered off in reverse order (init node last). Prompts unless --force.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := common.NewColorLogger()
+			names := nodeNames()
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Power off the ENTIRE cluster (%s)?", strings.Join(names, ", ")), false)
+				if err != nil || !ok {
+					return fmt.Errorf("shutdown cancelled")
+				}
+			}
+			sshUser := flatcarSSHUser()
+			// Reverse order so the init node (k8s-0) powers off last.
+			for i := len(names) - 1; i >= 0; i-- {
+				cfg, ok := getFlatcarNodeConfigFn(names[i])
+				if !ok {
+					continue
+				}
+				logger.Warn("Powering off node %s (%s)...", names[i], cfg.NodeIP)
+				if err := shutdownNodeFn(sshUser, cfg.NodeIP); err != nil {
+					return fmt.Errorf("shutdown %s: %w", names[i], err)
+				}
+			}
+			logger.Success("Cluster shutdown initiated (%d nodes)", len(names))
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
+	return cmd
 }
 
 // newResetNodeCommand runs `kubeadm reset` on a single Flatcar node (destructive).
@@ -815,6 +904,9 @@ func newRenderIgnitionCommand() *cobra.Command {
 				return err
 			}
 			if outFile != "" {
+				if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
+					return fmt.Errorf("failed to create output directory for %s: %w", outFile, err)
+				}
 				if err := os.WriteFile(outFile, ign, 0o644); err != nil {
 					return fmt.Errorf("failed to write ignition to %s: %w", outFile, err)
 				}
@@ -1092,7 +1184,7 @@ const (
 )
 
 // normalizeFlatcarProvider canonicalizes the --provider value. "esxi" is an alias
-// for vsphere; "truenas" is recognized but not yet wired (#14).
+// for vsphere. All three hypervisors (proxmox, vsphere, truenas) are wired.
 func normalizeFlatcarProvider(p string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(p)) {
 	case "", providerProxmox:
@@ -1341,9 +1433,9 @@ func deployBootSource(imagePath, imageVolume string) string {
 
 // deployFlatcarNodes stages each node's Ignition (sequentially) then creates the
 // VMs concurrently, aggregating failures. All staging/attach mechanics live in
-// the flatcarDeployer, so this driver is hypervisor-agnostic — the same loop will
-// drive the vSphere (guestinfo) and TrueNAS (command_line_args fw_cfg) deployers
-// once they land (#13/#14). Concurrency semantics mirror the prior Proxmox path.
+// the flatcarDeployer, so this driver is hypervisor-agnostic — the same loop
+// drives the Proxmox (fw_cfg snippets), vSphere (guestinfo) and TrueNAS
+// (command_line_args fw_cfg) deployers. Concurrency semantics mirror Proxmox.
 func deployFlatcarNodes(logger *common.ColorLogger, deployer flatcarDeployer, nodes []flatcarNode, concurrent int) error {
 	defer func() {
 		if err := deployer.Close(); err != nil {

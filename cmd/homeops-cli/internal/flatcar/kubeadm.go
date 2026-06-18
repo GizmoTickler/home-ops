@@ -331,6 +331,38 @@ func (o *Orchestrator) ResetNode(nodeIP string) error {
 	return nil
 }
 
+// RebootNode reboots a node over SSH. The action is scheduled ~2s out via a
+// transient systemd timer so the SSH command returns cleanly before sshd is
+// torn down, rather than racing the connection drop and surfacing a spurious
+// error on an otherwise-successful reboot.
+func (o *Orchestrator) RebootNode(nodeIP string) error {
+	return o.scheduleSystemdAction(nodeIP, "reboot")
+}
+
+// ShutdownNode powers a node off over SSH. State is preserved (this is not a
+// kubeadm reset); it uses the same deferred-timer trick as RebootNode so the
+// command returns before the node goes down. Caller handles confirmation.
+func (o *Orchestrator) ShutdownNode(nodeIP string) error {
+	return o.scheduleSystemdAction(nodeIP, "poweroff")
+}
+
+// scheduleSystemdAction runs `systemctl <action>` ~2s in the future via a
+// transient systemd timer (systemd-run), so the SSH session closes cleanly
+// first. action is "reboot" or "poweroff".
+func (o *Orchestrator) scheduleSystemdAction(nodeIP, action string) error {
+	runner := o.runnerFor(nodeIP)
+	if err := runner.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to %s: %w", nodeIP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	cmd := fmt.Sprintf("sudo systemd-run --on-active=2s --timer-property=AccuracySec=100ms systemctl %s", action)
+	if out, err := runner.ExecuteCommand(cmd); err != nil {
+		return fmt.Errorf("%s on %s failed: %w\n%s", action, nodeIP, err, common.RedactCommandOutput(out))
+	}
+	return nil
+}
+
 // --- output parsing ---
 
 var (

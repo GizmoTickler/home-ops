@@ -252,6 +252,31 @@ func TestResetNode(t *testing.T) {
 	assert.True(t, r.closed)
 }
 
+func TestRebootNode(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.RebootNode("192.168.122.11"))
+	joined := strings.Join(r.commands, "\n")
+	// Scheduled via a deferred systemd timer so the SSH session closes cleanly.
+	assert.Contains(t, joined, "systemd-run")
+	assert.Contains(t, joined, "systemctl reboot")
+	assert.True(t, r.closed)
+}
+
+func TestShutdownNode(t *testing.T) {
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.ShutdownNode("192.168.122.11"))
+	joined := strings.Join(r.commands, "\n")
+	assert.Contains(t, joined, "systemd-run")
+	assert.Contains(t, joined, "systemctl poweroff")
+	assert.True(t, r.closed)
+}
+
 func TestConnectErrorPropagates(t *testing.T) {
 	r := &fakeRunner{connectErr: fmt.Errorf("dial fail")}
 	defer withFakeRunner(t, r)()

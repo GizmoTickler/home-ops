@@ -51,9 +51,9 @@ type BootstrapConfig struct {
 	// 1Password before `kubeadm init`, so kubeadm mints a NEW cluster CA. Default
 	// (false) reuses the persisted PKI for a stable identity across rebuilds.
 	FreshPKI bool
-	// Provider selects the node-provisioning path: "talos" (default, existing
-	// behavior) or "flatcar" (kubeadm-over-SSH). Only the pre-CNI steps differ;
-	// the generic post-CNI steps are shared.
+	// Provider selects the node-provisioning path: "flatcar" (default,
+	// kubeadm-over-SSH) or "talos" (legacy, retained for rollback). Only the
+	// pre-CNI steps differ; the generic post-CNI steps are shared.
 	Provider string
 }
 

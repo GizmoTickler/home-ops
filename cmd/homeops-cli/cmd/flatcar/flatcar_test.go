@@ -104,6 +104,64 @@ func TestResetClusterCommand(t *testing.T) {
 	assert.Equal(t, []string{"192.168.122.12", "192.168.122.11", "192.168.122.10"}, order)
 }
 
+func TestRebootNodeCommand(t *testing.T) {
+	defer stubSecrets(t)()
+	origConfirm, origReboot := confirmActionFn, rebootNodeFn
+	var rebootIP string
+	confirmActionFn = func(string, bool) (bool, error) { return true, nil }
+	rebootNodeFn = func(sshUser, ip string) error { rebootIP = ip; return nil }
+	defer func() { confirmActionFn, rebootNodeFn = origConfirm, origReboot }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reboot-node", "--node", "k8s-1", "--force"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, "192.168.122.11", rebootIP)
+}
+
+func TestRebootNodeCommandCancelled(t *testing.T) {
+	origConfirm, origReboot := confirmActionFn, rebootNodeFn
+	called := false
+	confirmActionFn = func(string, bool) (bool, error) { return false, nil } // user declines
+	rebootNodeFn = func(string, string) error { called = true; return nil }
+	defer func() { confirmActionFn, rebootNodeFn = origConfirm, origReboot }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reboot-node", "--node", "k8s-1"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cancelled")
+	assert.False(t, called, "reboot must not run when confirmation is declined")
+}
+
+func TestRebootNodeCommandUnknownNode(t *testing.T) {
+	origReboot := rebootNodeFn
+	called := false
+	rebootNodeFn = func(string, string) error { called = true; return nil }
+	defer func() { rebootNodeFn = origReboot }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"reboot-node", "--node", "does-not-exist", "--force"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown flatcar node")
+	assert.False(t, called, "reboot must not run for an unknown node")
+}
+
+func TestShutdownClusterCommand(t *testing.T) {
+	defer stubSecrets(t)()
+	origConfirm, origShutdown := confirmActionFn, shutdownNodeFn
+	var order []string
+	confirmActionFn = func(string, bool) (bool, error) { return true, nil }
+	shutdownNodeFn = func(sshUser, ip string) error { order = append(order, ip); return nil }
+	defer func() { confirmActionFn, shutdownNodeFn = origConfirm, origShutdown }()
+
+	cmd := NewCommand()
+	cmd.SetArgs([]string{"shutdown-cluster", "--force"})
+	require.NoError(t, cmd.Execute())
+	// reverse node order so the init node (k8s-0) powers off last
+	assert.Equal(t, []string{"192.168.122.12", "192.168.122.11", "192.168.122.10"}, order)
+}
+
 func TestPatchKubeconfigServer(t *testing.T) {
 	in := "clusters:\n- cluster:\n    server: https://192.168.122.10:6443\n    name: x\n"
 	out := patchKubeconfigServer(in, "192.168.123.253")
@@ -205,6 +263,28 @@ func TestRenderIgnitionCommand(t *testing.T) {
 	cmd.SetArgs([]string{"--node", "k8s-0"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "3.4.0")
+}
+
+// TestRenderIgnitionCommandWritesToNestedOutDir verifies --out creates any
+// missing parent directories before writing, matching the kubeconfig command's
+// behavior, rather than failing on os.WriteFile against a nonexistent path.
+func TestRenderIgnitionCommandWritesToNestedOutDir(t *testing.T) {
+	defer stubVersions(t)()
+	orig := renderIgnitionFn
+	defer func() { renderIgnitionFn = orig }()
+	renderIgnitionFn = func(env flatcar.NodeEnv) ([]byte, error) {
+		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
+	}
+
+	outPath := filepath.Join(t.TempDir(), "nested", "dir", "ignition.json")
+	cmd := newRenderIgnitionCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--node", "k8s-0", "--out", outPath})
+	require.NoError(t, cmd.Execute())
+
+	data, err := os.ReadFile(outPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "3.4.0")
 }
 
 func TestGenKubeadmCommandInit(t *testing.T) {
