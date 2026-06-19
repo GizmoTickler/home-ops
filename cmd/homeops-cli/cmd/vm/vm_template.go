@@ -13,6 +13,7 @@ import (
 	"homeops-cli/internal/images"
 	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 )
@@ -107,7 +108,16 @@ Per provider:
 			}
 
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				if !ui.IsInteractive() {
+					return fmt.Errorf("--name is required")
+				}
+				entered, perr := ui.Input("Template name:", "ubuntu-tpl")
+				if perr != nil {
+					return perr
+				}
+				if name = strings.TrimSpace(entered); name == "" {
+					return nil // cancelled
+				}
 			}
 			imageRef, ciUser, err := resolveCloudImage(osKey, image, user)
 			if err != nil {

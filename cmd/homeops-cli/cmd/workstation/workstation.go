@@ -91,7 +91,7 @@ func installBrewPackages() error {
 
 	// Check if Homebrew is installed
 	if err := checkCLIFunc("brew"); err != nil {
-		return fmt.Errorf("homebrew is not installed. Please install Homebrew first: %w", err)
+		return fmt.Errorf("homebrew is not installed; install it from https://brew.sh first: %w", err)
 	}
 
 	// Get Brewfile content from embedded templates
@@ -153,7 +153,7 @@ func installKrewPlugins() error {
 
 	// Check if kubectl is installed
 	if err := checkCLIFunc("kubectl"); err != nil {
-		return fmt.Errorf("kubectl is not installed. Please install kubectl first: %w", err)
+		return fmt.Errorf("kubectl is not installed; install it first: %w", err)
 	}
 
 	// List of plugins to install (from the original Taskfile)

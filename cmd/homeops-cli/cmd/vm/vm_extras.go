@@ -32,6 +32,7 @@ var vmIPAddressesFn = func(provider, name string) ([]string, error) {
 // newSnapshotCommand groups snapshot operations.
 func newSnapshotCommand() *cobra.Command {
 	var name, snap, provider string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "snapshot",
 		Short: "Manage VM snapshots (create, list, rollback, delete)",
@@ -44,67 +45,93 @@ name (crash-consistent while the VM runs).`,
   homeops-cli vm snapshot delete --provider truenas --name dev-vm --snap pre-upgrade`,
 	}
 
-	requireArgs := func(needSnap bool) error {
-		if name == "" {
-			return fmt.Errorf("--name is required")
+	// resolveTarget resolves the VM name (live picker when --name is omitted on
+	// a terminal) and, when needSnap, the snapshot name. A returned empty name
+	// means the user cancelled the picker — callers should do nothing.
+	resolveTarget := func(action string, needSnap bool) (string, string, error) {
+		resolvedName, err := resolveVMNameForAction(name, provider, action)
+		if err != nil || resolvedName == "" {
+			return "", "", err
 		}
-		if needSnap && snap == "" {
-			return fmt.Errorf("--snap is required")
+		resolvedSnap := snap
+		if needSnap {
+			if resolvedSnap, err = promptStringIfInteractive(snap, "Snapshot name:", "pre-upgrade"); err != nil {
+				return "", "", err
+			}
+			if resolvedSnap == "" {
+				return "", "", fmt.Errorf("--snap is required")
+			}
 		}
-		return nil
+		return resolvedName, resolvedSnap, nil
 	}
 
 	create := &cobra.Command{
 		Use:   "create",
 		Short: "Create a snapshot",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := requireArgs(true); err != nil {
+			vmName, snapName, err := resolveTarget("snapshot", true)
+			if err != nil || vmName == "" {
 				return err
 			}
-			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.SnapshotVM(name, snap) })
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.SnapshotVM(vmName, snapName) })
 		},
 	}
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List snapshots",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := requireArgs(false); err != nil {
+			vmName, _, err := resolveTarget("list snapshots for", false)
+			if err != nil || vmName == "" {
 				return err
 			}
-			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.ListVMSnapshots(name) })
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.ListVMSnapshots(vmName) })
 		},
 	}
 	rollback := &cobra.Command{
 		Use:   "rollback",
 		Short: "Roll back to a snapshot (DESTRUCTIVE: state after the snapshot is lost)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := requireArgs(true); err != nil {
+			vmName, snapName, err := resolveTarget("roll back", true)
+			if err != nil || vmName == "" {
 				return err
 			}
-			ok, err := confirmActionFn(fmt.Sprintf("Roll back VM %s to snapshot %q? Disk changes after the snapshot will be LOST.", name, snap), false)
-			if err != nil {
-				return err
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Roll back VM %s to snapshot %q? Disk changes after the snapshot will be LOST.", vmName, snapName), false)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("rollback cancelled by user")
+				}
 			}
-			if !ok {
-				return fmt.Errorf("rollback cancelled by user")
-			}
-			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.RollbackVM(name, snap) })
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.RollbackVM(vmName, snapName) })
 		},
 	}
 	del := &cobra.Command{
 		Use:   "delete",
-		Short: "Delete a snapshot",
+		Short: "Delete a snapshot (DESTRUCTIVE: the recovery point is removed)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := requireArgs(true); err != nil {
+			vmName, snapName, err := resolveTarget("delete a snapshot on", true)
+			if err != nil || vmName == "" {
 				return err
 			}
-			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.DeleteVMSnapshot(name, snap) })
+			if !force {
+				ok, err := confirmActionFn(fmt.Sprintf("Delete snapshot %q on VM %s? This cannot be undone.", snapName, vmName), false)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return fmt.Errorf("snapshot delete cancelled by user")
+				}
+			}
+			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error { return lc.DeleteVMSnapshot(vmName, snapName) })
 		},
 	}
 
-	cmd.PersistentFlags().StringVar(&name, "name", "", "VM name (required)")
-	cmd.PersistentFlags().StringVar(&snap, "snap", "", "snapshot name")
+	cmd.PersistentFlags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
+	cmd.PersistentFlags().StringVar(&snap, "snap", "", "snapshot name (prompts if omitted)")
 	cmd.PersistentFlags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	cmd.PersistentFlags().BoolVar(&force, "force", false, "skip the confirmation prompt (rollback, delete)")
 	cmd.AddCommand(create, list, rollback, del)
 	return cmd
 }
@@ -123,16 +150,26 @@ makes full clones.`,
 		Example: `  homeops-cli vm clone --name template-vm --to dev-vm2
   homeops-cli vm clone --provider truenas --name web0 --to web1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if name == "" || to == "" {
-				return fmt.Errorf("--name and --to are required")
+			name, err := resolveVMNameForAction(name, provider, "clone")
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				return nil // picker cancelled
+			}
+			if to, err = promptStringIfInteractive(to, "New VM name:", "dev-vm2"); err != nil {
+				return err
+			}
+			if to == "" {
+				return fmt.Errorf("--to is required")
 			}
 			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
 				return lc.Clone(name, to, vmprov.CloneOptions{VMID: vmid, Linked: linked})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "source VM name (required)")
-	cmd.Flags().StringVar(&to, "to", "", "new VM name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "source VM name (prompts if omitted)")
+	cmd.Flags().StringVar(&to, "to", "", "new VM name (prompts if omitted)")
 	cmd.Flags().IntVar(&vmid, "vmid", 0, "VMID for the clone (proxmox only; 0 = auto)")
 	cmd.Flags().BoolVar(&linked, "linked", false, "linked clone instead of full (proxmox; truenas clones are always ZFS-linked)")
 	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)

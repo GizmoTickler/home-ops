@@ -111,8 +111,15 @@ hypervisors.default from homeops.yaml.`,
 	for _, p := range []string{"proxmox", "truenas", "vsphere"} {
 		cmd.AddCommand(newProviderScopedVMGroup(p))
 	}
-	// Flat verbs stay as hidden shorthands for the default provider.
+	// Flat verbs stay as hidden shorthands for the default provider. cleanup-zvols
+	// is a TrueNAS-only operation (it has no --provider flag and always talks to
+	// the NAS); exposing it as a flat default-provider shorthand would silently
+	// hit TrueNAS even when hypervisors.default is proxmox/vsphere, so keep it
+	// reachable only under `vm truenas cleanup-zvols`.
 	for _, sub := range vmLifecycleSubcommands() {
+		if sub.Name() == "cleanup-zvols" {
+			continue
+		}
 		sub.Hidden = true
 		cmd.AddCommand(sub)
 	}
@@ -552,22 +559,24 @@ func newPowerOffVMCommand() *cobra.Command {
 	var (
 		name     string
 		provider string
+		force    bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "poweroff",
 		Short: "Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi",
-		Long:  `Power off a VM on Proxmox, TrueNAS, or vSphere/ESXi. If --name is not specified, presents an interactive selector.`,
+		Long:  `Hard power off (force-stop) a VM on Proxmox, TrueNAS, or vSphere/ESXi — the guest is NOT shut down cleanly. Prompts for confirmation unless --force. If --name is not specified, presents an interactive selector. Use 'vm stop' for a graceful shutdown.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "poweroff"); err != nil {
 				return err
 			}
-			return powerOffVM(name, provider)
+			return powerOffVM(name, provider, force)
 		},
 	}
 
 	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 
 	// Add completion for name flag
 	_ = cmd.RegisterFlagCompletionFunc("name", vmNameCompletion)
@@ -582,9 +591,21 @@ func powerOnVM(name, provider string) error {
 	})
 }
 
-// powerOffVM force-stops a VM on the specified provider with interactive selector
-func powerOffVM(name, provider string) error {
+// powerOffVM force-stops a VM on the specified provider with interactive
+// selector. The force-stop is destructive (no clean guest shutdown), so it is
+// gated behind a confirmation unless force is set (the global --yes also
+// satisfies confirmActionFn).
+func powerOffVM(name, provider string, force bool) error {
 	return vmlifecycle.RunVMLifecycleAction(name, provider, "power off", func(lifecycle vmprov.VMLifecycle, vmName string) error {
+		if !force {
+			ok, err := confirmActionFn(fmt.Sprintf("Force power off VM %q? The guest is not shut down cleanly and may lose unsaved data.", vmName), false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("power off cancelled by user")
+			}
+		}
 		return lifecycle.StopVM(vmName, true)
 	})
 }

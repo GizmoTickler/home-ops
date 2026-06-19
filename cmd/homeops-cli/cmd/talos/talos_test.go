@@ -1211,7 +1211,7 @@ func TestTalosUpgradeAndLifecycleFlows(t *testing.T) {
 			return []byte("ok"), nil
 		}
 
-		require.NoError(t, rebootNode("", "powercycle"))
+		require.NoError(t, rebootNode("", "powercycle", false))
 		require.NoError(t, shutdownCluster())
 		require.NoError(t, resetNode("10.0.0.60", true))
 		require.NoError(t, resetCluster())

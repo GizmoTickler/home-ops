@@ -78,7 +78,7 @@ func TestCleansePods(t *testing.T) {
 			return []byte("pod/paperless pod/homepage"), nil
 		}
 
-		require.NoError(t, cleansePods("", "", true))
+		require.NoError(t, cleansePods("", "", true, false))
 		assert.Len(t, calls, 2)
 		assert.Contains(t, calls[0], "status.phase=Failed")
 		assert.Contains(t, calls[1], "status.phase=Succeeded")
@@ -89,7 +89,7 @@ func TestCleansePods(t *testing.T) {
 			assert.Equal(t, "kubectl", name)
 			return []byte("pod \"paperless\" deleted\npod \"homepage\" deleted\n"), nil
 		}
-		require.NoError(t, cleansePods("media", "failed", false))
+		require.NoError(t, cleansePods("media", "failed", false, true))
 	})
 }
 

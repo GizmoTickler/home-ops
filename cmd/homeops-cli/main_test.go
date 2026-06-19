@@ -43,6 +43,22 @@ func TestNewRootCommandAndEnvironment(t *testing.T) {
 	assert.True(t, subcommands["workstation"])
 }
 
+// menuSeq builds a chooseFn that yields each selection once, then returns
+// "Back" forever. Submenus loop until the user picks Back, so a fake that
+// returns a fixed leaf would spin; this drains the meaningful selections and
+// then exits cleanly.
+func menuSeq(selections ...string) func(string, []string) (string, error) {
+	var idx int
+	return func(prompt string, options []string) (string, error) {
+		if idx < len(selections) {
+			s := selections[idx]
+			idx++
+			return s, nil
+		}
+		return "Back - Return to main menu", nil
+	}
+}
+
 func TestShowInteractiveMenu(t *testing.T) {
 	originalChoose := chooseFn
 	t.Cleanup(func() { chooseFn = originalChoose })
@@ -119,9 +135,7 @@ func TestShowSubcommandMenu(t *testing.T) {
 
 	t.Run("runs subcommand", func(t *testing.T) {
 		var ran bool
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "status - Show status", nil
-		}
+		chooseFn = menuSeq("status - Show status")
 
 		cmd := &cobra.Command{Use: "talos"}
 		cmd.AddCommand(&cobra.Command{
@@ -138,18 +152,10 @@ func TestShowSubcommandMenu(t *testing.T) {
 	})
 
 	t.Run("nested submenu returns to parent", func(t *testing.T) {
-		choices := []string{
-			"cluster - Cluster operations",
-			"status - Show status",
-			"Back - Return to main menu",
-		}
-		var idx int
+		// Select the cluster subgroup, then its status leaf; menuSeq then
+		// returns Back to exit the cluster submenu and again to exit talos.
 		var ran bool
-		chooseFn = func(prompt string, options []string) (string, error) {
-			choice := choices[idx]
-			idx++
-			return choice, nil
-		}
+		chooseFn = menuSeq("cluster - Cluster operations", "status - Show status")
 
 		cmd := &cobra.Command{Use: "talos"}
 		clusterCmd := &cobra.Command{Use: "cluster", Short: "Cluster operations"}
@@ -234,9 +240,7 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 	t.Cleanup(func() { chooseFn, menuArgsInputFn = originalChoose, originalInput })
 
 	t.Run("required-arg command prompts for the arguments", func(t *testing.T) {
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "get - Get an item", nil
-		}
+		chooseFn = menuSeq("get - Get an item")
 		menuArgsInputFn = func(prompt, placeholder string) (string, error) {
 			assert.Contains(t, prompt, "get <item>")
 			return "talosdeploy", nil
@@ -257,9 +261,7 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 	})
 
 	t.Run("empty prompt answer shows help instead of panicking", func(t *testing.T) {
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "get - Get an item", nil
-		}
+		chooseFn = menuSeq("get - Get an item")
 		menuArgsInputFn = func(string, string) (string, error) { return "  ", nil }
 		cmd := &cobra.Command{Use: "op"}
 		cmd.AddCommand(&cobra.Command{
@@ -274,9 +276,7 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 	})
 
 	t.Run("wrong arg count from prompt shows help", func(t *testing.T) {
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "get - Get an item", nil
-		}
+		chooseFn = menuSeq("get - Get an item")
 		menuArgsInputFn = func(string, string) (string, error) { return "one two", nil }
 		ran := false
 		cmd := &cobra.Command{Use: "op"}
@@ -295,9 +295,7 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 
 	t.Run("optional-arg command still runs", func(t *testing.T) {
 		var got []string
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "ip - Show IPs", nil
-		}
+		chooseFn = menuSeq("ip - Show IPs")
 		cmd := &cobra.Command{Use: "vm"}
 		cmd.AddCommand(&cobra.Command{
 			Use:   "ip [name]",
@@ -314,9 +312,7 @@ func TestMenuGuardsPositionalCommands(t *testing.T) {
 
 	t.Run("flag-driven command is redirected to help", func(t *testing.T) {
 		var ran bool
-		chooseFn = func(prompt string, options []string) (string, error) {
-			return "suspend - Suspend", nil
-		}
+		chooseFn = menuSeq("suspend - Suspend")
 		cmd := &cobra.Command{Use: "homeops-cli"}
 		volsyncCmd := &cobra.Command{Use: "volsync"}
 		sub := &cobra.Command{

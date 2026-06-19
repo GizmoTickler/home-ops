@@ -33,15 +33,28 @@ func newSetVMCommand() *cobra.Command {
 		Example: `  homeops-cli vm set --name dev-vm --memory 8192
   homeops-cli vm set --provider truenas --name dev-vm --cores 4 --memory 16384`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name, err := resolveVMNameForAction(name, provider, "configure")
+			if err != nil {
+				return err
+			}
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				return nil // picker cancelled
+			}
+			if memory, err = promptIntIfInteractive(memory, "New memory in MB (blank = unchanged):", "8192"); err != nil {
+				return err
+			}
+			if cores, err = promptIntIfInteractive(cores, "New CPU cores (blank = unchanged):", "4"); err != nil {
+				return err
+			}
+			if memory == 0 && cores == 0 {
+				return fmt.Errorf("nothing to change: pass --memory and/or --cores")
 			}
 			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
 				return lc.SetVMResources(name, memory, cores)
 			})
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
 	cmd.Flags().IntVar(&memory, "memory", 0, "new memory in MB (0 = unchanged)")
 	cmd.Flags().IntVar(&cores, "cores", 0, "new CPU cores/vCPUs (0 = unchanged)")
 	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
@@ -61,8 +74,18 @@ func newResizeDiskCommand() *cobra.Command {
   homeops-cli vm resize-disk --name dev-vm --disk scsi1 --size 200G
   homeops-cli vm resize-disk --provider truenas --name dev-vm --disk openebs --grow 100G`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name, err := resolveVMNameForAction(name, provider, "resize a disk on")
+			if err != nil {
+				return err
+			}
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				return nil // picker cancelled
+			}
+			// On an interactive run with neither size flag, prompt for a grow amount.
+			if grow == "" && size == "" {
+				if grow, err = promptStringIfInteractive(grow, "Grow disk by (e.g. 20G):", "20G"); err != nil {
+					return err
+				}
 			}
 			spec := ""
 			switch {
@@ -80,7 +103,7 @@ func newResizeDiskCommand() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
 	cmd.Flags().StringVar(&disk, "disk", "", "disk to resize (default: boot disk; proxmox: scsi0/scsi1..., truenas: boot/openebs/zvol path, vsphere: scsiN or device label)")
 	cmd.Flags().StringVar(&grow, "grow", "", "grow by this much (e.g. 20G)")
 	cmd.Flags().StringVar(&size, "size", "", "grow to this absolute size (e.g. 200G)")
@@ -96,15 +119,19 @@ func newRestartVMCommand() *cobra.Command {
 		Short:   "Restart (reboot) a VM",
 		Example: `  homeops-cli vm restart --name dev-vm`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			name, err := resolveVMNameForAction(name, provider, "restart")
+			if err != nil {
+				return err
+			}
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				return nil // picker cancelled
 			}
 			return runLifecycleOp(provider, func(lc vmprov.VMLifecycle) error {
 				return lc.RestartVM(name)
 			})
 		},
 	}
-	cmd.Flags().StringVar(&name, "name", "", "VM name (required)")
+	cmd.Flags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
 	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
 	return cmd
 }
