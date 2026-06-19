@@ -18,7 +18,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
 	github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe
-	github.com/vmware/govmomi v0.54.0
+	github.com/vmware/govmomi v0.54.1
 	go.uber.org/zap v1.28.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.36.2
