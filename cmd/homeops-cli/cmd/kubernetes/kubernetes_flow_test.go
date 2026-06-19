@@ -482,6 +482,7 @@ func TestBrowsePVC(t *testing.T) {
 	oldInstallPlugin := installKubectlPluginFn
 	oldKubectlInteractive := kubectlRunInteractiveFn
 	oldSleep := sleepFn
+	oldKrew := ensureKrewPathFn
 	t.Cleanup(func() {
 		kubectlOutputFn = oldKubectlOutput
 		chooseOptionFn = oldChoose
@@ -490,8 +491,10 @@ func TestBrowsePVC(t *testing.T) {
 		installKubectlPluginFn = oldInstallPlugin
 		kubectlRunInteractiveFn = oldKubectlInteractive
 		sleepFn = oldSleep
+		ensureKrewPathFn = oldKrew
 	})
 
+	ensureKrewPathFn = func() {}
 	kubectlOutputFn = func(args ...string) ([]byte, error) {
 		switch strings.Join(args, " ") {
 		case "get pvc -n media -o jsonpath={.items[*].metadata.name}":
@@ -513,14 +516,15 @@ func TestBrowsePVC(t *testing.T) {
 		return nil
 	}
 
+	var installedPlugin string
+	// The browse_pvc binary is missing until the krew install runs.
 	lookPathFn = func(file string) (string, error) {
-		if file == "kubectl-browse-pvc" {
+		if file == "kubectl-browse_pvc" && installedPlugin == "" {
 			return "", errors.New("missing")
 		}
 		return "/usr/bin/" + file, nil
 	}
 
-	var installedPlugin string
 	installKubectlPluginFn = func(plugin string) error {
 		installedPlugin = plugin
 		return nil
@@ -603,6 +607,7 @@ func TestNodeShell(t *testing.T) {
 	oldLookPath := lookPathFn
 	oldInstallPlugin := installKubectlPluginFn
 	oldKubectlInteractive := kubectlRunInteractiveFn
+	oldKrew := ensureKrewPathFn
 	t.Cleanup(func() {
 		kubectlOutputFn = oldKubectlOutput
 		chooseOptionFn = oldChoose
@@ -610,8 +615,10 @@ func TestNodeShell(t *testing.T) {
 		lookPathFn = oldLookPath
 		installKubectlPluginFn = oldInstallPlugin
 		kubectlRunInteractiveFn = oldKubectlInteractive
+		ensureKrewPathFn = oldKrew
 	})
 
+	ensureKrewPathFn = func() {}
 	kubectlOutputFn = func(args ...string) ([]byte, error) {
 		assert.Equal(t, []string{"get", "nodes", "-o", "jsonpath={.items[*].metadata.name}"}, args)
 		return []byte("cp01 wk01"), nil
@@ -627,8 +634,8 @@ func TestNodeShell(t *testing.T) {
 		return nil
 	}
 	lookPathFn = func(file string) (string, error) {
-		assert.Equal(t, "kubectl-node-shell", file)
-		return "/usr/bin/kubectl-node-shell", nil
+		assert.Equal(t, "kubectl-node_shell", file)
+		return "/usr/bin/kubectl-node_shell", nil
 	}
 	installKubectlPluginFn = func(plugin string) error {
 		t.Fatalf("unexpected plugin install: %s", plugin)
