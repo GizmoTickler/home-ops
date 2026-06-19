@@ -55,7 +55,8 @@ var (
 	installKubectlPluginFn = func(plugin string) error {
 		return common.Command("kubectl", "krew", "install", plugin).Run()
 	}
-	commandOutputFn = func(name string, args ...string) ([]byte, error) {
+	ensureKrewPathFn = ensureKrewPath
+	commandOutputFn  = func(name string, args ...string) ([]byte, error) {
 		return runKubernetesCommandOutput(name, args...)
 	}
 	commandRunFn = func(name string, args ...string) error {
@@ -348,15 +349,58 @@ func selectKubectlResource(namespace, resourceType, prompt string) (string, erro
 	return selected, nil
 }
 
+// ensureKrewPath makes krew-installed kubectl plugins discoverable by
+// prepending ${KREW_ROOT:-$HOME/.krew}/bin to PATH for this process and every
+// kubectl child it spawns. Krew installs plugins there, but it is not on PATH
+// unless the user added it to their shell rc — without it, kubectl cannot find
+// any krew plugin (browse-pvc, node-shell, ...). Idempotent; a no-op when the
+// dir is already on PATH or the home directory cannot be resolved.
+func ensureKrewPath() {
+	root := os.Getenv("KREW_ROOT")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return
+		}
+		root = filepath.Join(home, ".krew")
+	}
+	binDir := filepath.Join(root, "bin")
+
+	path := os.Getenv("PATH")
+	for _, p := range filepath.SplitList(path) {
+		if p == binDir {
+			return // already present
+		}
+	}
+	if path == "" {
+		_ = os.Setenv("PATH", binDir)
+		return
+	}
+	_ = os.Setenv("PATH", binDir+string(os.PathListSeparator)+path)
+}
+
+// ensureKubectlPlugin makes a krew-managed kubectl plugin available. It first
+// ensures the krew bin dir is on PATH (so an already-installed plugin is found
+// and so kubectl can later discover it), installs the plugin if missing, and
+// then verifies the binary really resolved — turning the previously-silent
+// "unknown command" failure into an actionable error. binaryName must be the
+// on-disk name krew produces (dashes become underscores, e.g.
+// kubectl-browse_pvc); pluginName is the krew index name (e.g. browse-pvc).
 func ensureKubectlPlugin(binaryName, pluginName string) error {
+	ensureKrewPathFn()
 	if _, err := lookPathFn(binaryName); err == nil {
 		return nil
 	}
 
+	common.NewColorLogger().Warn("kubectl %s plugin not installed, installing via krew...", pluginName)
 	if err := installKubectlPluginFn(pluginName); err != nil {
 		return fmt.Errorf("failed to install %s plugin: %w", pluginName, err)
 	}
 
+	ensureKrewPathFn()
+	if _, err := lookPathFn(binaryName); err != nil {
+		return fmt.Errorf("installed the %s plugin but %s is not discoverable on PATH; add ${KREW_ROOT:-$HOME/.krew}/bin to your PATH", pluginName, binaryName)
+	}
 	return nil
 }
 
@@ -481,12 +525,9 @@ func browsePVC(namespace, claim, image string) error {
 		return fmt.Errorf("PVC %s not found in namespace %s", claim, namespace)
 	}
 
-	// Check if kubectl browse-pvc plugin is installed
-	if _, err := lookPathFn("kubectl-browse-pvc"); err != nil {
-		logger.Warn("kubectl browse-pvc plugin not installed, installing via krew...")
-		if err := ensureKubectlPlugin("kubectl-browse-pvc", "browse-pvc"); err != nil {
-			return err
-		}
+	// Ensure the krew browse-pvc plugin is installed and discoverable on PATH.
+	if err := ensureKubectlPlugin("kubectl-browse_pvc", "browse-pvc"); err != nil {
+		return err
 	}
 
 	logger.Info("Mounting PVC %s/%s to temporary container", namespace, claim)
@@ -555,12 +596,9 @@ func nodeShell(node string) error {
 		return fmt.Errorf("node %s not found", node)
 	}
 
-	// Check if kubectl node-shell plugin is installed
-	if _, err := lookPathFn("kubectl-node-shell"); err != nil {
-		logger.Warn("kubectl node-shell plugin not installed, installing via krew...")
-		if err := ensureKubectlPlugin("kubectl-node-shell", "node-shell"); err != nil {
-			return err
-		}
+	// Ensure the krew node-shell plugin is installed and discoverable on PATH.
+	if err := ensureKubectlPlugin("kubectl-node_shell", "node-shell"); err != nil {
+		return err
 	}
 
 	logger.Info("Opening shell to node %s", node)

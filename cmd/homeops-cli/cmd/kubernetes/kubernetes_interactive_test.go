@@ -57,23 +57,31 @@ func TestSelectKubectlResourceCancellation(t *testing.T) {
 func TestEnsureKubectlPlugin(t *testing.T) {
 	oldLookPath := lookPathFn
 	oldInstall := installKubectlPluginFn
+	oldKrew := ensureKrewPathFn
 	t.Cleanup(func() {
 		lookPathFn = oldLookPath
 		installKubectlPluginFn = oldInstall
+		ensureKrewPathFn = oldKrew
 	})
 
+	ensureKrewPathFn = func() {}
+	installed := false
 	called := 0
 	lookPathFn = func(file string) (string, error) {
-		assert.Equal(t, "kubectl-browse-pvc", file)
+		assert.Equal(t, "kubectl-browse_pvc", file)
+		if installed {
+			return "/path/" + file, nil
+		}
 		return "", fmt.Errorf("missing")
 	}
 	installKubectlPluginFn = func(plugin string) error {
 		called++
 		assert.Equal(t, "browse-pvc", plugin)
+		installed = true
 		return nil
 	}
 
-	require.NoError(t, ensureKubectlPlugin("kubectl-browse-pvc", "browse-pvc"))
+	require.NoError(t, ensureKubectlPlugin("kubectl-browse_pvc", "browse-pvc"))
 	assert.Equal(t, 1, called)
 }
 
@@ -131,14 +139,17 @@ func TestBrowsePVCCleansAllStalePods(t *testing.T) {
 	oldOutput := kubectlOutputFn
 	oldInteractive := kubectlRunInteractiveFn
 	oldSleep := sleepFn
+	oldKrew := ensureKrewPathFn
 	t.Cleanup(func() {
 		lookPathFn = oldLookPath
 		kubectlRunFn = oldRun
 		kubectlOutputFn = oldOutput
 		kubectlRunInteractiveFn = oldInteractive
 		sleepFn = oldSleep
+		ensureKrewPathFn = oldKrew
 	})
 
+	ensureKrewPathFn = func() {}
 	var deleted []string
 	lookPathFn = func(file string) (string, error) { return "/usr/bin/" + file, nil }
 	kubectlRunFn = func(args ...string) error {
@@ -176,20 +187,29 @@ func TestNodeShellInstallsPluginAndRunsInteractive(t *testing.T) {
 	oldInstall := installKubectlPluginFn
 	oldRun := kubectlRunFn
 	oldInteractive := kubectlRunInteractiveFn
+	oldKrew := ensureKrewPathFn
 	t.Cleanup(func() {
 		lookPathFn = oldLookPath
 		installKubectlPluginFn = oldInstall
 		kubectlRunFn = oldRun
 		kubectlRunInteractiveFn = oldInteractive
+		ensureKrewPathFn = oldKrew
 	})
 
+	ensureKrewPathFn = func() {}
 	installs := 0
+	installed := false
 	lookPathFn = func(file string) (string, error) {
+		assert.Equal(t, "kubectl-node_shell", file)
+		if installed {
+			return "/path/" + file, nil
+		}
 		return "", fmt.Errorf("missing")
 	}
 	installKubectlPluginFn = func(plugin string) error {
 		installs++
 		assert.Equal(t, "node-shell", plugin)
+		installed = true
 		return nil
 	}
 	kubectlRunFn = func(args ...string) error {
