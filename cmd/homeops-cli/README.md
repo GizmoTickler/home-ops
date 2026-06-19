@@ -121,6 +121,11 @@ homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
 # Render just the Ignition or kubeadm config
 homeops-cli flatcar render-ignition
 homeops-cli flatcar gen-kubeadm
+
+# Node lifecycle (reboot-node/reset-node prompt for the node if --node is omitted)
+homeops-cli flatcar reboot-node --node k8s-1
+homeops-cli flatcar reset-node --node k8s-1 --force      # kubeadm reset (destructive)
+homeops-cli flatcar save-pki                             # capture live cluster PKI into the configured store
 ```
 
 Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade
@@ -166,12 +171,17 @@ homeops-cli talos prepare-iso --provider truenas
 
 ### VM lifecycle management
 
+VM lifecycle (list/info/delete/poweron/poweroff/…) is handled by the
+provider-agnostic **`vm` platform** (see the "VM Platform" section above) —
+`homeops-cli vm proxmox|truenas|vsphere <verb>`. The old `talos manage-vm`
+subcommand is deprecated (hidden) and forwards to `vm`; use `vm` directly:
+
 ```bash
-homeops-cli talos manage-vm list
-homeops-cli talos manage-vm info --name k8s-0
-homeops-cli talos manage-vm delete --name test --force
-homeops-cli talos manage-vm poweron --name k8s-0
-homeops-cli talos manage-vm poweroff --name k8s-0
+homeops-cli vm proxmox list
+homeops-cli vm proxmox info --name k8s-0
+homeops-cli vm proxmox delete --name test --force
+homeops-cli vm proxmox poweron --name k8s-0
+homeops-cli vm proxmox poweroff --name k8s-0
 ```
 
 ## Kubernetes Operations
@@ -230,8 +240,8 @@ make check        # fmt + vet + golangci-lint (.golangci.yml) + tests
 ```
 
 Scripting/automation: list commands emit machine-readable output —
-`vm list --output json|yaml`, `op list --output json`, `op vaults list
---output json`, `volsync snapshots --format json|yaml`. All tables degrade to
+`vm list --output json|yaml`, `op list --output json|yaml`, `op vaults list
+--output json|yaml`, `volsync snapshots --format json|yaml`. All tables degrade to
 plain aligned columns when piped (no ANSI), and prompts are disabled with
 `HOMEOPS_NO_INTERACTIVE=1` (pass `--yes`/`--all` style flags in CI).
 

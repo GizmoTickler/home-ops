@@ -521,19 +521,21 @@ func newRebootNodeCommand() *cobra.Command {
 	var (
 		nodeIP string
 		mode   string
+		force  bool
 	)
 
 	cmd := &cobra.Command{
 		Use:   "reboot-node",
 		Short: "Reboot Talos on a single node",
-		Long:  `Reboot a Talos node. If --ip is not specified, presents an interactive selector.`,
+		Long:  `Reboot a Talos node. If --ip is not specified, presents an interactive selector. Prompts for confirmation unless --force.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return rebootNode(nodeIP, mode)
+			return rebootNode(nodeIP, mode, force)
 		},
 	}
 
 	cmd.Flags().StringVar(&nodeIP, "ip", "", "Node IP address (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&mode, "mode", "powercycle", "Reboot mode")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 
 	// Add completion for IP flag
 	_ = cmd.RegisterFlagCompletionFunc("ip", completion.ValidNodeIPs)
@@ -541,7 +543,7 @@ func newRebootNodeCommand() *cobra.Command {
 	return cmd
 }
 
-func rebootNode(nodeIP, mode string) error {
+func rebootNode(nodeIP, mode string, force bool) error {
 	logger := common.NewColorLogger()
 
 	// If node IP is not provided, prompt for selection
@@ -556,14 +558,16 @@ func rebootNode(nodeIP, mode string) error {
 		nodeIP = selectedNode
 	}
 
-	// Add confirmation for reboot
-	confirmed, err := confirmActionFn(fmt.Sprintf("Are you sure you want to reboot node %s?", nodeIP), false)
-	if err != nil {
-		return fmt.Errorf("confirmation failed: %w", err)
-	}
-	if !confirmed {
-		logger.Info("Reboot cancelled")
-		return nil
+	// Add confirmation for reboot (skipped with --force or the global --yes).
+	if !force {
+		confirmed, err := confirmActionFn(fmt.Sprintf("Are you sure you want to reboot node %s?", nodeIP), false)
+		if err != nil {
+			return fmt.Errorf("confirmation failed: %w", err)
+		}
+		if !confirmed {
+			logger.Info("Reboot cancelled")
+			return nil
+		}
 	}
 	logger.Info("Rebooting node %s with mode %s", nodeIP, mode)
 

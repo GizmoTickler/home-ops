@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/ui"
@@ -221,8 +222,8 @@ func newVaultsCommand() *cobra.Command {
 				return err
 			}
 			var vaults []struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
+				ID   string `json:"id" yaml:"id"`
+				Name string `json:"name" yaml:"name"`
 			}
 			if err := json.Unmarshal(out, &vaults); err != nil {
 				return fmt.Errorf("parse op output: %w", err)
@@ -236,6 +237,14 @@ func newVaultsCommand() *cobra.Command {
 				fmt.Println(string(raw))
 				return nil
 			}
+			if output == "yaml" {
+				raw, err := yaml.Marshal(vaults)
+				if err != nil {
+					return err
+				}
+				fmt.Print(string(raw))
+				return nil
+			}
 			rows := make([][]string, 0, len(vaults))
 			for _, v := range vaults {
 				rows = append(rows, []string{v.Name, v.ID})
@@ -244,7 +253,7 @@ func newVaultsCommand() *cobra.Command {
 			return nil
 		},
 	}
-	list.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
+	list.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 	cmd.AddCommand(list)
 	return cmd
 }
@@ -384,9 +393,9 @@ not carry over.`,
 
 // itemListing is one row of `op list`, shaped for both table and JSON.
 type itemListing struct {
-	Title    string `json:"title"`
-	Category string `json:"category"`
-	Vault    string `json:"vault"`
+	Title    string `json:"title" yaml:"title"`
+	Category string `json:"category" yaml:"category"`
+	Vault    string `json:"vault" yaml:"vault"`
 }
 
 func newListCommand() *cobra.Command {
@@ -428,6 +437,14 @@ func newListCommand() *cobra.Command {
 				fmt.Println(string(raw))
 				return nil
 			}
+			if output == "yaml" {
+				raw, err := yaml.Marshal(listings)
+				if err != nil {
+					return err
+				}
+				fmt.Print(string(raw))
+				return nil
+			}
 			rows := make([][]string, 0, len(listings))
 			for _, it := range listings {
 				rows = append(rows, []string{it.Title, it.Category, it.Vault})
@@ -437,7 +454,7 @@ func newListCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&vault, "vault", "", "vault to list (default: all)")
-	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
+	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 	return cmd
 }
 

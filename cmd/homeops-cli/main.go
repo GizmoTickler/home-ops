@@ -221,8 +221,10 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 				return err
 			}
 		case target.RunE != nil:
+			// A failing command must not tear down the whole menu session;
+			// surface the error and loop back to the main menu.
 			if err := runMenuCommand(target); err != nil {
-				return err
+				printMenuCommandError(err)
 			}
 		case target.Run != nil:
 			target.Run(target, []string{})
@@ -230,6 +232,15 @@ func showInteractiveMenu(rootCmd *cobra.Command) error {
 			_ = target.Help()
 		}
 	}
+}
+
+// printMenuCommandError shows a command's error in the interactive menu without
+// terminating the session. User cancellations (Ctrl+C) are silent.
+func printMenuCommandError(err error) {
+	if err == nil || ui.IsCancellation(err) {
+		return
+	}
+	_, _ = fmt.Fprintf(stderrWriter, "\nError: %s\n\n", err.Error())
 }
 
 func showSubcommandMenu(cmd *cobra.Command) error {
@@ -281,17 +292,21 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 					}
 					continue // Return to this menu after subcommand menu returns
 				}
-				// Call the command's RunE function directly if it exists
+				// Run the leaf, then loop back to THIS submenu (not the main
+				// menu) so navigation stays where the user is. Errors are shown
+				// but never end the session.
 				if subcmd.RunE != nil {
-					return runMenuCommand(subcmd)
+					if err := runMenuCommand(subcmd); err != nil {
+						printMenuCommandError(err)
+					}
+					break
 				}
-				// Fall back to Run if RunE doesn't exist
 				if subcmd.Run != nil {
 					subcmd.Run(subcmd, []string{})
-					return nil
+					break
 				}
-				// If neither exists, show help
-				return subcmd.Help()
+				_ = subcmd.Help()
+				break
 			}
 		}
 	}
@@ -313,6 +328,9 @@ func runMenuCommand(cmd *cobra.Command) error {
 	args := []string{}
 	if err := cmd.ValidateArgs(args); err != nil {
 		raw, inputErr := menuArgsInputFn(fmt.Sprintf("Arguments for '%s':", cmd.Use), "")
+		if inputErr != nil && ui.IsCancellation(inputErr) {
+			return nil // user cancelled the prompt — back to the menu
+		}
 		if inputErr != nil || strings.TrimSpace(raw) == "" {
 			fmt.Printf("%s needs arguments (%v) — run it directly:\n\n", cmd.CommandPath(), err)
 			return cmd.Help()

@@ -16,6 +16,7 @@ import (
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/truenas"
+	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vmlifecycle"
 	"homeops-cli/internal/vsphere"
 )
@@ -382,7 +383,27 @@ Per provider:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
 			if name == "" {
-				return fmt.Errorf("--name is required")
+				// Off a terminal (CI, the interactive menu can't reach here) keep
+				// failing fast; on a TTY (e.g. the menu) prompt for the essentials
+				// so create is usable without typing flags.
+				if !ui.IsInteractive() {
+					return fmt.Errorf("--name is required")
+				}
+				entered, err := ui.Input("VM name:", "dev-vm")
+				if err != nil {
+					return err
+				}
+				if name = strings.TrimSpace(entered); name == "" {
+					return nil // cancelled / empty
+				}
+				chosenOS, err := ui.Choose("OS to deploy:", images.Known())
+				if err != nil {
+					if ui.IsCancellation(err) {
+						return nil
+					}
+					return err
+				}
+				osKey = chosenOS
 			}
 			normalized, err := vmlifecycle.NormalizeVMProvider(provider)
 			if err != nil {

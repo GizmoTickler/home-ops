@@ -532,6 +532,30 @@ func nodeNames() []string {
 	return names
 }
 
+// chooseFlatcarNode resolves the node to act on. When --node was supplied it is
+// returned unchanged. Otherwise, on an interactive terminal it opens a node
+// picker (mirroring the Talos node selector) and returns ("", nil) on cancel;
+// in non-interactive mode it returns the familiar "--node is required" error so
+// scripts fail fast. This is what makes reboot-node/reset-node reachable from
+// the interactive menu, which cannot pass flags.
+func chooseFlatcarNode(node, action string) (string, error) {
+	if node != "" {
+		return node, nil
+	}
+	names := nodeNames()
+	if !ui.IsInteractive() {
+		return "", fmt.Errorf("--node is required (one of: %s)", strings.Join(names, ", "))
+	}
+	selected, err := ui.Choose(fmt.Sprintf("Select a node to %s:", action), names)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	return selected, nil
+}
+
 // buildNodeEnv assembles a flatcar.NodeEnv for a named node using predefined node
 // configs + versions + the configurable knobs. Join material (cert key/token/hash)
 // is left empty here and supplied separately for join configs.
@@ -608,8 +632,12 @@ is preserved), but the node briefly leaves the cluster — on a quorum-sensitive
 control plane, reboot one node at a time. Prompts for confirmation unless --force.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
+			node, err := chooseFlatcarNode(node, "reboot")
+			if err != nil {
+				return err
+			}
 			if node == "" {
-				return fmt.Errorf("--node is required (one of: %s)", strings.Join(nodeNames(), ", "))
+				return nil // picker cancelled
 			}
 			nodeConfig, ok := getFlatcarNodeConfigFn(node)
 			if !ok {
@@ -629,7 +657,7 @@ control plane, reboot one node at a time. Prompts for confirmation unless --forc
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reboot (required)")
+	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reboot (prompts if omitted)")
 	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 	return cmd
@@ -685,8 +713,12 @@ state (removes /etc/kubernetes including the PKI). DESTRUCTIVE — prompts for
 confirmation unless --force.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
+			node, err := chooseFlatcarNode(node, "reset")
+			if err != nil {
+				return err
+			}
 			if node == "" {
-				return fmt.Errorf("--node is required (one of: %s)", strings.Join(nodeNames(), ", "))
+				return nil // picker cancelled
 			}
 			nodeConfig, ok := getFlatcarNodeConfigFn(node)
 			if !ok {
@@ -706,7 +738,7 @@ confirmation unless --force.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reset (required)")
+	cmd.Flags().StringVar(&node, "node", "", "Flatcar node to reset (prompts if omitted)")
 	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 	return cmd

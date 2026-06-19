@@ -28,9 +28,14 @@ func vmNameCompletion(cmd *cobra.Command, args []string, toComplete string) ([]s
 		names []string
 		err   error
 	}
+	// Capture the lookup func synchronously before spawning the goroutine: on
+	// the timeout path the goroutine is abandoned and may run later, so reading
+	// the package var inside it would race with tests (or callers) that swap the
+	// func after we return.
+	lookup := vmNamesForCompletionFn
 	ch := make(chan result, 1)
 	go func() {
-		names, err := vmNamesForCompletionFn(provider)
+		names, err := lookup(provider)
 		ch <- result{names, err}
 	}()
 	select {

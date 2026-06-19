@@ -645,21 +645,23 @@ func newCleansePodsCommand() *cobra.Command {
 		dryRun    bool
 		namespace string
 		phases    string
+		force     bool
 	)
 
 	cmd := &cobra.Command{
 		Use:     "prune-pods",
 		Aliases: []string{"cleanse-pods"},
 		Short:   "Clean up pods with Failed/Pending/Succeeded phase",
-		Long:    `Removes pods that are in Failed, Pending, or Succeeded states. Use --phase to specify which phases to clean. If not specified, presents an interactive selector.`,
+		Long:    `Removes pods that are in Failed, Pending, or Succeeded states. Use --phase to specify which phases to clean. If not specified, presents an interactive selector. Prompts for confirmation before deleting unless --dry-run or --force.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return cleansePods(namespace, phases, dryRun)
+			return cleansePods(namespace, phases, dryRun, force)
 		},
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be deleted without making changes")
 	cmd.Flags().StringVar(&namespace, "namespace", "", "Limit to specific namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&phases, "phase", "", "Comma-separated list of pod phases to prune (Failed,Succeeded,Pending) (optional - will prompt if not provided)")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 
 	// Add completion for namespace flag
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
@@ -667,7 +669,7 @@ func newCleansePodsCommand() *cobra.Command {
 	return cmd
 }
 
-func cleansePods(namespace string, phasesStr string, dryRun bool) error {
+func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) error {
 	logger := common.NewColorLogger()
 
 	// If namespace is not provided, prompt for selection
@@ -700,6 +702,24 @@ func cleansePods(namespace string, phasesStr string, dryRun bool) error {
 		phases = selectedPhases
 	} else {
 		phases = strings.Split(phasesStr, ",")
+	}
+
+	// Confirm before a real (non-dry-run) bulk delete. The deletion is scoped to
+	// the selected phases, but to ALL namespaces when none is given, so make the
+	// scope explicit. --force (or the global --yes) skips the prompt.
+	if !dryRun && !force {
+		scope := "namespace " + namespace
+		if strings.TrimSpace(namespace) == "" {
+			scope = "ALL namespaces"
+		}
+		ok, err := confirmActionFn(fmt.Sprintf("Delete %s pods in %s? This cannot be undone.", strings.Join(phases, "/"), scope), false)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			logger.Info("Prune cancelled")
+			return nil
+		}
 	}
 
 	totalDeleted := 0

@@ -89,7 +89,9 @@ func (h proxmoxVMHandle) Stop(ctx context.Context) (taskHandle, error) {
 }
 
 func (h proxmoxVMHandle) Delete(ctx context.Context) (taskHandle, error) {
-	task, err := h.vm.Delete(ctx)
+	// go-proxmox v0.8.0 added a delete-options arg; nil keeps PVE defaults
+	// (remove the VM config and its owned disks), matching prior behavior.
+	task, err := h.vm.Delete(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

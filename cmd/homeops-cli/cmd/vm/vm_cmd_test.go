@@ -31,8 +31,8 @@ func TestVMLifecycleProviderCapabilityError(t *testing.T) {
 func TestPowerOffVMDispatchesForceStop(t *testing.T) {
 	calls, _ := injectFakeVMLifecycle(t)
 
-	require.NoError(t, powerOffVM("tn-vm", "truenas"))
-	require.NoError(t, powerOffVM("px-vm", "proxmox"))
+	require.NoError(t, powerOffVM("tn-vm", "truenas", true))
+	require.NoError(t, powerOffVM("px-vm", "proxmox", true))
 
 	assert.Equal(t, []string{
 		"stop-truenas:tn-vm:true",
@@ -58,7 +58,7 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 	require.NoError(t, powerOnVM("tn-vm", "truenas"))
 	require.NoError(t, powerOnVM("px-vm", "proxmox"))
 	require.NoError(t, powerOnVM("esx-vm", "vsphere"))
-	require.NoError(t, powerOffVM("esx-vm", "vsphere"))
+	require.NoError(t, powerOffVM("esx-vm", "vsphere", true))
 	require.NoError(t, listVMs("proxmox", "table"))
 
 	assert.Equal(t, []string{
@@ -110,7 +110,7 @@ func TestVMLifecycleCommandWrappers(t *testing.T) {
 	require.NoError(t, err)
 	_, err = testutil.ExecuteCommand(newPowerOnVMCommand(), "--provider", "vsphere", "--name", "esx-vm")
 	require.NoError(t, err)
-	_, err = testutil.ExecuteCommand(newPowerOffVMCommand(), "--provider", "vsphere", "--name", "esx-vm")
+	_, err = testutil.ExecuteCommand(newPowerOffVMCommand(), "--provider", "vsphere", "--name", "esx-vm", "--force")
 	require.NoError(t, err)
 
 	assert.Equal(t, []string{
@@ -205,7 +205,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 
 		require.NoError(t, listVMs("truenas", "table"))
 		require.NoError(t, startVMWithProvider("tn-vm", "truenas"))
-		require.NoError(t, powerOffVM("tn-vm", "truenas"))
+		require.NoError(t, powerOffVM("tn-vm", "truenas", true))
 		require.NoError(t, deleteVMWithConfirmation("tn-vm", "truenas", true))
 		require.NoError(t, infoVMWithProvider("tn-vm", "truenas"))
 		require.NoError(t, cleanupOrphanedZVols("tn-vm", "flashstor"))
@@ -236,7 +236,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 
 		require.NoError(t, listVMs("proxmox", "table"))
 		require.NoError(t, startVMWithProvider("px-vm", "proxmox"))
-		require.NoError(t, powerOffVM("px-vm", "proxmox"))
+		require.NoError(t, powerOffVM("px-vm", "proxmox", true))
 		require.NoError(t, deleteVMWithConfirmation("px-vm", "proxmox", true))
 		require.NoError(t, infoVMWithProvider("px-vm", "proxmox"))
 
@@ -266,7 +266,7 @@ func TestHypervisorWrapperFlows(t *testing.T) {
 		require.NoError(t, listVMs("vsphere", "table"))
 		require.NoError(t, infoVMWithProvider("esx-vm", "vsphere"))
 		require.NoError(t, powerOnVM("esx-vm", "vsphere"))
-		require.NoError(t, powerOffVM("esx-vm", "vsphere"))
+		require.NoError(t, powerOffVM("esx-vm", "vsphere", true))
 		require.NoError(t, deleteVMWithConfirmation("esx-vm", "vsphere", true))
 
 		assert.Equal(t, 5, constructed, "each lifecycle op constructs and closes a manager")

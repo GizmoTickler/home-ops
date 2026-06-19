@@ -271,7 +271,7 @@ func newVMLifecycle(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		}
 		return NewVSphereVMManagerFn(host, username, password, common.EnvBool(constants.EnvVSphereInsecure, false))
 	}
-	return nil, fmt.Errorf("unsupported provider: %s", normalizedProvider)
+	return nil, errUnsupportedProvider(normalizedProvider)
 }
 
 // WithVMLifecycle runs fn against a freshly constructed provider lifecycle
@@ -316,6 +316,12 @@ func GetESXiVMNames() ([]string, error) {
 	return VSphereGetVMNamesFn()
 }
 
+// errUnsupportedProvider is the single canonical error for an unknown VM
+// provider, so the message never drifts between call sites.
+func errUnsupportedProvider(provider string) error {
+	return fmt.Errorf("unsupported provider: %s. Supported providers: proxmox, truenas, vsphere", provider)
+}
+
 func NormalizeVMProvider(provider string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "", "proxmox":
@@ -325,7 +331,7 @@ func NormalizeVMProvider(provider string) (string, error) {
 	case "vsphere", "esxi":
 		return "vsphere", nil
 	default:
-		return "", fmt.Errorf("unsupported provider: %s. Supported providers: proxmox, truenas, vsphere", provider)
+		return "", errUnsupportedProvider(provider)
 	}
 }
 
@@ -343,7 +349,7 @@ func GetVMNamesForProvider(provider string) ([]string, error) {
 	case "vsphere":
 		return GetESXiVMNamesFn()
 	default:
-		return nil, fmt.Errorf("unsupported provider: %s", provider)
+		return nil, errUnsupportedProvider(provider)
 	}
 }
 
