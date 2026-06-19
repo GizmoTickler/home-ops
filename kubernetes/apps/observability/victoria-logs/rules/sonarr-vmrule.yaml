@@ -15,7 +15,7 @@ spec:
       rules:
         - alert: SonarrDatabaseIsLocked
           expr: |
-            {app="sonarr"} | regexp "(?i)database is locked" | stats count() errors | filter errors:>0
+            {app="sonarr"} ~"(?i)database is locked" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Sonarr is experiencing database lock issues
@@ -26,7 +26,7 @@ spec:
 
         - alert: SonarrDatabaseIsMalformed
           expr: |
-            {app="sonarr"} | regexp "(?i)database disk image is malformed" | stats count() errors | filter errors:>0
+            {app="sonarr"} ~"(?i)database disk image is malformed" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Sonarr database is corrupted

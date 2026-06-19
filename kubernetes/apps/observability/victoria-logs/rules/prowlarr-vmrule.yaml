@@ -15,7 +15,7 @@ spec:
       rules:
         - alert: ProwlarrDatabaseIsLocked
           expr: |
-            {app="prowlarr"} | regexp "(?i)database is locked" | stats count() errors | filter errors:>0
+            {app="prowlarr"} ~"(?i)database is locked" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Prowlarr is experiencing database lock issues
@@ -26,7 +26,7 @@ spec:
 
         - alert: ProwlarrDatabaseIsMalformed
           expr: |
-            {app="prowlarr"} | regexp "(?i)database disk image is malformed" | stats count() errors | filter errors:>0
+            {app="prowlarr"} ~"(?i)database disk image is malformed" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Prowlarr database is corrupted

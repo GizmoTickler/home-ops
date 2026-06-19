@@ -15,7 +15,7 @@ spec:
       rules:
         - alert: CrossSeedDatabaseMalformed
           expr: |
-            {app="cross-seed"} | regexp "(?i)database disk image is malformed" | stats count() errors | filter errors:>0
+            {app="cross-seed"} ~"(?i)database disk image is malformed" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Cross-seed database is corrupted
@@ -26,7 +26,7 @@ spec:
 
         - alert: CrossSeedFailedToInject
           expr: |
-            {app="cross-seed"} | regexp "(?i)failed to inject" | stats count() errors | filter errors:>0
+            {app="cross-seed"} ~"(?i)failed to inject" | stats count() errors | filter errors:>0
           for: 5m
           annotations:
             summary: Cross-seed failed to inject a torrent
