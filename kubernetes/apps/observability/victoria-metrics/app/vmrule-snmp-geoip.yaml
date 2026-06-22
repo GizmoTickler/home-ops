@@ -1,0 +1,184 @@
+---
+# Alerts for the new SNMP fabric telemetry + gateway0 GeoIP/threat-feed health.
+# Metric source: nflo0 snmp_exporter (job="snmp") + NET-SNMP-EXTEND-MIB (job="snmp-geoip").
+# NOTE: the GeoIP* alerts WILL fire on day one — they correctly surface the currently
+# dead GeoIP country-block (sets empty, updater exit!=0, DB ~45d stale). They clear once
+# the gated GeoIP restore (proposal B1) is applied. They are "warning", not paging.
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: snmp-geoip-alerts
+spec:
+  groups:
+    # ── SNMP target reachability ───────────────────────────────────────────
+    - name: snmp-availability.rules
+      interval: 60s
+      rules:
+        - alert: SNMPTargetDown
+          expr: |-
+            up{job=~"snmp.*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "SNMP target {{ $labels.instance }} not responding"
+            description: |-
+              snmp_exporter (nflo0) is getting no SNMP reply from {{ $labels.instance }}.
+              If this is SC01 (10.255.255.253), it is the known TrustSec return-path gap
+              (cell 18->24 lacks `permit udp src eq snmp`) — see proposal SC01 SNMP fix.
+          labels:
+            severity: warning
+            component: network
+
+    # ── Interface health (IF-MIB) ──────────────────────────────────────────
+    - name: snmp-interfaces.rules
+      interval: 60s
+      rules:
+        - alert: InterfaceErrors
+          expr: |-
+            rate(ifInErrors{job="snmp"}[5m]) + rate(ifOutErrors{job="snmp"}[5m]) > 1
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Interface errors on {{ $labels.instance }} {{ $labels.ifName }}"
+            description: |-
+              {{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
+              is accumulating in/out errors (>1/s over 5m).
+          labels:
+            severity: warning
+            component: network
+        - alert: InterfaceDiscards
+          expr: |-
+            rate(ifInDiscards{job="snmp"}[5m]) + rate(ifOutDiscards{job="snmp"}[5m]) > 10
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Interface discards on {{ $labels.instance }} {{ $labels.ifName }}"
+            description: |-
+              {{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
+              is discarding packets (>10/s over 5m) — possible congestion or buffer pressure.
+          labels:
+            severity: warning
+            component: network
+        - alert: UplinkDown
+          expr: |-
+            ifOperStatus{job="snmp",ifOperStatus="up",ifAlias=~"(?i).*(transit|uplink|po1|po2|portchannel|nas01|pve).*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Uplink down: {{ $labels.instance }} {{ $labels.ifName }}"
+            description: |-
+              Transit/uplink {{ $labels.ifAlias }} ({{ $labels.ifName }}) on
+              {{ $labels.instance }} is not in operational-up state.
+          labels:
+            severity: critical
+            component: network
+
+    # ── Cisco control plane (CISCO-PROCESS / MEMORY-POOL MIB) ──────────────
+    - name: snmp-cisco-health.rules
+      interval: 60s
+      rules:
+        - alert: CiscoHighCPU
+          expr: |-
+            cpmCPUTotal5minRev{job="snmp"} > 75
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "High CPU on {{ $labels.instance }}"
+            description: "5-min CPU on {{ $labels.instance }} (index {{ $labels.cpmCPUTotalIndex }}) is {{ $value }}%."
+          labels:
+            severity: warning
+            component: network
+        - alert: CiscoHighMemory
+          expr: |-
+            100 * ciscoMemoryPoolUsed{job="snmp"}
+              / (ciscoMemoryPoolUsed{job="snmp"} + ciscoMemoryPoolFree{job="snmp"}) > 85
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "High memory on {{ $labels.instance }} ({{ $labels.ciscoMemoryPoolName }})"
+            description: "Memory pool {{ $labels.ciscoMemoryPoolName }} on {{ $labels.instance }} is {{ $value | humanize }}% used."
+          labels:
+            severity: warning
+            component: network
+
+    # ── BGP fabric state (BGP4-MIB, Cisco side covers the 3x10G ECMP peers) ─
+    - name: snmp-bgp.rules
+      interval: 60s
+      rules:
+        - alert: BGPPeerNotEstablished
+          expr: |-
+            bgpPeerState{job="snmp",bgpPeerState="established"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "BGP peer {{ $labels.bgpPeerRemoteAddr }} down on {{ $labels.instance }}"
+            description: |-
+              BGP session to {{ $labels.bgpPeerRemoteAddr }} (AS {{ $labels.bgpPeerRemoteAs }})
+              on {{ $labels.instance }} is not Established. ECMP/backup path may be degraded.
+          labels:
+            severity: critical
+            component: network
+        - alert: BGPPeerFlapping
+          expr: |-
+            increase(bgpPeerFsmEstablishedTransitions{job="snmp"}[1h]) > 3
+          for: 5m
+          keep_firing_for: 15m
+          annotations:
+            summary: "BGP peer {{ $labels.bgpPeerRemoteAddr }} flapping on {{ $labels.instance }}"
+            description: "{{ $value }} BGP FSM established-transitions in the last hour to {{ $labels.bgpPeerRemoteAddr }}."
+          labels:
+            severity: warning
+            component: network
+
+    # ── gateway0 GeoIP + threat-feed health (NET-SNMP-EXTEND-MIB) ──────────
+    - name: geoip-feed-health.rules
+      interval: 60s
+      rules:
+        - alert: GeoIPBlockEmpty
+          expr: |-
+            nsExtendOutputFull{job="snmp",nsExtendCommand=~"geoip_set_elements_wan_(local|transit)"} == 0
+          for: 15m
+          keep_firing_for: 10m
+          annotations:
+            summary: "GeoIP country-block set empty ({{ $labels.nsExtendCommand }})"
+            description: |-
+              gateway0 GeoIP nft set {{ $labels.nsExtendCommand }} has 0 elements — the
+              cn/ru/kp/ir/by country-block is providing NO protection. Apply proposal B1
+              (configure firewall global-options geoip + run geoip-update.py --init).
+          labels:
+            severity: warning
+            component: security
+        - alert: GeoIPUpdaterFailing
+          expr: |-
+            nsExtendOutputFull{job="snmp",nsExtendCommand="geoip_update_last_exit"} != 0
+          for: 1h
+          keep_firing_for: 30m
+          annotations:
+            summary: "gateway0 GeoIP updater failing"
+            description: "geoip-update.py last run returned non-zero — GeoIP DB not refreshing."
+          labels:
+            severity: warning
+            component: security
+        - alert: GeoIPDatabaseStale
+          expr: |-
+            nsExtendOutputFull{job="snmp",nsExtendCommand="geoip_conf_age_seconds"} > 1209600
+          for: 1h
+          keep_firing_for: 30m
+          annotations:
+            summary: "gateway0 GeoIP database stale"
+            description: "nftables-geoip.conf is {{ $value | humanizeDuration }} old (>14d) — GeoIP not refreshing."
+          labels:
+            severity: warning
+            component: security
+        - alert: ThreatFeedResolverDown
+          expr: |-
+            nsExtendOutputFull{job="snmp",nsExtendCommand="vyos_domain_resolver_up"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "gateway0 vyos-domain-resolver down"
+            description: "The service that refreshes the reputation feeds (firehol/spamhaus/et/feodo/bitwire/hagezi) is not active — feeds will go stale."
+          labels:
+            severity: critical
+            component: security
