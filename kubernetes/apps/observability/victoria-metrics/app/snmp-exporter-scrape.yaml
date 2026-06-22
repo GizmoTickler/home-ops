@@ -1,0 +1,128 @@
+---
+# SNMP scrape via nflo0-hosted snmp_exporter (netflow.${SECRET_DOMAIN}:9116).
+# nflo0 (192.168.120.9) is in every device's SNMP source-ACL and reuses the
+# existing ntopng v3 creds (auth module "ntopng_v3"), so no device-side SNMP
+# config change was needed. Multi-module concat is used per device class.
+#
+# Cisco devices (SC01, gateway1): IF-MIB + Cisco CPU/mem + BGP4-MIB.
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: snmp-cisco
+spec:
+  jobName: snmp-cisco
+  targetEndpoints:
+    - targets:
+        - "10.255.255.253" # SC01 (BGP4-MIB shows the 3-way ECMP peers + gateway1)
+        - "10.255.255.252" # gateway1 (ISR)
+      path: /snmp
+      interval: 60s
+      scrapeTimeout: 30s
+      params:
+        auth:
+          - ntopng_v3
+        module:
+          - if_mib
+          - cisco_health
+          - bgp
+      labels:
+        job: snmp
+      relabelConfigs:
+        - sourceLabels: ["__address__"]
+          targetLabel: __param_target
+        - sourceLabels: ["__param_target"]
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "netflow.${SECRET_DOMAIN}:9116"
+---
+# VyOS cell-gateways: IF-MIB only (FRR AgentX BGP4-MIB not enabled on VyOS).
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: snmp-vyos-cellgw
+spec:
+  jobName: snmp-vyos
+  targetEndpoints:
+    - targets:
+        - "10.255.255.251" # cell-gateway0
+        - "10.255.255.250" # cell-gateway1
+      path: /snmp
+      interval: 60s
+      scrapeTimeout: 30s
+      params:
+        auth:
+          - ntopng_v3
+        module:
+          - if_mib
+      labels:
+        job: snmp
+      relabelConfigs:
+        - sourceLabels: ["__address__"]
+          targetLabel: __param_target
+        - sourceLabels: ["__param_target"]
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "netflow.${SECRET_DOMAIN}:9116"
+---
+# gateway0 (primary edge): IF-MIB + GeoIP/threat-feed health via NET-SNMP-EXTEND-MIB
+# (script-extensions backed by a root task-scheduler materializer; snmpd is non-root).
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: snmp-gateway0
+spec:
+  jobName: snmp-geoip
+  targetEndpoints:
+    - targets:
+        - "10.255.255.254" # gateway0
+      path: /snmp
+      interval: 60s
+      scrapeTimeout: 30s
+      params:
+        auth:
+          - ntopng_v3
+        module:
+          - if_mib
+          - net_snmp_extend
+      labels:
+        job: snmp
+      relabelConfigs:
+        - sourceLabels: ["__address__"]
+          targetLabel: __param_target
+        - sourceLabels: ["__param_target"]
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "netflow.${SECRET_DOMAIN}:9116"
+---
+# Active ICMP RTT from the nflo0 vantage (blackbox_exporter :9115) — per-destination
+# WAN latency to correlate with edge throughput (passive ERSPAN cannot derive RTT).
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: nflo0-icmp-rtt
+spec:
+  jobName: nflo0-icmp-rtt
+  targetEndpoints:
+    - targets:
+        - "1.1.1.1"
+        - "8.8.8.8"
+        - "9.9.9.9"
+      path: /probe
+      interval: 30s
+      scrapeTimeout: 10s
+      params:
+        module:
+          - icmp
+      labels:
+        job: nflo0-icmp-rtt
+      relabelConfigs:
+        - sourceLabels: ["__address__"]
+          targetLabel: __param_target
+        - sourceLabels: ["__param_target"]
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "netflow.${SECRET_DOMAIN}:9115"
