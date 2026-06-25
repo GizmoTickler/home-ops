@@ -208,6 +208,8 @@ kind: Deployment
 metadata:
   name: system-upgrade-controller
   namespace: system-upgrade
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   selector:
     matchLabels:
