@@ -64,15 +64,19 @@ spec:
           labels:
             severity: warning
             component: network
-        # 2026-06-26 holistic review: per-member egress drops on a server port-channel
-        # = LACP hash polarization (elephant flows pinned to one 10G member while siblings
-        # idle). Catches the historical Po20 Te1/0/9 tail-drops. ifOutDiscards is per-member;
-        # more specific than InterfaceDiscards (>10/s broad) — flags lower-rate single-member
-        # drops on the nas01/virt server bundles (Te1/0/9-16). Source-side fix is flow-tuple
-        # spread (nas01 bond xmit_hash_policy, more NVMe-oF sessions), NOT SC01's global hash.
+        # 2026-06-26: per-member egress drops on a server port-channel = LACP hash
+        # polarization (one 10G member tail-dropping while siblings stay clean). Scoped to
+        # the spreadable server-bundle members Te1/0/10-16 ONLY. Te1/0/9 is DELIBERATELY
+        # EXCLUDED: investigation (2026-06-26) showed its drops are the nflo0 ERSPAN GRE feed
+        # (Vlan998 10.255.255.37 -> .38) — a single portless IP-pair flow that NO LACP hash
+        # can spread, so it permanently pins to Te1/0/9 and tail-drops in the default best-
+        # effort queue under microbursts. Those are mirror COPIES (~0.76% of the feed lost,
+        # originals forward fine) = zero production impact, so alerting on them is noise.
+        # Real storage/VM traffic spreads across Te1/0/10-16, so a drop THERE means actual
+        # loss worth investigating. Source-side flow spread is the fix, NOT SC01's global hash.
         - alert: SC01PortChannelMemberPolarized
           expr: |-
-            increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/(9|1[0-6])"}[15m]) > 1000
+            increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/1[0-6]"}[15m]) > 1000
           for: 5m
           keep_firing_for: 15m
           annotations:
