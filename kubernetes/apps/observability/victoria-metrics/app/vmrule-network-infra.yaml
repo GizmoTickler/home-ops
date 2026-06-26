@@ -401,8 +401,12 @@ spec:
       interval: 30s
       rules:
         - alert: GatewayNodeDown
+          # 2026-06-26: selector was instance=~"10.255.255.254.*" which matched
+          # ZERO series — the node-exporter instance label is the scrape target
+          # hostname (gateway0.<domain>:9100), not the WAN IP, so this critical
+          # alert could never fire. Fixed to instance=~"gateway0.*" (verified live).
           expr: |-
-            up{job="node-exporter",instance=~"10.255.255.254.*"} == 0
+            up{job="node-exporter",instance=~"gateway0.*"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
@@ -415,8 +419,10 @@ spec:
             component: gateway
 
         - alert: GatewayWANInterfaceDown
+          # 2026-06-26: same dead-selector bug as GatewayNodeDown — fixed
+          # instance=~"10.255.255.254.*" -> instance=~"gateway0.*" (verified live).
           expr: |-
-            node_network_carrier{instance=~"10.255.255.254.*",device="eth0"} == 0
+            node_network_carrier{instance=~"gateway0.*",device="eth0"} == 0
           for: 2m
           keep_firing_for: 5m
           annotations:
@@ -426,6 +432,62 @@ spec:
               BGP should withdraw the default route and traffic will fail over to cellular (gateway1).
           labels:
             severity: critical
+            component: gateway
+
+        # --- gateway0 conntrack health (added 2026-06-26 holistic network review) ---
+        # gateway0's conntrack table is huge (1,048,576) and normally ~0.1% used.
+        # Live baselines: insert_failed ~0.01/s (~3/5m), invalid ~0.25/s (~75/5m) —
+        # both are benign multi-CPU insert races amplified by 3x10G ECMP, NOT a fault.
+        # Thresholds are set >>baseline so they fire only on a real excursion (new ECMP
+        # asymmetry, state regression, table pressure). Metric names verified live:
+        # node_nf_conntrack_stat_* have NO _total suffix. Tune if chatty.
+        - alert: GatewayConntrackInsertFailSpike
+          expr: |-
+            increase(node_nf_conntrack_stat_insert_failed{job="node-exporter",instance=~"gateway0.*"}[5m]) > 200
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "gateway0 conntrack insert failures spiking"
+            description: |-
+              gateway0 logged {{ $value | humanize }} conntrack insert failures in 5m (baseline ~3/5m).
+              A sustained spike points to new ECMP-path asymmetry or conntrack pressure rather than the
+              benign steady-state race. Check ECMP next-hop health on gateway0/SC01 and table fill
+              (see GatewayConntrackTableNearFull).
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: GatewayConntrackInvalidSpike
+          expr: |-
+            increase(node_nf_conntrack_stat_invalid{job="node-exporter",instance=~"gateway0.*"}[5m]) > 1000
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "gateway0 conntrack invalid-packet rate spiking"
+            description: |-
+              gateway0 logged {{ $value | humanize }} invalid-state conntrack packets in 5m (baseline ~75/5m).
+              Sustained growth indicates asymmetric/ECMP forwarding seeing out-of-state packets, a firewall
+              state regression, or a routing loop. Benign at baseline; investigate only on excursion.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: GatewayConntrackTableNearFull
+          expr: |-
+            node_nf_conntrack_entries{job="node-exporter",instance=~"gateway0.*"}
+            /
+            node_nf_conntrack_entries_limit{job="node-exporter",instance=~"gateway0.*"}
+            > 0.8
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "gateway0 conntrack table over 80% full"
+            description: |-
+              gateway0 conntrack table is {{ $value | humanizePercentage }} full (limit 1,048,576;
+              normal ~0.1%). Above 80%, new connections risk being dropped (insert_fail/ENOMEM).
+              Investigate a connection flood, scan, or leak before the table fills.
+          labels:
+            severity: warning
             component: gateway
 
         - alert: PrimaryWANDown
