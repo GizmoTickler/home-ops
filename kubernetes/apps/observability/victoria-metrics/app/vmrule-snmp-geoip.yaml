@@ -1,8 +1,12 @@
 ---
-# Alerts for the new SNMP fabric telemetry + gateway0 GeoIP/threat-feed health.
-# Metric source: nflo0 snmp_exporter (job="snmp") + NET-SNMP-EXTEND-MIB (job="snmp-geoip").
+# Alerts for the SNMP fabric telemetry + gateway0 GeoIP/threat-feed health.
+# Metric source: nflo0 snmp_exporter. The `job` label is the per-target jobName
+# (snmp-cisco, snmp-vyos, snmp-geoip) — NOT a flat "snmp" — so every rule selects
+# job=~"snmp.*". 2026-06-26: fixed a dead-selector bug where all rules below used
+# job=~"snmp.*" (matched zero series) and could never fire; only SNMPTargetDown
+# (job=~"snmp.*") worked. Verified live: job=~"snmp.*" -> empty; job=~"snmp.*" -> data.
 # NOTE: the GeoIP* alerts WILL fire on day one — they correctly surface the currently
-# dead GeoIP country-block (sets empty, updater exit!=0, DB ~45d stale). They clear once
+# dead GeoIP country-block (sets empty, updater exit!=0, DB stale). They clear once
 # the gated GeoIP restore (proposal B1) is applied. They are "warning", not paging.
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -36,7 +40,7 @@ spec:
       rules:
         - alert: InterfaceErrors
           expr: |-
-            rate(ifInErrors{job="snmp"}[5m]) + rate(ifOutErrors{job="snmp"}[5m]) > 1
+            rate(ifInErrors{job=~"snmp.*"}[5m]) + rate(ifOutErrors{job=~"snmp.*"}[5m]) > 1
           for: 10m
           keep_firing_for: 5m
           annotations:
@@ -49,7 +53,7 @@ spec:
             component: network
         - alert: InterfaceDiscards
           expr: |-
-            rate(ifInDiscards{job="snmp"}[5m]) + rate(ifOutDiscards{job="snmp"}[5m]) > 10
+            rate(ifInDiscards{job=~"snmp.*"}[5m]) + rate(ifOutDiscards{job=~"snmp.*"}[5m]) > 10
           for: 15m
           keep_firing_for: 5m
           annotations:
@@ -60,9 +64,31 @@ spec:
           labels:
             severity: warning
             component: network
+        # 2026-06-26 holistic review: per-member egress drops on a server port-channel
+        # = LACP hash polarization (elephant flows pinned to one 10G member while siblings
+        # idle). Catches the historical Po20 Te1/0/9 tail-drops. ifOutDiscards is per-member;
+        # more specific than InterfaceDiscards (>10/s broad) — flags lower-rate single-member
+        # drops on the nas01/virt server bundles (Te1/0/9-16). Source-side fix is flow-tuple
+        # spread (nas01 bond xmit_hash_policy, more NVMe-oF sessions), NOT SC01's global hash.
+        - alert: SC01PortChannelMemberPolarized
+          expr: |-
+            increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/(9|1[0-6])"}[15m]) > 1000
+          for: 5m
+          keep_firing_for: 15m
+          annotations:
+            summary: "SC01 port-channel member {{ $labels.ifName }} dropping (LACP polarization?)"
+            description: |-
+              {{ $labels.ifAlias }} ({{ $labels.ifName }}) on SC01 dropped {{ $value | humanize }}
+              egress packets in 15m. If only one member of a Po10/Po20 bundle is dropping while
+              its siblings stay clean, the LACP hash is polarizing elephant flows (storage/vMotion)
+              onto a single 10G member. Fix by spreading flow-tuples at the source (nas01 bond
+              xmit_hash_policy, more NVMe-oF sessions) rather than changing SC01's global hash.
+          labels:
+            severity: warning
+            component: network
         - alert: UplinkDown
           expr: |-
-            ifOperStatus{job="snmp",ifOperStatus="up",ifAlias=~"(?i).*(transit|uplink|po1|po2|portchannel|nas01|pve).*"} == 0
+            ifOperStatus{job=~"snmp.*",ifOperStatus="up",ifAlias=~"(?i).*(transit|uplink|po1|po2|portchannel|nas01|pve).*"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
@@ -80,7 +106,7 @@ spec:
       rules:
         - alert: CiscoHighCPU
           expr: |-
-            cpmCPUTotal5minRev{job="snmp"} > 75
+            cpmCPUTotal5minRev{job=~"snmp.*"} > 75
           for: 10m
           keep_firing_for: 5m
           annotations:
@@ -91,8 +117,8 @@ spec:
             component: network
         - alert: CiscoHighMemory
           expr: |-
-            100 * ciscoMemoryPoolUsed{job="snmp"}
-              / (ciscoMemoryPoolUsed{job="snmp"} + ciscoMemoryPoolFree{job="snmp"}) > 85
+            100 * ciscoMemoryPoolUsed{job=~"snmp.*"}
+              / (ciscoMemoryPoolUsed{job=~"snmp.*"} + ciscoMemoryPoolFree{job=~"snmp.*"}) > 85
           for: 15m
           keep_firing_for: 5m
           annotations:
@@ -108,7 +134,7 @@ spec:
       rules:
         - alert: BGPPeerNotEstablished
           expr: |-
-            bgpPeerState{job="snmp",bgpPeerState="established"} == 0
+            bgpPeerState{job=~"snmp.*",bgpPeerState="established"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
@@ -121,7 +147,7 @@ spec:
             component: network
         - alert: BGPPeerFlapping
           expr: |-
-            increase(bgpPeerFsmEstablishedTransitions{job="snmp"}[1h]) > 3
+            increase(bgpPeerFsmEstablishedTransitions{job=~"snmp.*"}[1h]) > 3
           for: 5m
           keep_firing_for: 15m
           annotations:
@@ -137,7 +163,7 @@ spec:
       rules:
         - alert: GeoIPBlockEmpty
           expr: |-
-            nsExtendOutputFull{job="snmp",nsExtendCommand=~"geoip_set_elements_wan_(local|transit)"} == 0
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand=~"geoip_set_elements_wan_(local|transit)"} == 0
           for: 15m
           keep_firing_for: 10m
           annotations:
@@ -151,7 +177,7 @@ spec:
             component: security
         - alert: GeoIPUpdaterFailing
           expr: |-
-            nsExtendOutputFull{job="snmp",nsExtendCommand="geoip_update_last_exit"} != 0
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_update_last_exit"} != 0
           for: 1h
           keep_firing_for: 30m
           annotations:
@@ -162,7 +188,7 @@ spec:
             component: security
         - alert: GeoIPDatabaseStale
           expr: |-
-            nsExtendOutputFull{job="snmp",nsExtendCommand="geoip_conf_age_seconds"} > 1209600
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_conf_age_seconds"} > 1209600
           for: 1h
           keep_firing_for: 30m
           annotations:
@@ -173,7 +199,7 @@ spec:
             component: security
         - alert: ThreatFeedResolverDown
           expr: |-
-            nsExtendOutputFull{job="snmp",nsExtendCommand="vyos_domain_resolver_up"} == 0
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="vyos_domain_resolver_up"} == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
