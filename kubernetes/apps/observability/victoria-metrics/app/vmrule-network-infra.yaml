@@ -490,6 +490,45 @@ spec:
             severity: warning
             component: gateway
 
+        # --- gateway0 NIC physical-layer health (added 2026-06-26; fed by the VyOS-native
+        # node_exporter textfile collector + /config/scripts/ethtool-textfile.sh, which emits
+        # node_ethtool_stats_total{device,type} for the mlx5 NICs). The lane-error counters
+        # are normally FROZEN (eth0 ~1082, FEC-corrected historical optic bits) and the
+        # buffer-drop counters are normally exactly 0 — so sustained growth is a real fault
+        # (degrading optic/DAC, or NIC ring/buffer starvation). The native ethtool collector
+        # isn't available on VyOS, hence the textfile shim that mirrors its metric shape.
+        - alert: GatewayNICPhysicalErrors
+          expr: |-
+            increase(node_ethtool_stats_total{job="node-exporter",instance=~"gateway0.*",type=~"rx_err_lane_[0-3]_phy|rx_crc_errors_phy|rx_symbol_err_phy"}[30m]) > 100
+          for: 10m
+          keep_firing_for: 15m
+          annotations:
+            summary: "gateway0 NIC physical errors climbing on {{ $labels.device }}"
+            description: |-
+              {{ $labels.device }} logged {{ $value | humanize }} new {{ $labels.type }} in 30m
+              (these counters are normally frozen — FEC-corrected historical optic bits). Sustained
+              growth indicates a degrading optic/fiber (eth0 = WAN) or DAC/cable to SC01 (eth1-3).
+              Check the SFP/optic and link error counters before it becomes packet loss.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: GatewayNICRxBufferDrops
+          expr: |-
+            increase(node_ethtool_stats_total{job="node-exporter",instance=~"gateway0.*",type=~"rx_discards_phy|rx_out_of_buffer|rx_buff_alloc_err"}[15m]) > 10
+          for: 5m
+          keep_firing_for: 10m
+          annotations:
+            summary: "gateway0 NIC dropping rx frames (buffer starvation) on {{ $labels.device }}"
+            description: |-
+              {{ $labels.device }} logged {{ $value | humanize }} {{ $labels.type }} in 15m
+              (normally exactly 0). The NIC is discarding received frames — ring/buffer exhaustion or
+              the host can't drain fast enough. This is real ingress loss; check softirq/CPU, ring
+              sizes, and offload, and correlate with throughput on that interface.
+          labels:
+            severity: warning
+            component: gateway
+
         - alert: PrimaryWANDown
           expr: |-
             count(probe_success{job=~"gateway-wan.*"} == 0) >= 5
