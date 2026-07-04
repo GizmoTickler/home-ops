@@ -36,7 +36,9 @@ spec:
         - targetLabel: __address__
           replacement: "netflow.${SECRET_DOMAIN}:9116"
 ---
-# VyOS cell-gateways: IF-MIB only (FRR AgentX BGP4-MIB not enabled on VyOS).
+# VyOS cell-gateways: IF-MIB + GeoIP/threat-feed/BGP-drift health via
+# NET-SNMP-EXTEND-MIB (script-extensions deployed 2026-07-04, same
+# materializer pattern as gateway0).
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
@@ -56,6 +58,7 @@ spec:
           - ntopng_v3
         module:
           - if_mib
+          - net_snmp_extend
       labels:
         job: snmp
       relabelConfigs:
@@ -96,6 +99,39 @@ spec:
           targetLabel: instance
         - targetLabel: __address__
           replacement: "netflow.${SECRET_DOMAIN}:9116"
+---
+# Management-plane SSH reachability (blackbox tcp_connect on nflo0 :9115).
+# Added 2026-07-04 after gw0 SSH silently broke for 3 days with only the API
+# as a management door — alerts when any network device stops answering :22.
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: network-ssh-probes
+spec:
+  jobName: network-ssh-probes
+  targetEndpoints:
+    - targets:
+        - "10.255.255.254:22" # gateway0
+        - "10.255.255.253:22" # SC01
+        - "10.255.255.252:22" # gateway1 (ISR)
+        - "10.255.255.251:22" # cell-gateway0
+        - "10.255.255.250:22" # cell-gateway1
+      path: /probe
+      interval: 60s
+      scrapeTimeout: 15s
+      params:
+        module:
+          - tcp_connect
+      labels:
+        job: network-ssh-probes
+      relabelConfigs:
+        - sourceLabels: ["__address__"]
+          targetLabel: __param_target
+        - sourceLabels: ["__param_target"]
+          targetLabel: instance
+        - targetLabel: __address__
+          replacement: "netflow.${SECRET_DOMAIN}:9115"
 ---
 # Active ICMP RTT from the nflo0 vantage (blackbox_exporter :9115) — per-destination
 # WAN latency to correlate with edge throughput (passive ERSPAN cannot derive RTT).

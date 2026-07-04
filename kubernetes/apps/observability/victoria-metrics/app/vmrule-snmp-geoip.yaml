@@ -5,9 +5,10 @@
 # job=~"snmp.*". 2026-06-26: fixed a dead-selector bug where all rules below used
 # job=~"snmp.*" (matched zero series) and could never fire; only SNMPTargetDown
 # (job=~"snmp.*") worked. Verified live: job=~"snmp.*" -> empty; job=~"snmp.*" -> data.
-# NOTE: the GeoIP* alerts WILL fire on day one — they correctly surface the currently
-# dead GeoIP country-block (sets empty, updater exit!=0, DB stale). They clear once
-# the gated GeoIP restore (proposal B1) is applied. They are "warning", not paging.
+# 2026-07-04: GeoIP restored on all 3 routers (DBs populated, weekly task-scheduler
+# refresh, updater logs to /tmp/geoip-update.log) — the day-one GeoIP alerts cleared.
+# Same date: cell-gateways now export the same NET-SNMP-EXTEND metrics as gateway0,
+# plus new bgp_default_in_frr/in_config drift metrics and SSH tcp_connect probes.
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
@@ -207,8 +208,77 @@ spec:
           for: 5m
           keep_firing_for: 5m
           annotations:
-            summary: "gateway0 vyos-domain-resolver down"
+            summary: "vyos-domain-resolver down on {{ $labels.instance }}"
             description: "The service that refreshes the reputation feeds (firehol/spamhaus/et/feodo/bitwire/hagezi) is not active — feeds will go stale."
           labels:
             severity: critical
             component: security
+        - alert: ThreatFeedEmpty
+          # Feed counts ride in the nsExtendOutLine LABEL ("feed_<name>_elements <N>",
+          # gauge value always 1) — match the literal " 0"/" -1" count via regex.
+          expr: |-
+            nsExtendOutLine{job=~"snmp.*",nsExtendCommand="threat_feeds",nsExtendOutLine=~"feed_.*_elements (0|-1)"} == 1
+          for: 2h
+          keep_firing_for: 30m
+          annotations:
+            summary: "Threat feed set empty on {{ $labels.instance }}"
+            description: "{{ $labels.nsExtendOutLine }} on {{ $labels.instance }} — a reputation-feed nftables set has been empty for 2h+; the feed URL may be dead or the resolver wedged."
+          labels:
+            severity: warning
+            component: security
+
+    # ── BGP default-origination drift + wan-health daemon (2026-07-04) ──────
+    # Drift = FRR originates 0.0.0.0/0 but the saved VyOS config lacks the
+    # network statement (the 2026-07 gateway0 incident). config=1/frr=0 during
+    # an outage is EXPECTED (wan-health daemon withdrew at runtime) — not drift.
+    - name: bgp-origination-drift.rules
+      interval: 60s
+      rules:
+        - alert: BGPDefaultOriginationDrift
+          expr: |-
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="bgp_default_in_frr"} == 1
+              and on(instance)
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="bgp_default_in_config"} == 0
+          for: 10m
+          keep_firing_for: 15m
+          annotations:
+            summary: "BGP default-route drift on {{ $labels.instance }}"
+            description: |-
+              {{ $labels.instance }}: FRR is originating 0.0.0.0/0 but the SAVED VyOS
+              config has no `network 0.0.0.0/0` statement. A reboot or BGP commit will
+              silently withdraw the default (2026-07 gateway0 incident). Fix:
+              `set protocols bgp address-family ipv4-unicast network 0.0.0.0/0` + save.
+          labels:
+            severity: critical
+            component: network
+        - alert: WANHealthWithdrawn
+          expr: |-
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="wan_health_state"} == 0
+          for: 2m
+          keep_firing_for: 10m
+          annotations:
+            summary: "wan-health daemon withdrew the default on {{ $labels.instance }}"
+            description: "{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design."
+          labels:
+            severity: warning
+            component: network
+
+    # ── Management-plane SSH reachability (blackbox tcp_connect, nflo0) ─────
+    - name: network-ssh.rules
+      interval: 60s
+      rules:
+        - alert: NetworkDeviceSSHDown
+          expr: |-
+            probe_success{job="network-ssh-probes"} == 0
+          for: 10m
+          keep_firing_for: 10m
+          annotations:
+            summary: "SSH down on {{ $labels.instance }}"
+            description: |-
+              {{ $labels.instance }} is not answering TCP :22 from nflo0. If the device
+              is otherwise up (API/SNMP fine), this is the gw0-style silent SSH breakage
+              (2026-07: authorized_keys not regenerated after reboot — fix with the
+              delete-save-set-save key toggle via the VyOS API).
+          labels:
+            severity: warning
+            component: network
