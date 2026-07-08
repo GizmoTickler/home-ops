@@ -170,18 +170,21 @@ const TILE_GAP = 6;
 const TILE_RADIUS = 4;
 const LOGO_SIZE = 14;
 
-// Helvetica Bold character widths at 11px in 10x units (AFM metrics).
+// Helvetica Bold character widths at 11px in 10x units (AFM metrics),
+// widened ~12% to approximate Verdana Bold (the shields.io badge face).
 // Text is uppercased before measuring; textLength pins the rendered width.
 const W = { " ": 31, "%": 92, ".": 31, "/": 31, "-": 37, ":": 31, "·": 31, "(": 37, ")": 37,
   0: 61, 1: 61, 2: 61, 3: 61, 4: 61, 5: 61, 6: 61, 7: 61, 8: 61, 9: 61,
   A: 79, B: 79, C: 79, D: 79, E: 73, F: 67, G: 86, H: 79, I: 31, J: 61,
   K: 79, L: 67, M: 92, N: 79, O: 86, P: 73, Q: 86, R: 79, S: 73, T: 67,
   U: 79, V: 73, W: 104, X: 73, Y: 73, Z: 67 };
+const VERDANA_FACTOR = 1.12;
 
+// Width in px of `text` at font-size `size` (px) with `ls` letter-spacing (px).
 function tw(text, size, ls) {
   let w = 0;
   for (let i = 0; i < text.length; i++) {
-    w += ((W[text[i]] || W[text[i].toUpperCase()] || 73) * size) / 110;
+    w += ((W[text[i]] || W[text[i].toUpperCase()] || 73) * size * VERDANA_FACTOR) / 110;
     if (i < text.length - 1) w += ls;
   }
   return w;
@@ -199,10 +202,13 @@ function tw(text, size, ls) {
 // uppercase text. Saturated mid-tones read on both GitHub themes, so one
 // stylesheet serves dark, light, and auto alike.
 const LABEL_BG = "#3f4650";
+// Verdana is the canonical shields badge face. Text renders at 10x size
+// inside a scale(.1) transform — sub-pixel positioning keeps glyphs crisp
+// and textLength pinning distortion-free.
 const STYLE = `
-  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#ffffff}
-  .lb{font-size:10px;font-weight:700;letter-spacing:1px}
-  .vl{font-size:11px;font-weight:700;letter-spacing:.6px}
+  text{font-family:Verdana,Geneva,"DejaVu Sans",sans-serif;fill:#ffffff;text-rendering:geometricPrecision}
+  .lb{font-size:95px;font-weight:700;letter-spacing:10px}
+  .vl{font-size:100px;font-weight:700;letter-spacing:6px}
   .sh{fill:#010101;fill-opacity:.3}
   .ic{color:#ffffff}
   .cut{fill:${LABEL_BG}}
@@ -259,8 +265,8 @@ function badgeParts(tile) {
   const label = (tile.label || "").toUpperCase();
   const value = (tile.message || "").toUpperCase();
   const hasLogo = !!ICONS[tile.logo];
-  const labelTextW = tw(label, 10, 1);
-  const valueTextW = tw(value, 11, 0.6);
+  const labelTextW = tw(label, 9.5, 1);
+  const valueTextW = tw(value, 10, 0.6);
   const labelW = round2(12 + (hasLogo ? LOGO_SIZE + 7 : 0) + labelTextW + 10);
   const valueW = round2(10 + valueTextW + 12);
   return { label, value, hasLogo, labelTextW, valueTextW, labelW, valueW, width: round2(labelW + valueW) };
@@ -271,11 +277,12 @@ function badgeParts(tile) {
 function makeTileInner(tile, idx) {
   const p = badgeParts(tile);
   const vColor = valueColor(tile);
-  const lx = 12 + (p.hasLogo ? LOGO_SIZE + 7 : 0);
-  const vx = p.labelW + 10;
-  const y = 19.5;
-  const lAttrs = `textLength="${round2(p.labelTextW)}"`;
-  const vAttrs = `textLength="${round2(p.valueTextW)}"`;
+  const lx = round2((12 + (p.hasLogo ? LOGO_SIZE + 7 : 0)) * 10);
+  const vx = round2((p.labelW + 10) * 10);
+  const ly = 188;   // 10x baselines (label 9.5px / value 10px in a 30px badge)
+  const vy = 190;
+  const lAttrs = `transform="scale(.1)" textLength="${round2(p.labelTextW * 10)}"`;
+  const vAttrs = `transform="scale(.1)" textLength="${round2(p.valueTextW * 10)}"`;
   return `<clipPath id="bc${idx}"><rect width="${p.width}" height="${TILE_HEIGHT}" rx="${TILE_RADIUS}"/></clipPath>` +
     `<g clip-path="url(#bc${idx})">` +
     `<rect width="${p.labelW}" height="${TILE_HEIGHT}" fill="${LABEL_BG}"/>` +
@@ -283,10 +290,10 @@ function makeTileInner(tile, idx) {
     `<rect class="gls" width="${p.width}" height="${TILE_HEIGHT}"/>` +
     `</g>` +
     logoMarkup(tile.logo, 12) +
-    `<text class="lb sh" x="${lx}" y="${y + 1}" ${lAttrs}>${escapeXml(p.label)}</text>` +
-    `<text class="lb" x="${lx}" y="${y}" ${lAttrs}>${escapeXml(p.label)}</text>` +
-    `<text class="vl sh" x="${vx}" y="${y + 1}" ${vAttrs}>${escapeXml(p.value)}</text>` +
-    `<text class="vl" x="${vx}" y="${y}" ${vAttrs}>${escapeXml(p.value)}</text>`;
+    `<text class="lb sh" x="${lx}" y="${ly + 10}" ${lAttrs}>${escapeXml(p.label)}</text>` +
+    `<text class="lb" x="${lx}" y="${ly}" ${lAttrs}>${escapeXml(p.label)}</text>` +
+    `<text class="vl sh" x="${vx}" y="${vy + 10}" ${vAttrs}>${escapeXml(p.value)}</text>` +
+    `<text class="vl" x="${vx}" y="${vy}" ${vAttrs}>${escapeXml(p.value)}</text>`;
 }
 
 // Shared defs: the sheen gradient (soft top highlight — the shields gloss).
