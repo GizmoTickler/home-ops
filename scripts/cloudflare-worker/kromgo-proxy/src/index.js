@@ -163,15 +163,16 @@ const METRIC_STATUS = new Set([
   "wan_cellular2",
 ]);
 
-// --- Tile geometry ---
+// --- Tile geometry (compact) ---
 const ROW_WIDTH = 832;    // uniform row width so stacked panels align as a grid
-const TILE_HEIGHT = 72;
+const TILE_HEIGHT = 52;
 const TILE_GAP = 8;
-const TILE_RADIUS = 12;
-const PAD_X = 18;
-const ICON_SIZE = 16;
-const CHIP_SIZE = 30;
-const DOT_R = 4.5;
+const TILE_RADIUS = 10;
+const PAD_X = 14;
+const ICON_SIZE = 13;
+const CHIP_SIZE = 24;
+const DOT_R = 3.5;
+const HALO_R = 7;
 const SINGLE_TILE_WIDTH = 202;
 
 // Document stylesheet: GitHub Primer tokens. Color never paints text — the
@@ -184,8 +185,8 @@ const SINGLE_TILE_WIDTH = 202;
 // its own theme). No/invalid theme param falls back to auto (media query).
 const STYLE_BASE = `
   text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
-  .label{font-size:10px;font-weight:600;letter-spacing:1.1px}
-  .value{font-size:22px;font-weight:600;letter-spacing:-.2px}
+  .label{font-size:9px;font-weight:600;letter-spacing:.9px}
+  .value{font-size:16px;font-weight:600;letter-spacing:-.1px}
   .tile{fill:url(#cbg);stroke:url(#cbd)}
   .halo{fill-opacity:.18}
   .chip-acc{fill-opacity:.13}
@@ -259,7 +260,7 @@ function iconMarkup(name, tileW, kind) {
   const h = vh * scale;
   const ix = chipX + (CHIP_SIZE - w) / 2;
   const iy = chipY + (CHIP_SIZE - h) / 2;
-  return `<rect class="chip-${kind}" x="${round2(chipX)}" y="${round2(chipY)}" width="${CHIP_SIZE}" height="${CHIP_SIZE}" rx="9"/>` +
+  return `<rect class="chip-${kind}" x="${round2(chipX)}" y="${round2(chipY)}" width="${CHIP_SIZE}" height="${CHIP_SIZE}" rx="7"/>` +
     `<g class="ic-${kind}" transform="translate(${round2(ix)},${round2(iy)}) scale(${round4(scale)})">${inner}</g>`;
 }
 
@@ -272,19 +273,19 @@ function makeTileInner(tile, tileW) {
   const label = escapeXml((tile.label || "").toUpperCase());
   const message = escapeXml(tile.message);
   const kind = tileKind(tile);
-  const dotCy = 48;
+  const dotCy = 34.5;
   const dot = tile.status
-    ? `<circle class="halo halo-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="9"/>` +
+    ? `<circle class="halo halo-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="${HALO_R}"/>` +
       `<circle class="dot-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="${DOT_R}"/>`
     : "";
-  const valueX = tile.status ? PAD_X + DOT_R + 9 + 8 : PAD_X;
+  const valueX = tile.status ? PAD_X + DOT_R + HALO_R + 6 : PAD_X;
   // Long values (rare error strings) drop a size so they never clip.
-  const valueSize = (tile.message || "").length > 12 ? 16 : null;
+  const valueSize = (tile.message || "").length > 12 ? 12 : null;
   const sizeAttr = valueSize ? ` style="font-size:${valueSize}px"` : "";
   return `<rect class="tile" x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/>` +
     `${iconMarkup(tile.logo, tileW, kind)}` +
-    `<text class="label" x="${PAD_X}" y="29">${label}</text>` +
-    `${dot}<text class="value" x="${valueX}" y="55"${sizeAttr}>${message}</text>`;
+    `<text class="label" x="${PAD_X}" y="20">${label}</text>` +
+    `${dot}<text class="value" x="${valueX}" y="40"${sizeAttr}>${message}</text>`;
 }
 
 // Shared defs: card-surface gradient and hairline border gradient (brighter
