@@ -1,5 +1,11 @@
 # README Badge Examples
 
+> **Note:** The current README uses the worker's native **stat-tile panels**
+> (`/stack_panel`, `/health_panel`, `/usage_panel`, `/gitops_panel`,
+> `/network_status`) — uniform 832px rows of GitHub-Primer-styled tiles with
+> light/dark theming via `prefers-color-scheme`. The shields.io examples below
+> are a legacy alternative that consumes the worker's `?json` endpoints.
+
 After deploying your Cloudflare Worker, use these badge examples in your README.md.
 
 **Replace `<WORKER_URL>` with your actual worker URL** (e.g., `kromgo-proxy.username.workers.dev`)

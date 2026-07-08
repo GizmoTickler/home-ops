@@ -1,6 +1,8 @@
-// src/index.js — Kromgo badge proxy
-// Generates pixel-perfect SVG badges with stale fallback caching,
-// textLength-pinned text, viewBox scaling, and integer-coordinate rendering.
+// src/index.js — Kromgo stat-tile proxy
+// Renders README metric panels as uniform stat-tile rows (quiet cards: muted
+// label, semibold value, status carried by a small dot — never a color block).
+// Light/dark theming via prefers-color-scheme CSS inside the SVG, with stale
+// fallback caching at the edge.
 
 // --- Edge cache for stale fallback ---
 // Always try to fetch fresh data for GET requests so README refreshes stay current.
@@ -37,12 +39,12 @@ async function withEdgeCache(request, renderFn, ctx) {
       ctx.waitUntil(putInCache(cache, cacheReq, resp));
       return toReturn;
     }
-    // Non-200: prefer the last known-good badge over an error badge.
+    // Non-200: prefer the last known-good tile over an error tile.
     if (cached && cachedAge < CACHE_STALE_S) return toClientResponse(cached);
     return resp;
   } catch (e) {
     if (cached && cachedAge < CACHE_STALE_S) return toClientResponse(cached);
-    return svgResponse(makeBadge("error", "timeout", "lightgrey"), 503);
+    return svgResponse(makeTileSvg({ label: "Error", message: "timeout", status: true, color: "grey" }), 503);
   }
 }
 
@@ -80,82 +82,59 @@ async function putInCache(cache, req, resp) {
   await cache.put(req, new Response(body, { status: 200, headers: h }));
 }
 
-// --- Colors (GitHub Primer dark-mode palette) ---
-const COLORS = {
-  green: "#3fb950",
-  brightgreen: "#56d364",
-  yellowgreen: "#7ee787",
-  yellow: "#d29922",
-  orange: "#db6d28",
-  red: "#f85149",
-  blue: "#58a6ff",
-  purple: "#bc8cff",
-  cyan: "#76e3ea",
-  lightgrey: "#8b949e",
-  gray: "#8b949e",
-  grey: "#8b949e",
-  critical: "#f85149",
-};
-
-function resolveColor(color) {
-  if (!color) return COLORS.lightgrey;
-  if (color.startsWith("#")) return color;
-  return COLORS[color.toLowerCase()] || COLORS.lightgrey;
-}
-
-// --- Text width calculation ---
-// Helvetica Bold character widths at 11px (in 10x units for sub-pixel precision)
-// Derived from Helvetica Bold AFM metrics (1000 units/em → scaled to 11px * 10x)
-const W = {
-  " ": 31, "%": 92, ".": 31, "/": 31, "-": 37, ":": 31, "(": 37, ")": 37,
-  0: 61, 1: 61, 2: 61, 3: 61, 4: 61, 5: 61, 6: 61, 7: 61, 8: 61, 9: 61,
-  A: 79, B: 79, C: 79, D: 79, E: 73, F: 67, G: 86, H: 79, I: 31, J: 61,
-  K: 79, L: 67, M: 92, N: 79, O: 86, P: 73, Q: 86, R: 79, S: 73, T: 67,
-  U: 79, V: 73, W: 104, X: 73, Y: 73, Z: 67,
-};
-const LETTER_SP = 13;
-
-function tw(text) {
-  let w = 0;
-  for (let i = 0; i < text.length; i++) {
-    w += W[text[i]] || W[text[i].toUpperCase()] || 73;
-    if (i < text.length - 1) w += LETTER_SP;
+// --- Status mapping ---
+// Kromgo color names collapse to four semantic states; color is only ever
+// rendered as a small dot beside the value (GitHub Primer status tokens,
+// contrast-validated on both tile surfaces).
+function statusKind(color) {
+  switch ((color || "").toLowerCase()) {
+    case "green":
+    case "brightgreen":
+    case "yellowgreen":
+      return "ok";
+    case "yellow":
+    case "orange":
+      return "warn";
+    case "red":
+    case "critical":
+      return "err";
+    default:
+      return "neu";
   }
-  return w;
 }
 
-// --- SVG logos (Simple Icons, white fill, 24x24 viewBox) — base64 ---
-const LOGOS = {
-  flatcar: "PHN2ZyB3aWR0aD0iMTM3IiBoZWlnaHQ9Ijg0IiB2aWV3Qm94PSIwIDAgMTM3IDg0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNNzguMjE5MSAxMi4xMDc0SDc0LjIwNjFWMTYuMTEzNkg3OC4yMTkxVjEyLjEwNzRaIiBmaWxsPSJ3aGl0ZSIvPgo8cGF0aCBkPSJNNjguMjYxOCA0Ni4xNzY4SDYwLjIyOVY1MC4xODI5SDY4LjI2MThWNDYuMTc2OFoiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xMDQuNDA2IDQ2LjE3NjhIOTYuMzczNVY1MC4xODI5SDEwNC40MDZWNDYuMTc2OFoiIGZpbGw9IndoaXRlIi8+CjxwYXRoIGQ9Ik0xMzIuNDk3IDcyLjE1MjFWNDguMTAxNEgxMjguNDk4VjcyLjE1MjFIMTI0LjQ5OVYzMi4wNjk5SDExNi40NDVWMEgyMC4wODU1VjMyLjA2OTlIMTIuMDM5VjcyLjE1MjFIOC4wMzk2NVY0OC4xMDE0SDMuOTk5MzRWNzIuMTUyMUgwVjgwLjAwNzVIOC4wMzI4MlY4NEgyMC4wNzg2VjgwLjAwNzVIMjQuMDc4Vjg0SDM2LjEyMzhWODAuMDA3NUgxMDAuMzczVjg0SDExMi40MTlWODAuMDA3NUgxMTYuNDE4Vjg0SDEyOC40NjRWODAuMDA3NUgxMzYuNDk3VjcyLjE1MjFIMTMyLjQ5N1pNOTAuMjY1MiA0LjA4ODA3SDExMC4zNDRWMTIuMTA3MkgxMDQuMzk5VjI4LjE0NTZIOTYuMzczNFYxMi4xMDcySDkwLjI3MlY0LjA4ODA3SDkwLjI2NTJaTTI2LjAyMzEgMjAuMTI2NFY0LjA4ODA3SDQyLjA4ODdWMTAuMDE4OEgzNC4wNTU5VjE0LjAxMTRINDIuMDg4N1YyMC4xMTk2SDM0LjA1NTlWMjguMTM4OEgyNi4wMjMxVjIwLjEyNjRaTTQ0LjE4MzkgNDYuMTc2OFY1MC4xNjkzSDMyLjEyNDVWNTguMTg4NUg0NC4xNzAzVjcwLjIxMzlIMjAuMDc4NlYzOC4xNTc2SDQ0LjE3MDNMNDQuMTgzOSA0Ni4xNzY4Wk00Ni4xMDg1IDI4LjE0NTZWNC4wOTQ5SDU0LjE0MTRWMjAuMTMzMkg2Mi4xNzQyVjI4LjE1MjRINDYuMDk0OUg0Ni4xMDg1VjI4LjE0NTZaTTgwLjMwNzggNDYuMTc2OFY3MC4yMjc1SDY4LjI2MTlWNTguMjAyMkg2MC4yMjkxVjcwLjIyNzVINDguMTgzM1Y0Mi4xNzA2SDUyLjE4MjZWMzguMTc4MUg3Ni4yNzQzVjQyLjE3MDZIODAuMjczNkw4MC4zMDc4IDQ2LjE3NjhaTTc4LjIxOTQgMjguMTQ1NlYyMC4xMjY0SDc0LjIyVjI4LjE0NTZINjYuMTgwNFY4LjEwMTA3SDcwLjE3OTdWNC4xMDg1NUg4Mi4yMjU1VjguMTAxMDdIODYuMjI0OVYyOC4xNDU2SDc4LjIxOTRaTTExNi40NDUgNDYuMTc2OFY1OC4yMDIySDExMi40NDZWNjIuMTk0N0gxMTYuNDQ1VjcwLjIxMzlIMTA0LjM5OVY2Mi4yMDgzSDEwMC40VjU4LjIxNThIOTYuNDAwN1Y3MC4yNDExSDg0LjM0MTJWMzguMTY0NEgxMTYuNDQ1VjQ2LjE3NjhaIiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K",
-  kubernetes: "PHN2ZyBmaWxsPSJ3aGl0ZSIgcm9sZT0iaW1nIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEwLjIwNCAxNC4zNWwuMDA3LjAxLS45OTkgMi40MTNhNS4xNzEgNS4xNzEgMCAwIDEtMi4wNzUtMi41OTdsMi41NzgtLjQzNy4wMDQuMDA1YS40NC40NCAwIDAgMSAuNDg0LjYwNnptLS44MzMtMi4xMjlhLjQ0LjQ0IDAgMCAwIC4xNzMtLjc1NmwuMDAyLS4wMTFMNy41ODUgOS43YTUuMTQzIDUuMTQzIDAgMCAwLS43MyAzLjI1NWwyLjUxNC0uNzI1LjAwMi0uMDA5em0xLjE0NS0xLjk4YS40NC40NCAwIDAgMCAuNjk5LS4zMzdsLjAxLS4wMDUuMTUtMi42MmE1LjE0NCA1LjE0NCAwIDAgMC0zLjAxIDEuNDQybDIuMTQ3IDEuNTIzLjAwNC0uMDAyem0uNzYgMi43NWwuNzIzLjM0OS43MjItLjM0Ny4xOC0uNzgtLjUtLjYyM2gtLjgwNGwtLjUuNjIzLjE3OS43Nzl6bTEuNS0zLjA5NWEuNDQuNDQgMCAwIDAgLjcuMzM2bC4wMDguMDAzIDIuMTM0LTEuNTEzYTUuMTg4IDUuMTg4IDAgMCAwLTIuOTkyLTEuNDQybC4xNDggMi42MTUuMDAyLjAwMXptMTAuODc2IDUuOTdsLTUuNzczIDcuMTgxYTEuNiAxLjYgMCAwIDEtMS4yNDguNTk0bC05LjI2MS4wMDNhMS42IDEuNiAwIDAgMS0xLjI0Ny0uNTk2bC01Ljc3Ni03LjE4YTEuNTgzIDEuNTgzIDAgMCAxLS4zMDctMS4zNEwyLjEgNS41NzNjLjEwOC0uNDcuNDI1LS44NjQuODYzLTEuMDczTDExLjMwNS41MTNhMS42MDYgMS42MDYgMCAwIDEgMS4zODUgMGw4LjM0NSAzLjk4NWMuNDM4LjIwOS43NTUuNjA0Ljg2MyAxLjA3M2wyLjA2MiA4Ljk1NWMuMTA4LjQ3LS4wMDUuOTYzLS4zMDggMS4zNHptLTMuMjg5LTIuMDU3Yy0uMDQyLS4wMS0uMTAzLS4wMjYtLjE0NS0uMDM0LS4xNzQtLjAzMy0uMzE1LS4wMjUtLjQ3OS0uMDM4LS4zNS0uMDM3LS42MzgtLjA2Ny0uODk1LS4xNDgtLjEwNS0uMDQtLjE4LS4xNjUtLjIxNi0uMjE2bC0uMjAxLS4wNTlhNi40NSA2LjQ1IDAgMCAwLS4xMDUtMi4zMzIgNi40NjUgNi40NjUgMCAwIDAtLjkzNi0yLjE2M2MuMDUyLS4wNDcuMTUtLjEzMy4xNzctLjE1OS4wMDgtLjA5LjAwMS0uMTgzLjA5NC0uMjgyLjE5Ny0uMTg1LjQ0NC0uMzM4Ljc0My0uNTIyLjE0Mi0uMDg0LjI3My0uMTM3LjQxNS0uMjQyLjAzMi0uMDI0LjA3Ni0uMDYyLjExLS4wODkuMjQtLjE5MS4yOTUtLjUyLjEyMy0uNzM2LS4xNzItLjIxNi0uNTA2LS4yMzYtLjc0NS0uMDQ1LS4wMzQuMDI3LS4wOC4wNjItLjExMS4wODgtLjEzNC4xMTYtLjIxNy4yMy0uMzMuMzUtLjI0Ni4yNS0uNDUuNDU4LS42NzMuNjA5LS4wOTcuMDU2LS4yMzkuMDM3LS4zMDMuMDMzbC0uMTkuMTM1YTYuNTQ1IDYuNTQ1IDAgMCAwLTQuMTQ2LTIuMDAzbC0uMDEyLS4yMjNjLS4wNjUtLjA2Mi0uMTQzLS4xMTUtLjE2My0uMjUtLjAyMi0uMjY4LjAxNS0uNTU3LjA1Ny0uOTA1LjAyMy0uMTYzLjA2MS0uMjk4LjA2OC0uNDc1LjAwMS0uMDQtLjAwMS0uMDk5LS4wMDEtLjE0MiAwLS4zMDYtLjIyNC0uNTU1LS41LS41NTUtLjI3NSAwLS40OTkuMjQ5LS40OTkuNTU1bC4wMDEuMDE0YzAgLjA0MS0uMDAyLjA5MiAwIC4xMjguMDA2LjE3Ny4wNDQuMzEyLjA2Ny40NzUuMDQyLjM0OC4wNzguNjM3LjA1Ni45MDZhLjU0NS41NDUgMCAwIDEtLjE2Mi4yNThsLS4wMTIuMjExYTYuNDI0IDYuNDI0IDAgMCAwLTQuMTY2IDIuMDAzIDguMzczIDguMzczIDAgMCAxLS4xOC0uMTI4Yy0uMDkuMDEyLS4xOC4wNC0uMjk3LS4wMjktLjIyMy0uMTUtLjQyNy0uMzU4LS42NzMtLjYwOC0uMTEzLS4xMi0uMTk1LS4yMzQtLjMyOS0uMzQ5LS4wMy0uMDI2LS4wNzctLjA2Mi0uMTExLS4wODhhLjU5NC41OTQgMCAwIDAtLjM0OC0uMTMyLjQ4MS40ODEgMCAwIDAtLjM5OC4xNzZjLS4xNzIuMjE2LS4xMTcuNTQ2LjEyMy43MzdsLjAwNy4wMDUuMTA0LjA4M2MuMTQyLjEwNS4yNzIuMTU5LjQxNC4yNDIuMjk5LjE4NS41NDYuMzM4Ljc0My41MjIuMDc2LjA4Mi4wOS4yMjYuMS4yODhsLjE2LjE0M2E2LjQ2MiA2LjQ2MiAwIDAgMC0xLjAyIDQuNTA2bC0uMjA4LjA2Yy0uMDU1LjA3Mi0uMTMzLjE4NC0uMjE1LjIxNy0uMjU3LjA4MS0uNTQ2LjExLS44OTUuMTQ3LS4xNjQuMDE0LS4zMDUuMDA2LS40OC4wMzktLjAzNy4wMDctLjA5LjAyLS4xMzMuMDNsLS4wMDQuMDAyLS4wMDcuMDAyYy0uMjk1LjA3MS0uNDg0LjM0Mi0uNDIzLjYwOC4wNjEuMjY3LjM0OS40MjkuNjQ1LjM2NWwuMDA3LS4wMDEuMDEtLjAwMy4xMjktLjAyOWMuMTctLjA0Ni4yOTQtLjExMy40NDgtLjE3Mi4zMy0uMTE4LjYwNC0uMjE3Ljg3LS4yNTYuMTEyLS4wMDkuMjMuMDY5LjI4OC4xMDFsLjIxNy0uMDM3YTYuNSA2LjUgMCAwIDAgMi44OCAzLjU5NmwtLjA5LjIxOGMuMDMzLjA4NC4wNjkuMTk5LjA0NC4yODItLjA5Ny4yNTItLjI2My41MTctLjQ1Mi44MTMtLjA5MS4xMzYtLjE4NS4yNDItLjI2OC4zOTktLjAyLjAzNy0uMDQ1LjA5NS0uMDY0LjEzNC0uMTI4LjI3NS0uMDM0LjU5MS4yMTMuNzEuMjQ4LjEyLjU1Ni0uMDA3LjY5LS4yODJ2LS4wMDJjLjAyLS4wMzkuMDQ2LS4wOS4wNjItLjEyNy4wNy0uMTYyLjA5NC0uMzAxLjE0NC0uNDU4LjEzMi0uMzMyLjIwNS0uNjguMzg3LS44OTcuMDUtLjA2LjEzLS4wODIuMjE1LS4xMDVsLjExMy0uMjA1YTYuNDUzIDYuNDUzIDAgMCAwIDQuNjA5LjAxMmwuMTA2LjE5MmMuMDg2LjAyOC4xOC4wNDIuMjU2LjE1NS4xMzYuMjMyLjIyOS41MDcuMzQyLjg0LjA1LjE1Ni4wNzQuMjk1LjE0NS40NTcuMDE2LjAzNy4wNDMuMDkuMDYyLjEyOS4xMzMuMjc2LjQ0Mi40MDIuNjkuMjgyLjI0Ny0uMTE4LjM0MS0uNDM1LjIxMy0uNzEtLjAyLS4wMzktLjA0NS0uMDk2LS4wNjUtLjEzNC0uMDgzLS4xNTYtLjE3Ny0uMjYxLS4yNjgtLjM5OC0uMTktLjI5Ni0uMzQ2LS41NDEtLjQ0My0uNzkzLS4wNC0uMTMuMDA3LS4yMS4wMzgtLjI5NC0uMDE4LS4wMjItLjA1OS0uMTQ0LS4wODMtLjIwMmE2LjQ5OSA2LjQ5OSAwIDAgMCAyLjg4LTMuNjIyYy4wNjQuMDEuMTc2LjAzLjIxMy4wMzguMDc1LS4wNS4xNDQtLjExNC4yOC0uMTA0LjI2Ni4wMzkuNTQuMTM4Ljg3LjI1Ni4xNTQuMDYuMjc3LjEyOC40NDguMTczLjAzNi4wMS4wODguMDE5LjEzLjAyOGwuMDA5LjAwMy4wMDcuMDAxYy4yOTcuMDY0LjU4NC0uMDk4LjY0NS0uMzY1LjA2LS4yNjYtLjEyOC0uNTM3LS40MjMtLjYwOHpNMTYuNCA5LjcwMWwtMS45NSAxLjc0NnYuMDA1YS40NC40NCAwIDAgMCAuMTczLjc1N2wuMDAzLjAxIDIuNTI2LjcyOGE1LjE5OSA1LjE5OSAwIDAgMC0uMTA4LTEuNjc0QTUuMjA4IDUuMjA4IDAgMCAwIDE2LjQgOS43em0tNC4wMTMgNS4zMjVhLjQzNy40MzcgMCAwIDAtLjQwNC0uMjMyLjQ0LjQ0IDAgMCAwLS4zNzIuMjMzaC0uMDAybC0xLjI2OCAyLjI5MmE1LjE2NCA1LjE2NCAwIDAgMCAzLjMyNi4wMDNsLTEuMjctMi4yOTZoLS4wMXptMS44ODgtMS4yOTNhLjQ0LjQ0IDAgMCAwLS4yNy4wMzYuNDQuNDQgMCAwIDAtLjIxNC41NzJsLS4wMDMuMDA0IDEuMDEgMi40MzhhNS4xNSA1LjE1IDAgMCAwIDIuMDgxLTIuNjE1bC0yLjYtLjQ0LS4wMDQuMDA1eiIvPjwvc3ZnPg==",
-  talos: "PHN2ZyBmaWxsPSJ3aGl0ZSIgcm9sZT0iaW1nIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkuNjc4IDExLjk4YzAtMi42NjQtMS4xMy02Ljg5Ni0yLjg2Ny0xMC44MDRhMTIgMTIgMCAwIDAtMS41ODUuOTE3YzEuNjA4IDMuNjY4IDIuNjQ3IDcuNTUzIDIuNjQ3IDkuODg2IDAgMi4yNTQtMS4wOCA2LjE0NS0yLjczNSA5Ljg2NWExMiAxMiAwIDAgMCAxLjU3Ni45M2MxLjc5LTMuOTc2IDIuOTY0LTguMjI5IDIuOTY0LTEwLjc5NW02LjQ0MiAwYzAtMi4zMzYgMS4wNDItNi4yMiAyLjY0Ni05Ljg5YTEyIDEyIDAgMCAwLTEuNjA4LS45MjJjLTEuNzU2IDMuOTU3LTIuODQzIDguMTY2LTIuODQzIDEwLjgxNiAwIDIuNTY0IDEuMTc3IDYuODE5IDIuOTY1IDEwLjc5N2ExMiAxMiAwIDAgMCAxLjU3NS0uOTMxYy0xLjY1NS0zLjcyMy0yLjczNS03LjYxNi0yLjczNS05Ljg3bTUuNDUgNi41MjUuMzEuMzA3YTEyIDEyIDAgMCAwIC45MzYtMS42MTJjLTEuODY2LTEuODkzLTMuNDU3LTMuOTM4LTMuNDctNS4yMzMtLjAxMi0xLjI2NCAxLjU3LTMuMzA4IDMuNDQ2LTUuMjIyYTEyIDEyIDAgMCAwLS45NDUtMS42MDNsLS4yNTkuMjU4Yy0yLjczOSAyLjc2Ni00LjA2MyA0LjkyLTQuMDQ3IDYuNTgzLjAxNiAxLjY2MiAxLjMzMiAzLjgxIDQuMDI4IDYuNTIyTTIuNDExIDUuNDA1bC0uMjYtLjI1OWExMiAxMiAwIDAgMC0uOTQ2IDEuNjA4YzMuMTIzIDMuMTczIDMuNDUyIDQuNzA0IDMuNDQ4IDUuMjE3LS4wMTIgMS4zLTEuNjAzIDMuMzQtMy40NyA1LjIyOWExMiAxMiAwIDAgMCAuOTM5IDEuNjA4Yy4xMDYtLjEwNi4yMDctLjIwNC4zMS0uMzA4IDIuNjk0LTIuNzExIDQuMDEtNC44NDIgNC4wMjYtNi41MTZzLTEuMzA4LTMuODA5LTQuMDQ3LTYuNThNMTIuMDAyIDI0Yy4zMDMgMCAuNjAyLS4wMTYuODk4LS4wMzdWLjAzN0ExMiAxMiAwIDAgMCAxMiAwYy0uMzA0IDAtLjYwNS4wMTUtLjkwNS4wMzd2MjMuOTI1cS40NDguMDM1LjkwMy4wMzh6Ii8+PC9zdmc+",
-  flux: "PHN2ZyBmaWxsPSJ3aGl0ZSIgcm9sZT0iaW1nIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTExLjQwMiAyMy43NDdjLjE1NC4wNzUuMzA2LjE1NC40NTQuMjM4LjE4MS4wMzguMzcuMDA0LjUyNS0uMDk3bC4zODYtLjI1MWMtMS4yNDItLjgzMS0yLjYyMi0xLjI1MS0zLjk5OC0xLjYwMmwyLjYzMyAxLjcxMlptLTcuNDk1LTUuNzgzYTguMDg4IDguMDg4IDAgMCAxLS4yMjItLjIzNi42OTYuNjk2IDAgMCAwIC4xMTIgMS4wNzVsMi4zMDQgMS40OThjMS4wMTkuNDIyIDIuMDg1LjY4NiAzLjEzNC45NDQgMS42MzYuNDAzIDMuMi43OSA0LjU1NCAxLjcyOGwuNjk3LS40NTNjLTEuNTQxLTEuMTU4LTMuMzI3LTEuNjAyLTUuMDY1LTIuMDMtMi4wMzktLjUwMy0zLjk2NS0uOTc3LTUuNTE0LTIuNTI2Wm0xLjQxNC0xLjMyMi0uNjY1LjQzMmMuMDIzLjAyNC4wNDQuMDQ5LjA2OC4wNzMgMS43MDIgMS43MDIgMy44MjUgMi4yMjUgNS44NzcgMi43MzEgMS43NzguNDM4IDMuNDY5Ljg1NiA0LjkgMS45ODJsLjY4Mi0uNDQ0Yy0xLjYxMi0xLjM1Ny0zLjUzMi0xLjgzNC01LjM5NS0yLjI5My0yLjAxOS0uNDk3LTMuOTI2LS45NjktNS40NjctMi40ODFabTcuNTAyIDIuMDg0YzEuNTk2LjQxMiAzLjA5Ni45MDQgNC4zNjcgMi4wMzZsLjY3LS40MzZjLTEuNDg0LTEuMzk2LTMuMjY2LTEuOTUzLTUuMDM3LTIuNDAzdi44MDNabS42OTgtMi4zMzdhNjQuNjk1IDY0LjY5NSAwIDAgMS0uNjk4LS4xNzR2LjgwMmwuNTEyLjEyN2MyLjAzOS41MDMgMy45NjUuOTc4IDUuNTE0IDIuNTI2bC4wMDcuMDA5LjY2My0uNDMxYy0uMDQxLS4wNDItLjA3OS0uMDg2LS4xMjEtLjEyOC0xLjcwMi0xLjcwMS0zLjgyNC0yLjIyNS01Ljg3Ny0yLjczMVptLS42OTgtMS45Mjh2LjgxNmMuNjI0LjE5IDEuMjU1LjM0NyAxLjg3OS41MDEgMi4wMzkuNTAyIDMuOTY1Ljk3NyA1LjUxMyAyLjUyNi4wNzcuMDc3LjE1My4xNTcuMjI2LjIzOWEuNzA0LjcwNCAwIDAgMC0uMjM4LS45MTFsLTMuMDY0LTEuOTkyYy0uNzQ0LS4yNDUtMS41MDItLjQzMy0yLjI1MS0uNjE4YTMxLjQzNiAzMS40MzYgMCAwIDEtMi4wNjUtLjU2MVptLTEuNjQ2IDMuMDQ5Yy0xLjUyNi0uNC0yLjk2LS44ODgtNC4xODUtMS45NTVsLS42NzQuNDM5YzEuNDM5IDEuMzI2IDMuMTUxIDEuODggNC44NTkgMi4zMTl2LS44MDNabTAtMS43NzJhOC41NDMgOC41NDMgMCAwIDEtMi40OTItMS4yODNsLS42ODYuNDQ2Yy45NzUuODA0IDIuMDYxIDEuMjkzIDMuMTc4IDEuNjU1di0uODE4Wm0wLTEuOTQ2YTcuNTkgNy41OSAwIDAgMS0uNzc2LS40NTNsLS43MDEuNDU2Yy40NjIuMzM3Ljk1Ny42MjcgMS40NzcuODY1di0uODY4Wm0zLjUzMy4yNjktMS44ODctMS4yMjZ2LjU4MWMuNjE0LjI1NyAxLjI0NC40NzMgMS44ODcuNjQ1Wm01LjQ5My04Ljg2M0wxMi4zODEuMTEyYS43MDUuNzA1IDAgMCAwLS43NjIgMEwzLjc5NyA1LjE5OGEuNjk4LjY5OCAwIDAgMCAwIDEuMTcxbDcuMzggNC43OTdWNy42NzhhLjQxNC40MTQgMCAwIDAtLjQxMi0uNDEyaC0uNTQzYS40MTMuNDEzIDAgMCAxLS4zNTYtLjYxN2wxLjc3Ny0zLjA3OWEuNDEyLjQxMiAwIDAgMSAuNzE0IDBsMS43NzcgMy4wNzlhLjQxMy40MTMgMCAwIDEtLjM1Ni42MTdoLS41NDNhLjQxNC40MTQgMCAwIDAtLjQxMi40MTJ2My40ODhsNy4zOC00Ljc5N2EuNy43IDAgMCAwIDAtMS4xNzFaIi8+PC9zdmc+",
-  renovatebot: "PHN2ZyBmaWxsPSJ3aGl0ZSIgcm9sZT0iaW1nIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTE3LjU3NiAxMC44NTJjLS4xMDggMC0uMjE2LjAxOC0uMzI0LjA1NGExLjM0NCAxLjM0NCAwIDAgMC0uOTE4IDEuMTg4Yy0uMDE4LjM5Ni4xMjYuNzU2LjM5NiAxLjAyNi4yNy4yNTIuNjMuMzk2IDEuMDI2LjM5NmExLjM4IDEuMzggMCAwIDAgMS4wOC0uNTA0Yy4yNy0uMzA2LjM3OC0uNzAyLjMwNi0xLjA5OGExLjM0NCAxLjM0NCAwIDAgMC0uOTE4LTEuMDA4IDEuMTY0IDEuMTY0IDAgMCAwLS42NDgtLjA1NHpNMTIgMEM1LjM3NiAwIDAgNS4zNzYgMCAxMnM1LjM3NiAxMiAxMiAxMiAxMi01LjM3NiAxMi0xMlMxOC42MjQgMCAxMiAwem01LjIwOCAxNC40MThhMy4xODYgMy4xODYgMCAwIDEtMS43NjQgMS4xMTYgMy4xOCAzLjE4IDAgMCAxLTIuMDctLjE5OGwtMy45MjQgNC41OTZjLS4zNzguNDMyLS44ODIuNjg0LTEuNDIyLjcwMmExLjk0NCAxLjk0NCAwIDAgMS0xLjQ1OC0uNTk0IDEuOTQ0IDEuOTQ0IDAgMCAxLS41OTQtMS40NThjLjAxOC0uNTQuMjctMS4wNDQuNzAyLTEuNDIybDQuNTk2LTMuOTI0YTMuMTggMy4xOCAwIDAgMS0uMTk4LTIuMDcgMy4xODYgMy4xODYgMCAwIDEgMS4xMTYtMS43NjQgMy4xNzQgMy4xNzQgMCAwIDEgMi44MjYtLjU5NGwtMS42MzggMS42MzguMTQ0IDEuNzI4IDEuNzI4LjE0NCAxLjYzOC0xLjYzOGEzLjE3NCAzLjE3NCAwIDAgMS0uNTk0IDIuODI2IDIuMDcgMi4wNyAwIDAgMS0uMTI2LjE2MnoiLz48L3N2Zz4K",
+// --- Inline icons (currentColor, themed via CSS) ---
+// Each icon: [viewBoxW, viewBoxH, innerMarkup]. Fills/strokes use currentColor
+// so the document stylesheet controls color in light and dark mode.
+const ICONS = {
+  flatcar: [137, 84, '<path fill="currentColor" d="M78.2191 12.1074H74.2061V16.1136H78.2191V12.1074Z"/><path fill="currentColor" d="M68.2618 46.1768H60.229V50.1829H68.2618V46.1768Z"/><path fill="currentColor" d="M104.406 46.1768H96.3735V50.1829H104.406V46.1768Z"/><path fill="currentColor" d="M132.497 72.1521V48.1014H128.498V72.1521H124.499V32.0699H116.445V0H20.0855V32.0699H12.039V72.1521H8.03965V48.1014H3.99934V72.1521H0V80.0075H8.03282V84H20.0786V80.0075H24.078V84H36.1238V80.0075H100.373V84H112.419V80.0075H116.418V84H128.464V80.0075H136.497V72.1521H132.497ZM90.2652 4.08807H110.344V12.1072H104.399V28.1456H96.3734V12.1072H90.272V4.08807H90.2652ZM26.0231 20.1264V4.08807H42.0887V10.0188H34.0559V14.0114H42.0887V20.1196H34.0559V28.1388H26.0231V20.1264ZM44.1839 46.1768V50.1693H32.1245V58.1885H44.1703V70.2139H20.0786V38.1576H44.1703L44.1839 46.1768ZM46.1085 28.1456V4.0949H54.1414V20.1332H62.1742V28.1524H46.0949H46.1085V28.1456ZM80.3078 46.1768V70.2275H68.2619V58.2022H60.2291V70.2275H48.1833V42.1706H52.1826V38.1781H76.2743V42.1706H80.2736L80.3078 46.1768ZM78.2194 28.1456V20.1264H74.22V28.1456H66.1804V8.10107H70.1797V4.10855H82.2255V8.10107H86.2249V28.1456H78.2194ZM116.445 46.1768V58.2022H112.446V62.1947H116.445V70.2139H104.399V62.2083H100.4V58.2158H96.4007V70.2411H84.3412V38.1644H116.445V46.1768Z"/>'],
+  kubernetes: [24, 24, '<path fill="currentColor" d="M10.204 14.35l.007.01-.999 2.413a5.171 5.171 0 0 1-2.075-2.597l2.578-.437.004.005a.44.44 0 0 1 .484.606zm-.833-2.129a.44.44 0 0 0 .173-.756l.002-.011L7.585 9.7a5.143 5.143 0 0 0-.73 3.255l2.514-.725.002-.009zm1.145-1.98a.44.44 0 0 0 .699-.337l.01-.005.15-2.62a5.144 5.144 0 0 0-3.01 1.442l2.147 1.523.004-.002zm.76 2.75l.723.349.722-.347.18-.78-.5-.623h-.804l-.5.623.179.779zm1.5-3.095a.44.44 0 0 0 .7.336l.008.003 2.134-1.513a5.188 5.188 0 0 0-2.992-1.442l.148 2.615.002.001zm10.876 5.97l-5.773 7.181a1.6 1.6 0 0 1-1.248.594l-9.261.003a1.6 1.6 0 0 1-1.247-.596l-5.776-7.18a1.583 1.583 0 0 1-.307-1.34L2.1 5.573c.108-.47.425-.864.863-1.073L11.305.513a1.606 1.606 0 0 1 1.385 0l8.345 3.985c.438.209.755.604.863 1.073l2.062 8.955c.108.47-.005.963-.308 1.34zm-3.289-2.057c-.042-.01-.103-.026-.145-.034-.174-.033-.315-.025-.479-.038-.35-.037-.638-.067-.895-.148-.105-.04-.18-.165-.216-.216l-.201-.059a6.45 6.45 0 0 0-.105-2.332 6.465 6.465 0 0 0-.936-2.163c.052-.047.15-.133.177-.159.008-.09.001-.183.094-.282.197-.185.444-.338.743-.522.142-.084.273-.137.415-.242.032-.024.076-.062.11-.089.24-.191.295-.52.123-.736-.172-.216-.506-.236-.745-.045-.034.027-.08.062-.111.088-.134.116-.217.23-.33.35-.246.25-.45.458-.673.609-.097.056-.239.037-.303.033l-.19.135a6.545 6.545 0 0 0-4.146-2.003l-.012-.223c-.065-.062-.143-.115-.163-.25-.022-.268.015-.557.057-.905.023-.163.061-.298.068-.475.001-.04-.001-.099-.001-.142 0-.306-.224-.555-.5-.555-.275 0-.499.249-.499.555l.001.014c0 .041-.002.092 0 .128.006.177.044.312.067.475.042.348.078.637.056.906a.545.545 0 0 1-.162.258l-.012.211a6.424 6.424 0 0 0-4.166 2.003 8.373 8.373 0 0 1-.18-.128c-.09.012-.18.04-.297-.029-.223-.15-.427-.358-.673-.608-.113-.12-.195-.234-.329-.349-.03-.026-.077-.062-.111-.088a.594.594 0 0 0-.348-.132.481.481 0 0 0-.398.176c-.172.216-.117.546.123.737l.007.005.104.083c.142.105.272.159.414.242.299.185.546.338.743.522.076.082.09.226.1.288l.16.143a6.462 6.462 0 0 0-1.02 4.506l-.208.06c-.055.072-.133.184-.215.217-.257.081-.546.11-.895.147-.164.014-.305.006-.48.039-.037.007-.09.02-.133.03l-.004.002-.007.002c-.295.071-.484.342-.423.608.061.267.349.429.645.365l.007-.001.01-.003.129-.029c.17-.046.294-.113.448-.172.33-.118.604-.217.87-.256.112-.009.23.069.288.101l.217-.037a6.5 6.5 0 0 0 2.88 3.596l-.09.218c.033.084.069.199.044.282-.097.252-.263.517-.452.813-.091.136-.185.242-.268.399-.02.037-.045.095-.064.134-.128.275-.034.591.213.71.248.12.556-.007.69-.282v-.002c.02-.039.046-.09.062-.127.07-.162.094-.301.144-.458.132-.332.205-.68.387-.897.05-.06.13-.082.215-.105l.113-.205a6.453 6.453 0 0 0 4.609.012l.106.192c.086.028.18.042.256.155.136.232.229.507.342.84.05.156.074.295.145.457.016.037.043.09.062.129.133.276.442.402.69.282.247-.118.341-.435.213-.71-.02-.039-.045-.096-.065-.134-.083-.156-.177-.261-.268-.398-.19-.296-.346-.541-.443-.793-.04-.13.007-.21.038-.294-.018-.022-.059-.144-.083-.202a6.499 6.499 0 0 0 2.88-3.622c.064.01.176.03.213.038.075-.05.144-.114.28-.104.266.039.54.138.87.256.154.06.277.128.448.173.036.01.088.019.13.028l.009.003.007.001c.297.064.584-.098.645-.365.06-.266-.128-.537-.423-.608zM16.4 9.701l-1.95 1.746v.005a.44.44 0 0 0 .173.757l.003.01 2.526.728a5.199 5.199 0 0 0-.108-1.674A5.208 5.208 0 0 0 16.4 9.7zm-4.013 5.325a.437.437 0 0 0-.404-.232.44.44 0 0 0-.372.233h-.002l-1.268 2.292a5.164 5.164 0 0 0 3.326.003l-1.27-2.296h-.01zm1.888-1.293a.44.44 0 0 0-.27.036.44.44 0 0 0-.214.572l-.003.004 1.01 2.438a5.15 5.15 0 0 0 2.081-2.615l-2.6-.44-.004.005z"/>'],
+  flux: [24, 24, '<path fill="currentColor" d="M11.402 23.747c.154.075.306.154.454.238.181.038.37.004.525-.097l.386-.251c-1.242-.831-2.622-1.251-3.998-1.602l2.633 1.712Zm-7.495-5.783a8.088 8.088 0 0 1-.222-.236.696.696 0 0 0 .112 1.075l2.304 1.498c1.019.422 2.085.686 3.134.944 1.636.403 3.2.79 4.554 1.728l.697-.453c-1.541-1.158-3.327-1.602-5.065-2.03-2.039-.503-3.965-.977-5.514-2.526Zm1.414-1.322-.665.432c.023.024.044.049.068.073 1.702 1.702 3.825 2.225 5.877 2.731 1.778.438 3.469.856 4.9 1.982l.682-.444c-1.612-1.357-3.532-1.834-5.395-2.293-2.019-.497-3.926-.969-5.467-2.481Zm7.502 2.084c1.596.412 3.096.904 4.367 2.036l.67-.436c-1.484-1.396-3.266-1.953-5.037-2.403v.803Zm.698-2.337a64.695 64.695 0 0 1-.698-.174v.802l.512.127c2.039.503 3.965.978 5.514 2.526l.007.009.663-.431c-.041-.042-.079-.086-.121-.128-1.702-1.701-3.824-2.225-5.877-2.731Zm-.698-1.928v.816c.624.19 1.255.347 1.879.501 2.039.502 3.965.977 5.513 2.526.077.077.153.157.226.239a.704.704 0 0 0-.238-.911l-3.064-1.992c-.744-.245-1.502-.433-2.251-.618a31.436 31.436 0 0 1-2.065-.561Zm-1.646 3.049c-1.526-.4-2.96-.888-4.185-1.955l-.674.439c1.439 1.326 3.151 1.88 4.859 2.319v-.803Zm0-1.772a8.543 8.543 0 0 1-2.492-1.283l-.686.446c.975.804 2.061 1.293 3.178 1.655v-.818Zm0-1.946a7.59 7.59 0 0 1-.776-.453l-.701.456c.462.337.957.627 1.477.865v-.868Zm3.533.269-1.887-1.226v.581c.614.257 1.244.473 1.887.645Zm5.493-8.863L12.381.112a.705.705 0 0 0-.762 0L3.797 5.198a.698.698 0 0 0 0 1.171l7.38 4.797V7.678a.414.414 0 0 0-.412-.412h-.543a.413.413 0 0 1-.356-.617l1.777-3.079a.412.412 0 0 1 .714 0l1.777 3.079a.413.413 0 0 1-.356.617h-.543a.414.414 0 0 0-.412.412v3.488l7.38-4.797a.7.7 0 0 0 0-1.171Z"/>'],
+  renovatebot: [24, 24, '<path fill="currentColor" d="M17.576 10.852c-.108 0-.216.018-.324.054a1.344 1.344 0 0 0-.918 1.188c-.018.396.126.756.396 1.026.27.252.63.396 1.026.396a1.38 1.38 0 0 0 1.08-.504c.27-.306.378-.702.306-1.098a1.344 1.344 0 0 0-.918-1.008 1.164 1.164 0 0 0-.648-.054zM12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm5.208 14.418a3.186 3.186 0 0 1-1.764 1.116 3.18 3.18 0 0 1-2.07-.198l-3.924 4.596c-.378.432-.882.684-1.422.702a1.944 1.944 0 0 1-1.458-.594 1.944 1.944 0 0 1-.594-1.458c.018-.54.27-1.044.702-1.422l4.596-3.924a3.18 3.18 0 0 1-.198-2.07 3.186 3.186 0 0 1 1.116-1.764 3.174 3.174 0 0 1 2.826-.594l-1.638 1.638.144 1.728 1.728.144 1.638-1.638a3.174 3.174 0 0 1-.594 2.826 2.07 2.07 0 0 1-.126.162z"/>'],
+  calendar: [24, 24, '<path fill="currentColor" d="M19 3h-1V1h-2v2H8V1H6v2H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/>'],
+  uptime: [24, 24, '<path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/><path fill="currentColor" d="M12 8l-4 4h3v4h2v-4h3z"/>'],
+  node: [24, 24, '<g fill="currentColor"><rect x="3" y="3" width="18" height="7" rx="1.5"/><circle cx="7" cy="6.5" r="1.2"/><rect x="10" y="5.5" width="7" height="2" rx=".5"/><rect x="3" y="14" width="18" height="7" rx="1.5"/><circle cx="7" cy="17.5" r="1.2"/><rect x="10" y="16.5" width="7" height="2" rx=".5"/></g>'],
+  alert: [24, 24, '<path fill="currentColor" d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>'],
+  pod: [24, 24, '<path fill="currentColor" d="M21 16.5c0 .38-.21.71-.53.88l-7.9 4.44c-.16.12-.36.18-.57.18s-.41-.06-.57-.18l-7.9-4.44A.991.991 0 013 16.5v-9c0-.38.21-.71.53-.88l7.9-4.44c.16-.12.36-.18.57-.18s.41.06.57.18l7.9 4.44c.32.17.53.5.53.88v9zM12 5.15L5.04 9.03 12 12.92l6.96-3.89L12 5.15z"/>'],
+  container: [24, 24, '<g stroke="currentColor" stroke-width=".9" fill="none"><rect x="1" y="10" width="5" height="4" rx=".5"/><rect x="7" y="10" width="5" height="4" rx=".5"/><rect x="13" y="10" width="5" height="4" rx=".5"/><rect x="1" y="5" width="5" height="4" rx=".5"/><rect x="7" y="5" width="5" height="4" rx=".5"/><rect x="7" y="0" width="5" height="4" rx=".5"/></g><path fill="currentColor" d="M19 13c1.5-.3 3-.3 4 .5 0 0-.8 2.5-3.5 3.5-1 3-3.5 5-7.5 5C7 22 3 18.5 3 15h16z"/>'],
+  cpu: [24, 24, '<path fill="currentColor" d="M15 9H9v6h6V9zm-2 4h-2v-2h2v2zm8-2V9h-2V7c0-1.1-.9-2-2-2h-2V3h-2v2h-2V3H9v2H7c-1.1 0-2 .9-2 2v2H3v2h2v2H3v2h2v2c0 1.1.9 2 2 2h2v2h2v-2h2v2h2v-2h2c1.1 0 2-.9 2-2v-2h2v-2h-2v-2h2zm-4 6H7V7h10v10z"/>'],
+  ram: [24, 24, '<g fill="currentColor"><rect x="2" y="6" width="20" height="12" rx="2"/><rect x="4" y="18" width="2" height="2" rx=".5"/><rect x="8" y="18" width="2" height="2" rx=".5"/><rect x="14" y="18" width="2" height="2" rx=".5"/><rect x="18" y="18" width="2" height="2" rx=".5"/></g><g class="cut"><rect x="5" y="9" width="2" height="4" rx=".5"/><rect x="9" y="9" width="2" height="4" rx=".5"/><rect x="13" y="9" width="2" height="4" rx=".5"/><rect x="17" y="9" width="2" height="4" rx=".5"/></g>'],
+  storage: [24, 24, '<g fill="currentColor"><ellipse cx="12" cy="5.5" rx="8" ry="3.5"/><path d="M4 5.5v5c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-5c0 1.93-3.58 3.5-8 3.5S4 7.43 4 5.5z"/><path d="M4 10.5v5c0 1.93 3.58 3.5 8 3.5s8-1.57 8-3.5v-5c0 1.93-3.58 3.5-8 3.5s-8-1.57-8-3.5z"/></g>'],
+  shieldcheck: [24, 24, '<path fill="currentColor" d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>'],
+  helm: [24, 24, '<path fill="currentColor" d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/>'],
+  volume: [24, 24, '<path fill="currentColor" d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/>'],
+  xerror: [24, 24, '<path fill="currentColor" d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>'],
+  lock: [24, 24, '<path fill="currentColor" d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>'],
+  bolt: [24, 24, '<path fill="currentColor" d="M7 2v11h3v9l7-12h-4l4-8z"/>'],
+  signal: [24, 24, '<g fill="currentColor"><rect x="1" y="16" width="4" height="6" rx="1"/><rect x="7" y="11" width="4" height="11" rx="1"/><rect x="13" y="6" width="4" height="16" rx="1"/><rect x="19" y="1" width="4" height="21" rx="1"/></g>'],
 };
-
-// --- Metric-specific icons (Material Design, 24x24 viewBox, white fill) ---
-const METRIC_LOGOS = {
-  calendar: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xOSAzaC0xVjFoLTJ2Mkg4VjFINnYySDVjLTEuMTEgMC0yIC45LTIgMnYxNGMwIDEuMS44OSAyIDIgMmgxNGMxLjEgMCAyLS45IDItMlY1YzAtMS4xLS45LTItMi0yem0wIDE2SDVWOGgxNHYxMXoiLz48L3N2Zz4=",
-  uptime: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xMiAyQzYuNDggMiAyIDYuNDggMiAxMnM0LjQ4IDEwIDEwIDEwIDEwLTQuNDggMTAtMTBTMTcuNTIgMiAxMiAyem0wIDE4Yy00LjQxIDAtOC0zLjU5LTgtOHMzLjU5LTggOC04IDggMy41OSA0IDgtMy41OSA0LTggOHoiLz48cGF0aCBkPSJNMTIgOGwtNCA0aDN2NGgydi00aDN6Ii8+PC9zdmc+",
-  node: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PGNpcmNsZSBjeD0iNyIgY3k9IjYuNSIgcj0iMS4yIi8+PHJlY3QgeD0iMTAiIHk9IjUuNSIgd2lkdGg9IjciIGhlaWdodD0iMiIgcng9Ii41Ii8+PHJlY3QgeD0iMyIgeT0iMTQiIHdpZHRoPSIxOCIgaGVpZ2h0PSI3IiByeD0iMS41Ii8+PGNpcmNsZSBjeD0iNyIgY3k9IjE3LjUiIHI9IjEuMiIvPjxyZWN0IHg9IjEwIiB5PSIxNi41IiB3aWR0aD0iNyIgaGVpZ2h0PSIyIiByeD0iLjUiLz48L3N2Zz4=",
-  alert: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xIDIxaDIyTDEyIDIgMSAyMXptMTItM2gtMnYtMmgydjJ6bTAtNGgtMnYtNGgydjR6Ii8+PC9zdmc+",
-  pod: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0yMSAxNi41YzAgLjM4LS4yMS43MS0uNTMuODhsLTcuOSA0LjQ0Yy0uMTYuMTItLjM2LjE4LS41Ny4xOHMtLjQxLS4wNi0uNTctLjE4bC03LjktNC40NEEuOTkxLjk5MSAwIDAxMyAxNi41di05YzAtLjM4LjIxLS43MS41My0uODhsNy45LTQuNDRjLjE2LS4xMi4zNi0uMTguNTctLjE4cy40MS4wNi41Ny4xOGw3LjkgNC40NGMuMzIuMTcuNTMuNS41My44OHY5ek0xMiA1LjE1TDUuMDQgOS4wMyAxMiAxMi45Mmw2Ljk2LTMuODlMMTIgNS4xNXoiLz48L3N2Zz4=",
-  container: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHg9IjEiIHk9IjEwIiB3aWR0aD0iNSIgaGVpZ2h0PSI0IiByeD0iLjUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iLjUiIGZpbGw9Im5vbmUiLz48cmVjdCB4PSI3IiB5PSIxMCIgd2lkdGg9IjUiIGhlaWdodD0iNCIgcng9Ii41IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9Ii41IiBmaWxsPSJub25lIi8+PHJlY3QgeD0iMTMiIHk9IjEwIiB3aWR0aD0iNSIgaGVpZ2h0PSI0IiByeD0iLjUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iLjUiIGZpbGw9Im5vbmUiLz48cmVjdCB4PSIxIiB5PSI1IiB3aWR0aD0iNSIgaGVpZ2h0PSI0IiByeD0iLjUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iLjUiIGZpbGw9Im5vbmUiLz48cmVjdCB4PSI3IiB5PSI1IiB3aWR0aD0iNSIgaGVpZ2h0PSI0IiByeD0iLjUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iLjUiIGZpbGw9Im5vbmUiLz48cmVjdCB4PSI3IiB5PSIwIiB3aWR0aD0iNSIgaGVpZ2h0PSI0IiByeD0iLjUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iLjUiIGZpbGw9Im5vbmUiLz48cGF0aCBkPSJNMTkgMTNjMS41LS4zIDMtLjMgNCAuNSAwIDAtLjggMi41LTMuNSAzLjUtMSAzLTMuNSA1LTcuNSA1QzcgMjIgMyAxOC41IDMgMTVoMTZ6IiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==",
-  cpu: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xNSA5SDl2Nmg2Vjl6bS0yIDRoLTJ2LTJoMnYyem04LTJWOWgtMlY3YzAtMS4xLS45LTItMi0yaC0yVjNoLTJ2MmgtMlYzSDl2Mkg3Yy0xLjEgMC0yIC45LTIgMnYySDN2MmgydjJIM3YyaDJ2MmMwIDEuMS45IDIgMiAyaDJ2Mmgydi0yaDJ2Mmgydi0yaDJjMS4xIDAgMi0uOSAyLTJ2LTJoMnYtMmgtMnYtMmgyem0tNCA2SDdWN2gxMHYxMHoiLz48L3N2Zz4=",
-  ram: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHg9IjIiIHk9IjYiIHdpZHRoPSIyMCIgaGVpZ2h0PSIxMiIgcng9IjIiLz48cmVjdCB4PSI1IiB5PSI5IiB3aWR0aD0iMiIgaGVpZ2h0PSI0IiByeD0iLjUiIGZpbGw9IiMwZDExMTciLz48cmVjdCB4PSI5IiB5PSI5IiB3aWR0aD0iMiIgaGVpZ2h0PSI0IiByeD0iLjUiIGZpbGw9IiMwZDExMTciLz48cmVjdCB4PSIxMyIgeT0iOSIgd2lkdGg9IjIiIGhlaWdodD0iNCIgcng9Ii41IiBmaWxsPSIjMGQxMTE3Ii8+PHJlY3QgeD0iMTciIHk9IjkiIHdpZHRoPSIyIiBoZWlnaHQ9IjQiIHJ4PSIuNSIgZmlsbD0iIzBkMTExNyIvPjxyZWN0IHg9IjQiIHk9IjE4IiB3aWR0aD0iMiIgaGVpZ2h0PSIyIiByeD0iLjUiLz48cmVjdCB4PSI4IiB5PSIxOCIgd2lkdGg9IjIiIGhlaWdodD0iMiIgcng9Ii41Ii8+PHJlY3QgeD0iMTQiIHk9IjE4IiB3aWR0aD0iMiIgaGVpZ2h0PSIyIiByeD0iLjUiLz48cmVjdCB4PSIxOCIgeT0iMTgiIHdpZHRoPSIyIiBoZWlnaHQ9IjIiIHJ4PSIuNSIvPjwvc3ZnPg==",
-  storage: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxlbGxpcHNlIGN4PSIxMiIgY3k9IjUuNSIgcng9IjgiIHJ5PSIzLjUiLz48cGF0aCBkPSJNNCA1LjV2NWMwIDEuOTMgMy41OCAzLjUgOCAzLjVzOC0xLjU3IDgtMy41di01YzAgMS45My0zLjU4IDMuNS04IDMuNVM0IDcuNDMgNCA1LjV6Ii8+PHBhdGggZD0iTTQgMTAuNXY1YzAgMS45MyAzLjU4IDMuNSA4IDMuNXM4LTEuNTcgOC0zLjV2LTVjMCAxLjkzLTMuNTggMy41LTggMy41cy04LTEuNTctOC0zLjV6Ii8+PC9zdmc+",
-  shieldcheck: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xMiAxTDMgNXY2YzAgNS41NSAzLjg0IDEwLjc0IDkgMTIgNS4xNi0xLjI2IDktNi40NSA5LTEyVjVsLTktNHptLTIgMTZsLTQtNCAxLjQxLTEuNDFMMTAgMTQuMTdsNi41OS02LjU5TDE4IDlsLTggOHoiLz48L3N2Zz4=",
-  helm: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xOS40MyAxMi45OGMuMDQtLjMyLjA3LS42NC4wNy0uOThzLS4wMy0uNjYtLjA3LS45OGwyLjExLTEuNjVjLjE5LS4xNS4yNC0uNDIuMTItLjY0bC0yLTMuNDZjLS4xMi0uMjItLjM5LS4zLS42MS0uMjJsLTIuNDkgMWMtLjUyLS40LTEuMDgtLjczLTEuNjktLjk4bC0uMzgtMi42NUMxNC40NiAyLjE4IDE0LjI1IDIgMTQgMmgtNGMtLjI1IDAtLjQ2LjE4LS40OS40MmwtLjM4IDIuNjVjLS42MS4yNS0xLjE3LjU5LTEuNjkuOThsLTIuNDktMWMtLjIzLS4wOS0uNDkgMC0uNjEuMjJsLTIgMy40NmMtLjEzLjIyLS4wNy40OS4xMi42NGwyLjExIDEuNjVjLS4wNC4zMi0uMDcuNjUtLjA3Ljk4cy4wMy42Ni4wNy45OGwtMi4xMSAxLjY1Yy0uMTkuMTUtLjI0LjQyLS4xMi42NGwyIDMuNDZjLjEyLjIyLjM5LjMuNjEuMjJsMi40OS0xYy41Mi40IDEuMDguNzMgMS42OS45OGwuMzggMi42NWMuMDMuMjQuMjQuNDIuNDkuNDJoNGMuMjUgMCAuNDYtLjE4LjQ5LS40MmwuMzgtMi42NWMuNjEtLjI1IDEuMTctLjU5IDEuNjktLjk4bDIuNDkgMWMuMjMuMDkuNDkgMCAuNjEtLjIybDItMy40NmMuMTItLjIyLjA3LS40OS0uMTItLjY0bC0yLjExLTEuNjV6TTEyIDE1LjVjLTEuOTMgMC0zLjUtMS41Ny0zLjUtMy41czEuNTctMy41IDMuNS0zLjUgMy41IDEuNTcgMy41IDMuNS0xLjU3IDMuNS0zLjUgMy41eiIvPjwvc3ZnPg==",
-  volume: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0yIDIwaDIwdi00SDJ2NHptMi0zaDJ2Mkg0di0yek0yIDR2NGgyMFY0SDJ6bTQgM0g0VjVoMnYyem0tNCA3aDIwdi00SDJ2NHptMi0zaDJ2Mkg0di0yeiIvPjwvc3ZnPg==",
-  xerror: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xMiAyQzYuNDcgMiAyIDYuNDcgMiAxMnM0LjQ3IDEwIDEwIDEwIDEwLTQuNDcgMTAtMTBTMTcuNTMgMiAxMiAyem01IDEzLjU5TDE1LjU5IDE3IDEyIDEzLjQxIDguNDEgMTcgNyAxNS41OSAxMC41OSAxMiA3IDguNDEgOC40MSA3IDEyIDEwLjU5IDE1LjU5IDcgMTcgOC40MSAxMy40MSAxMiAxNyAxNS41OXoiLz48L3N2Zz4=",
-  lock: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik0xOCA4aC0xVjZjMC0yLjc2LTIuMjQtNS01LTVTNyAzLjI0IDcgNnYySDZjLTEuMSAwLTIgLjktMiAydjEwYzAgMS4xLjkgMiAyIDJoMTJjMS4xIDAgMi0uOSAyLTJWMTBjMC0xLjEtLjktMi0yLTJ6bS02IDljLTEuMSAwLTItLjktMi0ycy45LTIgMi0yIDIgLjkgMiAyLS45IDItMiAyem0zLjEtOUg4LjlWNmMwLTEuNzEgMS4zOS0zLjEgMy4xLTMuMSAxLjcxIDAgMy4xIDEuMzkgMy4xIDMuMXYyeiIvPjwvc3ZnPg==",
-  bolt: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9Ik03IDJ2MTFoM3Y5bDctMTJoLTRsNC04eiIvPjwvc3ZnPg==",
-  signal: "PHN2ZyBmaWxsPSJ3aGl0ZSIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHg9IjEiIHk9IjE2IiB3aWR0aD0iNCIgaGVpZ2h0PSI2IiByeD0iMSIvPjxyZWN0IHg9IjciIHk9IjExIiB3aWR0aD0iNCIgaGVpZ2h0PSIxMSIgcng9IjEiLz48cmVjdCB4PSIxMyIgeT0iNiIgd2lkdGg9IjQiIGhlaWdodD0iMTYiIHJ4PSIxIi8+PHJlY3QgeD0iMTkiIHk9IjEiIHdpZHRoPSI0IiBoZWlnaHQ9IjIxIiByeD0iMSIvPjwvc3ZnPg==",
-};
-
 
 // Map metric names to their icons
 const METRIC_ICON_MAP = {
+  talos_version: "flatcar",
+  kubernetes_version: "kubernetes",
+  flux_version: "flux",
+  renovate: "renovatebot",
   cluster_age_days: "calendar",
   cluster_uptime_days: "uptime",
   cluster_node_count: "node",
@@ -170,63 +149,112 @@ const METRIC_ICON_MAP = {
   pvc_count: "volume",
   flux_failing_count: "xerror",
   cert_expiry_days: "lock",
+  wan_primary: "bolt",
+  wan_cellular1: "signal",
+  wan_cellular2: "signal",
 };
 
-// --- Badge SVG constants ---
-const HEIGHT = 34;
-const RADIUS = 6;
-const PAD = 140; // 14px padding in 10x units
-const LOGO_SIZE = 20;
-const LOGO_X = 9;
-const LOGO_GAP = 40; // 4px gap after logo in 10x
-const LABEL_BG = "#30363d"; // GitHub dark surface
-const LABEL_BG_VERSION = "#1f2937"; // Darker slate for version badges
+// Metrics whose value carries a real state — these render a status dot.
+// Plain counts and facts (nodes, pods, age, versions) stay neutral.
+const METRIC_STATUS = new Set([
+  "cluster_alert_count", "ceph_health", "cluster_cpu_usage",
+  "cluster_memory_usage", "ceph_storage_used", "cert_expiry_days",
+  "flux_failing_count", "renovate", "wan_primary", "wan_cellular1",
+  "wan_cellular2",
+]);
 
-let _badgeIdCounter = 0;
-function makeBadgeData(label, message, color, logoName, opts = {}) {
-  label = (label || "").toUpperCase();
-  message = opts.preserveCase ? (message || "") : (message || "").toUpperCase();
-  const hex = resolveColor(color);
-  const labelBg = opts.labelBg || LABEL_BG;
-  const id = opts._id || `b${_badgeIdCounter++}`;
+// --- Tile geometry ---
+const ROW_WIDTH = 832;    // uniform row width so stacked panels align as a grid
+const TILE_HEIGHT = 64;
+const TILE_GAP = 8;
+const TILE_RADIUS = 6;
+const PAD_X = 16;
+const ICON_SIZE = 16;
+const DOT_R = 5;
+const SINGLE_TILE_WIDTH = 202;
 
-  const hasLogo = logoName && (LOGOS[logoName] || METRIC_LOGOS[logoName]);
-  const logoSpace10x = hasLogo ? (LOGO_X + LOGO_SIZE) * 10 + LOGO_GAP : 0;
-
-  const labelTW = tw(label);
-  const msgTW = tw(message);
-
-  const labelW10x = hasLogo ? logoSpace10x + labelTW + PAD : PAD + labelTW + PAD;
-  const msgW10x = PAD + msgTW + PAD;
-
-  const lW = Math.round(labelW10x) / 10;
-  const mW = Math.round(msgW10x) / 10;
-  const tW = Math.round(labelW10x + msgW10x) / 10;
-
-  const labelTX = hasLogo ? logoSpace10x + labelTW / 2 + PAD / 2 : labelW10x / 2;
-  const msgTX = labelW10x + msgW10x / 2;
-
-  const logoY = Math.round((HEIGHT - LOGO_SIZE) / 2);
-  const logoB64 = LOGOS[logoName] || METRIC_LOGOS[logoName];
-  const logoEl = hasLogo
-    ? `<image x="${LOGO_X}" y="${logoY}" width="${LOGO_SIZE}" height="${LOGO_SIZE}" href="data:image/svg+xml;base64,${logoB64}"/>`
-    : "";
-
-  const textY = (HEIGHT * 10 + 80) / 2;
-
-  return {
-    width: tW,
-    height: HEIGHT,
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${tW}" height="${HEIGHT}" viewBox="0 0 ${tW} ${HEIGHT}" role="img" aria-label="${escapeXml(label)}: ${escapeXml(message)}"><title>${escapeXml(label)}: ${escapeXml(message)}</title><defs><linearGradient id="hi_${id}" x2="0" y2="100%"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".4" stop-color="#fff" stop-opacity="0"/></linearGradient><linearGradient id="sh_${id}" x2="0" y2="100%"><stop offset=".6" stop-opacity="0"/><stop offset="1" stop-opacity=".10"/></linearGradient></defs><clipPath id="r_${id}"><rect width="${tW}" height="${HEIGHT}" rx="${RADIUS}" fill="#fff"/></clipPath><g clip-path="url(#r_${id})"><rect width="${lW}" height="${HEIGHT}" fill="${labelBg}" shape-rendering="crispEdges"/><rect x="${lW}" width="${mW}" height="${HEIGHT}" fill="${hex}" shape-rendering="crispEdges"/><rect width="${tW}" height="${HEIGHT}" fill="url(#hi_${id})"/><rect width="${tW}" height="${HEIGHT}" fill="url(#sh_${id})"/><rect width="${tW}" height="${HEIGHT}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1" rx="${RADIUS}"/></g><g fill="#fff" text-anchor="middle" font-family="Helvetica,Arial,sans-serif" font-weight="bold" text-rendering="geometricPrecision" font-size="110">${logoEl}<text aria-hidden="true" transform="scale(.1)" x="${labelTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(label)}</text><text transform="scale(.1)" x="${labelTX}" y="${textY}" fill="#fff">${escapeXml(label)}</text><text aria-hidden="true" transform="scale(.1)" x="${msgTX}" y="${textY + 12}" fill="#010101" fill-opacity=".4">${escapeXml(message)}</text><text transform="scale(.1)" x="${msgTX}" y="${textY}" fill="#fff">${escapeXml(message)}</text></g></svg>`,
-  };
-}
-
-function makeBadge(label, message, color, logoName, opts = {}) {
-  return makeBadgeData(label, message, color, logoName, opts).svg;
-}
+// Document stylesheet: GitHub Primer tokens, dark by default with a
+// prefers-color-scheme light override. Color never paints text — the value
+// and label stay in ink; state lives in the dot.
+const TILE_STYLE = `
+  .tile{fill:#161b22;stroke:#30363d}
+  .cut{fill:#161b22}
+  .label{fill:#8b949e}
+  .value{fill:#e6edf3}
+  .icon{color:#8b949e}
+  .dot-ok{fill:#3fb950}
+  .dot-warn{fill:#d29922}
+  .dot-err{fill:#f85149}
+  .dot-neu{fill:#8b949e}
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  .label{font-size:12px;font-weight:600;letter-spacing:.2px}
+  .value{font-size:20px;font-weight:600}
+  @media (prefers-color-scheme: light){
+    .tile{fill:#f6f8fa;stroke:#d0d7de}
+    .cut{fill:#f6f8fa}
+    .label{fill:#59636e}
+    .value{fill:#1f2328}
+    .icon{color:#59636e}
+    .dot-ok{fill:#1a7f37}
+    .dot-warn{fill:#9a6700}
+    .dot-err{fill:#cf222e}
+    .dot-neu{fill:#59636e}
+  }`;
 
 function escapeXml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function iconMarkup(name, tileW) {
+  const icon = ICONS[name];
+  if (!icon) return "";
+  const [vw, vh, inner] = icon;
+  // Fit into an ICON_SIZE box, top-right corner, preserving aspect ratio.
+  const scale = Math.min(ICON_SIZE / vw, ICON_SIZE / vh);
+  const w = vw * scale;
+  const h = vh * scale;
+  const x = tileW - PAD_X - w;
+  const y = 13 + (ICON_SIZE - h) / 2;
+  return `<g class="icon" transform="translate(${round2(x)},${round2(y)}) scale(${round4(scale)})">${inner}</g>`;
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+function round4(n) { return Math.round(n * 10000) / 10000; }
+
+// One stat tile: label (muted, sentence case) over value (semibold ink),
+// optional status dot before the value, optional icon top-right.
+function makeTileInner(tile, tileW) {
+  const label = escapeXml(tile.label);
+  const message = escapeXml(tile.message);
+  const dot = tile.status
+    ? `<circle class="dot-${statusKind(tile.color)}" cx="${PAD_X + DOT_R}" cy="43" r="${DOT_R}"/>`
+    : "";
+  const valueX = tile.status ? PAD_X + DOT_R * 2 + 8 : PAD_X;
+  // Long values (rare error strings) drop a size so they never clip.
+  const valueSize = (tile.message || "").length > 12 ? 15 : null;
+  const sizeAttr = valueSize ? ` style="font-size:${valueSize}px"` : "";
+  return `<rect class="tile" x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/>` +
+    `${iconMarkup(tile.logo, tileW)}` +
+    `<text class="label" x="${PAD_X}" y="27">${label}</text>` +
+    `${dot}<text class="value" x="${valueX}" y="50"${sizeAttr}>${message}</text>`;
+}
+
+function tileRowSvg(tiles, totalWidth) {
+  const n = tiles.length;
+  const tileW = round2((totalWidth - (n - 1) * TILE_GAP) / n);
+  const aria = tiles.map((t) => `${t.label}: ${t.message}`).join(", ");
+  let inner = "";
+  let x = 0;
+  for (const t of tiles) {
+    inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW)}</g>`;
+    x += tileW + TILE_GAP;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${TILE_STYLE}</style>${inner}</svg>`;
+}
+
+// Single-tile SVG (standalone metric endpoints and error responses).
+function makeTileSvg(tile) {
+  return tileRowSvg([tile], SINGLE_TILE_WIDTH);
 }
 
 function panelMessage(message) {
@@ -240,40 +268,10 @@ function panelMessage(message) {
     case "no runs":
       return "ERR";
     case "cancelled":
-      return "CANCEL";
+      return "Cancelled";
     default:
-      return (message || "").toUpperCase();
+      return message || "";
   }
-}
-
-// --- Badge row renderer ---
-// Composites multiple shields.io-style badges into a single SVG using nested <svg> elements.
-// Each badge keeps its own coordinate space and gradient/clipPath IDs.
-function makeBadgeRow(metrics) {
-  const gap = 6;
-  const badges = metrics.map((m) => {
-    const label = m.label || "";
-    const message = m.preserveCase ? (m.message || "") : panelMessage(m.message);
-    const logo = m.logo || METRIC_ICON_MAP[m.metric] || null;
-    const color = m.color;
-    const opts = {};
-    if (m.labelBg) opts.labelBg = m.labelBg;
-    if (m.preserveCase) opts.preserveCase = true;
-    return makeBadgeData(label, message, color, logo, opts);
-  });
-
-  const totalWidth = badges.reduce((sum, b) => sum + b.width, 0) + Math.max(0, badges.length - 1) * gap;
-  const h = HEIGHT;
-
-  let inner = "";
-  let x = 0;
-  for (const b of badges) {
-    const badgeInner = b.svg.replace(/<svg[^>]*>/, "").replace(/<\/svg>$/, "");
-    inner += `<g transform="translate(${x},0)">${badgeInner}</g>`;
-    x += b.width + gap;
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${totalWidth}" height="${h}" viewBox="0 0 ${totalWidth} ${h}" role="img">${inner}</svg>`;
 }
 
 // --- Allowed metrics ---
@@ -320,8 +318,8 @@ function jsonResponse(data, status, cacheControl = status === 200 ? CLIENT_CACHE
   });
 }
 
-function svgBadgeResponse(label, message, color, logoName, opts = {}) {
-  return svgResponse(makeBadge(label, message, color, logoName, opts), 200);
+function errorTileResponse(label, message, status) {
+  return svgResponse(makeTileSvg({ label, message, color: "critical", status: true }), status);
 }
 
 // --- Origin fetch helpers ---
@@ -396,23 +394,23 @@ async function putMetricStateCache(key, value) {
   await caches.default.put(metricStateCacheRequest(key), new Response(JSON.stringify(value), { status: 200, headers }));
 }
 
-function metricState(item, message, color, logo, opts = {}) {
+function metricState(item, message, color) {
   return {
     label: item.label || item.metric,
     message,
     color,
-    logo,
-    opts,
+    logo: item.logo || METRIC_ICON_MAP[item.metric] || null,
+    status: !!item.status,
   };
 }
 
 const PANEL_DEFINITIONS = {
   stack_panel: {
     items: [
-      { metric: "talos_version", label: "Flatcar", color: "blue", logo: "flatcar", labelBg: LABEL_BG_VERSION },
-      { metric: "kubernetes_version", label: "Kubernetes", color: "blue", logo: "kubernetes", labelBg: LABEL_BG_VERSION },
-      { metric: "flux_version", label: "Flux", color: "blue", logo: "flux", labelBg: LABEL_BG_VERSION },
-      { metric: "renovate", label: "Renovate", color: "blue", logo: "renovatebot", labelBg: LABEL_BG_VERSION },
+      { metric: "talos_version", label: "Flatcar" },
+      { metric: "kubernetes_version", label: "Kubernetes" },
+      { metric: "flux_version", label: "Flux" },
+      { metric: "renovate", label: "Renovate", status: true },
     ],
   },
   health_panel: {
@@ -420,114 +418,123 @@ const PANEL_DEFINITIONS = {
       { metric: "cluster_node_count", label: "Nodes" },
       { metric: "cluster_age_days", label: "Age" },
       { metric: "cluster_uptime_days", label: "Uptime" },
-      { metric: "cluster_alert_count", label: "Alerts" },
-      { metric: "ceph_health", label: "Ceph" },
+      { metric: "cluster_alert_count", label: "Alerts", status: true },
+      { metric: "ceph_health", label: "Ceph", status: true },
     ],
   },
   usage_panel: {
     items: [
       { metric: "cluster_pod_count", label: "Pods" },
       { metric: "container_count", label: "Containers" },
-      { metric: "cluster_cpu_usage", label: "CPU" },
-      { metric: "cluster_memory_usage", label: "Memory" },
-      { metric: "ceph_storage_used", label: "Storage" },
+      { metric: "cluster_cpu_usage", label: "CPU", status: true },
+      { metric: "cluster_memory_usage", label: "Memory", status: true },
+      { metric: "ceph_storage_used", label: "Storage", status: true },
     ],
   },
   gitops_panel: {
     items: [
       { metric: "helmrelease_count", label: "HelmReleases" },
       { metric: "pvc_count", label: "PVCs" },
-      { metric: "flux_failing_count", label: "Flux Errors" },
-      { metric: "cert_expiry_days", label: "Cert Expiry" },
+      { metric: "flux_failing_count", label: "Flux errors", status: true },
+      { metric: "cert_expiry_days", label: "Cert expiry", status: true },
     ],
   },
 };
 
+function capitalize(s) {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+async function fetchRenovateRun(env) {
+  const ghResp = await fetch(
+    "https://api.github.com/repos/GizmoTickler/home-ops/actions/workflows/renovate.yaml/runs?branch=main&per_page=1",
+    {
+      headers: {
+        Authorization: `Bearer ${env.GIT_PAT}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "kromgo-proxy-worker",
+      },
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (!ghResp.ok) return { ok: false };
+  const data = await ghResp.json();
+  return { ok: true, run: data.workflow_runs?.[0] };
+}
+
+function renovateRunState(run) {
+  let message = "Running";
+  let color = "yellow";
+  if (run.status === "completed") {
+    switch (run.conclusion) {
+      case "success":   message = "Passing"; color = "brightgreen"; break;
+      case "failure":   message = "Failing"; color = "red"; break;
+      case "cancelled": message = "Cancelled"; color = "orange"; break;
+      case "skipped":   message = "Skipped"; color = "lightgrey"; break;
+      default:          message = capitalize(run.conclusion || "unknown"); color = "lightgrey";
+    }
+  }
+  return { message, color };
+}
+
 async function buildRenovateBadgeData(item, env) {
-  const label = item.label || "Renovate";
-  const logo = item.logo || "renovatebot";
-  const opts = item.labelBg ? { labelBg: item.labelBg } : {};
   const cacheKey = `panel/renovate`;
 
   if (!env.GIT_PAT) {
-    return metricState(item, "no token", "critical", logo, opts);
+    return metricState(item, "no token", "critical");
   }
   try {
-    const ghResp = await fetch(
-      "https://api.github.com/repos/GizmoTickler/home-ops/actions/workflows/renovate.yaml/runs?branch=main&per_page=1",
-      {
-        headers: {
-          Authorization: `Bearer ${env.GIT_PAT}`,
-          Accept: "application/vnd.github+json",
-          "User-Agent": "kromgo-proxy-worker",
-        },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
-    if (!ghResp.ok) {
-      return (await getCachedMetricState(cacheKey)) || metricState(item, "api error", "critical", logo, opts);
+    const result = await fetchRenovateRun(env);
+    if (!result.ok) {
+      return (await getCachedMetricState(cacheKey)) || metricState(item, "api error", "critical");
     }
-    const data = await ghResp.json();
-    const run = data.workflow_runs?.[0];
-    if (!run) {
-      const state = metricState(item, "no runs", "lightgrey", logo, opts);
+    if (!result.run) {
+      const state = metricState(item, "no runs", "lightgrey");
       await putMetricStateCache(cacheKey, state);
       return state;
     }
-    let message = "running";
-    let badgeColor = "yellow";
-    if (run.status === "completed") {
-      switch (run.conclusion) {
-        case "success":   message = "passing"; badgeColor = "brightgreen"; break;
-        case "failure":   message = "failing"; badgeColor = "red"; break;
-        case "cancelled": message = "cancelled"; badgeColor = "orange"; break;
-        case "skipped":   message = "skipped"; badgeColor = "lightgrey"; break;
-        default:          message = run.conclusion || "unknown"; badgeColor = "lightgrey";
-      }
-    }
-    const state = metricState(item, message, item.color || badgeColor, logo, opts);
+    const { message, color } = renovateRunState(result.run);
+    const state = metricState(item, message, item.color || color);
     await putMetricStateCache(cacheKey, state);
     return state;
   } catch {
-    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey", logo, opts);
+    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey");
   }
 }
 
 async function buildMetricBadgeData(item, env) {
-  const label = item.label || item.metric;
-  const logo = item.logo || METRIC_ICON_MAP[item.metric] || null;
-  const opts = item.labelBg ? { labelBg: item.labelBg } : {};
   const cacheKey = `panel/${item.metric}`;
 
   try {
     const result = await fetchKromgoMetric(item.metric, env);
     if (!result.ok) {
       if (result.error === "auth") {
-        return (await getCachedMetricState(cacheKey)) || metricState(item, "auth failed", "critical", logo, opts);
+        return (await getCachedMetricState(cacheKey)) || metricState(item, "auth failed", "critical");
       }
-      return (await getCachedMetricState(cacheKey)) || metricState(item, "unavailable", "lightgrey", logo, opts);
+      return (await getCachedMetricState(cacheKey)) || metricState(item, "unavailable", "lightgrey");
     }
 
     const msg = (result.data.message || "").toLowerCase();
     if (msg.includes("no data") || msg.includes("error")) {
-      return (await getCachedMetricState(cacheKey)) || metricState(item, result.data.message, "lightgrey", logo, opts);
+      return (await getCachedMetricState(cacheKey)) || metricState(item, result.data.message, "lightgrey");
     }
 
-    const state = metricState(item, result.data.message, item.color || result.data.color, logo, opts);
+    const state = metricState(item, result.data.message, item.color || result.data.color);
     await putMetricStateCache(cacheKey, state);
     return state;
   } catch {
-    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey", logo, opts);
+    return (await getCachedMetricState(cacheKey)) || metricState(item, "timeout", "lightgrey");
   }
 }
 
 async function renderMetricPanel(metricName, env) {
   const panel = PANEL_DEFINITIONS[metricName];
-  const metrics = await Promise.all(panel.items.map((item) => {
+  const states = await Promise.all(panel.items.map((item) => {
     if (item.metric === "renovate") return buildRenovateBadgeData(item, env);
     return buildMetricBadgeData(item, env);
   }));
-  return svgResponse(makeBadgeRow(metrics), 200);
+  const tiles = states.map((s) => ({ ...s, message: panelMessage(s.message) }));
+  return svgResponse(tileRowSvg(tiles, ROW_WIDTH), 200);
 }
 
 // --- Metric rendering (produces final Response) ---
@@ -543,65 +550,45 @@ async function renderMetric(metricName, url, env) {
       fetchWanMetric("wan_cellular1", env),
       fetchWanMetric("wan_cellular2", env),
     ]);
-    let fiberBadge;
+    let fiberTile;
     if (!kuma) {
-      fiberBadge = { label: "Fiber", message: "ERR", color: "grey", logo: "bolt" };
+      fiberTile = { label: "Fiber", message: "ERR", color: "grey", logo: "bolt", status: true };
     } else if (!kuma.up) {
-      fiberBadge = { label: "Fiber", message: "DOWN", color: "red", logo: "bolt" };
+      fiberTile = { label: "Fiber", message: "DOWN", color: "red", logo: "bolt", status: true };
     } else {
-      fiberBadge = { label: "Fiber", message: `UP / ${Math.round(kuma.ping)}ms`, color: "brightgreen", logo: "bolt", preserveCase: true };
+      fiberTile = { label: "Fiber", message: `UP · ${Math.round(kuma.ping)}ms`, color: "brightgreen", logo: "bolt", status: true };
     }
-    return svgResponse(makeBadgeRow([
-      fiberBadge,
-      { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal" },
-      { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal" },
-    ]), 200);
+    return svgResponse(tileRowSvg([
+      fiberTile,
+      { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal", status: true },
+      { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal", status: true },
+    ], ROW_WIDTH), 200);
   }
 
   // Renovate workflow status — GitHub Actions API
   if (metricName === "renovate") {
     if (!env.GIT_PAT) {
-      return svgBadgeResponse("renovate", "no token", "critical", "renovatebot");
+      return errorTileResponse("Renovate", "no token", 200);
     }
     try {
-      const ghResp = await fetch(
-        "https://api.github.com/repos/GizmoTickler/home-ops/actions/workflows/renovate.yaml/runs?branch=main&per_page=1",
-        {
-          headers: {
-            Authorization: `Bearer ${env.GIT_PAT}`,
-            Accept: "application/vnd.github+json",
-            "User-Agent": "kromgo-proxy-worker",
-          },
-          signal: AbortSignal.timeout(10000),
-        },
-      );
-      if (!ghResp.ok) {
-        return svgBadgeResponse("renovate", "api error", "critical", "renovatebot");
+      const result = await fetchRenovateRun(env);
+      if (!result.ok) {
+        return errorTileResponse("Renovate", "api error", 200);
       }
-      const data = await ghResp.json();
-      const run = data.workflow_runs?.[0];
-      if (!run) {
-        return svgResponse(makeBadge("renovate", "no runs", "lightgrey", "renovatebot"), 200);
+      if (!result.run) {
+        return svgResponse(makeTileSvg({ label: "Renovate", message: "no runs", color: "lightgrey", logo: "renovatebot", status: true }), 200);
       }
-      let message, badgeColor;
-      if (run.status !== "completed") {
-        message = "running";
-        badgeColor = "yellow";
-      } else {
-        switch (run.conclusion) {
-          case "success":   message = "passing"; badgeColor = "brightgreen"; break;
-          case "failure":   message = "failing"; badgeColor = "red"; break;
-          case "cancelled": message = "cancelled"; badgeColor = "orange"; break;
-          case "skipped":   message = "skipped"; badgeColor = "lightgrey"; break;
-          default:          message = run.conclusion || "unknown"; badgeColor = "lightgrey";
-        }
-      }
+      const { message, color } = renovateRunState(result.run);
       const label = url.searchParams.get("label") || "Renovate";
-      const color = url.searchParams.get("color") || badgeColor;
-      const logo = url.searchParams.get("logo") || "renovatebot";
-      return svgResponse(makeBadge(label, message, color, logo, { labelBg: LABEL_BG_VERSION }), 200);
+      return svgResponse(makeTileSvg({
+        label,
+        message,
+        color: url.searchParams.get("color") || color,
+        logo: "renovatebot",
+        status: true,
+      }), 200);
     } catch {
-      return svgBadgeResponse("renovate", "timeout", "lightgrey", "renovatebot");
+      return svgResponse(makeTileSvg({ label: "Renovate", message: "timeout", color: "lightgrey", logo: "renovatebot", status: true }), 200);
     }
   }
 
@@ -613,28 +600,36 @@ async function renderMetric(metricName, url, env) {
       if (result.error === "auth") {
         return wantJson
           ? jsonResponse({ schemaVersion: 1, label: "kromgo", message: "auth failed", color: "critical" }, 503)
-          : svgBadgeResponse("kromgo", "auth failed", "critical");
+          : errorTileResponse("Kromgo", "auth failed", 200);
       }
       return wantJson
         ? jsonResponse({ schemaVersion: 1, label: "error", message: "unavailable", color: "lightgrey" }, 503)
-        : svgBadgeResponse("error", "unavailable", "lightgrey");
+        : errorTileResponse("Error", "unavailable", 200);
     }
     // Treat kromgo "no data" responses as errors for caching, but still return
-    // a renderable 200 badge so README image consumers don't break.
+    // a renderable 200 tile so README image consumers don't break.
     const msg = (result.data.message || "").toLowerCase();
     if (msg.includes("no data") || msg.includes("error")) {
-      return svgBadgeResponse(result.data.label || metricName, result.data.message, "lightgrey", METRIC_ICON_MAP[metricName]);
+      return svgResponse(makeTileSvg({
+        label: result.data.label || metricName,
+        message: result.data.message,
+        color: "lightgrey",
+        logo: METRIC_ICON_MAP[metricName],
+        status: true,
+      }), 200);
     }
     if (wantJson) return jsonResponse(result.data, 200);
-    const label = url.searchParams.get("label") || result.data.label || metricName;
-    const color = url.searchParams.get("color") || result.data.color;
-    const logo = url.searchParams.get("logo") || METRIC_ICON_MAP[metricName] || null;
-    const isVersion = metricName.endsWith("_version");
-    return svgResponse(makeBadge(label, result.data.message, color, logo, isVersion ? { labelBg: LABEL_BG_VERSION } : {}), 200);
+    return svgResponse(makeTileSvg({
+      label: url.searchParams.get("label") || result.data.label || metricName,
+      message: result.data.message,
+      color: url.searchParams.get("color") || result.data.color,
+      logo: url.searchParams.get("logo") || METRIC_ICON_MAP[metricName] || null,
+      status: METRIC_STATUS.has(metricName),
+    }), 200);
   } catch {
     return wantJson
       ? jsonResponse({ schemaVersion: 1, label: "error", message: "timeout", color: "lightgrey" }, 503)
-      : svgBadgeResponse("error", "timeout", "lightgrey");
+      : svgResponse(makeTileSvg({ label: "Error", message: "timeout", color: "lightgrey", status: true }), 200);
   }
 }
 
@@ -655,11 +650,11 @@ var index_default = {
     if (metricName === "logo") return serveLogo();
 
     if (!env.CF_CLIENT_ID || !env.CF_CLIENT_SECRET || !env.SECRET_DOMAIN) {
-      return svgResponse(makeBadge("error", "misconfigured", "critical"), 500);
+      return errorTileResponse("Error", "misconfigured", 500);
     }
 
     if (!metricName || !ALLOWED_METRICS.has(metricName)) {
-      return svgResponse(makeBadge("error", "not found", "red"), 404);
+      return errorTileResponse("Error", "not found", 404);
     }
 
     // All metric endpoints go through edge cache
