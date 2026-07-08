@@ -165,12 +165,13 @@ const METRIC_STATUS = new Set([
 
 // --- Tile geometry ---
 const ROW_WIDTH = 832;    // uniform row width so stacked panels align as a grid
-const TILE_HEIGHT = 64;
+const TILE_HEIGHT = 72;
 const TILE_GAP = 8;
-const TILE_RADIUS = 6;
-const PAD_X = 16;
+const TILE_RADIUS = 12;
+const PAD_X = 18;
 const ICON_SIZE = 16;
-const DOT_R = 5;
+const CHIP_SIZE = 30;
+const DOT_R = 4.5;
 const SINGLE_TILE_WIDTH = 202;
 
 // Document stylesheet: GitHub Primer tokens. Color never paints text — the
@@ -183,28 +184,49 @@ const SINGLE_TILE_WIDTH = 202;
 // its own theme). No/invalid theme param falls back to auto (media query).
 const STYLE_BASE = `
   text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
-  .label{font-size:12px;font-weight:600;letter-spacing:.2px}
-  .value{font-size:20px;font-weight:600}`;
+  .label{font-size:10px;font-weight:600;letter-spacing:1.1px}
+  .value{font-size:22px;font-weight:600;letter-spacing:-.2px}
+  .tile{fill:url(#cbg);stroke:url(#cbd)}
+  .halo{fill-opacity:.18}
+  .chip-acc{fill-opacity:.13}
+  .chip-ok{fill-opacity:.13}
+  .chip-warn{fill-opacity:.14}
+  .chip-err{fill-opacity:.13}
+  .chip-neu{fill-opacity:.12}`;
+// Accent (soft indigo) for neutral tiles; softened status hues for stateful
+// ones. Text always stays in ink — hue lives in the chip, dot, and glow.
 const STYLE_DARK = `
-  .tile{fill:#161b22;stroke:#30363d}
-  .cut{fill:#161b22}
-  .label{fill:#8b949e}
-  .value{fill:#e6edf3}
-  .icon{color:#8b949e}
-  .dot-ok{fill:#3fb950}
-  .dot-warn{fill:#d29922}
-  .dot-err{fill:#f85149}
-  .dot-neu{fill:#8b949e}`;
+  .cut{fill:#171b21}
+  .label{fill:#8b95a5}
+  .value{fill:#f1f5f9}
+  .chip-acc,.halo-acc,.dot-acc{fill:#7c9cf5}
+  .chip-ok,.halo-ok,.dot-ok{fill:#4ade80}
+  .chip-warn,.halo-warn,.dot-warn{fill:#fbbf24}
+  .chip-err,.halo-err,.dot-err{fill:#f87171}
+  .chip-neu,.halo-neu,.dot-neu{fill:#8b95a5}
+  .ic-acc{color:#a5bcff}
+  .ic-ok{color:#6ee7a0}
+  .ic-warn{color:#fcd34d}
+  .ic-err{color:#fca5a5}
+  .ic-neu{color:#9aa4b2}
+  .s0{stop-color:#1c2129}.s1{stop-color:#141920}
+  .b0{stop-color:#ffffff;stop-opacity:.14}.b1{stop-color:#ffffff;stop-opacity:.05}`;
 const STYLE_LIGHT = `
-  .tile{fill:#f6f8fa;stroke:#d0d7de}
-  .cut{fill:#f6f8fa}
-  .label{fill:#59636e}
-  .value{fill:#1f2328}
-  .icon{color:#59636e}
-  .dot-ok{fill:#1a7f37}
-  .dot-warn{fill:#9a6700}
-  .dot-err{fill:#cf222e}
-  .dot-neu{fill:#59636e}`;
+  .cut{fill:#ffffff}
+  .label{fill:#667085}
+  .value{fill:#101828}
+  .chip-acc,.halo-acc,.dot-acc{fill:#4f6ef7}
+  .chip-ok,.halo-ok,.dot-ok{fill:#039855}
+  .chip-warn,.halo-warn,.dot-warn{fill:#dc6803}
+  .chip-err,.halo-err,.dot-err{fill:#d92d20}
+  .chip-neu,.halo-neu,.dot-neu{fill:#667085}
+  .ic-acc{color:#4f6ef7}
+  .ic-ok{color:#039855}
+  .ic-warn{color:#c05621}
+  .ic-err{color:#d92d20}
+  .ic-neu{color:#667085}
+  .s0{stop-color:#ffffff}.s1{stop-color:#f7f9fc}
+  .b0{stop-color:#101828;stop-opacity:.14}.b1{stop-color:#101828;stop-opacity:.06}`;
 
 function tileStyle(theme) {
   if (theme === "dark") return STYLE_BASE + STYLE_DARK;
@@ -218,39 +240,60 @@ function escapeXml(s) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function iconMarkup(name, tileW) {
+// Semantic hue slot for a tile: neutral tiles wear the accent; status tiles
+// wear their state's hue.
+function tileKind(tile) {
+  return tile.status ? statusKind(tile.color) : "acc";
+}
+
+// Tinted icon chip, right-center: rounded square wash in the tile's hue with
+// the icon inked in a lighter step of the same hue.
+function iconMarkup(name, tileW, kind) {
   const icon = ICONS[name];
   if (!icon) return "";
   const [vw, vh, inner] = icon;
-  // Fit into an ICON_SIZE box, top-right corner, preserving aspect ratio.
+  const chipX = tileW - PAD_X - CHIP_SIZE;
+  const chipY = (TILE_HEIGHT - CHIP_SIZE) / 2;
   const scale = Math.min(ICON_SIZE / vw, ICON_SIZE / vh);
   const w = vw * scale;
   const h = vh * scale;
-  const x = tileW - PAD_X - w;
-  const y = 13 + (ICON_SIZE - h) / 2;
-  return `<g class="icon" transform="translate(${round2(x)},${round2(y)}) scale(${round4(scale)})">${inner}</g>`;
+  const ix = chipX + (CHIP_SIZE - w) / 2;
+  const iy = chipY + (CHIP_SIZE - h) / 2;
+  return `<rect class="chip-${kind}" x="${round2(chipX)}" y="${round2(chipY)}" width="${CHIP_SIZE}" height="${CHIP_SIZE}" rx="9"/>` +
+    `<g class="ic-${kind}" transform="translate(${round2(ix)},${round2(iy)}) scale(${round4(scale)})">${inner}</g>`;
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
-// One stat tile: label (muted, sentence case) over value (semibold ink),
-// optional status dot before the value, optional icon top-right.
+// One stat tile: tracked-uppercase micro-label over a large value in ink,
+// glowing status dot for stateful metrics, tinted icon chip right-center.
 function makeTileInner(tile, tileW) {
-  const label = escapeXml(tile.label);
+  const label = escapeXml((tile.label || "").toUpperCase());
   const message = escapeXml(tile.message);
+  const kind = tileKind(tile);
+  const dotCy = 48;
   const dot = tile.status
-    ? `<circle class="dot-${statusKind(tile.color)}" cx="${PAD_X + DOT_R}" cy="43" r="${DOT_R}"/>`
+    ? `<circle class="halo halo-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="9"/>` +
+      `<circle class="dot-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="${DOT_R}"/>`
     : "";
-  const valueX = tile.status ? PAD_X + DOT_R * 2 + 8 : PAD_X;
+  const valueX = tile.status ? PAD_X + DOT_R + 9 + 8 : PAD_X;
   // Long values (rare error strings) drop a size so they never clip.
-  const valueSize = (tile.message || "").length > 12 ? 15 : null;
+  const valueSize = (tile.message || "").length > 12 ? 16 : null;
   const sizeAttr = valueSize ? ` style="font-size:${valueSize}px"` : "";
   return `<rect class="tile" x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/>` +
-    `${iconMarkup(tile.logo, tileW)}` +
-    `<text class="label" x="${PAD_X}" y="27">${label}</text>` +
-    `${dot}<text class="value" x="${valueX}" y="50"${sizeAttr}>${message}</text>`;
+    `${iconMarkup(tile.logo, tileW, kind)}` +
+    `<text class="label" x="${PAD_X}" y="29">${label}</text>` +
+    `${dot}<text class="value" x="${valueX}" y="55"${sizeAttr}>${message}</text>`;
 }
+
+// Shared defs: card-surface gradient and hairline border gradient (brighter
+// at the top edge — the "glass" highlight). Stop colors are set via CSS so
+// the same defs serve both themes.
+const TILE_DEFS = `<defs>` +
+  `<linearGradient id="cbg" x1="0" y1="0" x2="0" y2="1"><stop class="s0" offset="0"/><stop class="s1" offset="1"/></linearGradient>` +
+  `<linearGradient id="cbd" x1="0" y1="0" x2="0" y2="1"><stop class="b0" offset="0"/><stop class="b1" offset="1"/></linearGradient>` +
+  `</defs>`;
 
 function tileRowSvg(tiles, totalWidth, theme) {
   const n = tiles.length;
@@ -262,7 +305,7 @@ function tileRowSvg(tiles, totalWidth, theme) {
     inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW)}</g>`;
     x += tileW + TILE_GAP;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${inner}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${TILE_DEFS}${inner}</svg>`;
 }
 
 // Single-tile SVG (standalone metric endpoints and error responses).
