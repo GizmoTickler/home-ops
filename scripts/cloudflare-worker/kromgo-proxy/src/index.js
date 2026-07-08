@@ -188,46 +188,45 @@ const STYLE_BASE = `
   .label{font-size:9px;font-weight:600;letter-spacing:.9px}
   .value{font-size:16px;font-weight:600;letter-spacing:-.1px}
   .tile{fill:url(#cbg);stroke:url(#cbd)}
-  .halo{fill-opacity:.18}
-  .chip-acc{fill-opacity:.13}
-  .chip-ok{fill-opacity:.13}
-  .chip-warn{fill-opacity:.14}
-  .chip-err{fill-opacity:.13}
-  .chip-neu{fill-opacity:.12}`;
-// Accent (soft indigo) for neutral tiles; softened status hues for stateful
-// ones. Text always stays in ink — hue lives in the chip, dot, and glow.
+  .gls{fill:url(#gls)}
+  .halo{fill-opacity:.2}
+  .glow{fill-opacity:.14}
+  [class^=chip-]{fill-opacity:.16}`;
+// Eye-candy pass: every tile wears a hue — brand/metric hues for neutral
+// tiles, status hues for stateful ones. The hue paints the chip wash, a soft
+// glow bleeding into the card, the icon, and the value; labels stay muted.
 const STYLE_DARK = `
   .cut{fill:#171b21}
   .label{fill:#8b95a5}
   .value{fill:#f1f5f9}
-  .chip-acc,.halo-acc,.dot-acc{fill:#7c9cf5}
-  .chip-ok,.halo-ok,.dot-ok{fill:#4ade80}
-  .chip-warn,.halo-warn,.dot-warn{fill:#fbbf24}
-  .chip-err,.halo-err,.dot-err{fill:#f87171}
-  .chip-neu,.halo-neu,.dot-neu{fill:#8b95a5}
-  .ic-acc{color:#a5bcff}
-  .ic-ok{color:#6ee7a0}
-  .ic-warn{color:#fcd34d}
-  .ic-err{color:#fca5a5}
-  .ic-neu{color:#9aa4b2}
+  .chip-blue,.glow-blue{fill:#3b82f6}.ic-blue{color:#93c5fd}.val-blue{fill:#93c5fd}
+  .chip-teal,.glow-teal{fill:#14b8a6}.ic-teal{color:#5eead4}.val-teal{fill:#5eead4}
+  .chip-violet,.glow-violet{fill:#8b5cf6}.ic-violet{color:#c4b5fd}.val-violet{fill:#c4b5fd}
+  .chip-cyan,.glow-cyan{fill:#06b6d4}.ic-cyan{color:#67e8f9}.val-cyan{fill:#67e8f9}
+  .chip-indigo,.glow-indigo{fill:#6366f1}.ic-indigo{color:#a5b4fc}.val-indigo{fill:#a5b4fc}
+  .chip-ok,.glow-ok,.halo-ok,.dot-ok{fill:#4ade80}.ic-ok{color:#6ee7a0}.val-ok{fill:#4ade80}
+  .chip-warn,.glow-warn,.halo-warn,.dot-warn{fill:#fbbf24}.ic-warn{color:#fcd34d}.val-warn{fill:#fbbf24}
+  .chip-err,.glow-err,.halo-err,.dot-err{fill:#f87171}.ic-err{color:#fca5a5}.val-err{fill:#f87171}
+  .chip-neu,.glow-neu,.halo-neu,.dot-neu{fill:#8b95a5}.ic-neu{color:#9aa4b2}.val-neu{fill:#b6bfc9}
   .s0{stop-color:#1c2129}.s1{stop-color:#141920}
-  .b0{stop-color:#ffffff;stop-opacity:.14}.b1{stop-color:#ffffff;stop-opacity:.05}`;
+  .b0{stop-color:#ffffff;stop-opacity:.14}.b1{stop-color:#ffffff;stop-opacity:.05}
+  .g0{stop-color:#ffffff;stop-opacity:.07}.g1{stop-color:#ffffff;stop-opacity:0}`;
 const STYLE_LIGHT = `
   .cut{fill:#ffffff}
   .label{fill:#667085}
   .value{fill:#101828}
-  .chip-acc,.halo-acc,.dot-acc{fill:#4f6ef7}
-  .chip-ok,.halo-ok,.dot-ok{fill:#039855}
-  .chip-warn,.halo-warn,.dot-warn{fill:#dc6803}
-  .chip-err,.halo-err,.dot-err{fill:#d92d20}
-  .chip-neu,.halo-neu,.dot-neu{fill:#667085}
-  .ic-acc{color:#4f6ef7}
-  .ic-ok{color:#039855}
-  .ic-warn{color:#c05621}
-  .ic-err{color:#d92d20}
-  .ic-neu{color:#667085}
+  .chip-blue,.glow-blue{fill:#3b82f6}.ic-blue{color:#1d4ed8}.val-blue{fill:#1d4ed8}
+  .chip-teal,.glow-teal{fill:#14b8a6}.ic-teal{color:#0f766e}.val-teal{fill:#0f766e}
+  .chip-violet,.glow-violet{fill:#8b5cf6}.ic-violet{color:#6d28d9}.val-violet{fill:#6d28d9}
+  .chip-cyan,.glow-cyan{fill:#06b6d4}.ic-cyan{color:#0e7490}.val-cyan{fill:#0e7490}
+  .chip-indigo,.glow-indigo{fill:#6366f1}.ic-indigo{color:#4338ca}.val-indigo{fill:#4338ca}
+  .chip-ok,.glow-ok{fill:#22c55e}.halo-ok,.dot-ok{fill:#039855}.ic-ok{color:#039855}.val-ok{fill:#037843}
+  .chip-warn,.glow-warn{fill:#f59e0b}.halo-warn,.dot-warn{fill:#dc6803}.ic-warn{color:#b45309}.val-warn{fill:#b45309}
+  .chip-err,.glow-err{fill:#ef4444}.halo-err,.dot-err{fill:#d92d20}.ic-err{color:#d92d20}.val-err{fill:#b42318}
+  .chip-neu,.glow-neu,.halo-neu,.dot-neu{fill:#667085}.ic-neu{color:#667085}.val-neu{fill:#475467}
   .s0{stop-color:#ffffff}.s1{stop-color:#f7f9fc}
-  .b0{stop-color:#101828;stop-opacity:.14}.b1{stop-color:#101828;stop-opacity:.06}`;
+  .b0{stop-color:#101828;stop-opacity:.14}.b1{stop-color:#101828;stop-opacity:.06}
+  .g0{stop-color:#ffffff;stop-opacity:.5}.g1{stop-color:#ffffff;stop-opacity:0}`;
 
 function tileStyle(theme) {
   if (theme === "dark") return STYLE_BASE + STYLE_DARK;
@@ -241,10 +240,10 @@ function escapeXml(s) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// Semantic hue slot for a tile: neutral tiles wear the accent; status tiles
-// wear their state's hue.
+// Semantic hue slot for a tile: neutral tiles wear their assigned hue;
+// status tiles wear their state's hue.
 function tileKind(tile) {
-  return tile.status ? statusKind(tile.color) : "acc";
+  return tile.status ? statusKind(tile.color) : (tile.hue || "indigo");
 }
 
 // Tinted icon chip, right-center: rounded square wash in the tile's hue with
@@ -267,9 +266,10 @@ function iconMarkup(name, tileW, kind) {
 function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
-// One stat tile: tracked-uppercase micro-label over a large value in ink,
-// glowing status dot for stateful metrics, tinted icon chip right-center.
-function makeTileInner(tile, tileW) {
+// One stat tile: tracked-uppercase micro-label over a hue-colored value,
+// glowing status dot for stateful metrics, tinted icon chip right-center,
+// a soft hue glow bleeding from the chip corner, and a gloss sheen.
+function makeTileInner(tile, tileW, idx) {
   const label = escapeXml((tile.label || "").toUpperCase());
   const message = escapeXml(tile.message);
   const kind = tileKind(tile);
@@ -283,9 +283,12 @@ function makeTileInner(tile, tileW) {
   const valueSize = (tile.message || "").length > 12 ? 12 : null;
   const sizeAttr = valueSize ? ` style="font-size:${valueSize}px"` : "";
   return `<rect class="tile" x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/>` +
+    `<clipPath id="cl${idx}"><rect x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/></clipPath>` +
+    `<g clip-path="url(#cl${idx})"><ellipse class="glow glow-${kind}" filter="url(#blr)" cx="${round2(tileW - PAD_X - CHIP_SIZE / 2)}" cy="${TILE_HEIGHT / 2}" rx="64" ry="36"/></g>` +
+    `<rect class="gls" x="1" y="1" width="${tileW - 2}" height="${TILE_HEIGHT - 2}" rx="${TILE_RADIUS - 1}"/>` +
     `${iconMarkup(tile.logo, tileW, kind)}` +
     `<text class="label" x="${PAD_X}" y="20">${label}</text>` +
-    `${dot}<text class="value" x="${valueX}" y="40"${sizeAttr}>${message}</text>`;
+    `${dot}<text class="value val-${kind}" x="${valueX}" y="40"${sizeAttr}>${message}</text>`;
 }
 
 // Shared defs: card-surface gradient and hairline border gradient (brighter
@@ -294,6 +297,8 @@ function makeTileInner(tile, tileW) {
 const TILE_DEFS = `<defs>` +
   `<linearGradient id="cbg" x1="0" y1="0" x2="0" y2="1"><stop class="s0" offset="0"/><stop class="s1" offset="1"/></linearGradient>` +
   `<linearGradient id="cbd" x1="0" y1="0" x2="0" y2="1"><stop class="b0" offset="0"/><stop class="b1" offset="1"/></linearGradient>` +
+  `<linearGradient id="gls" x1="0" y1="0" x2="0" y2="1"><stop class="g0" offset="0"/><stop class="g1" offset=".55"/></linearGradient>` +
+  `<filter id="blr" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter>` +
   `</defs>`;
 
 function tileRowSvg(tiles, totalWidth, theme) {
@@ -302,10 +307,10 @@ function tileRowSvg(tiles, totalWidth, theme) {
   const aria = tiles.map((t) => `${t.label}: ${t.message}`).join(", ");
   let inner = "";
   let x = 0;
-  for (const t of tiles) {
-    inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW)}</g>`;
+  tiles.forEach((t, i) => {
+    inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW, i)}</g>`;
     x += tileW + TILE_GAP;
-  }
+  });
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${TILE_DEFS}${inner}</svg>`;
 }
 
@@ -463,31 +468,32 @@ function metricState(item, message, color) {
     color,
     logo: item.logo || METRIC_ICON_MAP[item.metric] || null,
     status: !!item.status,
+    hue: item.hue || null,
   };
 }
 
 const PANEL_DEFINITIONS = {
   stack_panel: {
     items: [
-      { metric: "talos_version", label: "Flatcar" },
-      { metric: "kubernetes_version", label: "Kubernetes" },
-      { metric: "flux_version", label: "Flux" },
+      { metric: "talos_version", label: "Flatcar", hue: "teal" },
+      { metric: "kubernetes_version", label: "Kubernetes", hue: "blue" },
+      { metric: "flux_version", label: "Flux", hue: "violet" },
       { metric: "renovate", label: "Renovate", status: true },
     ],
   },
   health_panel: {
     items: [
-      { metric: "cluster_node_count", label: "Nodes" },
-      { metric: "cluster_age_days", label: "Age" },
-      { metric: "cluster_uptime_days", label: "Uptime" },
+      { metric: "cluster_node_count", label: "Nodes", hue: "blue" },
+      { metric: "cluster_age_days", label: "Age", hue: "violet" },
+      { metric: "cluster_uptime_days", label: "Uptime", hue: "cyan" },
       { metric: "cluster_alert_count", label: "Alerts", status: true },
       { metric: "ceph_health", label: "Ceph", status: true },
     ],
   },
   usage_panel: {
     items: [
-      { metric: "cluster_pod_count", label: "Pods" },
-      { metric: "container_count", label: "Containers" },
+      { metric: "cluster_pod_count", label: "Pods", hue: "blue" },
+      { metric: "container_count", label: "Containers", hue: "teal" },
       { metric: "cluster_cpu_usage", label: "CPU", status: true },
       { metric: "cluster_memory_usage", label: "Memory", status: true },
       { metric: "ceph_storage_used", label: "Storage", status: true },
@@ -495,8 +501,8 @@ const PANEL_DEFINITIONS = {
   },
   gitops_panel: {
     items: [
-      { metric: "helmrelease_count", label: "HelmReleases" },
-      { metric: "pvc_count", label: "PVCs" },
+      { metric: "helmrelease_count", label: "HelmReleases", hue: "indigo" },
+      { metric: "pvc_count", label: "PVCs", hue: "cyan" },
       { metric: "flux_failing_count", label: "Flux errors", status: true },
       { metric: "cert_expiry_days", label: "Cert expiry", status: true },
     ],
