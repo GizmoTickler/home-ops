@@ -8,15 +8,35 @@ _Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &mid
 
 <br/>
 
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel" alt="Stack Versions"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel?theme=light">
+  <img src="https://kromgo-proxy.pixel-forge.workers.dev/stack_panel?theme=dark" alt="Stack Versions"/>
+</picture>
 <br/>
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/health_panel" alt="Cluster Health"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/health_panel?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/health_panel?theme=light">
+  <img src="https://kromgo-proxy.pixel-forge.workers.dev/health_panel?theme=dark" alt="Cluster Health"/>
+</picture>
 <br/>
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel" alt="Resource Usage"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel?theme=light">
+  <img src="https://kromgo-proxy.pixel-forge.workers.dev/usage_panel?theme=dark" alt="Resource Usage"/>
+</picture>
 <br/>
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel" alt="GitOps & Reliability"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel?theme=light">
+  <img src="https://kromgo-proxy.pixel-forge.workers.dev/gitops_panel?theme=dark" alt="GitOps & Reliability"/>
+</picture>
 <br/>
-<img src="https://kromgo-proxy.pixel-forge.workers.dev/network_status" alt="Network Status"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/network_status?theme=dark">
+  <source media="(prefers-color-scheme: light)" srcset="https://kromgo-proxy.pixel-forge.workers.dev/network_status?theme=light">
+  <img src="https://kromgo-proxy.pixel-forge.workers.dev/network_status?theme=dark" alt="Network Status"/>
+</picture>
 
 </div>
 

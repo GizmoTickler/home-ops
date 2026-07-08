@@ -173,10 +173,19 @@ const ICON_SIZE = 16;
 const DOT_R = 5;
 const SINGLE_TILE_WIDTH = 202;
 
-// Document stylesheet: GitHub Primer tokens, dark by default with a
-// prefers-color-scheme light override. Color never paints text — the value
-// and label stay in ink; state lives in the dot.
-const TILE_STYLE = `
+// Document stylesheet: GitHub Primer tokens. Color never paints text — the
+// value and label stay in ink; state lives in the dot.
+//
+// Theming: GitHub's camo-proxied <img> SVGs evaluate prefers-color-scheme
+// against the *browser/OS*, not the GitHub theme, so auto-theming clashes
+// when the two disagree. The README therefore uses <picture> sources with
+// explicit ?theme=dark / ?theme=light variants (GitHub resolves those against
+// its own theme). No/invalid theme param falls back to auto (media query).
+const STYLE_BASE = `
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  .label{font-size:12px;font-weight:600;letter-spacing:.2px}
+  .value{font-size:20px;font-weight:600}`;
+const STYLE_DARK = `
   .tile{fill:#161b22;stroke:#30363d}
   .cut{fill:#161b22}
   .label{fill:#8b949e}
@@ -185,21 +194,25 @@ const TILE_STYLE = `
   .dot-ok{fill:#3fb950}
   .dot-warn{fill:#d29922}
   .dot-err{fill:#f85149}
-  .dot-neu{fill:#8b949e}
-  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
-  .label{font-size:12px;font-weight:600;letter-spacing:.2px}
-  .value{font-size:20px;font-weight:600}
-  @media (prefers-color-scheme: light){
-    .tile{fill:#f6f8fa;stroke:#d0d7de}
-    .cut{fill:#f6f8fa}
-    .label{fill:#59636e}
-    .value{fill:#1f2328}
-    .icon{color:#59636e}
-    .dot-ok{fill:#1a7f37}
-    .dot-warn{fill:#9a6700}
-    .dot-err{fill:#cf222e}
-    .dot-neu{fill:#59636e}
+  .dot-neu{fill:#8b949e}`;
+const STYLE_LIGHT = `
+  .tile{fill:#f6f8fa;stroke:#d0d7de}
+  .cut{fill:#f6f8fa}
+  .label{fill:#59636e}
+  .value{fill:#1f2328}
+  .icon{color:#59636e}
+  .dot-ok{fill:#1a7f37}
+  .dot-warn{fill:#9a6700}
+  .dot-err{fill:#cf222e}
+  .dot-neu{fill:#59636e}`;
+
+function tileStyle(theme) {
+  if (theme === "dark") return STYLE_BASE + STYLE_DARK;
+  if (theme === "light") return STYLE_BASE + STYLE_LIGHT;
+  return `${STYLE_BASE}${STYLE_DARK}
+  @media (prefers-color-scheme: light){${STYLE_LIGHT}
   }`;
+}
 
 function escapeXml(s) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -239,7 +252,7 @@ function makeTileInner(tile, tileW) {
     `${dot}<text class="value" x="${valueX}" y="50"${sizeAttr}>${message}</text>`;
 }
 
-function tileRowSvg(tiles, totalWidth) {
+function tileRowSvg(tiles, totalWidth, theme) {
   const n = tiles.length;
   const tileW = round2((totalWidth - (n - 1) * TILE_GAP) / n);
   const aria = tiles.map((t) => `${t.label}: ${t.message}`).join(", ");
@@ -249,12 +262,17 @@ function tileRowSvg(tiles, totalWidth) {
     inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW)}</g>`;
     x += tileW + TILE_GAP;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${TILE_STYLE}</style>${inner}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${inner}</svg>`;
 }
 
 // Single-tile SVG (standalone metric endpoints and error responses).
-function makeTileSvg(tile) {
-  return tileRowSvg([tile], SINGLE_TILE_WIDTH);
+function makeTileSvg(tile, theme) {
+  return tileRowSvg([tile], SINGLE_TILE_WIDTH, theme);
+}
+
+function requestedTheme(url) {
+  const t = url.searchParams.get("theme");
+  return t === "dark" || t === "light" ? t : null;
 }
 
 function panelMessage(message) {
@@ -527,20 +545,22 @@ async function buildMetricBadgeData(item, env) {
   }
 }
 
-async function renderMetricPanel(metricName, env) {
+async function renderMetricPanel(metricName, env, theme) {
   const panel = PANEL_DEFINITIONS[metricName];
   const states = await Promise.all(panel.items.map((item) => {
     if (item.metric === "renovate") return buildRenovateBadgeData(item, env);
     return buildMetricBadgeData(item, env);
   }));
   const tiles = states.map((s) => ({ ...s, message: panelMessage(s.message) }));
-  return svgResponse(tileRowSvg(tiles, ROW_WIDTH), 200);
+  return svgResponse(tileRowSvg(tiles, ROW_WIDTH, theme), 200);
 }
 
 // --- Metric rendering (produces final Response) ---
 async function renderMetric(metricName, url, env) {
+  const theme = requestedTheme(url);
+
   if (PANEL_DEFINITIONS[metricName]) {
-    return renderMetricPanel(metricName, env);
+    return renderMetricPanel(metricName, env, theme);
   }
 
   // Network status panel — Fiber from Uptime Kuma (external), cells from kromgo (internal)
@@ -562,7 +582,7 @@ async function renderMetric(metricName, url, env) {
       fiberTile,
       { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal", status: true },
       { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal", status: true },
-    ], ROW_WIDTH), 200);
+    ], ROW_WIDTH, theme), 200);
   }
 
   // Renovate workflow status — GitHub Actions API
@@ -576,7 +596,7 @@ async function renderMetric(metricName, url, env) {
         return errorTileResponse("Renovate", "api error", 200);
       }
       if (!result.run) {
-        return svgResponse(makeTileSvg({ label: "Renovate", message: "no runs", color: "lightgrey", logo: "renovatebot", status: true }), 200);
+        return svgResponse(makeTileSvg({ label: "Renovate", message: "no runs", color: "lightgrey", logo: "renovatebot", status: true }, theme), 200);
       }
       const { message, color } = renovateRunState(result.run);
       const label = url.searchParams.get("label") || "Renovate";
@@ -586,9 +606,9 @@ async function renderMetric(metricName, url, env) {
         color: url.searchParams.get("color") || color,
         logo: "renovatebot",
         status: true,
-      }), 200);
+      }, theme), 200);
     } catch {
-      return svgResponse(makeTileSvg({ label: "Renovate", message: "timeout", color: "lightgrey", logo: "renovatebot", status: true }), 200);
+      return svgResponse(makeTileSvg({ label: "Renovate", message: "timeout", color: "lightgrey", logo: "renovatebot", status: true }, theme), 200);
     }
   }
 
@@ -616,7 +636,7 @@ async function renderMetric(metricName, url, env) {
         color: "lightgrey",
         logo: METRIC_ICON_MAP[metricName],
         status: true,
-      }), 200);
+      }, theme), 200);
     }
     if (wantJson) return jsonResponse(result.data, 200);
     return svgResponse(makeTileSvg({
@@ -625,11 +645,11 @@ async function renderMetric(metricName, url, env) {
       color: url.searchParams.get("color") || result.data.color,
       logo: url.searchParams.get("logo") || METRIC_ICON_MAP[metricName] || null,
       status: METRIC_STATUS.has(metricName),
-    }), 200);
+    }, theme), 200);
   } catch {
     return wantJson
       ? jsonResponse({ schemaVersion: 1, label: "error", message: "timeout", color: "lightgrey" }, 503)
-      : svgResponse(makeTileSvg({ label: "Error", message: "timeout", color: "lightgrey", status: true }), 200);
+      : svgResponse(makeTileSvg({ label: "Error", message: "timeout", color: "lightgrey", status: true }, theme), 200);
   }
 }
 
