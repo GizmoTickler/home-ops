@@ -1,8 +1,8 @@
-// src/index.js — Kromgo stat-tile proxy
-// Renders README metric panels as uniform stat-tile rows (quiet cards: muted
-// label, semibold value, status carried by a small dot — never a color block).
-// Light/dark theming via prefers-color-scheme CSS inside the SVG, with stale
-// fallback caching at the edge.
+// src/index.js — Kromgo badge proxy
+// Renders README metric panels as shields.io "for-the-badge"-style rows:
+// natural-width two-segment badges (dark label + saturated value block),
+// bold white uppercase text, brand logos, centered as a mosaic. Saturated
+// mid-tones read on both GitHub themes; stale fallback caching at the edge.
 
 // --- Edge cache for stale fallback ---
 // Always try to fetch fresh data for GET requests so README refreshes stay current.
@@ -163,17 +163,29 @@ const METRIC_STATUS = new Set([
   "wan_cellular2",
 ]);
 
-// --- Tile geometry (compact) ---
-const ROW_WIDTH = 832;    // uniform row width so stacked panels align as a grid
-const TILE_HEIGHT = 52;
-const TILE_GAP = 8;
-const TILE_RADIUS = 10;
-const PAD_X = 14;
-const ICON_SIZE = 13;
-const CHIP_SIZE = 24;
-const DOT_R = 3.5;
-const HALO_R = 7;
-const SINGLE_TILE_WIDTH = 202;
+// --- Badge geometry (shields.io "for-the-badge" style) ---
+const ROW_WIDTH = 832;   // row canvas; badges render natural-width, centered
+const TILE_HEIGHT = 30;
+const TILE_GAP = 6;
+const TILE_RADIUS = 4;
+const LOGO_SIZE = 14;
+
+// Helvetica Bold character widths at 11px in 10x units (AFM metrics).
+// Text is uppercased before measuring; textLength pins the rendered width.
+const W = { " ": 31, "%": 92, ".": 31, "/": 31, "-": 37, ":": 31, "·": 31, "(": 37, ")": 37,
+  0: 61, 1: 61, 2: 61, 3: 61, 4: 61, 5: 61, 6: 61, 7: 61, 8: 61, 9: 61,
+  A: 79, B: 79, C: 79, D: 79, E: 73, F: 67, G: 86, H: 79, I: 31, J: 61,
+  K: 79, L: 67, M: 92, N: 79, O: 86, P: 73, Q: 86, R: 79, S: 73, T: 67,
+  U: 79, V: 73, W: 104, X: 73, Y: 73, Z: 67 };
+
+function tw(text, size, ls) {
+  let w = 0;
+  for (let i = 0; i < text.length; i++) {
+    w += ((W[text[i]] || W[text[i].toUpperCase()] || 73) * size) / 110;
+    if (i < text.length - 1) w += ls;
+  }
+  return w;
+}
 
 // Document stylesheet: GitHub Primer tokens. Color never paints text — the
 // value and label stay in ink; state lives in the dot.
@@ -183,140 +195,125 @@ const SINGLE_TILE_WIDTH = 202;
 // when the two disagree. The README therefore uses <picture> sources with
 // explicit ?theme=dark / ?theme=light variants (GitHub resolves those against
 // its own theme). No/invalid theme param falls back to auto (media query).
-const STYLE_BASE = `
-  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
-  .label{font-size:9px;font-weight:600;letter-spacing:.9px}
-  .value{font-size:16px;font-weight:600;letter-spacing:-.1px}
-  .tile{fill:url(#cbg);stroke:url(#cbd)}
-  .gls{fill:url(#gls)}
-  .halo{fill-opacity:.2}
-  .glow{fill-opacity:.14}
-  [class^=chip-]{fill-opacity:.16}`;
-// Eye-candy pass: every tile wears a hue — brand/metric hues for neutral
-// tiles, status hues for stateful ones. The hue paints the chip wash, a soft
-// glow bleeding into the card, the icon, and the value; labels stay muted.
-const STYLE_DARK = `
-  .cut{fill:#171b21}
-  .label{fill:#8b95a5}
-  .value{fill:#f1f5f9}
-  .chip-blue,.glow-blue{fill:#3b82f6}.ic-blue{color:#93c5fd}.val-blue{fill:#93c5fd}
-  .chip-teal,.glow-teal{fill:#14b8a6}.ic-teal{color:#5eead4}.val-teal{fill:#5eead4}
-  .chip-violet,.glow-violet{fill:#8b5cf6}.ic-violet{color:#c4b5fd}.val-violet{fill:#c4b5fd}
-  .chip-cyan,.glow-cyan{fill:#06b6d4}.ic-cyan{color:#67e8f9}.val-cyan{fill:#67e8f9}
-  .chip-indigo,.glow-indigo{fill:#6366f1}.ic-indigo{color:#a5b4fc}.val-indigo{fill:#a5b4fc}
-  .chip-ok,.glow-ok,.halo-ok,.dot-ok{fill:#4ade80}.ic-ok{color:#6ee7a0}.val-ok{fill:#4ade80}
-  .chip-warn,.glow-warn,.halo-warn,.dot-warn{fill:#fbbf24}.ic-warn{color:#fcd34d}.val-warn{fill:#fbbf24}
-  .chip-err,.glow-err,.halo-err,.dot-err{fill:#f87171}.ic-err{color:#fca5a5}.val-err{fill:#f87171}
-  .chip-neu,.glow-neu,.halo-neu,.dot-neu{fill:#8b95a5}.ic-neu{color:#9aa4b2}.val-neu{fill:#b6bfc9}
-  .s0{stop-color:#1c2129}.s1{stop-color:#141920}
-  .b0{stop-color:#ffffff;stop-opacity:.14}.b1{stop-color:#ffffff;stop-opacity:.05}
-  .g0{stop-color:#ffffff;stop-opacity:.07}.g1{stop-color:#ffffff;stop-opacity:0}`;
-const STYLE_LIGHT = `
-  .cut{fill:#ffffff}
-  .label{fill:#667085}
-  .value{fill:#101828}
-  .chip-blue,.glow-blue{fill:#3b82f6}.ic-blue{color:#1d4ed8}.val-blue{fill:#1d4ed8}
-  .chip-teal,.glow-teal{fill:#14b8a6}.ic-teal{color:#0f766e}.val-teal{fill:#0f766e}
-  .chip-violet,.glow-violet{fill:#8b5cf6}.ic-violet{color:#6d28d9}.val-violet{fill:#6d28d9}
-  .chip-cyan,.glow-cyan{fill:#06b6d4}.ic-cyan{color:#0e7490}.val-cyan{fill:#0e7490}
-  .chip-indigo,.glow-indigo{fill:#6366f1}.ic-indigo{color:#4338ca}.val-indigo{fill:#4338ca}
-  .chip-ok,.glow-ok{fill:#22c55e}.halo-ok,.dot-ok{fill:#039855}.ic-ok{color:#039855}.val-ok{fill:#037843}
-  .chip-warn,.glow-warn{fill:#f59e0b}.halo-warn,.dot-warn{fill:#dc6803}.ic-warn{color:#b45309}.val-warn{fill:#b45309}
-  .chip-err,.glow-err{fill:#ef4444}.halo-err,.dot-err{fill:#d92d20}.ic-err{color:#d92d20}.val-err{fill:#b42318}
-  .chip-neu,.glow-neu,.halo-neu,.dot-neu{fill:#667085}.ic-neu{color:#667085}.val-neu{fill:#475467}
-  .s0{stop-color:#ffffff}.s1{stop-color:#f7f9fc}
-  .b0{stop-color:#101828;stop-opacity:.14}.b1{stop-color:#101828;stop-opacity:.06}
-  .g0{stop-color:#ffffff;stop-opacity:.5}.g1{stop-color:#ffffff;stop-opacity:0}`;
+// for-the-badge look: flat saturated two-segment blocks with bold white
+// uppercase text. Saturated mid-tones read on both GitHub themes, so one
+// stylesheet serves dark, light, and auto alike.
+const LABEL_BG = "#3f4650";
+const STYLE = `
+  text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;fill:#ffffff}
+  .lb{font-size:10px;font-weight:700;letter-spacing:1px}
+  .vl{font-size:11px;font-weight:700;letter-spacing:.6px}
+  .sh{fill:#010101;fill-opacity:.3}
+  .ic{color:#ffffff}
+  .cut{fill:${LABEL_BG}}
+  .gls{fill:url(#gls)}`;
 
-function tileStyle(theme) {
-  if (theme === "dark") return STYLE_BASE + STYLE_DARK;
-  if (theme === "light") return STYLE_BASE + STYLE_LIGHT;
-  return `${STYLE_BASE}${STYLE_DARK}
-  @media (prefers-color-scheme: light){${STYLE_LIGHT}
-  }`;
+function tileStyle() {
+  return STYLE;
+}
+
+// Segment colors: brand/metric hues for neutral badges, status hues for
+// stateful ones — the value block's color IS the state, shields-style.
+const HUE_HEX = {
+  teal: "#009688",
+  blue: "#326ce5",
+  azure: "#007ec6",
+  violet: "#8957e5",
+  cyan: "#00b0cf",
+  indigo: "#5e6ac8",
+};
+const STATUS_HEX = {
+  ok: "#3fa63c",
+  warn: "#dfb317",
+  err: "#e05d44",
+  neu: "#6e7681",
+};
+
+function valueColor(tile) {
+  if (tile.status) return STATUS_HEX[statusKind(tile.color)];
+  return HUE_HEX[tile.hue] || HUE_HEX.azure;
 }
 
 function escapeXml(s) {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-// Semantic hue slot for a tile: neutral tiles wear their assigned hue;
-// status tiles wear their state's hue.
-function tileKind(tile) {
-  return tile.status ? statusKind(tile.color) : (tile.hue || "indigo");
-}
-
-// Tinted icon chip, right-center: rounded square wash in the tile's hue with
-// the icon inked in a lighter step of the same hue.
-function iconMarkup(name, tileW, kind) {
+// White logo on the label segment, vertically centered.
+function logoMarkup(name, x) {
   const icon = ICONS[name];
   if (!icon) return "";
   const [vw, vh, inner] = icon;
-  const chipX = tileW - PAD_X - CHIP_SIZE;
-  const chipY = (TILE_HEIGHT - CHIP_SIZE) / 2;
-  const scale = Math.min(ICON_SIZE / vw, ICON_SIZE / vh);
+  const scale = Math.min(LOGO_SIZE / vw, LOGO_SIZE / vh);
   const w = vw * scale;
   const h = vh * scale;
-  const ix = chipX + (CHIP_SIZE - w) / 2;
-  const iy = chipY + (CHIP_SIZE - h) / 2;
-  return `<rect class="chip-${kind}" x="${round2(chipX)}" y="${round2(chipY)}" width="${CHIP_SIZE}" height="${CHIP_SIZE}" rx="7"/>` +
-    `<g class="ic-${kind}" transform="translate(${round2(ix)},${round2(iy)}) scale(${round4(scale)})">${inner}</g>`;
+  const ix = x + (LOGO_SIZE - w) / 2;
+  const iy = (TILE_HEIGHT - vh * scale) / 2;
+  return `<g class="ic" transform="translate(${round2(ix)},${round2(iy)}) scale(${round4(scale)})">${inner}</g>`;
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
 function round4(n) { return Math.round(n * 10000) / 10000; }
 
-// One stat tile: tracked-uppercase micro-label over a hue-colored value,
-// glowing status dot for stateful metrics, tinted icon chip right-center,
-// a soft hue glow bleeding from the chip corner, and a gloss sheen.
-function makeTileInner(tile, tileW, idx) {
-  const label = escapeXml((tile.label || "").toUpperCase());
-  const message = escapeXml(tile.message);
-  const kind = tileKind(tile);
-  const dotCy = 34.5;
-  const dot = tile.status
-    ? `<circle class="halo halo-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="${HALO_R}"/>` +
-      `<circle class="dot-${kind}" cx="${PAD_X + DOT_R}" cy="${dotCy}" r="${DOT_R}"/>`
-    : "";
-  const valueX = tile.status ? PAD_X + DOT_R + HALO_R + 6 : PAD_X;
-  // Long values (rare error strings) drop a size so they never clip.
-  const valueSize = (tile.message || "").length > 12 ? 12 : null;
-  const sizeAttr = valueSize ? ` style="font-size:${valueSize}px"` : "";
-  return `<rect class="tile" x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/>` +
-    `<clipPath id="cl${idx}"><rect x=".5" y=".5" width="${tileW - 1}" height="${TILE_HEIGHT - 1}" rx="${TILE_RADIUS}"/></clipPath>` +
-    `<g clip-path="url(#cl${idx})"><ellipse class="glow glow-${kind}" filter="url(#blr)" cx="${round2(tileW - PAD_X - CHIP_SIZE / 2)}" cy="${TILE_HEIGHT / 2}" rx="64" ry="36"/></g>` +
-    `<rect class="gls" x="1" y="1" width="${tileW - 2}" height="${TILE_HEIGHT - 2}" rx="${TILE_RADIUS - 1}"/>` +
-    `${iconMarkup(tile.logo, tileW, kind)}` +
-    `<text class="label" x="${PAD_X}" y="20">${label}</text>` +
-    `${dot}<text class="value val-${kind}" x="${valueX}" y="40"${sizeAttr}>${message}</text>`;
+// Measure a badge's two segments (natural width, shields-style).
+function badgeParts(tile) {
+  const label = (tile.label || "").toUpperCase();
+  const value = (tile.message || "").toUpperCase();
+  const hasLogo = !!ICONS[tile.logo];
+  const labelTextW = tw(label, 10, 1);
+  const valueTextW = tw(value, 11, 0.6);
+  const labelW = round2(12 + (hasLogo ? LOGO_SIZE + 7 : 0) + labelTextW + 10);
+  const valueW = round2(10 + valueTextW + 12);
+  return { label, value, hasLogo, labelTextW, valueTextW, labelW, valueW, width: round2(labelW + valueW) };
 }
 
-// Shared defs: card-surface gradient and hairline border gradient (brighter
-// at the top edge — the "glass" highlight). Stop colors are set via CSS so
-// the same defs serve both themes.
+// One badge: dark label segment (logo + LABEL) + saturated value segment
+// (VALUE), bold white text with a soft shadow, subtle sheen across both.
+function makeTileInner(tile, idx) {
+  const p = badgeParts(tile);
+  const vColor = valueColor(tile);
+  const lx = 12 + (p.hasLogo ? LOGO_SIZE + 7 : 0);
+  const vx = p.labelW + 10;
+  const y = 19.5;
+  const lAttrs = `textLength="${round2(p.labelTextW)}"`;
+  const vAttrs = `textLength="${round2(p.valueTextW)}"`;
+  return `<clipPath id="bc${idx}"><rect width="${p.width}" height="${TILE_HEIGHT}" rx="${TILE_RADIUS}"/></clipPath>` +
+    `<g clip-path="url(#bc${idx})">` +
+    `<rect width="${p.labelW}" height="${TILE_HEIGHT}" fill="${LABEL_BG}"/>` +
+    `<rect x="${p.labelW}" width="${p.valueW}" height="${TILE_HEIGHT}" fill="${vColor}"/>` +
+    `<rect class="gls" width="${p.width}" height="${TILE_HEIGHT}"/>` +
+    `</g>` +
+    logoMarkup(tile.logo, 12) +
+    `<text class="lb sh" x="${lx}" y="${y + 1}" ${lAttrs}>${escapeXml(p.label)}</text>` +
+    `<text class="lb" x="${lx}" y="${y}" ${lAttrs}>${escapeXml(p.label)}</text>` +
+    `<text class="vl sh" x="${vx}" y="${y + 1}" ${vAttrs}>${escapeXml(p.value)}</text>` +
+    `<text class="vl" x="${vx}" y="${y}" ${vAttrs}>${escapeXml(p.value)}</text>`;
+}
+
+// Shared defs: the sheen gradient (soft top highlight — the shields gloss).
 const TILE_DEFS = `<defs>` +
-  `<linearGradient id="cbg" x1="0" y1="0" x2="0" y2="1"><stop class="s0" offset="0"/><stop class="s1" offset="1"/></linearGradient>` +
-  `<linearGradient id="cbd" x1="0" y1="0" x2="0" y2="1"><stop class="b0" offset="0"/><stop class="b1" offset="1"/></linearGradient>` +
-  `<linearGradient id="gls" x1="0" y1="0" x2="0" y2="1"><stop class="g0" offset="0"/><stop class="g1" offset=".55"/></linearGradient>` +
-  `<filter id="blr" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="12"/></filter>` +
+  `<linearGradient id="gls" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".11"/><stop offset=".55" stop-color="#ffffff" stop-opacity="0"/></linearGradient>` +
   `</defs>`;
 
+// Badges render at natural width and center within the row canvas, so the
+// stacked rows read as a badge mosaic rather than a stretched grid.
 function tileRowSvg(tiles, totalWidth, theme) {
-  const n = tiles.length;
-  const tileW = round2((totalWidth - (n - 1) * TILE_GAP) / n);
+  const parts = tiles.map(badgeParts);
+  const total = parts.reduce((s, p) => s + p.width, 0) + Math.max(0, tiles.length - 1) * TILE_GAP;
+  const canvas = Math.max(totalWidth, Math.ceil(total));
   const aria = tiles.map((t) => `${t.label}: ${t.message}`).join(", ");
   let inner = "";
-  let x = 0;
+  let x = round2((canvas - total) / 2);
   tiles.forEach((t, i) => {
-    inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, tileW, i)}</g>`;
-    x += tileW + TILE_GAP;
+    inner += `<g transform="translate(${round2(x)},0)">${makeTileInner(t, i)}</g>`;
+    x += parts[i].width + TILE_GAP;
   });
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${totalWidth}" height="${TILE_HEIGHT}" viewBox="0 0 ${totalWidth} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${TILE_DEFS}${inner}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas}" height="${TILE_HEIGHT}" viewBox="0 0 ${canvas} ${TILE_HEIGHT}" role="img" aria-label="${escapeXml(aria)}"><title>${escapeXml(aria)}</title><style>${tileStyle(theme)}</style>${TILE_DEFS}${inner}</svg>`;
 }
 
-// Single-tile SVG (standalone metric endpoints and error responses).
+// Single-badge SVG (standalone metric endpoints and error responses).
 function makeTileSvg(tile, theme) {
-  return tileRowSvg([tile], SINGLE_TILE_WIDTH, theme);
+  const width = badgeParts(tile).width;
+  return tileRowSvg([tile], width, theme);
 }
 
 function requestedTheme(url) {
@@ -483,7 +480,7 @@ const PANEL_DEFINITIONS = {
   },
   health_panel: {
     items: [
-      { metric: "cluster_node_count", label: "Nodes", hue: "blue" },
+      { metric: "cluster_node_count", label: "Nodes", hue: "azure" },
       { metric: "cluster_age_days", label: "Age", hue: "violet" },
       { metric: "cluster_uptime_days", label: "Uptime", hue: "cyan" },
       { metric: "cluster_alert_count", label: "Alerts", status: true },
@@ -492,7 +489,7 @@ const PANEL_DEFINITIONS = {
   },
   usage_panel: {
     items: [
-      { metric: "cluster_pod_count", label: "Pods", hue: "blue" },
+      { metric: "cluster_pod_count", label: "Pods", hue: "azure" },
       { metric: "container_count", label: "Containers", hue: "teal" },
       { metric: "cluster_cpu_usage", label: "CPU", status: true },
       { metric: "cluster_memory_usage", label: "Memory", status: true },
