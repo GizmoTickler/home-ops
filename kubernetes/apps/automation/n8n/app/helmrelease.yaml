@@ -15,6 +15,11 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
         pod:
+          # ghcr.io/gizmotickler/n8n-playwright-debian is no longer pullable
+          # (source repo deleted, package private/removed); k8s-0 is the only
+          # node with the image cached. Remove once the image is republished.
+          nodeSelector:
+            kubernetes.io/hostname: k8s-0
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
