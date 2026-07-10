@@ -907,10 +907,22 @@ func newRestoreCommand() *cobra.Command {
 	return cmd
 }
 
+type restoreOperation struct {
+	namespace          string
+	app                string
+	previous           string
+	logger             *common.ColorLogger
+	suspendedFlux      bool
+	scaledDown         bool
+	restoreCreatedDest bool
+	restoreFailed      bool
+	destName           string
+}
+
 func restoreApp(namespace, app, previous string, force bool, restoreTimeout time.Duration) error {
 	logger := common.NewColorLogger()
 
-	namespace, cancelled, err := promptForNamespace(namespace)
+	namespace, app, previous, cancelled, err := resolveRestoreRequest(namespace, app, previous, logger)
 	if err != nil {
 		return err
 	}
@@ -918,181 +930,259 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		return nil
 	}
 
-	app, cancelled, err = resolveReplicationSourceApp(namespace, app, "restore")
-	if err != nil {
+	if err := confirmRestoreRequest(app, previous, force, logger); err != nil {
 		return err
-	}
-	if cancelled {
-		return nil
-	}
-
-	// If previous snapshot is not provided, list and prompt for selection
-	if previous == "" {
-		// Try to get snapshots via Snapshot CRs first
-		output, err := commandOutputFn("kubectl", "get", "snapshots", "-n", namespace,
-			"-l", fmt.Sprintf("app=%s", app),
-			"-o", "jsonpath={.items[*].spec.snapshotNum}")
-
-		var snapshots []string
-		if err == nil {
-			snapshots = strings.Fields(string(output))
-		}
-
-		// If no snapshots found via CRs, try querying Kopia directly
-		if len(snapshots) == 0 {
-			logger.Info("Listing snapshots from Kopia repository...")
-
-			// Find kopia pod
-			kopiaPod, err := findKopiaPod()
-			if err != nil {
-				return fmt.Errorf("failed to find kopia pod: %w", err)
-			}
-
-			// Get all snapshots from kopia
-			output, err := commandCombinedOutputFn("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
-			if err != nil {
-				return fmt.Errorf("failed to get snapshots from kopia: %w", err)
-			}
-
-			// Parse snapshots
-			appSnapshots, err := parseKopiaSnapshots(string(output), app)
-			if err != nil {
-				return fmt.Errorf("failed to parse snapshots: %w", err)
-			}
-
-			if len(appSnapshots) > 0 {
-				// Flatten all snapshots for this app
-				for _, snap := range appSnapshots {
-					snapshots = append(snapshots, snap.AllSnapshots...)
-				}
-			}
-		}
-
-		if len(snapshots) == 0 {
-			return fmt.Errorf("no snapshots found for app %s in namespace %s", app, namespace)
-		}
-
-		// Use Filter for better search experience
-		selectedSnapshot, err := filterOptionFn("Search for snapshot:", snapshots)
-		if err != nil {
-			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
-			}
-			return fmt.Errorf("snapshot selection failed: %w", err)
-		}
-
-		previous = snapshotIDFromSelection(selectedSnapshot)
-	}
-
-	// Add confirmation for restore
-	if !force {
-		confirmed, err := confirmActionFn(fmt.Sprintf("Restore %s from snapshot %s? Data will be overwritten!", app, previous), false)
-		if err != nil {
-			return fmt.Errorf("confirmation failed: %w", err)
-		}
-		if !confirmed {
-			logger.Info("Restore cancelled")
-			return fmt.Errorf("restore cancelled")
-		}
 	}
 
 	logger.Info("Starting restore process for %s/%s from snapshot %s", namespace, app, previous)
 
-	var (
-		suspendedFlux      bool
-		scaledDown         bool
-		restoreCreatedDest bool
-		restoreFailed      bool
-		destName           = fmt.Sprintf("%s-manual", app)
-	)
-	defer func() {
-		if !restoreCreatedDest && !suspendedFlux {
-			return
-		}
-		if restoreCreatedDest {
-			if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", destName); err != nil {
-				logger.Warn("Failed to delete ReplicationDestination during cleanup: %v", err)
-			}
-		}
-		if suspendedFlux {
-			logger.Info("Resuming application...")
-			if err := fluxRunFn("--namespace", namespace, "resume", "kustomization", app); err != nil {
-				logger.Warn("Failed to resume kustomization during cleanup: %v", err)
-			}
-			if err := fluxRunFn("--namespace", namespace, "resume", "helmrelease", app); err != nil {
-				logger.Warn("Failed to resume helmrelease during cleanup: %v", err)
-			}
-			if err := fluxRunFn("--namespace", namespace, "reconcile", "kustomization", app, "--with-source"); err != nil {
-				logger.Warn("Failed to reconcile kustomization during cleanup: %v", err)
-			}
-			if err := fluxRunFn("--namespace", namespace, "reconcile", "helmrelease", app, "--force"); err != nil {
-				logger.Warn("Failed to reconcile helmrelease during cleanup: %v", err)
-			}
-		}
-		if restoreFailed && scaledDown {
-			logger.Warn("Restore failed after scaling down %s/%s; wait for reconciliation to bring the workload back.", namespace, app)
-		}
-	}()
-
-	// Get controller type by checking what exists
-	controller, err := detectController(namespace, app)
-	controllerFound := err == nil
-	if err != nil {
-		// Log the warning but continue since detectController returns a fallback controller type
-		logger.Warn("Controller detection: %v", err)
+	restore := &restoreOperation{
+		namespace: namespace,
+		app:       app,
+		previous:  previous,
+		logger:    logger,
+		destName:  fmt.Sprintf("%s-manual", app),
 	}
+	defer restore.cleanup()
+
+	controller, controllerFound := restore.detectController()
 
 	// Step 1: Suspend Flux resources
-	logger.Info("Suspending Flux resources...")
-
-	if err := fluxRunFn("--namespace", namespace, "suspend", "kustomization", app); err != nil {
-		logger.Warn("Failed to suspend kustomization: %v", err)
-	}
-
-	if err := fluxRunFn("--namespace", namespace, "suspend", "helmrelease", app); err != nil {
-		logger.Warn("Failed to suspend helmrelease: %v", err)
-	}
-	suspendedFlux = true
+	restore.suspendFlux()
 
 	// Step 2: Scale down application (only if controller found)
-	if controllerFound {
-		logger.Info("Scaling down %s/%s...", controller, app)
-
-		if output, err := commandCombinedOutputFn("kubectl", "--namespace", namespace, "scale", fmt.Sprintf("%s/%s", controller, app), "--replicas=0"); err != nil {
-			restoreFailed = true
-			return fmt.Errorf("failed to scale down: %w\n%s", err, output)
-		}
-		scaledDown = true
-
-		// Wait for pods to be deleted
-		logger.Info("Waiting for pods to terminate...")
-		if err := commandRunFn("kubectl", "--namespace", namespace, "wait", "pod",
-			"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
-			"--timeout=5m"); err != nil {
-			logger.Warn("Some pods may still be terminating: %v", err)
-		}
-	} else {
-		logger.Info("Skipping scale down as no controller was detected")
+	if err := restore.scaleDownApplication(controller, controllerFound); err != nil {
+		return err
 	}
 
 	// Step 3: Get ReplicationSource details
-	logger.Info("Getting restore configuration...")
+	env, err := restore.buildRestoreTemplateEnv()
+	if err != nil {
+		return err
+	}
+
+	// Step 4: Create ReplicationDestination
+	if err := restore.createReplicationDestination(env); err != nil {
+		return err
+	}
+
+	// Step 5: Wait for restore job to complete
+	if err := restore.waitForRestoreJob(restoreTimeout); err != nil {
+		return err
+	}
+
+	// Step 6: Clean up ReplicationDestination
+	restore.cleanupReplicationDestination()
+
+	// Step 7: Resume Flux resources
+	restore.resumeFluxResources()
+
+	// Wait for pods to be ready
+	restore.waitForApplicationReady()
+
+	logger.Success("Restore completed successfully for %s/%s", namespace, app)
+	return nil
+}
+
+func resolveRestoreRequest(namespace, app, previous string, logger *common.ColorLogger) (string, string, string, bool, error) {
+	namespace, cancelled, err := promptForNamespace(namespace)
+	if err != nil {
+		return "", "", "", false, err
+	}
+	if cancelled {
+		return "", "", "", true, nil
+	}
+
+	app, cancelled, err = resolveReplicationSourceApp(namespace, app, "restore")
+	if err != nil {
+		return "", "", "", false, err
+	}
+	if cancelled {
+		return "", "", "", true, nil
+	}
+
+	previous, cancelled, err = resolveRestoreSnapshot(namespace, app, previous, logger)
+	if err != nil {
+		return "", "", "", false, err
+	}
+	if cancelled {
+		return "", "", "", true, nil
+	}
+
+	return namespace, app, previous, false, nil
+}
+
+func resolveRestoreSnapshot(namespace, app, previous string, logger *common.ColorLogger) (string, bool, error) {
+	// If previous snapshot is provided, use it directly.
+	if previous != "" {
+		return previous, false, nil
+	}
+
+	// Try to get snapshots via Snapshot CRs first
+	output, err := commandOutputFn("kubectl", "get", "snapshots", "-n", namespace,
+		"-l", fmt.Sprintf("app=%s", app),
+		"-o", "jsonpath={.items[*].spec.snapshotNum}")
+
+	var snapshots []string
+	if err == nil {
+		snapshots = strings.Fields(string(output))
+	}
+
+	// If no snapshots found via CRs, try querying Kopia directly
+	if len(snapshots) == 0 {
+		logger.Info("Listing snapshots from Kopia repository...")
+
+		// Find kopia pod
+		kopiaPod, err := findKopiaPod()
+		if err != nil {
+			return "", false, fmt.Errorf("failed to find kopia pod: %w", err)
+		}
+
+		// Get all snapshots from kopia
+		output, err := commandCombinedOutputFn("kubectl", "--namespace", constants.NSVolsyncSystem, "exec", kopiaPod, "--", "kopia", "snapshot", "list", "--all")
+		if err != nil {
+			return "", false, fmt.Errorf("failed to get snapshots from kopia: %w", err)
+		}
+
+		// Parse snapshots
+		appSnapshots, err := parseKopiaSnapshots(string(output), app)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to parse snapshots: %w", err)
+		}
+
+		if len(appSnapshots) > 0 {
+			// Flatten all snapshots for this app
+			for _, snap := range appSnapshots {
+				snapshots = append(snapshots, snap.AllSnapshots...)
+			}
+		}
+	}
+
+	if len(snapshots) == 0 {
+		return "", false, fmt.Errorf("no snapshots found for app %s in namespace %s", app, namespace)
+	}
+
+	// Use Filter for better search experience
+	selectedSnapshot, err := filterOptionFn("Search for snapshot:", snapshots)
+	if err != nil {
+		if ui.IsCancellation(err) {
+			return "", true, nil // User cancelled - exit cleanly
+		}
+		return "", false, fmt.Errorf("snapshot selection failed: %w", err)
+	}
+
+	return snapshotIDFromSelection(selectedSnapshot), false, nil
+}
+
+func confirmRestoreRequest(app, previous string, force bool, logger *common.ColorLogger) error {
+	if force {
+		return nil
+	}
+	confirmed, err := confirmActionFn(fmt.Sprintf("Restore %s from snapshot %s? Data will be overwritten!", app, previous), false)
+	if err != nil {
+		return fmt.Errorf("confirmation failed: %w", err)
+	}
+	if !confirmed {
+		logger.Info("Restore cancelled")
+		return fmt.Errorf("restore cancelled")
+	}
+	return nil
+}
+
+func (restore *restoreOperation) cleanup() {
+	if !restore.restoreCreatedDest && !restore.suspendedFlux {
+		return
+	}
+	if restore.restoreCreatedDest {
+		if err := commandRunFn("kubectl", "--namespace", restore.namespace, "delete", "replicationdestination", restore.destName); err != nil {
+			restore.logger.Warn("Failed to delete ReplicationDestination during cleanup: %v", err)
+		}
+	}
+	if restore.suspendedFlux {
+		restore.logger.Info("Resuming application...")
+		if err := fluxRunFn("--namespace", restore.namespace, "resume", "kustomization", restore.app); err != nil {
+			restore.logger.Warn("Failed to resume kustomization during cleanup: %v", err)
+		}
+		if err := fluxRunFn("--namespace", restore.namespace, "resume", "helmrelease", restore.app); err != nil {
+			restore.logger.Warn("Failed to resume helmrelease during cleanup: %v", err)
+		}
+		if err := fluxRunFn("--namespace", restore.namespace, "reconcile", "kustomization", restore.app, "--with-source"); err != nil {
+			restore.logger.Warn("Failed to reconcile kustomization during cleanup: %v", err)
+		}
+		if err := fluxRunFn("--namespace", restore.namespace, "reconcile", "helmrelease", restore.app, "--force"); err != nil {
+			restore.logger.Warn("Failed to reconcile helmrelease during cleanup: %v", err)
+		}
+	}
+	if restore.restoreFailed && restore.scaledDown {
+		restore.logger.Warn("Restore failed after scaling down %s/%s; wait for reconciliation to bring the workload back.", restore.namespace, restore.app)
+	}
+}
+
+func (restore *restoreOperation) detectController() (string, bool) {
+	controller, err := detectController(restore.namespace, restore.app)
+	controllerFound := err == nil
+	if err != nil {
+		// Log the warning but continue since detectController returns a fallback controller type
+		restore.logger.Warn("Controller detection: %v", err)
+	}
+	return controller, controllerFound
+}
+
+func (restore *restoreOperation) suspendFlux() {
+	restore.logger.Info("Suspending Flux resources...")
+
+	if err := fluxRunFn("--namespace", restore.namespace, "suspend", "kustomization", restore.app); err != nil {
+		restore.logger.Warn("Failed to suspend kustomization: %v", err)
+	}
+
+	if err := fluxRunFn("--namespace", restore.namespace, "suspend", "helmrelease", restore.app); err != nil {
+		restore.logger.Warn("Failed to suspend helmrelease: %v", err)
+	}
+	restore.suspendedFlux = true
+}
+
+func (restore *restoreOperation) scaleDownApplication(controller string, controllerFound bool) error {
+	if !controllerFound {
+		restore.logger.Info("Skipping scale down as no controller was detected")
+		return nil
+	}
+
+	restore.logger.Info("Scaling down %s/%s...", controller, restore.app)
+
+	if output, err := commandCombinedOutputFn("kubectl", "--namespace", restore.namespace, "scale", fmt.Sprintf("%s/%s", controller, restore.app), "--replicas=0"); err != nil {
+		restore.restoreFailed = true
+		return fmt.Errorf("failed to scale down: %w\n%s", err, output)
+	}
+	restore.scaledDown = true
+
+	// Wait for pods to be deleted
+	restore.logger.Info("Waiting for pods to terminate...")
+	if err := commandRunFn("kubectl", "--namespace", restore.namespace, "wait", "pod",
+		"--for=delete", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", restore.app),
+		"--timeout=5m"); err != nil {
+		restore.logger.Warn("Some pods may still be terminating: %v", err)
+	}
+	return nil
+}
+
+func (restore *restoreOperation) buildRestoreTemplateEnv() (map[string]string, error) {
+	restore.logger.Info("Getting restore configuration...")
 
 	// Get claim name
-	output, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
-		fmt.Sprintf("replicationsources/%s", app),
+	output, err := commandOutputFn("kubectl", "--namespace", restore.namespace, "get",
+		fmt.Sprintf("replicationsources/%s", restore.app),
 		"--output=jsonpath={.spec.sourcePVC}")
 	if err != nil {
-		restoreFailed = true
-		return fmt.Errorf("failed to get PVC name: %w", err)
+		restore.restoreFailed = true
+		return nil, fmt.Errorf("failed to get PVC name: %w", err)
 	}
 	claim := strings.TrimSpace(string(output))
 
-	output, err = commandOutputFn("kubectl", "--namespace", namespace, "get", "pvc", claim,
+	output, err = commandOutputFn("kubectl", "--namespace", restore.namespace, "get", "pvc", claim,
 		"--output=jsonpath={.spec.resources.requests.storage}")
 	if err != nil {
-		restoreFailed = true
-		return fmt.Errorf("failed to get PVC capacity: %w", err)
+		restore.restoreFailed = true
+		return nil, fmt.Errorf("failed to get PVC capacity: %w", err)
 	}
 	pvcCapacity := strings.TrimSpace(string(output))
 
@@ -1107,35 +1197,45 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	}
 
 	env := map[string]string{
-		"NS":       namespace,
-		"APP":      app,
-		"PREVIOUS": previous,
+		"NS":       restore.namespace,
+		"APP":      restore.app,
+		"PREVIOUS": restore.previous,
 		"CLAIM":    claim,
 		"CAPACITY": pvcCapacity,
 	}
 
 	for envKey, jsonPath := range jsonPathFields {
-		output, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
-			fmt.Sprintf("replicationsources/%s", app),
+		output, err := commandOutputFn("kubectl", "--namespace", restore.namespace, "get",
+			fmt.Sprintf("replicationsources/%s", restore.app),
 			fmt.Sprintf("--output=jsonpath=%s", jsonPath))
 		if err != nil {
-			restoreFailed = true
-			return fmt.Errorf("failed to get %s: %w", envKey, err)
+			restore.restoreFailed = true
+			return nil, fmt.Errorf("failed to get %s: %w", envKey, err)
 		}
 		value := strings.TrimSpace(string(output))
 		if value == "" {
-			restoreFailed = true
-			return fmt.Errorf("ReplicationSource %s/%s is missing required Kopia field %s", namespace, app, envKey)
+			restore.restoreFailed = true
+			return nil, fmt.Errorf("ReplicationSource %s/%s is missing required Kopia field %s", restore.namespace, restore.app, envKey)
 		}
 		env[envKey] = value
 	}
 
+	if err := restore.addAccessModesToEnv(env); err != nil {
+		return nil, err
+	}
+	if err := restore.addCacheAccessModesToEnv(env); err != nil {
+		return nil, err
+	}
+	return env, nil
+}
+
+func (restore *restoreOperation) addAccessModesToEnv(env map[string]string) error {
 	// Handle ACCESS_MODES separately to convert from JSON to YAML format
-	accessModesOutput, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
-		fmt.Sprintf("replicationsources/%s", app),
+	accessModesOutput, err := commandOutputFn("kubectl", "--namespace", restore.namespace, "get",
+		fmt.Sprintf("replicationsources/%s", restore.app),
 		"--output=jsonpath={.spec.kopia.accessModes}")
 	if err != nil {
-		restoreFailed = true
+		restore.restoreFailed = true
 		return fmt.Errorf("failed to get ACCESS_MODES: %w", err)
 	}
 	accessModesStr := strings.TrimSpace(string(accessModesOutput))
@@ -1146,13 +1246,16 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		// Fallback to default if parsing fails
 		env["ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
 	}
+	return nil
+}
 
+func (restore *restoreOperation) addCacheAccessModesToEnv(env map[string]string) error {
 	// Handle CACHE_ACCESS_MODES separately
-	cacheAccessModesOutput, err := commandOutputFn("kubectl", "--namespace", namespace, "get",
-		fmt.Sprintf("replicationsources/%s", app),
+	cacheAccessModesOutput, err := commandOutputFn("kubectl", "--namespace", restore.namespace, "get",
+		fmt.Sprintf("replicationsources/%s", restore.app),
 		"--output=jsonpath={.spec.kopia.cacheAccessModes}")
 	if err != nil {
-		restoreFailed = true
+		restore.restoreFailed = true
 		return fmt.Errorf("failed to get CACHE_ACCESS_MODES: %w", err)
 	}
 	cacheAccessModesStr := strings.TrimSpace(string(cacheAccessModesOutput))
@@ -1162,82 +1265,87 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 		// Fallback to default if parsing fails
 		env["CACHE_ACCESS_MODES"] = "[\"ReadWriteOnce\"]"
 	}
+	return nil
+}
 
-	// Step 4: Create ReplicationDestination
-	logger.Info("Creating ReplicationDestination...")
+func (restore *restoreOperation) createReplicationDestination(env map[string]string) error {
+	restore.logger.Info("Creating ReplicationDestination...")
 
 	// Create the ReplicationDestination YAML using embedded template
 	rdYAML, err := renderVolsyncTemplateFn("replicationdestination.yaml.j2", env)
 	if err != nil {
-		restoreFailed = true
+		restore.restoreFailed = true
 		return fmt.Errorf("failed to render ReplicationDestination template: %w", err)
 	}
 
 	if output, err := kubectlApplyYAMLFn(rdYAML); err != nil {
-		restoreFailed = true
+		restore.restoreFailed = true
 		return fmt.Errorf("failed to create ReplicationDestination: %w\n%s", err, output)
 	}
-	restoreCreatedDest = true
+	restore.restoreCreatedDest = true
+	return nil
+}
 
-	// Step 5: Wait for restore job to complete
-	jobName := fmt.Sprintf("volsync-dst-%s-manual", app)
-	logger.Info("Waiting for restore job %s to complete...", jobName)
+func (restore *restoreOperation) waitForRestoreJob(restoreTimeout time.Duration) error {
+	jobName := fmt.Sprintf("volsync-dst-%s-manual", restore.app)
+	restore.logger.Info("Waiting for restore job %s to complete...", jobName)
 
 	// Wait for job to appear with timeout: 1/4 of restoreTimeout, capped at
 	// 5 minutes, but never below 30s (small --timeout values would otherwise
 	// abort before slow clusters can even schedule the job).
 	jobAppearTimeout := max(min(restoreTimeout/4, 5*time.Minute), 30*time.Second)
-	if err := waitForJobToAppearFn(namespace, jobName, jobAppearTimeout); err != nil {
-		restoreFailed = true
+	if err := waitForJobToAppearFn(restore.namespace, jobName, jobAppearTimeout); err != nil {
+		restore.restoreFailed = true
 		return fmt.Errorf("restore %w", err)
 	}
 
 	// Wait for completion
-	if err := commandRunFn("kubectl", "--namespace", namespace, "wait",
+	if err := commandRunFn("kubectl", "--namespace", restore.namespace, "wait",
 		fmt.Sprintf("job/%s", jobName),
 		"--for=condition=complete",
 		fmt.Sprintf("--timeout=%ds", int(restoreTimeout.Seconds()))); err != nil {
-		restoreFailed = true
+		restore.restoreFailed = true
 		return fmt.Errorf("restore job failed: %w", err)
 	}
-
-	// Step 6: Clean up ReplicationDestination
-	logger.Info("Cleaning up...")
-	if err := commandRunFn("kubectl", "--namespace", namespace, "delete", "replicationdestination", destName); err != nil {
-		logger.Warn("Failed to delete ReplicationDestination: %v", err)
-	}
-	restoreCreatedDest = false
-
-	// Step 7: Resume Flux resources
-	logger.Info("Resuming application...")
-
-	if err := fluxRunFn("--namespace", namespace, "resume", "kustomization", app); err != nil {
-		logger.Warn("Failed to resume kustomization: %v", err)
-	}
-
-	if err := fluxRunFn("--namespace", namespace, "resume", "helmrelease", app); err != nil {
-		logger.Warn("Failed to resume helmrelease: %v", err)
-	}
-
-	if err := fluxRunFn("--namespace", namespace, "reconcile", "kustomization", app, "--with-source"); err != nil {
-		logger.Warn("Failed to reconcile kustomization: %v", err)
-	}
-
-	if err := fluxRunFn("--namespace", namespace, "reconcile", "helmrelease", app, "--force"); err != nil {
-		logger.Warn("Failed to reconcile helmrelease: %v", err)
-	}
-	suspendedFlux = false
-
-	// Wait for pods to be ready
-	logger.Info("Waiting for application to be ready...")
-	if err := commandRunFn("kubectl", "--namespace", namespace, "wait", "pod",
-		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", app),
-		"--timeout=5m"); err != nil {
-		logger.Warn("Application may still be starting: %v", err)
-	}
-
-	logger.Success("Restore completed successfully for %s/%s", namespace, app)
 	return nil
+}
+
+func (restore *restoreOperation) cleanupReplicationDestination() {
+	restore.logger.Info("Cleaning up...")
+	if err := commandRunFn("kubectl", "--namespace", restore.namespace, "delete", "replicationdestination", restore.destName); err != nil {
+		restore.logger.Warn("Failed to delete ReplicationDestination: %v", err)
+	}
+	restore.restoreCreatedDest = false
+}
+
+func (restore *restoreOperation) resumeFluxResources() {
+	restore.logger.Info("Resuming application...")
+
+	if err := fluxRunFn("--namespace", restore.namespace, "resume", "kustomization", restore.app); err != nil {
+		restore.logger.Warn("Failed to resume kustomization: %v", err)
+	}
+
+	if err := fluxRunFn("--namespace", restore.namespace, "resume", "helmrelease", restore.app); err != nil {
+		restore.logger.Warn("Failed to resume helmrelease: %v", err)
+	}
+
+	if err := fluxRunFn("--namespace", restore.namespace, "reconcile", "kustomization", restore.app, "--with-source"); err != nil {
+		restore.logger.Warn("Failed to reconcile kustomization: %v", err)
+	}
+
+	if err := fluxRunFn("--namespace", restore.namespace, "reconcile", "helmrelease", restore.app, "--force"); err != nil {
+		restore.logger.Warn("Failed to reconcile helmrelease: %v", err)
+	}
+	restore.suspendedFlux = false
+}
+
+func (restore *restoreOperation) waitForApplicationReady() {
+	restore.logger.Info("Waiting for application to be ready...")
+	if err := commandRunFn("kubectl", "--namespace", restore.namespace, "wait", "pod",
+		"--for=condition=ready", fmt.Sprintf("--selector=app.kubernetes.io/name=%s", restore.app),
+		"--timeout=5m"); err != nil {
+		restore.logger.Warn("Application may still be starting: %v", err)
+	}
 }
 
 // renderReplicationDestination function removed - now using embedded templates

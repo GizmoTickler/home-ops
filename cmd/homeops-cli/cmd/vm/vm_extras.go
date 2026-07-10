@@ -130,7 +130,7 @@ name (crash-consistent while the VM runs).`,
 
 	cmd.PersistentFlags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
 	cmd.PersistentFlags().StringVar(&snap, "snap", "", "snapshot name (prompts if omitted)")
-	cmd.PersistentFlags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addPersistentProviderFlag(cmd, &provider)
 	cmd.PersistentFlags().BoolVar(&force, "force", false, "skip the confirmation prompt (rollback, delete)")
 	cmd.AddCommand(create, list, rollback, del)
 	return cmd
@@ -172,7 +172,7 @@ makes full clones.`,
 	cmd.Flags().StringVar(&to, "to", "", "new VM name (prompts if omitted)")
 	cmd.Flags().IntVar(&vmid, "vmid", 0, "VMID for the clone (proxmox only; 0 = auto)")
 	cmd.Flags().BoolVar(&linked, "linked", false, "linked clone instead of full (proxmox; truenas clones are always ZFS-linked)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
 
@@ -235,7 +235,7 @@ func newVMIPCommand() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
 
@@ -270,7 +270,7 @@ func newVMSSHCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&user, "user", "", "SSH user (default: secrets.node_ssh_user)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
 
@@ -318,6 +318,6 @@ func newVMConsoleCommand() *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }

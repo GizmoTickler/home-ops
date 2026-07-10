@@ -8,6 +8,9 @@ import (
 // VMIPAddresses returns the VM's non-loopback IPv4 addresses via the QEMU
 // guest agent (requires the agent running in the guest).
 func (vm *VMManager) VMIPAddresses(name string) ([]string, error) {
+	if err := requireVMName(name); err != nil {
+		return nil, err
+	}
 	vmObj, err := vm.findVMByName(name)
 	if err != nil {
 		return nil, err

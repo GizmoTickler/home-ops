@@ -19,8 +19,6 @@ import (
 var (
 	sleepForOperation = time.Sleep
 	ErrVMNotFound     = errors.New("VM not found")
-	getCredentialsFn  = GetCredentials
-	newVMManagerFn    = NewVMManager
 )
 
 // VMManager satisfies the shared lifecycle contract used by command dispatch.
@@ -613,143 +611,25 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 
 // buildVMOptions builds the VirtualMachineOption slice for Talos
 func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
-	options := []proxmox.VirtualMachineOption{
-		{Name: "name", Value: config.Name},
-		{Name: "memory", Value: config.Memory},
-		{Name: "cores", Value: config.Cores},
-		{Name: "sockets", Value: config.Sockets},
-		{Name: "ostype", Value: "l26"}, // Linux 2.6+ kernel
-	}
-
-	// CPU configuration
-	if config.CPUType != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "cpu", Value: config.CPUType})
-	}
-
-	// CPU affinity
-	if config.CPUAffinity != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "affinity", Value: config.CPUAffinity})
-	}
-
-	// NUMA configuration
-	if config.NUMAEnabled {
-		options = append(options, proxmox.VirtualMachineOption{Name: "numa", Value: 1})
-		numaConfig := fmt.Sprintf("cpus=0-%d,hostnodes=%d,memory=%d,policy=bind",
-			config.Cores-1, config.NUMANode, config.Memory)
-		options = append(options, proxmox.VirtualMachineOption{Name: "numa0", Value: numaConfig})
-	}
-
-	// UEFI boot configuration (required for Talos)
-	if config.BIOS == "ovmf" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "bios", Value: "ovmf"})
-		efiStorage := config.EFIDiskStorage
-		if efiStorage == "" {
-			efiStorage = config.BootStorage
-		}
-		efiDisk := fmt.Sprintf("%s:1,efitype=4m,pre-enrolled-keys=0", efiStorage)
-		options = append(options, proxmox.VirtualMachineOption{Name: "efidisk0", Value: efiDisk})
-	}
-
-	// SCSI controller
-	if config.SCSIController != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsihw", Value: config.SCSIController})
-	}
-
-	// Boot disk (scsi0)
-	bootDiskOpts := fmt.Sprintf("%s:%d", config.BootStorage, config.BootDiskSize)
-	if config.Discard {
-		bootDiskOpts += ",discard=on"
-	}
-	if config.IOThread {
-		bootDiskOpts += ",iothread=1"
-	}
-	options = append(options, proxmox.VirtualMachineOption{Name: "scsi0", Value: bootDiskOpts})
-
-	// OpenEBS disk (scsi1)
-	if config.OpenEBSSize > 0 && config.OpenEBSStorage != "" {
-		openebsDiskOpts := fmt.Sprintf("%s:%d", config.OpenEBSStorage, config.OpenEBSSize)
-		if config.Discard {
-			openebsDiskOpts += ",discard=on"
-		}
-		if config.IOThread {
-			openebsDiskOpts += ",iothread=1"
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
-	}
-
-	// Rook-Ceph OSD disk (scsi2). CephMode selects explicitly: "passthrough"
-	// (physical disk via /dev/disk/by-id), "virtual" (plain virtual disk —
-	// no dedicated SSD needed), "none" (no Ceph disk, even if a built-in
-	// node profile sets one). Empty mode keeps the legacy inference:
-	// passthrough when a disk id is set, else virtual when a size is set.
-	usePassthrough := config.CephMode == "passthrough" ||
-		(config.CephMode == "" && config.CephDiskByID != "")
-	useVirtual := config.CephMode == "virtual" ||
-		(config.CephMode == "" && config.CephDiskByID == "" && config.CephDiskSize > 0)
-	if usePassthrough || useVirtual {
-		var cephDiskOpts string
-		if usePassthrough {
-			cephDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
-		} else {
-			cephStorage := config.CephStorage
-			if cephStorage == "" {
-				cephStorage = config.BootStorage
-			}
-			cephDiskOpts = fmt.Sprintf("%s:%d", cephStorage, config.CephDiskSize)
-		}
-		if config.Discard {
-			cephDiskOpts += ",discard=on"
-		}
-		if config.IOThread {
-			cephDiskOpts += ",iothread=1"
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsi2", Value: cephDiskOpts})
-	}
-
-	// CD-ROM with ISO
-	if config.ISOPath != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "ide2", Value: config.ISOPath + ",media=cdrom"})
-	}
-
-	// Boot order - boot from CD first for initial install
-	options = append(options, proxmox.VirtualMachineOption{Name: "boot", Value: "order=ide2"})
-
-	// Network configuration
-	netConfig := fmt.Sprintf("virtio=%s,bridge=%s", config.MacAddress, config.NetworkBridge)
-	if config.MacAddress == "" {
-		netConfig = fmt.Sprintf("virtio,bridge=%s", config.NetworkBridge)
-	}
-	if config.NetworkMTU > 0 {
-		netConfig += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
-	}
-	if config.NetworkQueues > 0 {
-		netConfig += fmt.Sprintf(",queues=%d", config.NetworkQueues)
-	}
-	if config.VLANID > 0 {
-		netConfig += fmt.Sprintf(",tag=%d", config.VLANID)
-	}
-	options = append(options, proxmox.VirtualMachineOption{Name: "net0", Value: netConfig})
-
-	// Watchdog
-	if config.WatchdogModel != "" {
-		watchdogOpts := fmt.Sprintf("model=%s", config.WatchdogModel)
-		if config.WatchdogAction != "" {
-			watchdogOpts += fmt.Sprintf(",action=%s", config.WatchdogAction)
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "watchdog", Value: watchdogOpts})
-	}
-
-	// QEMU agent
-	if config.AgentEnabled {
-		options = append(options, proxmox.VirtualMachineOption{Name: "agent", Value: "enabled=1"})
-	}
-
-	// Auto-start configuration
-	if config.StartOnBoot {
-		options = append(options, proxmox.VirtualMachineOption{Name: "onboot", Value: 1})
-	}
-
-	return options
+	return vm.buildParameterizedVMOptions(config, vmOptionsProfile{
+		useConfigCPU:   true,
+		useAffinity:    true,
+		useNUMA:        true,
+		useUEFI:        true,
+		useConfigSCSI:  true,
+		bootDisk:       talosBootDiskOpts,
+		includeOpenEBS: true,
+		includeCeph:    true,
+		includeISO:     true,
+		bootOrder:      talosBootOrder,
+		network: vmNetworkOptionsProfile{
+			includeQueues:         true,
+			usePositiveMTUAndVLAN: true,
+		},
+		includeWatchdog: true,
+		useConfigAgent:  true,
+		includeOnBoot:   true,
+	})
 }
 
 // buildFlatcarVMOptions builds the VirtualMachineOption slice for a Flatcar/kubeadm
@@ -762,143 +642,25 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 //
 // This does not alter the Talos buildVMOptions path.
 func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
-	options := []proxmox.VirtualMachineOption{
-		{Name: "name", Value: config.Name},
-		{Name: "memory", Value: config.Memory},
-		{Name: "cores", Value: config.Cores},
-		{Name: "sockets", Value: config.Sockets},
-		{Name: "ostype", Value: "l26"},
-	}
-
-	// CPU configuration
-	if config.CPUType != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "cpu", Value: config.CPUType})
-	}
-	if config.CPUAffinity != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "affinity", Value: config.CPUAffinity})
-	}
-
-	// NUMA configuration
-	if config.NUMAEnabled {
-		options = append(options, proxmox.VirtualMachineOption{Name: "numa", Value: 1})
-		numaConfig := fmt.Sprintf("cpus=0-%d,hostnodes=%d,memory=%d,policy=bind",
-			config.Cores-1, config.NUMANode, config.Memory)
-		options = append(options, proxmox.VirtualMachineOption{Name: "numa0", Value: numaConfig})
-	}
-
-	// UEFI boot configuration (Flatcar amd64-usr images are UEFI-capable)
-	if config.BIOS == "ovmf" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "bios", Value: "ovmf"})
-		efiStorage := config.EFIDiskStorage
-		if efiStorage == "" {
-			efiStorage = config.BootStorage
-		}
-		efiDisk := fmt.Sprintf("%s:1,efitype=4m,pre-enrolled-keys=0", efiStorage)
-		options = append(options, proxmox.VirtualMachineOption{Name: "efidisk0", Value: efiDisk})
-	}
-
-	// SCSI controller
-	if config.SCSIController != "" {
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsihw", Value: config.SCSIController})
-	}
-
-	// Boot disk (scsi0): import the Flatcar image, or attach an existing volume.
-	bootDiskOpts := vm.flatcarBootDiskOpts(config)
-	options = append(options, proxmox.VirtualMachineOption{Name: "scsi0", Value: bootDiskOpts})
-
-	// OpenEBS disk (scsi1)
-	if config.OpenEBSSize > 0 && config.OpenEBSStorage != "" {
-		openebsDiskOpts := fmt.Sprintf("%s:%d", config.OpenEBSStorage, config.OpenEBSSize)
-		if config.Discard {
-			openebsDiskOpts += ",discard=on"
-		}
-		if config.IOThread {
-			openebsDiskOpts += ",iothread=1"
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
-	}
-
-	// Rook-Ceph OSD disk (scsi2). CephMode selects explicitly: "passthrough"
-	// (physical disk via /dev/disk/by-id), "virtual" (plain virtual disk —
-	// no dedicated SSD needed), "none" (no Ceph disk, even if a built-in
-	// node profile sets one). Empty mode keeps the legacy inference:
-	// passthrough when a disk id is set, else virtual when a size is set.
-	usePassthrough := config.CephMode == "passthrough" ||
-		(config.CephMode == "" && config.CephDiskByID != "")
-	useVirtual := config.CephMode == "virtual" ||
-		(config.CephMode == "" && config.CephDiskByID == "" && config.CephDiskSize > 0)
-	if usePassthrough || useVirtual {
-		var cephDiskOpts string
-		if usePassthrough {
-			cephDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
-		} else {
-			cephStorage := config.CephStorage
-			if cephStorage == "" {
-				cephStorage = config.BootStorage
-			}
-			cephDiskOpts = fmt.Sprintf("%s:%d", cephStorage, config.CephDiskSize)
-		}
-		if config.Discard {
-			cephDiskOpts += ",discard=on"
-		}
-		if config.IOThread {
-			cephDiskOpts += ",iothread=1"
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "scsi2", Value: cephDiskOpts})
-	}
-
-	// Boot order: Flatcar boots straight from the imported disk (no install ISO).
-	bootOrder := config.BootMode
-	if bootOrder == "" {
-		bootOrder = "order=scsi0"
-	}
-	options = append(options, proxmox.VirtualMachineOption{Name: "boot", Value: bootOrder})
-
-	// Network configuration (identical to Talos: MAC + jumbo MTU + queues + VLAN)
-	netConfig := fmt.Sprintf("virtio=%s,bridge=%s", config.MacAddress, config.NetworkBridge)
-	if config.MacAddress == "" {
-		netConfig = fmt.Sprintf("virtio,bridge=%s", config.NetworkBridge)
-	}
-	if config.NetworkMTU > 0 {
-		netConfig += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
-	}
-	if config.NetworkQueues > 0 {
-		netConfig += fmt.Sprintf(",queues=%d", config.NetworkQueues)
-	}
-	if config.VLANID > 0 {
-		netConfig += fmt.Sprintf(",tag=%d", config.VLANID)
-	}
-	options = append(options, proxmox.VirtualMachineOption{Name: "net0", Value: netConfig})
-
-	// Watchdog
-	if config.WatchdogModel != "" {
-		watchdogOpts := fmt.Sprintf("model=%s", config.WatchdogModel)
-		if config.WatchdogAction != "" {
-			watchdogOpts += fmt.Sprintf(",action=%s", config.WatchdogAction)
-		}
-		options = append(options, proxmox.VirtualMachineOption{Name: "watchdog", Value: watchdogOpts})
-	}
-
-	// QEMU agent
-	if config.AgentEnabled {
-		options = append(options, proxmox.VirtualMachineOption{Name: "agent", Value: "enabled=1"})
-	}
-
-	// Auto-start configuration
-	if config.StartOnBoot {
-		options = append(options, proxmox.VirtualMachineOption{Name: "onboot", Value: 1})
-	}
-
-	// Ignition injection via fw_cfg. Flatcar reads the Ignition config from the
-	// qemu fw_cfg blob opt/org.flatcar-linux/config. The file must live somewhere
-	// the Proxmox node can read (e.g. the snippets dir); IgnitionPath carries that
-	// absolute path on the Proxmox host.
-	if config.IgnitionPath != "" {
-		args := fmt.Sprintf("-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
-		options = append(options, proxmox.VirtualMachineOption{Name: "args", Value: args})
-	}
-
-	return options
+	return vm.buildParameterizedVMOptions(config, vmOptionsProfile{
+		useConfigCPU:   true,
+		useAffinity:    true,
+		useNUMA:        true,
+		useUEFI:        true,
+		useConfigSCSI:  true,
+		bootDisk:       (*VMManager).flatcarBootDiskOpts,
+		includeOpenEBS: true,
+		includeCeph:    true,
+		bootOrder:      flatcarBootOrder,
+		network: vmNetworkOptionsProfile{
+			includeQueues:         true,
+			usePositiveMTUAndVLAN: true,
+		},
+		includeWatchdog: true,
+		useConfigAgent:  true,
+		includeOnBoot:   true,
+		afterOnBoot:     addFlatcarIgnitionArgs,
+	})
 }
 
 // flatcarBootDiskOpts builds the scsi0 value for a Flatcar node. Preference order:
@@ -1250,32 +1012,6 @@ func (vm *VMManager) verifyVMDeletion(name string) error {
 	}
 
 	return fmt.Errorf("VM %s still exists after deletion request", name)
-}
-
-// GetVMNames returns a list of VM names (for CLI completion)
-func GetVMNames() ([]string, error) {
-	host, tokenID, secret, nodeName, err := getCredentialsFn()
-	if err != nil {
-		return nil, err
-	}
-
-	manager, err := newVMManagerFn(host, tokenID, secret, nodeName, true)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = manager.Close() }()
-
-	vms, err := manager.listVMs()
-	if err != nil {
-		return nil, err
-	}
-
-	names := make([]string, 0, len(vms))
-	for _, vmItem := range vms {
-		names = append(names, vmItem.Name)
-	}
-
-	return names, nil
 }
 
 // UploadISOFromURL downloads an ISO from URL to Proxmox storage

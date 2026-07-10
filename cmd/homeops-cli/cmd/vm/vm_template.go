@@ -189,6 +189,6 @@ Per provider:
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "SSH public key baked into the template (default: secrets.node_ssh_authorized_key)")
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH user on the hypervisor for image staging (default: root)")
 	cmd.Flags().StringVar(&fromVM, "from-vm", "", "convert this existing VM into a template instead of importing an image")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }

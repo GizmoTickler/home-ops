@@ -23,6 +23,25 @@ import (
 
 const testUPID = "UPID:pve:00001234:00000000:00000000:qmconfig:100:root@pam:"
 
+// muxTransport serves the given handler entirely in-process, so the harness
+// exercises the real go-proxmox request/response paths without binding a TCP
+// port. This keeps the tests hermetic and lets them run in sandboxed or CI
+// environments that disallow listening on a loopback socket.
+type muxTransport struct{ handler http.Handler }
+
+func (t muxTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	rec := httptest.NewRecorder()
+	// A real HTTP server never hands a handler a nil Body; mirror that so
+	// handlers can call req.Body.Read without a nil-pointer panic.
+	if req.Body == nil {
+		req.Body = http.NoBody
+	}
+	t.handler.ServeHTTP(rec, req)
+	res := rec.Result()
+	res.Request = req
+	return res, nil
+}
+
 // apiRecorder captures the mutating requests the manager sends.
 type apiRecorder struct {
 	requests []string // "METHOD path"
@@ -71,10 +90,9 @@ func newAPIManager(t *testing.T, extra func(w http.ResponseWriter, r *http.Reque
 		}
 	})
 
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	pmx := proxmox.NewClient(server.URL + "/api2/json")
+	pmx := proxmox.NewClient("http://proxmox.test/api2/json",
+		proxmox.WithHTTPClient(&http.Client{Transport: muxTransport{handler: mux}}),
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	node, err := pmx.Node(ctx, "pve")
@@ -117,8 +135,29 @@ func TestSetVMResourcesOverAPI(t *testing.T) {
 
 func TestSetVMResourcesValidation(t *testing.T) {
 	manager, _ := newAPIManager(t, nil)
+	require.ErrorContains(t, manager.SetVMResources("", 1024, 0), "VM name is required")
 	require.ErrorContains(t, manager.SetVMResources("web0", 0, 0), "nothing to change")
+	require.ErrorContains(t, manager.SetVMResources("web0", -1024, 0), "memory must not be negative")
+	require.ErrorContains(t, manager.SetVMResources("web0", 0, -1), "cores must not be negative")
 	require.ErrorContains(t, manager.SetVMResources("ghost", 1024, 0), "not found")
+}
+
+func TestDay2Validation(t *testing.T) {
+	manager, _ := newAPIManager(t, nil)
+
+	require.ErrorContains(t, manager.ResizeVMDisk("", "", "+20G"), "VM name is required")
+	require.ErrorContains(t, manager.ResizeVMDisk("web0", "", ""), "disk size is required")
+	require.ErrorContains(t, manager.RestartVM(""), "VM name is required")
+	require.ErrorContains(t, manager.SnapshotVM("", "pre-upgrade"), "VM name is required")
+	require.ErrorContains(t, manager.SnapshotVM("web0", ""), "snapshot name is required")
+	require.ErrorContains(t, manager.RollbackVM("", "pre-upgrade"), "VM name is required")
+	require.ErrorContains(t, manager.RollbackVM("web0", ""), "snapshot name is required")
+	require.ErrorContains(t, manager.DeleteVMSnapshot("", "pre-upgrade"), "VM name is required")
+	require.ErrorContains(t, manager.DeleteVMSnapshot("web0", ""), "snapshot name is required")
+	require.ErrorContains(t, manager.CloneVM("", "web1", 0, true), "VM name is required")
+	require.ErrorContains(t, manager.CloneVM("web0", "", 0, true), "target VM name is required")
+	_, ipErr := manager.VMIPAddresses("")
+	require.ErrorContains(t, ipErr, "VM name is required")
 }
 
 func TestResizeVMDiskOverAPI(t *testing.T) {

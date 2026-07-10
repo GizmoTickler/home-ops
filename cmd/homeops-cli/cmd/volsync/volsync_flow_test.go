@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -353,9 +354,14 @@ func TestSnapshotAllApps(t *testing.T) {
 	})
 
 	t.Run("aggregates failures", func(t *testing.T) {
-		var seen []string
+		var (
+			seenMu sync.Mutex
+			seen   []string
+		)
 		snapshotAppFn = func(namespace, app string, wait bool, timeout time.Duration) error {
+			seenMu.Lock()
 			seen = append(seen, namespace+"/"+app)
+			seenMu.Unlock()
 			if app == "audiobookshelf" {
 				return errors.New("boom")
 			}

@@ -23,6 +23,17 @@ func runLifecycleOp(provider string, op func(vmprov.VMLifecycle) error) error {
 // providerFlagUsage is the shared --provider help text for vm subcommands.
 const providerFlagUsage = "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)"
 
+// addProviderFlag registers the shared --provider flag on cmd's local flag set.
+func addProviderFlag(cmd *cobra.Command, provider *string) {
+	cmd.Flags().StringVar(provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+}
+
+// addPersistentProviderFlag registers the shared --provider flag on cmd's
+// persistent flag set (inherited by subcommands).
+func addPersistentProviderFlag(cmd *cobra.Command, provider *string) {
+	cmd.PersistentFlags().StringVar(provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+}
+
 // newSetVMCommand updates VM hardware (memory/cores).
 func newSetVMCommand() *cobra.Command {
 	var name, provider string
@@ -57,7 +68,7 @@ func newSetVMCommand() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
 	cmd.Flags().IntVar(&memory, "memory", 0, "new memory in MB (0 = unchanged)")
 	cmd.Flags().IntVar(&cores, "cores", 0, "new CPU cores/vCPUs (0 = unchanged)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
 
@@ -107,7 +118,7 @@ func newResizeDiskCommand() *cobra.Command {
 	cmd.Flags().StringVar(&disk, "disk", "", "disk to resize (default: boot disk; proxmox: scsi0/scsi1..., truenas: boot/openebs/zvol path, vsphere: scsiN or device label)")
 	cmd.Flags().StringVar(&grow, "grow", "", "grow by this much (e.g. 20G)")
 	cmd.Flags().StringVar(&size, "size", "", "grow to this absolute size (e.g. 200G)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
 
@@ -132,6 +143,6 @@ func newRestartVMCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "VM name (prompts if omitted)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }

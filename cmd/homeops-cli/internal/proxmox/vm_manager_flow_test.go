@@ -317,27 +317,10 @@ func TestProxmoxClientGuardsAndHelpers(t *testing.T) {
 	require.NoError(t, manager.Close())
 }
 
-func TestGetVMNamesAndUploadISO(t *testing.T) {
-	originalGetCredentials := getCredentialsFn
-	originalNewVMManager := newVMManagerFn
-	t.Cleanup(func() {
-		getCredentialsFn = originalGetCredentials
-		newVMManagerFn = originalNewVMManager
-	})
-
-	getCredentialsFn = func() (string, string, string, string, error) {
-		return "host", "token", "secret", "pve", nil
-	}
-
+func TestUploadISOFromURL(t *testing.T) {
 	manager := &VMManager{
 		client: &Client{ctx: context.Background()},
 		logger: common.NewColorLogger(),
-		listVMsFn: func() (proxmox.VirtualMachines, error) {
-			return proxmox.VirtualMachines{
-				&proxmox.VirtualMachine{Name: "cp-0"},
-				&proxmox.VirtualMachine{Name: "cp-1"},
-			}, nil
-		},
 		uploadISOTaskFn: func(storageName, isoURL, filename string) (taskHandle, error) {
 			assert.Equal(t, "local", storageName)
 			assert.Equal(t, "https://example.test/talos.iso", isoURL)
@@ -346,37 +329,10 @@ func TestGetVMNamesAndUploadISO(t *testing.T) {
 		},
 	}
 
-	newVMManagerFn = func(host, tokenID, secret, nodeName string, insecure bool) (*VMManager, error) {
-		assert.Equal(t, "host", host)
-		assert.Equal(t, "token", tokenID)
-		assert.Equal(t, "secret", secret)
-		assert.Equal(t, "pve", nodeName)
-		assert.True(t, insecure)
-		return manager, nil
-	}
-
-	names, err := GetVMNames()
-	require.NoError(t, err)
-	assert.Equal(t, []string{"cp-0", "cp-1"}, names)
-
 	require.NoError(t, manager.UploadISOFromURL("https://example.test/talos.iso", "talos.iso", "local"))
 }
 
-func TestGetVMNamesAndUploadISOErrors(t *testing.T) {
-	originalGetCredentials := getCredentialsFn
-	originalNewVMManager := newVMManagerFn
-	t.Cleanup(func() {
-		getCredentialsFn = originalGetCredentials
-		newVMManagerFn = originalNewVMManager
-	})
-
-	getCredentialsFn = func() (string, string, string, string, error) {
-		return "", "", "", "", fmt.Errorf("missing creds")
-	}
-	_, err := GetVMNames()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "missing creds")
-
+func TestUploadISOFromURLErrors(t *testing.T) {
 	manager := &VMManager{
 		client: &Client{ctx: context.Background()},
 		logger: common.NewColorLogger(),
@@ -384,7 +340,7 @@ func TestGetVMNamesAndUploadISOErrors(t *testing.T) {
 			return nil, fmt.Errorf("upload init failed")
 		},
 	}
-	err = manager.UploadISOFromURL("https://example.test/talos.iso", "talos.iso", "local")
+	err := manager.UploadISOFromURL("https://example.test/talos.iso", "talos.iso", "local")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to initiate ISO download")
 

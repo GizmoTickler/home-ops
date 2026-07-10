@@ -53,7 +53,7 @@ func NewVMLifecycleRootGuidanceCommand(action string) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	if action != "list" {
 		cmd.Flags().StringVar(&name, "name", "", "VM name")
 	}
@@ -243,7 +243,7 @@ func newListVMsCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 
 	return cmd
@@ -327,7 +327,7 @@ func newStartVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -375,7 +375,7 @@ func newStopVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -403,7 +403,7 @@ func newDeleteVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force deletion without confirmation")
 
@@ -471,7 +471,7 @@ func newInfoVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -546,7 +546,7 @@ func newPowerOnVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 
 	// Add completion for name flag
@@ -574,7 +574,7 @@ func newPowerOffVMCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVar(&name, "name", "", "VM name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 

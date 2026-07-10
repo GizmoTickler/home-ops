@@ -463,6 +463,6 @@ Per provider:
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH user on the hypervisor for image staging (default: root on proxmox; secrets.truenas_username on truenas)")
 	cmd.Flags().BoolVar(&start, "start", true, "power on after creation")
 	cmd.Flags().StringVar(&template, "template", "", "vSphere template to clone (default: hypervisors.vsphere.template)")
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	addProviderFlag(cmd, &provider)
 	return cmd
 }
