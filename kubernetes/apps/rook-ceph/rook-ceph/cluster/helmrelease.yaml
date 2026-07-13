@@ -66,9 +66,9 @@ spec:
         mgr:
           requests:
             cpu: 650m
-            memory: 512Mi
+            memory: 1Gi
           limits:
-            memory: 2Gi
+            memory: 3Gi
         mon:
           requests:
             cpu: 400m
