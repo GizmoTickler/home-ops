@@ -101,14 +101,12 @@ func TestRestoreAllRequiresPreviousFlag(t *testing.T) {
 }
 
 func TestPromptForNamespace(t *testing.T) {
-	oldSelect := selectNamespaceFn
-	t.Cleanup(func() { selectNamespaceFn = oldSelect })
 
 	t.Run("returns input when namespace is set", func(t *testing.T) {
-		selectNamespaceFn = func(string, bool) (string, error) {
+		testutil.Swap(t, &selectNamespaceFn, func(string, bool) (string, error) {
 			t.Fatal("selectNamespaceFn must not be called when namespace is set")
 			return "", nil
-		}
+		})
 
 		ns, cancelled, err := promptForNamespace("media")
 		require.NoError(t, err)
@@ -117,11 +115,11 @@ func TestPromptForNamespace(t *testing.T) {
 	})
 
 	t.Run("prompts when namespace is empty", func(t *testing.T) {
-		selectNamespaceFn = func(prompt string, allowAll bool) (string, error) {
+		testutil.Swap(t, &selectNamespaceFn, func(prompt string, allowAll bool) (string, error) {
 			assert.Equal(t, "Select namespace:", prompt)
 			assert.False(t, allowAll)
 			return "downloads", nil
-		}
+		})
 
 		ns, cancelled, err := promptForNamespace("")
 		require.NoError(t, err)
@@ -130,9 +128,9 @@ func TestPromptForNamespace(t *testing.T) {
 	})
 
 	t.Run("returns cancelled on cancellation error", func(t *testing.T) {
-		selectNamespaceFn = func(string, bool) (string, error) {
+		testutil.Swap(t, &selectNamespaceFn, func(string, bool) (string, error) {
 			return "", errors.New("cancelled by user")
-		}
+		})
 
 		ns, cancelled, err := promptForNamespace("")
 		require.NoError(t, err)
@@ -141,9 +139,9 @@ func TestPromptForNamespace(t *testing.T) {
 	})
 
 	t.Run("propagates non-cancellation errors", func(t *testing.T) {
-		selectNamespaceFn = func(string, bool) (string, error) {
+		testutil.Swap(t, &selectNamespaceFn, func(string, bool) (string, error) {
 			return "", errors.New("kubectl unreachable")
-		}
+		})
 
 		_, cancelled, err := promptForNamespace("")
 		require.Error(t, err)
@@ -153,15 +151,13 @@ func TestPromptForNamespace(t *testing.T) {
 }
 
 func TestFetchReplicationSourceNames(t *testing.T) {
-	oldOutput := commandOutputFn
-	t.Cleanup(func() { commandOutputFn = oldOutput })
 
 	t.Run("parses whitespace separated names", func(t *testing.T) {
-		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(name string, args ...string) ([]byte, error) {
 			require.Equal(t, "kubectl", name)
 			assert.Contains(t, args, "media")
 			return []byte("paperless audiobookshelf\n"), nil
-		}
+		})
 
 		apps, err := fetchReplicationSourceNames("media")
 		require.NoError(t, err)
@@ -169,9 +165,9 @@ func TestFetchReplicationSourceNames(t *testing.T) {
 	})
 
 	t.Run("returns error when kubectl fails", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return nil, errors.New("connection refused")
-		}
+		})
 
 		_, err := fetchReplicationSourceNames("media")
 		require.Error(t, err)
@@ -179,9 +175,9 @@ func TestFetchReplicationSourceNames(t *testing.T) {
 	})
 
 	t.Run("returns error when no ReplicationSources exist", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return []byte(""), nil
-		}
+		})
 
 		_, err := fetchReplicationSourceNames("empty-ns")
 		require.Error(t, err)
@@ -190,18 +186,12 @@ func TestFetchReplicationSourceNames(t *testing.T) {
 }
 
 func TestResolveReplicationSourceApp(t *testing.T) {
-	oldChoose := chooseOptionFn
-	oldOutput := commandOutputFn
-	t.Cleanup(func() {
-		chooseOptionFn = oldChoose
-		commandOutputFn = oldOutput
-	})
 
 	t.Run("returns input when app is set", func(t *testing.T) {
-		chooseOptionFn = func(string, []string) (string, error) {
+		testutil.Swap(t, &chooseOptionFn, func(string, []string) (string, error) {
 			t.Fatal("chooseOptionFn must not be called when app is set")
 			return "", nil
-		}
+		})
 
 		app, cancelled, err := resolveReplicationSourceApp("media", "paperless", "snapshot")
 		require.NoError(t, err)
@@ -210,15 +200,15 @@ func TestResolveReplicationSourceApp(t *testing.T) {
 	})
 
 	t.Run("prompts when app is empty", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return []byte("paperless audiobookshelf"), nil
-		}
-		chooseOptionFn = func(prompt string, options []string) (string, error) {
+		})
+		testutil.Swap(t, &chooseOptionFn, func(prompt string, options []string) (string, error) {
 			assert.Contains(t, prompt, "snapshot")
 			assert.Contains(t, prompt, "media")
 			assert.Equal(t, []string{"paperless", "audiobookshelf"}, options)
 			return "audiobookshelf", nil
-		}
+		})
 
 		app, cancelled, err := resolveReplicationSourceApp("media", "", "snapshot")
 		require.NoError(t, err)
@@ -227,12 +217,12 @@ func TestResolveReplicationSourceApp(t *testing.T) {
 	})
 
 	t.Run("returns cancelled on cancellation", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return []byte("paperless"), nil
-		}
-		chooseOptionFn = func(string, []string) (string, error) {
+		})
+		testutil.Swap(t, &chooseOptionFn, func(string, []string) (string, error) {
 			return "", errors.New("cancelled by user")
-		}
+		})
 
 		app, cancelled, err := resolveReplicationSourceApp("media", "", "restore")
 		require.NoError(t, err)
@@ -241,12 +231,12 @@ func TestResolveReplicationSourceApp(t *testing.T) {
 	})
 
 	t.Run("wraps non-cancellation errors", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return []byte("paperless"), nil
-		}
-		chooseOptionFn = func(string, []string) (string, error) {
+		})
+		testutil.Swap(t, &chooseOptionFn, func(string, []string) (string, error) {
 			return "", errors.New("display unavailable")
-		}
+		})
 
 		_, _, err := resolveReplicationSourceApp("media", "", "restore")
 		require.Error(t, err)
@@ -255,9 +245,9 @@ func TestResolveReplicationSourceApp(t *testing.T) {
 	})
 
 	t.Run("surfaces fetch errors", func(t *testing.T) {
-		commandOutputFn = func(string, ...string) ([]byte, error) {
+		testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
 			return nil, errors.New("api error")
-		}
+		})
 
 		_, _, err := resolveReplicationSourceApp("media", "", "snapshot")
 		require.Error(t, err)
@@ -266,21 +256,15 @@ func TestResolveReplicationSourceApp(t *testing.T) {
 }
 
 func TestWaitForJobToAppear(t *testing.T) {
-	oldRun := commandRunFn
-	oldSleep := volsyncSleep
-	t.Cleanup(func() {
-		commandRunFn = oldRun
-		volsyncSleep = oldSleep
-	})
 
 	t.Run("returns nil when job appears on first try", func(t *testing.T) {
 		var sleeps []time.Duration
-		commandRunFn = func(name string, args ...string) error {
+		testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
 			require.Equal(t, "kubectl", name)
 			assert.Equal(t, []string{"--namespace", "media", "get", "job/volsync-src-paperless"}, args)
 			return nil
-		}
-		volsyncSleep = func(d time.Duration) { sleeps = append(sleeps, d) }
+		})
+		testutil.Swap(t, &volsyncSleep, func(d time.Duration) { sleeps = append(sleeps, d) })
 
 		err := waitForJobToAppear("media", "volsync-src-paperless", time.Second)
 		require.NoError(t, err)
@@ -290,14 +274,14 @@ func TestWaitForJobToAppear(t *testing.T) {
 	t.Run("polls until job appears", func(t *testing.T) {
 		var sleeps []time.Duration
 		attempts := 0
-		commandRunFn = func(name string, args ...string) error {
+		testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
 			attempts++
 			if attempts < 3 {
 				return errors.New("not found")
 			}
 			return nil
-		}
-		volsyncSleep = func(d time.Duration) { sleeps = append(sleeps, d) }
+		})
+		testutil.Swap(t, &volsyncSleep, func(d time.Duration) { sleeps = append(sleeps, d) })
 
 		err := waitForJobToAppear("media", "volsync-src-paperless", time.Hour)
 		require.NoError(t, err)
@@ -307,12 +291,12 @@ func TestWaitForJobToAppear(t *testing.T) {
 
 	t.Run("returns error when timeout exceeded", func(t *testing.T) {
 		// Use 1ns timeout so the helper does one attempt then errors out.
-		commandRunFn = func(name string, args ...string) error {
+		testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
 			return errors.New("not found")
-		}
-		volsyncSleep = func(time.Duration) {
+		})
+		testutil.Swap(t, &volsyncSleep, func(time.Duration) {
 			t.Fatal("should not sleep when timeout already exceeded")
-		}
+		})
 
 		err := waitForJobToAppear("media", "volsync-src-paperless", time.Nanosecond)
 		require.Error(t, err)
@@ -322,13 +306,10 @@ func TestWaitForJobToAppear(t *testing.T) {
 }
 
 func TestSnapshotAppValidatesReplicationSourceExists(t *testing.T) {
-	oldRun := commandRunFn
-	t.Cleanup(func() { commandRunFn = oldRun })
-
-	commandRunFn = func(name string, args ...string) error {
+	testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
 		// Simulate missing ReplicationSource
 		return errors.New("not found")
-	}
+	})
 
 	err := snapshotApp("media", "missing", false, time.Minute)
 	require.Error(t, err)
@@ -336,13 +317,10 @@ func TestSnapshotAppValidatesReplicationSourceExists(t *testing.T) {
 }
 
 func TestRestoreAppRejectsCancelledRestore(t *testing.T) {
-	oldConfirm := confirmActionFn
-	t.Cleanup(func() { confirmActionFn = oldConfirm })
-
-	confirmActionFn = func(message string, defaultYes bool) (bool, error) {
+	testutil.Swap(t, &confirmActionFn, func(message string, defaultYes bool) (bool, error) {
 		assert.Contains(t, message, "Data will be overwritten")
 		return false, nil
-	}
+	})
 
 	err := restoreApp("media", "paperless", "17", false, time.Minute)
 	require.Error(t, err)
@@ -350,24 +328,15 @@ func TestRestoreAppRejectsCancelledRestore(t *testing.T) {
 }
 
 func TestSnapshotAllAppsClampsZeroConcurrency(t *testing.T) {
-	oldKubectlRun := kubectlRunFn
-	oldKubectlCombinedOutput := kubectlCombinedOutputFn
-	oldSnapshotApp := snapshotAppFn
-	t.Cleanup(func() {
-		kubectlRunFn = oldKubectlRun
-		kubectlCombinedOutputFn = oldKubectlCombinedOutput
-		snapshotAppFn = oldSnapshotApp
-	})
-
-	kubectlRunFn = func(...string) error { return nil }
-	kubectlCombinedOutputFn = func(...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlRunFn, func(...string) error { return nil })
+	testutil.Swap(t, &kubectlCombinedOutputFn, func(...string) ([]byte, error) {
 		return []byte("media paperless\n"), nil
-	}
+	})
 	called := false
-	snapshotAppFn = func(namespace, app string, wait bool, timeout time.Duration) error {
+	testutil.Swap(t, &snapshotAppFn, func(namespace, app string, wait bool, timeout time.Duration) error {
 		called = true
 		return nil
-	}
+	})
 
 	// Concurrency=0 must be clamped to 1 to avoid a deadlock on a zero-length semaphore.
 	require.NoError(t, snapshotAllApps("media", false, time.Minute, false, 0))
@@ -375,24 +344,17 @@ func TestSnapshotAllAppsClampsZeroConcurrency(t *testing.T) {
 }
 
 func TestSnapshotAllAppsRejectsUnreachableNamespace(t *testing.T) {
-	oldKubectlRun := kubectlRunFn
-	oldKubectlCombinedOutput := kubectlCombinedOutputFn
-	t.Cleanup(func() {
-		kubectlRunFn = oldKubectlRun
-		kubectlCombinedOutputFn = oldKubectlCombinedOutput
-	})
-
-	kubectlRunFn = func(args ...string) error {
+	testutil.Swap(t, &kubectlRunFn, func(args ...string) error {
 		// `kubectl get namespace <ns>` is the validation call.
 		if len(args) >= 3 && args[0] == "get" && args[1] == "namespace" {
 			return errors.New("namespace not found")
 		}
 		return nil
-	}
-	kubectlCombinedOutputFn = func(...string) ([]byte, error) {
+	})
+	testutil.Swap(t, &kubectlCombinedOutputFn, func(...string) ([]byte, error) {
 		t.Fatal("kubectlCombinedOutputFn must not be called when namespace validation fails")
 		return nil, nil
-	}
+	})
 
 	err := snapshotAllApps("missing", false, time.Minute, false, 1)
 	require.Error(t, err)

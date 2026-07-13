@@ -44,6 +44,10 @@ type VMProfile struct {
 	// Ceph configures this node's Rook-Ceph OSD disk (overrides the provider
 	// default and any built-in node profile).
 	Ceph CephDisk `yaml:"ceph,omitempty"`
+	// Providers contains per-cluster-provider overlays for fields that differ
+	// while sharing the same node identity (for example Talos vs Flatcar boot
+	// storage during an OS migration).
+	Providers ProviderVMProfiles `yaml:"providers,omitempty"`
 }
 
 // CephDisk describes how a node gets its Rook-Ceph OSD disk.
@@ -59,6 +63,24 @@ type CephDisk struct {
 	// Storage is the pool/datastore for the virtual disk (virtual mode);
 	// defaults to the boot disk's storage when empty.
 	Storage string `yaml:"storage,omitempty"`
+}
+
+// ProviderVMProfile customizes one provider-specific view of a node's VM
+// profile. Unset fields inherit from the shared VMProfile.
+type ProviderVMProfile struct {
+	VMID           int      `yaml:"vmid,omitempty"`
+	Mac            string   `yaml:"mac,omitempty"`
+	BootStorage    string   `yaml:"boot_storage,omitempty"`
+	OpenEBSStorage string   `yaml:"openebs_storage,omitempty"`
+	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`
+	NUMANode       *int     `yaml:"numa_node,omitempty"`
+	Ceph           CephDisk `yaml:"ceph,omitempty"`
+}
+
+// ProviderVMProfiles groups provider-specific node VM overlays.
+type ProviderVMProfiles struct {
+	Talos   ProviderVMProfile `yaml:"talos,omitempty"`
+	Flatcar ProviderVMProfile `yaml:"flatcar,omitempty"`
 }
 
 // VMDefaults customizes the per-provider defaults for VM composition: sizing,
@@ -417,6 +439,14 @@ func validate(c *Config) error {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.ceph", n.Name), n.VM.Ceph.Mode})
+		cephModes = append(cephModes, struct {
+			name string
+			mode string
+		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.talos.ceph", n.Name), n.VM.Providers.Talos.Ceph.Mode})
+		cephModes = append(cephModes, struct {
+			name string
+			mode string
+		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.flatcar.ceph", n.Name), n.VM.Providers.Flatcar.Ceph.Mode})
 	}
 	for _, cm := range cephModes {
 		switch cm.mode {
@@ -496,6 +526,20 @@ func (c *Config) NodeByName(name string) (Node, bool) {
 		}
 	}
 	return Node{}, false
+}
+
+// ForProvider returns this VM profile with the named provider overlay applied.
+// Unknown providers receive only the shared profile fields.
+func (p VMProfile) ForProvider(provider string) VMProfile {
+	out := p
+	out.Providers = ProviderVMProfiles{}
+	switch strings.ToLower(provider) {
+	case "talos":
+		applyProviderVMProfile(&out, p.Providers.Talos)
+	case "flatcar":
+		applyProviderVMProfile(&out, p.Providers.Flatcar)
+	}
+	return out
 }
 
 // APIEndpoint returns the apiserver DNS name: the explicit endpoint if set,

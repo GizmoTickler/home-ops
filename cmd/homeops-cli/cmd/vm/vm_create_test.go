@@ -393,9 +393,7 @@ func TestVMListOutputFormats(t *testing.T) {
 	defer versionconfig.SetForTesting(nil)()
 	_, _ = injectFakeVMLifecycle(t)
 
-	origEnsure := vmlifecycle.EnsureVMLifecycleProviderFn
-	vmlifecycle.EnsureVMLifecycleProviderFn = func(string, string) error { return nil }
-	t.Cleanup(func() { vmlifecycle.EnsureVMLifecycleProviderFn = origEnsure })
+	testutil.Swap(t, &vmlifecycle.EnsureVMLifecycleProviderFn, func(string, string) error { return nil })
 
 	out, _, err := testutil.CaptureOutput(func() {
 		cmd := newListVMsCommand()

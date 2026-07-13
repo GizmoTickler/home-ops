@@ -13,6 +13,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Swap replaces a package-level function-variable test seam for the duration
+// of a test and restores it with t.Cleanup. Production seams should follow the
+// convention `var fooFn = foo`; tests should swap them only through this helper
+// instead of hand-rolled save/restore boilerplate.
+func Swap[T any](t *testing.T, target *T, replacement T) {
+	t.Helper()
+	original := *target
+	*target = replacement
+	t.Cleanup(func() {
+		*target = original
+	})
+}
+
 // TempDir creates a temporary directory for tests and returns cleanup function
 func TempDir(t *testing.T) (string, func()) {
 	t.Helper()

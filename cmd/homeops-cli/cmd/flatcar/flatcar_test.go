@@ -14,6 +14,7 @@ import (
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vsphere"
 
@@ -374,32 +375,24 @@ func (f *fakeMgr) DeployVM(c proxmox.VMConfig) error {
 
 func TestDeployVMRealPath(t *testing.T) {
 	defer stubVersions(t)()
-	origIgn := renderIgnitionFn
-	defer func() { renderIgnitionFn = origIgn }()
-	renderIgnitionFn = func(env flatcar.NodeEnv) ([]byte, error) {
+	testutil.Swap(t, &renderIgnitionFn, func(env flatcar.NodeEnv) ([]byte, error) {
 		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
-	}
+	})
 
-	origCreds := getProxmoxCredentialsFn
-	defer func() { getProxmoxCredentialsFn = origCreds }()
-	getProxmoxCredentialsFn = func() (string, string, string, string, error) {
+	testutil.Swap(t, &getProxmoxCredentialsFn, func() (string, string, string, string, error) {
 		return "h", "tid", "sec", "pve", nil
-	}
+	})
 
 	mgr := &fakeMgr{}
-	origMgr := newProxmoxVMManagerFn
-	defer func() { newProxmoxVMManagerFn = origMgr }()
-	newProxmoxVMManagerFn = func(string, string, string, string, bool) (proxmoxVMManager, error) {
+	testutil.Swap(t, &newProxmoxVMManagerFn, func(string, string, string, string, bool) (proxmoxVMManager, error) {
 		return mgr, nil
-	}
+	})
 
 	var uploadedTo string
-	origUpload := uploadIgnitionToPVEFn
-	defer func() { uploadIgnitionToPVEFn = origUpload }()
-	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+	testutil.Swap(t, &uploadIgnitionToPVEFn, func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
 		uploadedTo = sshHost + ":" + remotePath
 		return nil
-	}
+	})
 
 	// Use a temp snippets dir; the Ignition upload to Proxmox is stubbed above.
 	snip := t.TempDir()

@@ -190,39 +190,10 @@ type TalosNodeConfig struct {
 	MacAddress     string // Static MAC address
 }
 
-// TalosNodeConfigs contains pre-defined Talos node configurations
-var TalosNodeConfigs = map[string]TalosNodeConfig{
-	"k8s-0": {
-		Name:           "k8s-0",
-		VMID:           200,
-		BootStorage:    "nvme1",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN",
-		CPUAffinity:    "0-7,32-39",
-		NUMANode:       0,
-		MacAddress:     "00:a0:98:28:c8:83",
-	},
-	"k8s-1": {
-		Name:           "k8s-1",
-		VMID:           201,
-		BootStorage:    "nvme2",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN",
-		CPUAffinity:    "16-23,48-55",
-		NUMANode:       1,
-		MacAddress:     "00:a0:98:1a:f3:72",
-	},
-	"k8s-2": {
-		Name:           "k8s-2",
-		VMID:           202,
-		BootStorage:    "nvme1",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN",
-		CPUAffinity:    "8-15,40-47",
-		NUMANode:       0,
-		MacAddress:     "00:a0:98:3e:6c:22",
-	},
-}
+// TalosNodeConfigs contains the embedded default Talos node configurations.
+//
+// Deprecated: use GetTalosNodeConfig so homeops.yaml overrides are included.
+var TalosNodeConfigs = talosNodeConfigMap(homeopscfg.DefaultNodes())
 
 // FlatcarNodeConfig defines per-node configuration for Flatcar/kubeadm nodes.
 // It mirrors TalosNodeConfig (same VMIDs/MACs/storage/affinity/NUMA) and adds the
@@ -242,100 +213,79 @@ type FlatcarNodeConfig struct {
 	MacAddress     string // Static MAC address
 }
 
-// FlatcarNodeConfigs contains pre-defined Flatcar node configurations. VMIDs, MACs,
-// storage pools, CPU affinity and NUMA nodes are intentionally identical to
-// TalosNodeConfigs so the migration reuses the same Proxmox slots.
-var FlatcarNodeConfigs = map[string]FlatcarNodeConfig{
-	"k8s-0": {
-		Name:           "k8s-0",
-		VMID:           200,
-		NodeIP:         "192.168.122.10",
-		BootStorage:    "nvme-mirror",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN",
-		CPUAffinity:    "0-7,32-39",
-		NUMANode:       0,
-		MacAddress:     "00:a0:98:28:c8:83",
-	},
-	"k8s-1": {
-		Name:           "k8s-1",
-		VMID:           201,
-		NodeIP:         "192.168.122.11",
-		BootStorage:    "nvme-mirror",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN",
-		CPUAffinity:    "16-23,48-55",
-		NUMANode:       1,
-		MacAddress:     "00:a0:98:1a:f3:72",
-	},
-	"k8s-2": {
-		Name:           "k8s-2",
-		VMID:           202,
-		NodeIP:         "192.168.122.12",
-		BootStorage:    "nvme-mirror",
-		OpenEBSStorage: "nvmeof-vmdata",
-		CephDiskByID:   "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN",
-		CPUAffinity:    "8-15,40-47",
-		NUMANode:       0,
-		MacAddress:     "00:a0:98:3e:6c:22",
-	},
+// FlatcarNodeConfigs contains the embedded default Flatcar node configurations.
+// VMIDs, MACs, CPU affinity and NUMA nodes are intentionally identical to the
+// Talos slots so the migration reuses the same Proxmox identities.
+//
+// Deprecated: use GetFlatcarNodeConfig so homeops.yaml overrides are included.
+var FlatcarNodeConfigs = flatcarNodeConfigMap(homeopscfg.DefaultNodes())
+
+func talosNodeConfigMap(nodes []homeopscfg.Node) map[string]TalosNodeConfig {
+	out := make(map[string]TalosNodeConfig, len(nodes))
+	for _, node := range nodes {
+		out[node.Name] = talosNodeConfigFromNode(node)
+	}
+	return out
 }
 
-// GetFlatcarNodeConfig retrieves the config for a Flatcar node. The hardware
-// profile (VMID, storage, MAC, pinning) comes from the predefined map; the
-// node IP is overridden by cluster.nodes in homeops.yaml when present, and a
-// node defined only in homeops.yaml gets a minimal profile so config-driven
-// topologies work without editing this file.
+func flatcarNodeConfigMap(nodes []homeopscfg.Node) map[string]FlatcarNodeConfig {
+	out := make(map[string]FlatcarNodeConfig, len(nodes))
+	for _, node := range nodes {
+		out[node.Name] = flatcarNodeConfigFromNode(node)
+	}
+	return out
+}
+
+func talosNodeConfigFromNode(node homeopscfg.Node) TalosNodeConfig {
+	profile := node.VM.ForProvider("talos")
+	return TalosNodeConfig{
+		Name:           node.Name,
+		VMID:           profile.VMID,
+		BootStorage:    profile.BootStorage,
+		OpenEBSStorage: profile.OpenEBSStorage,
+		CephMode:       profile.Ceph.Mode,
+		CephDiskByID:   profile.Ceph.DiskByID,
+		CephDiskGB:     profile.Ceph.SizeGB,
+		CephStorage:    profile.Ceph.Storage,
+		CPUAffinity:    profile.CPUAffinity,
+		NUMANode:       vmProfileNUMANode(profile),
+		MacAddress:     profile.Mac,
+	}
+}
+
+func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
+	profile := node.VM.ForProvider("flatcar")
+	return FlatcarNodeConfig{
+		Name:           node.Name,
+		VMID:           profile.VMID,
+		NodeIP:         node.IP,
+		BootStorage:    profile.BootStorage,
+		OpenEBSStorage: profile.OpenEBSStorage,
+		CephMode:       profile.Ceph.Mode,
+		CephDiskByID:   profile.Ceph.DiskByID,
+		CephDiskGB:     profile.Ceph.SizeGB,
+		CephStorage:    profile.Ceph.Storage,
+		CPUAffinity:    profile.CPUAffinity,
+		NUMANode:       vmProfileNUMANode(profile),
+		MacAddress:     profile.Mac,
+	}
+}
+
+func vmProfileNUMANode(profile homeopscfg.VMProfile) int {
+	if profile.NUMANode == nil {
+		return 0
+	}
+	return *profile.NUMANode
+}
+
+// GetFlatcarNodeConfig retrieves the effective config for a Flatcar node from
+// homeops.yaml after embedded defaults and per-provider overlays are applied.
 func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
-	nodeCfg, exists := FlatcarNodeConfigs[name]
-	if homeopsNode, found := homeopscfg.Get().NodeByName(name); found {
-		if !exists {
-			nodeCfg = FlatcarNodeConfig{Name: name}
-			exists = true
-		}
-		if homeopsNode.IP != "" {
-			nodeCfg.NodeIP = homeopsNode.IP
-		}
-		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
-			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode,
-			&nodeCfg.CephMode, &nodeCfg.CephDiskGB, &nodeCfg.CephStorage, homeopsNode.VM)
+	node, found := homeopscfg.Get().NodeByName(name)
+	if !found {
+		return FlatcarNodeConfig{}, false
 	}
-	return nodeCfg, exists
-}
-
-// applyNodeVMProfile overlays a homeops.yaml per-node VM profile onto a
-// predefined node hardware config; unset profile fields keep the defaults.
-func applyNodeVMProfile(vmid *int, mac, bootStorage, openEBSStorage, cephDisk, cpuAffinity *string, numaNode *int, cephMode *string, cephDiskGB *int, cephStorage *string, p homeopscfg.VMProfile) {
-	if p.VMID != 0 {
-		*vmid = p.VMID
-	}
-	if p.Mac != "" {
-		*mac = p.Mac
-	}
-	if p.BootStorage != "" {
-		*bootStorage = p.BootStorage
-	}
-	if p.OpenEBSStorage != "" {
-		*openEBSStorage = p.OpenEBSStorage
-	}
-	if p.Ceph.Mode != "" {
-		*cephMode = p.Ceph.Mode
-	}
-	if p.Ceph.DiskByID != "" {
-		*cephDisk = p.Ceph.DiskByID
-	}
-	if p.CPUAffinity != "" {
-		*cpuAffinity = p.CPUAffinity
-	}
-	if p.NUMANode != nil {
-		*numaNode = *p.NUMANode
-	}
-	if p.Ceph.SizeGB != 0 {
-		*cephDiskGB = p.Ceph.SizeGB
-	}
-	if p.Ceph.Storage != "" {
-		*cephStorage = p.Ceph.Storage
-	}
+	return flatcarNodeConfigFromNode(node), true
 }
 
 // GetDefaultVMConfig returns DefaultVMConfig with the hypervisors.proxmox.vm
@@ -444,21 +394,14 @@ func normalizeStorageConfig(config VMConfig) (VMConfig, error) {
 	return config, nil
 }
 
-// GetTalosNodeConfig retrieves the config for a Talos node, with the
-// homeops.yaml per-node VM profile overlaid (same semantics as the Flatcar
-// accessor).
+// GetTalosNodeConfig retrieves the effective config for a Talos node from
+// homeops.yaml after embedded defaults and per-provider overlays are applied.
 func GetTalosNodeConfig(name string) (TalosNodeConfig, bool) {
-	nodeCfg, exists := TalosNodeConfigs[name]
-	if homeopsNode, found := homeopscfg.Get().NodeByName(name); found {
-		if !exists {
-			nodeCfg = TalosNodeConfig{Name: name}
-			exists = true
-		}
-		applyNodeVMProfile(&nodeCfg.VMID, &nodeCfg.MacAddress, &nodeCfg.BootStorage,
-			&nodeCfg.OpenEBSStorage, &nodeCfg.CephDiskByID, &nodeCfg.CPUAffinity, &nodeCfg.NUMANode,
-			&nodeCfg.CephMode, &nodeCfg.CephDiskGB, &nodeCfg.CephStorage, homeopsNode.VM)
+	node, found := homeopscfg.Get().NodeByName(name)
+	if !found {
+		return TalosNodeConfig{}, false
 	}
-	return nodeCfg, exists
+	return talosNodeConfigFromNode(node), true
 }
 
 // VMManager handles high-level VM operations on Proxmox

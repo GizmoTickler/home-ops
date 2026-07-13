@@ -79,7 +79,7 @@ state:
 	require.NoError(t, err)
 	assert.Equal(t, "test-cluster", c.Cluster.Name)
 	assert.Equal(t, "10.0.0.5", c.Cluster.ControlPlaneVIP)
-	assert.Equal(t, []string{"n0"}, c.NodeNames())
+	assert.Equal(t, []string{"k8s-0", "k8s-1", "k8s-2", "n0"}, c.NodeNames())
 	// defaults fill the rest
 	assert.Equal(t, DefaultNodeInterface, c.Cluster.NodeInterface)
 	assert.Equal(t, "file", c.State.Kubeconfig.Backend)
@@ -170,4 +170,49 @@ func TestGetKeepsExplicitLoadErrorsFatal(t *testing.T) {
 	require.Error(t, LoadError())
 	assert.True(t, IsExplicitLoadError(LoadError()))
 	assert.Equal(t, "/definitely/missing/homeops.yaml", loadPath)
+}
+
+func TestLoadFileMergesNodeOverridesByName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  nodes:
+    - name: k8s-0
+      ip: 10.0.0.10
+      vm:
+        vmid: 250
+        providers:
+          talos:
+            boot_storage: talos-fast
+          flatcar:
+            boot_storage: flatcar-mirror
+    - name: k8s-9
+      ip: 10.0.0.19
+      vm:
+        vmid: 209
+        mac: "02:00:00:00:00:09"
+`), 0o644))
+
+	c, err := LoadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"k8s-0", "k8s-1", "k8s-2", "k8s-9"}, c.NodeNames())
+
+	n0, ok := c.NodeByName("k8s-0")
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.10", n0.IP)
+	assert.Equal(t, 250, n0.VM.VMID)
+	assert.Equal(t, "00:a0:98:28:c8:83", n0.VM.ForProvider("talos").Mac)
+	assert.Equal(t, "talos-fast", n0.VM.ForProvider("talos").BootStorage)
+	assert.Equal(t, "flatcar-mirror", n0.VM.ForProvider("flatcar").BootStorage)
+
+	n1, ok := c.NodeByName("k8s-1")
+	require.True(t, ok)
+	assert.Equal(t, "192.168.122.11", n1.IP)
+	assert.Equal(t, 201, n1.VM.ForProvider("talos").VMID)
+
+	n9, ok := c.NodeByName("k8s-9")
+	require.True(t, ok)
+	assert.Equal(t, "10.0.0.19", n9.IP)
+	assert.Equal(t, 209, n9.VM.VMID)
 }

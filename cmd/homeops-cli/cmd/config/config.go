@@ -165,6 +165,11 @@ cluster:
       #    #storage: my-pool                 # virtual: pool/datastore
       #  cpu_affinity: "0-7,32-39"
       #  numa_node: 0
+      #  providers:                          # provider-specific overlays
+      #    talos:
+      #      boot_storage: nvme1
+      #    flatcar:
+      #      boot_storage: nvme-mirror
     - name: k8s-1
       ip: 192.168.122.11
     - name: k8s-2

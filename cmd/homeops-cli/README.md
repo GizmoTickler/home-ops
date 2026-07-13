@@ -252,7 +252,7 @@ plain aligned columns when piped (no ANSI), and prompts are disabled with
 - Provider/hypervisor credentials resolve through the `secrets:` map in homeops.yaml (any backend), with plain environment variables as a final fallback. Run `homeops-cli config doctor` to see what resolves.
 - `HOMEOPS_NO_INTERACTIVE=1` disables interactive prompts (CI mode).
 - For Kubernetes GitOps changes, commit and push changes before reconciling Flux.
-- Per-node VM hardware profiles (Proxmox VMIDs, MACs, storage pools, CPU pinning) remain code defaults in `internal/proxmox/vm_manager.go`, overridable per-deploy via flags; node names/IPs come from `cluster.nodes` in homeops.yaml.
+- Per-node VM hardware profiles (Proxmox VMIDs, MACs, storage pools, CPU pinning) ship as embedded defaults in `internal/config` and are overridable per node via `cluster.nodes[].vm` (and `cluster.nodes[].vm.providers.talos`/`.flatcar` overlays) in homeops.yaml; node names/IPs come from the same `cluster.nodes`.
 
 ## Pre-commit
 

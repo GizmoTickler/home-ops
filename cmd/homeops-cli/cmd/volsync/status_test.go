@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"homeops-cli/internal/testutil"
 )
 
 func fakeVolsyncKubectl(t *testing.T, byKind map[string]string) func(name string, args ...string) ([]byte, error) {
@@ -29,11 +31,8 @@ func fakeVolsyncKubectl(t *testing.T, byKind map[string]string) func(name string
 }
 
 func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
-	oldCmd := commandOutputFn
-	oldNow := volsyncNow
-	t.Cleanup(func() { commandOutputFn = oldCmd; volsyncNow = oldNow })
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
-	volsyncNow = func() time.Time { return now }
+	testutil.Swap(t, &volsyncNow, func() time.Time { return now })
 
 	fresh := now.Add(-1 * time.Hour).Format(time.RFC3339)
 	stale := now.Add(-30 * time.Hour).Format(time.RFC3339)
@@ -49,10 +48,10 @@ func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
 	  {"metadata":{"name":"lidarr","namespace":"downloads"}},
 	  {"metadata":{"name":"bazarr","namespace":"downloads"}}
 	]}`
-	commandOutputFn = fakeVolsyncKubectl(t, map[string]string{
+	testutil.Swap(t, &commandOutputFn, fakeVolsyncKubectl(t, map[string]string{
 		"replicationsources": sources,
 		"pvc":                pvcs,
-	})
+	}))
 
 	r := buildVolsyncStatusReport("", 24*time.Hour)
 	statuses := map[string]volsyncStatus{}
@@ -67,8 +66,6 @@ func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
 }
 
 func TestBuildVolsyncStatusReportFindsPVCsWithoutReplicationSourceOnlyInProtectedNamespaces(t *testing.T) {
-	oldCmd := commandOutputFn
-	t.Cleanup(func() { commandOutputFn = oldCmd })
 	sources := `{"items":[
 	  {"metadata":{"name":"radarr","namespace":"downloads"},"spec":{"sourcePVC":"radarr"},"status":{"lastSyncTime":"2026-07-13T11:00:00Z","latestMoverStatus":{"result":"Successful"}}}
 	]}`
@@ -77,10 +74,10 @@ func TestBuildVolsyncStatusReportFindsPVCsWithoutReplicationSourceOnlyInProtecte
 	  {"metadata":{"name":"unprotected","namespace":"downloads"}},
 	  {"metadata":{"name":"ignored","namespace":"default"}}
 	]}`
-	commandOutputFn = fakeVolsyncKubectl(t, map[string]string{
+	testutil.Swap(t, &commandOutputFn, fakeVolsyncKubectl(t, map[string]string{
 		"replicationsources": sources,
 		"pvc":                pvcs,
-	})
+	}))
 
 	r := buildVolsyncStatusReport("", 24*time.Hour)
 	require.Len(t, r.MissingBackups, 1)
@@ -91,8 +88,6 @@ func TestBuildVolsyncStatusReportFindsPVCsWithoutReplicationSourceOnlyInProtecte
 }
 
 func TestBuildVolsyncStatusReportExcludesVolsyncOwnedPVCsButWarnsOrdinaryUnprotectedPVCs(t *testing.T) {
-	oldCmd := commandOutputFn
-	t.Cleanup(func() { commandOutputFn = oldCmd })
 	sources := `{"items":[
 	  {"metadata":{"name":"radarr","namespace":"downloads"},"spec":{"sourcePVC":"radarr"},"status":{"lastSyncTime":"2026-07-13T11:00:00Z","latestMoverStatus":{"result":"Successful"}}}
 	]}`
@@ -103,10 +98,10 @@ func TestBuildVolsyncStatusReportExcludesVolsyncOwnedPVCsButWarnsOrdinaryUnprote
 	  {"metadata":{"name":"volsync-radarr-cache","namespace":"downloads"}},
 	  {"metadata":{"name":"radarr-cache","namespace":"downloads"}}
 	]}`
-	commandOutputFn = fakeVolsyncKubectl(t, map[string]string{
+	testutil.Swap(t, &commandOutputFn, fakeVolsyncKubectl(t, map[string]string{
 		"replicationsources": sources,
 		"pvc":                pvcs,
-	})
+	}))
 
 	r := buildVolsyncStatusReport("", 24*time.Hour)
 	require.Len(t, r.MissingBackups, 1)
@@ -115,14 +110,32 @@ func TestBuildVolsyncStatusReportExcludesVolsyncOwnedPVCsButWarnsOrdinaryUnprote
 	assert.Equal(t, volsyncWarn, r.MissingBackups[0].Status)
 }
 
+func TestBuildVolsyncStatusReportExcludesPodOwnedEphemeralPVCsButWarnsUnownedPVCs(t *testing.T) {
+	sources := `{"items":[
+	  {"metadata":{"name":"nzbget","namespace":"downloads"},"spec":{"sourcePVC":"nzbget"},"status":{"lastSyncTime":"2026-07-13T11:00:00Z","latestMoverStatus":{"result":"Successful"}}}
+	]}`
+	pvcs := `{"items":[
+	  {"metadata":{"name":"nzbget","namespace":"downloads"}},
+	  {"metadata":{"name":"nzbget-abc123-incomplete","namespace":"downloads","ownerReferences":[{"apiVersion":"v1","kind":"Pod","name":"nzbget-abc123"}]}},
+	  {"metadata":{"name":"ordinary-unowned","namespace":"downloads"}}
+	]}`
+	testutil.Swap(t, &commandOutputFn, fakeVolsyncKubectl(t, map[string]string{
+		"replicationsources": sources,
+		"pvc":                pvcs,
+	}))
+
+	r := buildVolsyncStatusReport("", 24*time.Hour)
+	require.Len(t, r.MissingBackups, 1)
+	assert.Equal(t, "ordinary-unowned", r.MissingBackups[0].PVC)
+	assert.Equal(t, volsyncWarn, r.MissingBackups[0].Status)
+}
+
 func TestVolsyncStatusNamespaceScoping(t *testing.T) {
-	oldCmd := commandOutputFn
-	t.Cleanup(func() { commandOutputFn = oldCmd })
 	var calls []string
-	commandOutputFn = func(name string, args ...string) ([]byte, error) {
+	testutil.Swap(t, &commandOutputFn, func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return []byte(`{"items":[]}`), nil
-	}
+	})
 	_ = buildVolsyncStatusReport("downloads", 24*time.Hour)
 	for _, c := range calls {
 		assert.Contains(t, c, "--namespace downloads")
@@ -150,12 +163,10 @@ func TestRenderVolsyncStatusJSON(t *testing.T) {
 }
 
 func TestRunVolsyncStatusFailsOnFailedSync(t *testing.T) {
-	oldCmd := commandOutputFn
-	t.Cleanup(func() { commandOutputFn = oldCmd })
 	sources := `{"items":[
 	  {"metadata":{"name":"radarr","namespace":"downloads"},"spec":{"sourcePVC":"radarr"},"status":{"lastSyncTime":"2026-07-13T11:00:00Z","latestMoverStatus":{"result":"Failed"}}}
 	]}`
-	commandOutputFn = fakeVolsyncKubectl(t, map[string]string{"replicationsources": sources})
+	testutil.Swap(t, &commandOutputFn, fakeVolsyncKubectl(t, map[string]string{"replicationsources": sources}))
 
 	var buf strings.Builder
 	err := runVolsyncStatus("", "json", 24*time.Hour, &buf)

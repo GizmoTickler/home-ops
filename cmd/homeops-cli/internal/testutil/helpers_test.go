@@ -153,3 +153,12 @@ func TestMocks(t *testing.T) {
 	assert.Equal(t, "pod-1", output)
 	assert.Contains(t, executor.Commands, "kubectl get pods")
 }
+
+func TestSwapReplacesTargetAndRestoresOnCleanup(t *testing.T) {
+	value := "original"
+	t.Run("swap scope", func(t *testing.T) {
+		Swap(t, &value, "replacement")
+		assert.Equal(t, "replacement", value)
+	})
+	assert.Equal(t, "original", value)
+}

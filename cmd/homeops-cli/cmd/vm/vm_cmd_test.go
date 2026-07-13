@@ -84,21 +84,14 @@ func TestProviderLifecycleDispatch(t *testing.T) {
 }
 
 func TestVMLifecycleCommandWrappers(t *testing.T) {
-	oldEnsureProvider := vmlifecycle.EnsureVMLifecycleProviderFn
-	oldFactory := vmlifecycle.NewVMLifecycleFn
-	t.Cleanup(func() {
-		vmlifecycle.EnsureVMLifecycleProviderFn = oldEnsureProvider
-		vmlifecycle.NewVMLifecycleFn = oldFactory
-	})
-
 	calls := &[]string{}
-	vmlifecycle.EnsureVMLifecycleProviderFn = func(provider, action string) error {
+	testutil.Swap(t, &vmlifecycle.EnsureVMLifecycleProviderFn, func(provider, action string) error {
 		*calls = append(*calls, "check:"+provider+":"+action)
 		return nil
-	}
-	vmlifecycle.NewVMLifecycleFn = func(normalizedProvider string) (vmprov.VMLifecycle, error) {
+	})
+	testutil.Swap(t, &vmlifecycle.NewVMLifecycleFn, func(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		return &fakeVMLifecycle{provider: normalizedProvider, calls: calls}, nil
-	}
+	})
 
 	_, err := testutil.ExecuteCommand(newStartVMCommand(), "--provider", "proxmox", "--name", "px-vm")
 	require.NoError(t, err)

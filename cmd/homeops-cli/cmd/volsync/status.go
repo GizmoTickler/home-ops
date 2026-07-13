@@ -256,7 +256,8 @@ func listPVCsWithoutReplicationSource(namespace string, sources []volsyncSourceS
 			continue
 		}
 		key := pvc.Metadata.Namespace + "/" + pvc.Metadata.Name
-		if isVolsyncPlumbingPVC(pvc.Metadata.Name, pvc.Metadata.Labels, pvc.Metadata.OwnerReferences) {
+		if isVolsyncPlumbingPVC(pvc.Metadata.Name, pvc.Metadata.Labels, pvc.Metadata.OwnerReferences) ||
+			isPodOwnedPVC(pvc.Metadata.OwnerReferences) {
 			continue
 		}
 		if !protectedPVCs[key] {
@@ -300,6 +301,19 @@ func isVolsyncPlumbingPVC(name string, labels map[string]string, ownerReferences
 	return strings.HasPrefix(name, "volsync-") &&
 		(strings.HasSuffix(name, "-src") ||
 			strings.HasSuffix(name, "-cache"))
+}
+
+func isPodOwnedPVC(ownerReferences []struct {
+	APIVersion string `json:"apiVersion"`
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+}) bool {
+	for _, ref := range ownerReferences {
+		if ref.Kind == "Pod" {
+			return true
+		}
+	}
+	return false
 }
 
 func volsyncKubectlGetJSON(namespace, resource string, dest interface{}) error {

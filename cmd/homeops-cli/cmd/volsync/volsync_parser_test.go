@@ -101,14 +101,9 @@ func TestDisplaySnapshotsOutput(t *testing.T) {
 }
 
 func TestFindKopiaPod(t *testing.T) {
-	oldOutput := kubectlOutputFn
-	t.Cleanup(func() {
-		kubectlOutputFn = oldOutput
-	})
-
-	kubectlOutputFn = func(args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputFn, func(args ...string) ([]byte, error) {
 		return []byte("kopia-0"), nil
-	}
+	})
 
 	pod, err := findKopiaPod()
 	require.NoError(t, err)
@@ -116,14 +111,9 @@ func TestFindKopiaPod(t *testing.T) {
 }
 
 func TestFindKopiaPodEmpty(t *testing.T) {
-	oldOutput := kubectlOutputFn
-	t.Cleanup(func() {
-		kubectlOutputFn = oldOutput
-	})
-
-	kubectlOutputFn = func(args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputFn, func(args ...string) ([]byte, error) {
 		return []byte(""), nil
-	}
+	})
 
 	_, err := findKopiaPod()
 	require.Error(t, err)
@@ -142,12 +132,7 @@ func TestFindKopiaPodFallbackBinaryPath(t *testing.T) {
 }
 
 func TestDetectController(t *testing.T) {
-	oldRun := kubectlRunFn
-	t.Cleanup(func() {
-		kubectlRunFn = oldRun
-	})
-
-	kubectlRunFn = func(args ...string) error {
+	testutil.Swap(t, &kubectlRunFn, func(args ...string) error {
 		switch {
 		case len(args) == 3 && args[0] == "get" && args[1] == "namespace" && args[2] == "media":
 			return nil
@@ -158,7 +143,7 @@ func TestDetectController(t *testing.T) {
 		default:
 			return fmt.Errorf("unexpected args: %v", args)
 		}
-	}
+	})
 
 	controller, err := detectController("media", "paperless")
 	require.NoError(t, err)
@@ -166,17 +151,12 @@ func TestDetectController(t *testing.T) {
 }
 
 func TestDetectControllerFallback(t *testing.T) {
-	oldRun := kubectlRunFn
-	t.Cleanup(func() {
-		kubectlRunFn = oldRun
-	})
-
-	kubectlRunFn = func(args ...string) error {
+	testutil.Swap(t, &kubectlRunFn, func(args ...string) error {
 		if len(args) == 3 && args[0] == "get" && args[1] == "namespace" && args[2] == "media" {
 			return nil
 		}
 		return fmt.Errorf("not found")
-	}
+	})
 
 	controller, err := detectController("media", "paperless")
 	require.Error(t, err)

@@ -17,23 +17,16 @@ import (
 )
 
 func TestChangeVolsyncState(t *testing.T) {
-	oldFluxCombinedOutput := fluxCombinedOutputFn
-	oldKubectlCombinedOutput := kubectlCombinedOutputFn
-	t.Cleanup(func() {
-		fluxCombinedOutputFn = oldFluxCombinedOutput
-		kubectlCombinedOutputFn = oldKubectlCombinedOutput
-	})
-
 	t.Run("suspend scales to zero", func(t *testing.T) {
 		var calls []string
-		fluxCombinedOutputFn = func(args ...string) ([]byte, error) {
+		testutil.Swap(t, &fluxCombinedOutputFn, func(args ...string) ([]byte, error) {
 			calls = append(calls, "flux "+strings.Join(args, " "))
 			return []byte("ok"), nil
-		}
-		kubectlCombinedOutputFn = func(args ...string) ([]byte, error) {
+		})
+		testutil.Swap(t, &kubectlCombinedOutputFn, func(args ...string) ([]byte, error) {
 			calls = append(calls, "kubectl "+strings.Join(args, " "))
 			return []byte("ok"), nil
-		}
+		})
 
 		require.NoError(t, changeVolsyncState("suspend"))
 		assert.Equal(t, []string{
@@ -44,15 +37,15 @@ func TestChangeVolsyncState(t *testing.T) {
 	})
 
 	t.Run("returns flux error output", func(t *testing.T) {
-		fluxCombinedOutputFn = func(args ...string) ([]byte, error) {
+		testutil.Swap(t, &fluxCombinedOutputFn, func(args ...string) ([]byte, error) {
 			if len(args) >= 4 && args[3] == "helmrelease" {
 				return []byte("boom"), errors.New("failed")
 			}
 			return []byte("ok"), nil
-		}
-		kubectlCombinedOutputFn = func(args ...string) ([]byte, error) {
+		})
+		testutil.Swap(t, &kubectlCombinedOutputFn, func(args ...string) ([]byte, error) {
 			return []byte("ok"), nil
-		}
+		})
 
 		err := changeVolsyncState("resume")
 		require.Error(t, err)
@@ -62,17 +55,6 @@ func TestChangeVolsyncState(t *testing.T) {
 }
 
 func TestDefaultCommandFnsRedactSensitiveFailureOutput(t *testing.T) {
-	oldKubectlCombinedOutput := kubectlCombinedOutputFn
-	oldFluxCombinedOutput := fluxCombinedOutputFn
-	oldCommandRun := commandRunFn
-	oldApplyYAML := kubectlApplyYAMLFn
-	t.Cleanup(func() {
-		kubectlCombinedOutputFn = oldKubectlCombinedOutput
-		fluxCombinedOutputFn = oldFluxCombinedOutput
-		commandRunFn = oldCommandRun
-		kubectlApplyYAMLFn = oldApplyYAML
-	})
-
 	binDir := t.TempDir()
 	writeFailingCommand(t, binDir, "kubectl", "password=SENTINEL_PASSWORD_VALUE", "api_key=SENTINEL_API_KEY_VALUE")
 	writeFailingCommand(t, binDir, "flux", "client_secret=SENTINEL_CLIENT_SECRET_VALUE", "token: SENTINEL_TOKEN_VALUE")
@@ -115,43 +97,37 @@ func writeFailingCommand(t *testing.T, dir, name, stdout, stderr string) {
 }
 
 func TestResolveNamespace(t *testing.T) {
-	oldSelectNamespace := selectNamespaceFn
-	t.Cleanup(func() { selectNamespaceFn = oldSelectNamespace })
-
 	ns, err := resolveNamespace("media")
 	require.NoError(t, err)
 	assert.Equal(t, "media", ns)
 
-	selectNamespaceFn = func(prompt string, allowAll bool) (string, error) {
+	testutil.Swap(t, &selectNamespaceFn, func(prompt string, allowAll bool) (string, error) {
 		assert.Equal(t, "Select namespace:", prompt)
 		assert.False(t, allowAll)
 		return "downloads", nil
-	}
+	})
 	ns, err = resolveNamespace("")
 	require.NoError(t, err)
 	assert.Equal(t, "downloads", ns)
 
-	selectNamespaceFn = func(prompt string, allowAll bool) (string, error) {
+	testutil.Swap(t, &selectNamespaceFn, func(prompt string, allowAll bool) (string, error) {
 		return "", errors.New("cancelled by user")
-	}
+	})
 	ns, err = resolveNamespace("")
 	require.NoError(t, err)
 	assert.Equal(t, "", ns)
 }
 
 func TestSetVolsyncResourceSuspended(t *testing.T) {
-	oldKubectlRun := kubectlRunFn
-	t.Cleanup(func() { kubectlRunFn = oldKubectlRun })
-
 	t.Run("tries both resource kinds", func(t *testing.T) {
 		var calls []string
-		kubectlRunFn = func(args ...string) error {
+		testutil.Swap(t, &kubectlRunFn, func(args ...string) error {
 			calls = append(calls, strings.Join(args, " "))
 			if len(args) >= 2 && args[1] == "replicationsource" {
 				return errors.New("not found")
 			}
 			return nil
-		}
+		})
 
 		require.NoError(t, setVolsyncResourceSuspended("media", "paperless", true))
 		assert.Equal(t, []string{
@@ -161,9 +137,9 @@ func TestSetVolsyncResourceSuspended(t *testing.T) {
 	})
 
 	t.Run("returns last patch error context", func(t *testing.T) {
-		kubectlRunFn = func(args ...string) error {
+		testutil.Swap(t, &kubectlRunFn, func(args ...string) error {
 			return errors.New("api unavailable")
-		}
+		})
 
 		err := setVolsyncResourceSuspended("media", "paperless", false)
 		require.Error(t, err)
