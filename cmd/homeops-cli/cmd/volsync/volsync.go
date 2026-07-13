@@ -157,6 +157,7 @@ func NewCommand() *cobra.Command {
 
 	cmd.AddCommand(
 		newStateCommand(),
+		newStatusCommand(),
 		newSuspendCommand(),
 		newResumeCommand(),
 		newSnapshotCommand(),

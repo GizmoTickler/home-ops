@@ -200,6 +200,7 @@ Secret values are passed via stdin templates (never command arguments) and are
 masked on output unless --reveal is given.`,
 	}
 	cmd.AddCommand(newListCommand(), newGetCommand(), newRevealCommand(), newCreateCommand(), newEditCommand(), newDeleteCommand(),
+		newAuditCommand(),
 		newVaultsCommand(), newMoveCommand(), newDuplicateCommand())
 	registerVaultCompletion(cmd)
 	return cmd

@@ -229,13 +229,18 @@ Provider prerequisites:
 
 func newListVMsCommand() *cobra.Command {
 	var provider, output string
+	var allProviders bool
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List all VMs on Proxmox, TrueNAS, or vSphere",
 		Example: `  homeops-cli vm proxmox list
-  homeops-cli vm truenas list --output json | jq '.vms[].name'`,
+  homeops-cli vm truenas list --output json | jq '.vms[].name'
+  homeops-cli vm list --all-providers`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if allProviders {
+				return listAllProviderVMs(output)
+			}
 			if err := vmlifecycle.EnsureVMLifecycleProviderFn(provider, "list"); err != nil {
 				return err
 			}
@@ -245,6 +250,7 @@ func newListVMsCommand() *cobra.Command {
 
 	addProviderFlag(cmd, &provider)
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
+	cmd.Flags().BoolVar(&allProviders, "all-providers", false, "list VMs from proxmox, truenas, and vsphere; provider errors are reported as notes")
 
 	return cmd
 }
@@ -253,6 +259,21 @@ func newListVMsCommand() *cobra.Command {
 type vmInventory struct {
 	Provider string             `json:"provider" yaml:"provider"`
 	VMs      []vmprov.VMSummary `json:"vms" yaml:"vms"`
+}
+
+type providerVMSummary struct {
+	Provider         string `json:"provider" yaml:"provider"`
+	vmprov.VMSummary `yaml:",inline"`
+}
+
+type providerError struct {
+	Provider string `json:"provider" yaml:"provider"`
+	Error    string `json:"error" yaml:"error"`
+}
+
+type allProviderVMInventory struct {
+	VMs            []providerVMSummary `json:"vms" yaml:"vms"`
+	ProviderErrors []providerError     `json:"provider_errors,omitempty" yaml:"provider_errors,omitempty"`
 }
 
 func listVMs(provider, output string) error {
@@ -268,6 +289,88 @@ func listVMs(provider, output string) error {
 		}
 		return renderVMInventory(vmInventory{Provider: normalizedProvider, VMs: summaries}, output)
 	})
+}
+
+func listAllProviderVMs(output string) error {
+	inventory, err := collectAllProviderVMs()
+	if err != nil {
+		return err
+	}
+	rendered, err := renderAllProviderVMInventory(inventory, output)
+	if err != nil {
+		return err
+	}
+	if rendered != "" {
+		fmt.Println(rendered)
+	}
+	return nil
+}
+
+func collectAllProviderVMs() (allProviderVMInventory, error) {
+	var inventory allProviderVMInventory
+	for _, provider := range []string{"proxmox", "truenas", "vsphere"} {
+		err := vmlifecycle.WithVMLifecycle(provider, func(lifecycle vmprov.VMLifecycle) error {
+			summaries, err := lifecycle.VMSummaries()
+			if err != nil {
+				return err
+			}
+			for _, summary := range summaries {
+				inventory.VMs = append(inventory.VMs, providerVMSummary{Provider: provider, VMSummary: summary})
+			}
+			return nil
+		})
+		if err != nil {
+			inventory.ProviderErrors = append(inventory.ProviderErrors, providerError{Provider: provider, Error: err.Error()})
+			continue
+		}
+	}
+	return inventory, nil
+}
+
+func renderAllProviderVMInventory(inventory allProviderVMInventory, output string) (string, error) {
+	switch output {
+	case "", "table":
+		var b strings.Builder
+		if len(inventory.VMs) == 0 {
+			b.WriteString("No virtual machines found.")
+		} else {
+			rows := make([][]string, 0, len(inventory.VMs))
+			for _, s := range inventory.VMs {
+				details := make([]string, 0, len(s.Details))
+				for _, k := range slices.Sorted(maps.Keys(s.Details)) {
+					details = append(details, k+"="+s.Details[k])
+				}
+				rows = append(rows, []string{
+					s.Provider, s.Name, s.ID, s.Status,
+					fmt.Sprintf("%d", s.MemoryMB), fmt.Sprintf("%d", s.CPUs), strings.Join(details, " "),
+				})
+			}
+			b.WriteString(ui.Table([]string{"PROVIDER", "NAME", "ID", "STATUS", "MEMORY(MB)", "CPUS", "DETAILS"}, rows))
+		}
+		if len(inventory.ProviderErrors) > 0 {
+			b.WriteString("\n\nProvider notes\n")
+			rows := make([][]string, 0, len(inventory.ProviderErrors))
+			for _, e := range inventory.ProviderErrors {
+				rows = append(rows, []string{e.Provider, e.Error})
+			}
+			b.WriteString(ui.Table([]string{"PROVIDER", "ERROR"}, rows))
+		}
+		return b.String(), nil
+	case "json":
+		raw, err := json.MarshalIndent(inventory, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	case "yaml":
+		raw, err := yaml.Marshal(inventory)
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q (table, json, yaml)", output)
+	}
 }
 
 func renderVMInventory(inventory vmInventory, output string) error {

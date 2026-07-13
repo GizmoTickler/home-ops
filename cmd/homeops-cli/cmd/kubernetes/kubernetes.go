@@ -460,6 +460,9 @@ func NewCommand() *cobra.Command {
 		newRenderKsCommand(),
 		newApplyKsCommand(),
 		newDeleteKsCommand(),
+		newDoctorCommand(),
+		newSuspendAppCommand(),
+		newResumeAppCommand(),
 	)
 
 	return cmd
