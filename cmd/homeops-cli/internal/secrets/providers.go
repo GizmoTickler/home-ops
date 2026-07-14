@@ -37,7 +37,7 @@ func resolveFile(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(expanded)
+	data, err := os.ReadFile(expanded) // #nosec G304 -- file:// secret provider intentionally reads an operator-configured local secret file
 	if err != nil {
 		return "", fmt.Errorf("failed to read secret file %s: %w", expanded, err)
 	}

@@ -1,8 +1,8 @@
 package truenas
 
 import (
+	crypto_rand "crypto/rand"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"time"
@@ -14,6 +14,10 @@ import (
 )
 
 var sleepForOperation = time.Sleep
+var randomBytes = func(buf []byte) error {
+	_, err := crypto_rand.Read(buf)
+	return err
+}
 
 // VMConfig represents the configuration for VM deployment
 type VMConfig struct {
@@ -565,17 +569,24 @@ func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 
 func (vm *VMManager) generateRandomMAC() string {
 	// Generate a random MAC address with VMware OUI prefix
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	buf := make([]byte, 3)
+	if err := randomBytes(buf); err != nil {
+		vm.logger.Warn("Failed to generate crypto-random MAC suffix: %v", err)
+		return "00:0c:29:00:00:00"
+	}
 	return fmt.Sprintf("00:0c:29:%02x:%02x:%02x",
-		r.Intn(256), r.Intn(256), r.Intn(256))
+		buf[0], buf[1], buf[2])
 }
 
 func (vm *VMManager) generateRandomSerial() string {
 	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	serial := make([]byte, 8)
-	for i := range serial {
-		serial[i] = charset[r.Intn(len(charset))]
+	if err := randomBytes(serial); err != nil {
+		vm.logger.Warn("Failed to generate crypto-random serial: %v", err)
+		return "00000000"
+	}
+	for i, b := range serial {
+		serial[i] = charset[int(b)%len(charset)]
 	}
 	return string(serial)
 }

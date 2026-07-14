@@ -126,7 +126,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 // patchKubeconfigForBootstrap modifies the kubeconfig to use a direct node IP
 // instead of the VIP, since the VIP won't work until Cilium BGP is up
 func patchKubeconfigForBootstrap(kubeconfigPath, nodeIP string, logger *common.ColorLogger) error {
-	content, err := os.ReadFile(kubeconfigPath)
+	content, err := os.ReadFile(kubeconfigPath) // #nosec G304 -- kubeconfig path is an explicit local bootstrap artifact path
 	if err != nil {
 		return fmt.Errorf("failed to read kubeconfig: %w", err)
 	}

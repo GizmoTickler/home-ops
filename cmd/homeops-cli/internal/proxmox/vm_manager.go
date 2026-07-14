@@ -55,7 +55,11 @@ func (h proxmoxVMHandle) Name() string {
 }
 
 func (h proxmoxVMHandle) VMID() int {
-	return int(h.vm.VMID)
+	id, ok := common.SafeUint64ToInt(uint64(h.vm.VMID))
+	if !ok {
+		common.NewColorLogger().Warn("Proxmox VMID %d exceeds int range; clamping to %d", h.vm.VMID, id)
+	}
+	return id
 }
 
 func (h proxmoxVMHandle) Status() string {
@@ -492,7 +496,12 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	// Talos<->Flatcar slot reused under a different name); without this guard
 	// createVMTask would fail partway and leave inconsistent state.
 	for _, existingVM := range existingVMs {
-		if int(existingVM.VMID) == vmid {
+		existingVMID, ok := common.SafeUint64ToInt(uint64(existingVM.VMID))
+		if !ok {
+			vm.logger.Warn("Skipping Proxmox VM '%s' with VMID %d: exceeds int range", existingVM.Name, existingVM.VMID)
+			continue
+		}
+		if existingVMID == vmid {
 			return fmt.Errorf("VMID %d is already in use by VM '%s'; delete it or free the VMID before deploying %s",
 				vmid, existingVM.Name, config.Name)
 		}
@@ -765,7 +774,11 @@ func (vm *VMManager) findVMByName(name string) (*proxmox.VirtualMachine, error) 
 
 	for _, vmItem := range vms {
 		if vmItem.Name == name {
-			return vm.client.GetVM(int(vmItem.VMID))
+			vmID, ok := common.SafeUint64ToInt(uint64(vmItem.VMID))
+			if !ok {
+				return nil, fmt.Errorf("proxmox VM %q has VMID %d outside supported int range", name, vmItem.VMID)
+			}
+			return vm.client.GetVM(vmID)
 		}
 	}
 
@@ -859,13 +872,18 @@ func writeVMList(w io.Writer, vms proxmox.VirtualMachines) {
 
 // summarizeVMs maps the Proxmox inventory onto the provider-neutral shape.
 func summarizeVMs(vms proxmox.VirtualMachines) []provider.VMSummary {
+	logger := common.NewColorLogger()
 	summaries := make([]provider.VMSummary, 0, len(vms))
 	for _, vmItem := range vms {
+		memoryMB, ok := common.SafeUint64ToInt(vmItem.MaxMem / (1024 * 1024))
+		if !ok {
+			logger.Warn("Proxmox VM '%s' memory %d bytes exceeds int range when converted to MiB; clamping to %d", vmItem.Name, vmItem.MaxMem, memoryMB)
+		}
 		summaries = append(summaries, provider.VMSummary{
 			Name:     vmItem.Name,
 			ID:       fmt.Sprintf("%d", vmItem.VMID),
 			Status:   vmItem.Status,
-			MemoryMB: int(vmItem.MaxMem / (1024 * 1024)),
+			MemoryMB: memoryMB,
 			CPUs:     vmItem.CPUs,
 			Details:  map[string]string{"uptime_seconds": fmt.Sprintf("%d", vmItem.Uptime)},
 		})

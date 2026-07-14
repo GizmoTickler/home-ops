@@ -8,7 +8,7 @@ import (
 // CommandWithContext creates an exec.Cmd with context support for cancellation.
 // This allows commands to be gracefully terminated when the context is cancelled.
 func CommandWithContext(ctx context.Context, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- exec uses an argument array, no shell interpolation
 	return cmd
 }
 

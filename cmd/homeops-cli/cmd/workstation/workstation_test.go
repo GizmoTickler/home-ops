@@ -581,6 +581,45 @@ func TestExtractTarGzRejectsTraversal(t *testing.T) {
 	assert.Contains(t, err.Error(), "escapes destination")
 }
 
+func TestExtractTarGzRejectsOversizedDecompression(t *testing.T) {
+	orig := maxArchiveDecompressedBytes
+	maxArchiveDecompressedBytes = 4
+	t.Cleanup(func() { maxArchiveDecompressedBytes = orig })
+
+	archivePath := filepath.Join(t.TempDir(), "large.tar.gz")
+	writeTarGz(t, archivePath, tarEntry{name: "large", mode: 0o644, body: "12345"})
+
+	err := extractTarGz(archivePath, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "exceeds maximum decompressed size")
+}
+
+type tarEntry struct {
+	name string
+	mode int64
+	body string
+}
+
+func writeTarGz(t *testing.T, archivePath string, entries ...tarEntry) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	gzw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gzw)
+	for _, entry := range entries {
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Name: entry.name,
+			Mode: entry.mode,
+			Size: int64(len(entry.body)),
+		}))
+		_, err := tw.Write([]byte(entry.body))
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gzw.Close())
+	require.NoError(t, os.WriteFile(archivePath, buf.Bytes(), 0o644))
+}
+
 func buildKrewArchive(t *testing.T, executableName string) []byte {
 	t.Helper()
 

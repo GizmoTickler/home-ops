@@ -1,7 +1,7 @@
 package bootstrap
 
 import (
-	"crypto/md5"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -69,7 +69,7 @@ func resolve1PasswordReferences(content string, logger *common.ColorLogger) (str
 	// Save rendered configuration for validation if debug is enabled
 	if os.Getenv(constants.EnvDebug) == "1" || os.Getenv("SAVE_RENDERED_CONFIG") == "1" {
 		redacted := redactResolved1PasswordValues(content, resolved)
-		hash := fmt.Sprintf("%x", md5.Sum([]byte(redacted)))
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(redacted)))
 		debugDir, err := renderedConfigDebugDir()
 		if err != nil {
 			logger.Warn("Failed to determine rendered configuration debug directory: %v", err)
@@ -111,7 +111,7 @@ func saveRenderedConfig(config, filename string, logger *common.ColorLogger) err
 		return fmt.Errorf("failed to create directory for %s: %w", filename, err)
 	}
 
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600) // #nosec G304 -- debug filename is generated under the user cache directory
 	if err != nil {
 		return fmt.Errorf("failed to create file %s: %w", filename, err)
 	}

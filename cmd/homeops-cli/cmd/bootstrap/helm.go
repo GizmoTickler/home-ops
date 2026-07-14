@@ -112,7 +112,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 
 	// Create templates subdirectory to match the new helmfile path references
 	templatesDir := filepath.Join(tempDir, "templates")
-	if err := os.MkdirAll(templatesDir, 0755); err != nil {
+	if err := os.MkdirAll(templatesDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create templates directory: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 	}
 
 	valuesPath := filepath.Join(templatesDir, "values.yaml.gotmpl")
-	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0644); err != nil {
+	if err := os.WriteFile(valuesPath, []byte(valuesTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to write values template: %w", err)
 	}
 
@@ -135,7 +135,7 @@ func executeHelmfileSync(config *BootstrapConfig, logger *common.ColorLogger) er
 
 	// The apps helmfile doesn't need templating, write it directly
 	helmfilePath := filepath.Join(tempDir, "01-apps.yaml")
-	if err := os.WriteFile(helmfilePath, []byte(appsHelmfileTemplate), 0644); err != nil {
+	if err := os.WriteFile(helmfilePath, []byte(appsHelmfileTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to write apps helmfile: %w", err)
 	}
 

@@ -95,11 +95,11 @@ backend afterwards.`,
 				return fmt.Errorf("%s already exists — pass --force to overwrite", path)
 			}
 			if dir := filepath.Dir(path); dir != "." {
-				if err := os.MkdirAll(dir, 0755); err != nil {
+				if err := os.MkdirAll(dir, 0o750); err != nil {
 					return fmt.Errorf("failed to create %s: %w", dir, err)
 				}
 			}
-			if err := os.WriteFile(path, []byte(scaffold(backend)), 0644); err != nil {
+			if err := os.WriteFile(path, []byte(scaffold(backend)), 0o600); err != nil {
 				return fmt.Errorf("failed to write %s: %w", path, err)
 			}
 			logger.Success("Wrote %s", path)

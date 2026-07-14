@@ -431,7 +431,7 @@ func fetchFlatcarKubeconfig(config *BootstrapConfig, orch flatcarOrchestrator, n
 
 	// Ensure the kubeconfig directory exists, then write it locally.
 	if config.KubeConfig != "" {
-		if mkErr := os.MkdirAll(filepath.Dir(config.KubeConfig), 0o755); mkErr != nil {
+		if mkErr := os.MkdirAll(filepath.Dir(config.KubeConfig), 0o750); mkErr != nil {
 			return fmt.Errorf("failed to create kubeconfig directory: %w", mkErr)
 		}
 		if wErr := os.WriteFile(config.KubeConfig, []byte(kubeconfig), 0o600); wErr != nil {
@@ -488,14 +488,14 @@ func installCiliumOnly(config *BootstrapConfig, logger *common.ColorLogger) erro
 	// executeHelmfileSync so the helmfile's ./templates/values.yaml.gotmpl ref
 	// resolves.
 	templatesDir := filepath.Join(tempDir, "templates")
-	if err := os.MkdirAll(templatesDir, 0o755); err != nil {
+	if err := os.MkdirAll(templatesDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create templates directory: %w", err)
 	}
 	valuesTemplate, err := bootstrapGetBootstrapTemplate("values.yaml.gotmpl")
 	if err != nil {
 		return fmt.Errorf("failed to get values template: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(templatesDir, "values.yaml.gotmpl"), []byte(valuesTemplate), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(templatesDir, "values.yaml.gotmpl"), []byte(valuesTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to write values template: %w", err)
 	}
 
@@ -504,7 +504,7 @@ func installCiliumOnly(config *BootstrapConfig, logger *common.ColorLogger) erro
 		return fmt.Errorf("failed to get embedded apps helmfile: %w", err)
 	}
 	helmfilePath := filepath.Join(tempDir, "01-apps.yaml")
-	if err := os.WriteFile(helmfilePath, []byte(appsHelmfile), 0o644); err != nil {
+	if err := os.WriteFile(helmfilePath, []byte(appsHelmfile), 0o600); err != nil {
 		return fmt.Errorf("failed to write apps helmfile: %w", err)
 	}
 

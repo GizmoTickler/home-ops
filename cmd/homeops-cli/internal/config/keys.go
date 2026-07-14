@@ -9,12 +9,12 @@ import "sort"
 const (
 	// Hypervisor credentials
 	KeyTrueNASHost          = "truenas_host"
-	KeyTrueNASAPIKey        = "truenas_api_key"
+	KeyTrueNASAPIKey        = "truenas_api_key" // #nosec G101 -- semantic config key string only, not a secret value
 	KeyTrueNASUsername      = "truenas_username"
-	KeyTrueNASSpicePassword = "truenas_spice_password"
+	KeyTrueNASSpicePassword = "truenas_spice_password" // #nosec G101 -- semantic config key string only, not a secret value
 	KeyProxmoxHost          = "proxmox_host"
-	KeyProxmoxTokenID       = "proxmox_token_id"
-	KeyProxmoxTokenSecret   = "proxmox_token_secret"
+	KeyProxmoxTokenID       = "proxmox_token_id"     // #nosec G101 -- semantic config key string only, not a secret value
+	KeyProxmoxTokenSecret   = "proxmox_token_secret" // #nosec G101 -- semantic config key string only, not a secret value
 	KeyProxmoxNode          = "proxmox_node"
 	KeyVSphereHost          = "vsphere_host"
 	KeyVSphereUsername      = "vsphere_username"
@@ -33,7 +33,7 @@ const (
 	KeyTalosClusterCACrt    = "talos_cluster_ca_crt"
 	KeyTalosClusterCAKey    = "talos_cluster_ca_key"
 	KeyTalosClusterID       = "talos_cluster_id"
-	KeyTalosClusterSecret   = "talos_cluster_secret"
+	KeyTalosClusterSecret   = "talos_cluster_secret" // #nosec G101 -- semantic config key string only, not a secret value
 	KeyTalosClusterToken    = "talos_cluster_token"
 	KeyTalosK8sEndpoint     = "talos_k8s_endpoint"
 	KeyTalosAggregatorCrt   = "talos_aggregator_ca_crt"
@@ -52,7 +52,7 @@ const (
 
 // defaultSecretRefs is the canonical key registry with portable defaults.
 // A key absent from this map is unknown to the CLI.
-var defaultSecretRefs = map[string]string{
+var defaultSecretRefs = map[string]string{ // #nosec G101 -- map contains backend reference identifiers like env var names, not secret values
 	KeyTrueNASHost:          "env://TRUENAS_HOST",
 	KeyTrueNASAPIKey:        "env://TRUENAS_API_KEY",
 	KeyTrueNASUsername:      "env://TRUENAS_USERNAME",

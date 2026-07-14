@@ -152,7 +152,7 @@ func materializeFlatcarSubdir(baseDir, subdir string, envVars map[string]string)
 	}
 
 	targetDir := filepath.Join(baseDir, subdir)
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
 		return fmt.Errorf("failed to create %s dir: %w", subdir, err)
 	}
 

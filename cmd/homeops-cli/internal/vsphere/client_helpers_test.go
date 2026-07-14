@@ -597,6 +597,8 @@ func TestSmallHelpers(t *testing.T) {
 	assert.Equal(t, "'/tmp/vm dir'", shellQuote("/tmp/vm dir"))
 	assert.Equal(t, "'node'\"'\"'s vm'", shellQuote("node's vm"))
 	assert.Equal(t, 3*time.Second, totalRetryDelay([]time.Duration{time.Second, 2 * time.Second}))
+	assert.Equal(t, 0*time.Second, retryDelayForAttempt(nil, 1))
+	assert.Equal(t, time.Second, retryDelayForAttempt([]time.Duration{time.Second}, 3))
 	assert.True(t, isDigits("123"))
 	assert.False(t, isDigits("12a"))
 

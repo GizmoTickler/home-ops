@@ -38,6 +38,9 @@ var (
 	installKrewFunc     = installKrew
 	runKrewCommandFunc  = runKrewCommand
 	listKrewPluginsFunc = listInstalledKrewPlugins
+	// Krew archives are small; this cap prevents decompression bombs from
+	// expanding unbounded data onto disk.
+	maxArchiveDecompressedBytes int64 = 128 << 20
 )
 
 // NewCommand creates the workstation command
@@ -348,7 +351,7 @@ func verifyFileSHA256(path, checksumURL string) error {
 		return fmt.Errorf("checksum file does not contain a SHA-256 digest")
 	}
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- checksum verification intentionally reads the downloaded local artifact path
 	if err != nil {
 		return err
 	}
@@ -380,7 +383,7 @@ func downloadFile(url, destination string) error {
 		return fmt.Errorf("unexpected HTTP status %s", resp.Status)
 	}
 
-	out, err := os.Create(destination)
+	out, err := os.Create(destination) // #nosec G304 -- download destination is a local CLI-controlled temporary path
 	if err != nil {
 		return err
 	}
@@ -396,7 +399,7 @@ func downloadFile(url, destination string) error {
 }
 
 func extractTarGz(archivePath, destination string) error {
-	file, err := os.Open(archivePath)
+	file, err := os.Open(archivePath) // #nosec G304 -- extraction intentionally reads the verified local archive path
 	if err != nil {
 		return err
 	}
@@ -412,7 +415,8 @@ func extractTarGz(archivePath, destination string) error {
 		_ = gzr.Close()
 	}()
 
-	tr := tar.NewReader(gzr)
+	limitedReader := &archiveLimitReader{reader: gzr, remaining: maxArchiveDecompressedBytes}
+	tr := tar.NewReader(limitedReader)
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -422,27 +426,30 @@ func extractTarGz(archivePath, destination string) error {
 			return err
 		}
 
-		targetPath := filepath.Join(destination, header.Name)
-		cleanDest := filepath.Clean(destination) + string(os.PathSeparator)
-		if !strings.HasPrefix(filepath.Clean(targetPath), cleanDest) && filepath.Clean(targetPath) != filepath.Clean(destination) {
-			return fmt.Errorf("archive entry escapes destination: %s", header.Name)
+		targetPath, err := safeArchiveTargetPath(destination, header.Name)
+		if err != nil {
+			return err
 		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0o755); err != nil {
+			if err := os.MkdirAll(targetPath, 0o750); err != nil {
 				return err
 			}
 		case tar.TypeReg:
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0o750); err != nil {
 				return err
 			}
-			fileMode := os.FileMode(header.Mode)
-			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode)
+			rawMode, ok := common.SafeInt64ToUint32(header.Mode)
+			if !ok {
+				return fmt.Errorf("archive entry %s has mode %d outside supported file mode range", header.Name, header.Mode)
+			}
+			fileMode := os.FileMode(rawMode)
+			out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileMode) // #nosec G304 -- archive entry path is validated by safeArchiveTargetPath before write
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(out, tr); err != nil {
+			if _, err := io.Copy(out, tr); err != nil { // #nosec G110 -- Krew archive is SHA256-verified and the decompressed tar stream is bounded by maxArchiveDecompressedBytes
 				_ = out.Close()
 				return err
 			}
@@ -451,6 +458,45 @@ func extractTarGz(archivePath, destination string) error {
 			}
 		}
 	}
+}
+
+type archiveLimitReader struct {
+	reader    io.Reader
+	remaining int64
+}
+
+func (r *archiveLimitReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var probe [1]byte
+		n, err := r.reader.Read(probe[:])
+		if n > 0 {
+			return 0, fmt.Errorf("archive exceeds maximum decompressed size")
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
+func safeArchiveTargetPath(destination, entryName string) (string, error) {
+	if entryName == "" || filepath.IsAbs(entryName) {
+		return "", fmt.Errorf("archive entry escapes destination: %s", entryName)
+	}
+	cleanEntry := filepath.Clean(entryName)
+	if cleanEntry == "." || cleanEntry == ".." || strings.HasPrefix(cleanEntry, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("archive entry escapes destination: %s", entryName)
+	}
+	targetPath := filepath.Join(destination, cleanEntry)
+	cleanDest := filepath.Clean(destination)
+	cleanTarget := filepath.Clean(targetPath)
+	if cleanTarget != cleanDest && !strings.HasPrefix(cleanTarget, cleanDest+string(os.PathSeparator)) {
+		return "", fmt.Errorf("archive entry escapes destination: %s", entryName)
+	}
+	return targetPath, nil
 }
 
 func findExecutable(rootDir, executableName string) (string, error) {

@@ -113,7 +113,7 @@ func BuildNoCloudSeedISO(userdata, metadata, networkConfig string) ([]byte, erro
 	// file under the workspace into the ISO, and including the ISO's own
 	// backing file makes it copy itself into itself indefinitely.
 	workDir := filepath.Join(tmpDir, "work")
-	if err := os.Mkdir(workDir, 0o755); err != nil {
+	if err := os.Mkdir(workDir, 0o750); err != nil {
 		return nil, fmt.Errorf("create seed workspace: %w", err)
 	}
 	imgPath := filepath.Join(tmpDir, "seed.iso")
@@ -152,5 +152,5 @@ func BuildNoCloudSeedISO(userdata, metadata, networkConfig string) ([]byte, erro
 	if err := storage.Close(); err != nil {
 		return nil, fmt.Errorf("close seed image: %w", err)
 	}
-	return os.ReadFile(imgPath)
+	return os.ReadFile(imgPath) // #nosec G304 -- seed image path is created by this local CLI workflow
 }

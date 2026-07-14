@@ -860,7 +860,7 @@ contacting a node.`,
 			}
 			kc = patchKubeconfigServer(kc, vip)
 
-			if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
 				return fmt.Errorf("create kubeconfig dir: %w", err)
 			}
 			if err := os.WriteFile(output, []byte(kc), 0o600); err != nil {
@@ -953,7 +953,7 @@ func newRenderIgnitionCommand() *cobra.Command {
 				return err
 			}
 			if outFile != "" {
-				if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
+				if err := os.MkdirAll(filepath.Dir(outFile), 0o750); err != nil {
 					return fmt.Errorf("failed to create output directory for %s: %w", outFile, err)
 				}
 				if err := os.WriteFile(outFile, ign, 0o600); err != nil {

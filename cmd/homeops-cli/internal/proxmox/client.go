@@ -40,7 +40,7 @@ func NewClient(host, tokenID, secret string, insecure bool) (*Client, error) {
 	if insecure {
 		common.NewColorLogger().Warn("Proxmox TLS verification DISABLED via %s=true (unset it to verify the endpoint)", constants.EnvProxmoxInsecure)
 		httpClient.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- opt-in env-gated Proxmox lab mode with loud warning when TLS verification is disabled
 		}
 	}
 

@@ -83,7 +83,7 @@ var (
 	// pushKubeconfigFn / pullKubeconfigFn persist the kubeconfig through the
 	// configured state store (1Password item or local file).
 	pushKubeconfigFn = func(sourcePath string, logger *common.ColorLogger) error {
-		content, err := os.ReadFile(sourcePath)
+		content, err := os.ReadFile(sourcePath) // #nosec G304 -- kubeconfig source is an explicit local CLI path
 		if err != nil {
 			return fmt.Errorf("failed to read kubeconfig file: %w", err)
 		}
@@ -2371,7 +2371,7 @@ func downloadISOToTemp(isoURL string) (string, error) {
 	}
 
 	// Create file for writing
-	outFile, err := os.Create(tempPath)
+	outFile, err := os.Create(tempPath) // #nosec G304 -- ISO destination is an os.CreateTemp path created by this process
 	if err != nil {
 		_ = os.Remove(tempPath)
 		return "", fmt.Errorf("failed to create output file: %w", err)
@@ -2434,7 +2434,7 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 	updatedContent := strings.Join(lines, "\n")
 
 	// Write the updated content back
-	if err := os.WriteFile(templateFile, []byte(updatedContent), 0644); err != nil {
+	if err := os.WriteFile(templateFile, []byte(updatedContent), 0o600); err != nil { // #nosec G703 -- templateFile is the fixed constant controlplaneTemplatePath, not user or remote input
 		return fmt.Errorf("failed to write controlplane template %s: %w", templateFile, err)
 	}
 

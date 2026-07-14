@@ -34,7 +34,7 @@ func NewProcessor(logger interface{}, metrics *metrics.PerformanceCollector) *Pr
 
 // ParseFile parses a YAML file into a map
 func (p *Processor) ParseFile(filename string) (map[string]interface{}, error) {
-	file, err := os.Open(filename)
+	file, err := os.Open(filename) // #nosec G304 -- local CLI intentionally reads a user-supplied YAML path
 	if err != nil {
 		return nil, errors.NewFileSystemError("YAML_FILE_READ_ERROR",
 			fmt.Sprintf("failed to open YAML file: %s", filename), err)
@@ -68,7 +68,7 @@ func (p *Processor) ParseString(content string) (map[string]interface{}, error) 
 
 // WriteFile writes a map to a YAML file
 func (p *Processor) WriteFile(filename string, data interface{}) error {
-	file, err := os.Create(filename)
+	file, err := os.Create(filename) // #nosec G304 -- local CLI intentionally writes a user-supplied YAML path
 	if err != nil {
 		return errors.NewFileSystemError("YAML_FILE_WRITE_ERROR",
 			fmt.Sprintf("failed to create YAML file: %s", filename), err)

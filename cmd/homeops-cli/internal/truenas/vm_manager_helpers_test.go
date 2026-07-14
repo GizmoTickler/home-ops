@@ -31,6 +31,25 @@ func TestVMManagerBuildConfigAndIdentifiers(t *testing.T) {
 	serial := manager.generateRandomSerial()
 	assert.Len(t, serial, 8)
 	assert.Equal(t, strings.ToUpper(serial), serial)
+	assert.Regexp(t, `^[A-Z0-9]{8}$`, serial)
+}
+
+func TestVMManagerRandomIdentifiersUseRandomBytesWithExpectedFormat(t *testing.T) {
+	manager := NewVMManager("nas", "key", 443, true)
+	orig := randomBytes
+	t.Cleanup(func() { randomBytes = orig })
+
+	next := byte(0)
+	randomBytes = func(buf []byte) error {
+		for i := range buf {
+			buf[i] = next
+			next++
+		}
+		return nil
+	}
+
+	assert.Equal(t, "00:0c:29:00:01:02", manager.generateRandomMAC())
+	assert.Equal(t, "DEFGHIJK", manager.generateRandomSerial())
 }
 
 func TestVMManagerZVolHelpers(t *testing.T) {

@@ -82,7 +82,7 @@ func NewFactoryClient() *FactoryClient {
 
 // LoadSchematicFromFile loads a schematic configuration from a YAML file
 func (fc *FactoryClient) LoadSchematicFromFile(filePath string) (*SchematicConfig, error) {
-	data, err := os.ReadFile(filePath)
+	data, err := os.ReadFile(filePath) // #nosec G304 -- local CLI intentionally reads a user-supplied Talos schematic path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read schematic file: %w", err)
 	}
@@ -358,7 +358,7 @@ func (fc *FactoryClient) checkCache(req ISOGenerationRequest) (*ISOInfo, bool) {
 		return nil, false
 	}
 
-	data, err := os.ReadFile(cacheFile)
+	data, err := os.ReadFile(cacheFile) // #nosec G304 -- cache path is derived from the user cache directory and ISO metadata
 	if err != nil {
 		return nil, false
 	}

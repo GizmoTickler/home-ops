@@ -42,7 +42,7 @@ const expectedGatewayAPICRDsPathPrefix = "/kubernetes-sigs/gateway-api/releases/
 // kustomization file so the version is managed by Renovate in one place.
 func getGatewayAPICRDsURL(rootDir string) (string, error) {
 	kustomizationPath := filepath.Join(rootDir, gatewayAPICRDsKustomizationPath)
-	content, err := os.ReadFile(kustomizationPath)
+	content, err := os.ReadFile(kustomizationPath) // #nosec G304 -- kustomization path is built from the local repository root
 	if err != nil {
 		return "", fmt.Errorf("failed to read gateway-api-crds kustomization at %s: %w", kustomizationPath, err)
 	}
@@ -155,7 +155,7 @@ func applyCRDsFromHelmfile(config *BootstrapConfig, logger *common.ColorLogger) 
 
 	// The CRDs helmfile doesn't need templating, write it directly
 	crdsHelmfilePath := filepath.Join(tempDir, "00-crds.yaml")
-	if err := os.WriteFile(crdsHelmfilePath, []byte(crdsHelmfileTemplate), 0644); err != nil {
+	if err := os.WriteFile(crdsHelmfilePath, []byte(crdsHelmfileTemplate), 0o600); err != nil {
 		return fmt.Errorf("failed to write CRDs helmfile: %w", err)
 	}
 

@@ -389,7 +389,7 @@ func LoadFile(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(expanded)
+	data, err := os.ReadFile(expanded) // #nosec G304 -- config loader intentionally reads an operator-supplied local config path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", expanded, err)
 	}

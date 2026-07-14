@@ -81,14 +81,14 @@ func (s *fileKubeconfigStore) Pull(destPath string, logger *common.ColorLogger) 
 	if err != nil {
 		return err
 	}
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- kubeconfig state path is explicitly configured by the local operator
 	if err != nil {
 		return fmt.Errorf("no persisted kubeconfig at %s (bootstrap saves one on success): %w", path, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(destPath), 0700); err != nil {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
-	if err := os.WriteFile(destPath, content, 0600); err != nil {
+	if err := os.WriteFile(destPath, content, 0600); err != nil { // #nosec G703 -- kubeconfig destination is an explicit local CLI output path
 		return fmt.Errorf("failed to write kubeconfig to %s: %w", destPath, err)
 	}
 	logger.Debug("Kubeconfig pulled from %s to %s", path, destPath)
@@ -104,7 +104,7 @@ func (s *filePKIStore) GetField(field string) string {
 	if err != nil {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(dir, field))
+	data, err := os.ReadFile(filepath.Join(dir, field)) // #nosec G304 -- PKI field file is read from explicitly configured local state directory
 	if err != nil {
 		return ""
 	}

@@ -227,7 +227,7 @@ func CreateTestConfig(t *testing.T, dir string, config interface{}) string {
 
 	// You would marshal config to YAML here
 	// This is a placeholder implementation
-	err := os.WriteFile(configPath, []byte("test: config"), 0644)
+	err := os.WriteFile(configPath, []byte("test: config"), 0o600)
 	require.NoError(t, err)
 
 	return configPath
@@ -243,7 +243,7 @@ func AssertFileExists(t *testing.T, path string) {
 // AssertFileContains checks if file contains expected content
 func AssertFileContains(t *testing.T, path string, expected string) {
 	t.Helper()
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- test helper intentionally reads test-supplied fixture paths
 	require.NoError(t, err)
 	require.Contains(t, string(content), expected)
 }

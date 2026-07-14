@@ -249,7 +249,7 @@ func parseKustomizationDocuments(ksPath string) ([]KustomizationInfo, error) {
 		return nil, err
 	}
 
-	content, err := os.ReadFile(ksFile)
+	content, err := os.ReadFile(ksFile) // #nosec G304 -- ks.yaml path is resolved from local repository paths supplied to the CLI
 	if err != nil {
 		return nil, fmt.Errorf("failed to read ks.yaml: %w", err)
 	}
@@ -1658,7 +1658,7 @@ func renderKustomization(ksPath, ksName, outputFile string) error {
 
 	if outputFile != "" {
 		// Write to file
-		if err := os.WriteFile(outputFile, []byte(outputStr), 0644); err != nil {
+		if err := os.WriteFile(outputFile, []byte(outputStr), 0o600); err != nil {
 			return fmt.Errorf("failed to write output file: %w", err)
 		}
 		logger.Success("Rendered Kustomization written to %s", outputFile)

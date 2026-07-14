@@ -63,7 +63,7 @@ func (r *GoTemplateRenderer) RenderTemplate(templateContent string, data Templat
 // RenderFile renders a Go template file
 func (r *GoTemplateRenderer) RenderFile(templatePath string, data TemplateData) (string, error) {
 	result, err := r.metrics.TrackOperationWithResult("gotemplate_render_file", func() (interface{}, error) {
-		content, err := os.ReadFile(templatePath)
+		content, err := os.ReadFile(templatePath) // #nosec G304 -- local CLI intentionally renders a user-supplied template file path
 		if err != nil {
 			return nil, errors.NewTemplateError("READ_FAILED", fmt.Sprintf("Failed to read template file: %s", templatePath), err)
 		}
@@ -123,7 +123,7 @@ func (r *GoTemplateRenderer) createTemplateFuncs(rootDir string) template.FuncMa
 				fullPath = filepath.Join(rootDir, path)
 			}
 
-			content, err := os.ReadFile(fullPath)
+			content, err := os.ReadFile(fullPath) // #nosec G304 -- template readFile is local CLI behavior for user-controlled templates/rootDir
 			if err != nil {
 				return "", fmt.Errorf("failed to read file %s (resolved to %s): %w", path, fullPath, err)
 			}
@@ -155,8 +155,8 @@ func (r *GoTemplateRenderer) execCommand(command string, args []interface{}) (st
 	}
 
 	// Execute command
-	cmd := exec.Command(command, stringArgs...)
-	cmd.Dir = r.rootDir // Set working directory
+	cmd := exec.Command(command, stringArgs...) // #nosec G204 -- exec uses an argument array, no shell interpolation
+	cmd.Dir = r.rootDir                         // Set working directory
 
 	output, err := cmd.Output()
 	if err != nil {

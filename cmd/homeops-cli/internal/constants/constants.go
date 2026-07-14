@@ -9,7 +9,7 @@ package constants
 // Environment variable names
 const (
 	EnvTrueNASHost   = "TRUENAS_HOST"
-	EnvTrueNASAPIKey = "TRUENAS_API_KEY"
+	EnvTrueNASAPIKey = "TRUENAS_API_KEY" // #nosec G101 -- environment variable name only, not a secret value
 	EnvSPICEPassword = "SPICE_PASSWORD"
 
 	EnvVSphereHost     = "VSPHERE_HOST"
@@ -20,8 +20,8 @@ const (
 	EnvVSphereInsecure = "VSPHERE_INSECURE"
 
 	EnvProxmoxHost        = "PROXMOX_HOST"
-	EnvProxmoxTokenID     = "PROXMOX_TOKEN_ID"
-	EnvProxmoxTokenSecret = "PROXMOX_TOKEN_SECRET"
+	EnvProxmoxTokenID     = "PROXMOX_TOKEN_ID"     // #nosec G101 -- environment variable name only, not a secret value
+	EnvProxmoxTokenSecret = "PROXMOX_TOKEN_SECRET" // #nosec G101 -- environment variable name only, not a secret value
 	EnvProxmoxNode        = "PROXMOX_NODE"
 	// EnvProxmoxInsecure: set to "true" to DISABLE TLS verification of the Proxmox
 	// endpoint (for self-signed certs). Defaults to verifying (secure).

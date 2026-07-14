@@ -61,10 +61,12 @@ var (
 	newClientWithConnectFn = NewClientWithConnect
 	listVMNamesFn          = listVMNames
 	listVMObjectsFn        = func(client *Client) ([]*object.VirtualMachine, error) { return client.ListVMs() }
-	sshCombinedOutputFn    = func(name string, args ...string) ([]byte, error) { return exec.Command(name, args...).CombinedOutput() }
-	newGovmomiClientFn     = govmomi.NewClient
-	newFinderFn            = func(client *vim25.Client) *find.Finder { return find.NewFinder(client, true) }
-	defaultDatacenterFn    = func(ctx context.Context, finder *find.Finder) (*object.Datacenter, error) {
+	sshCombinedOutputFn    = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput() // #nosec G204 -- exec uses an argument array, and remote paths are shell-quoted before becoming ssh command arguments
+	}
+	newGovmomiClientFn  = govmomi.NewClient
+	newFinderFn         = func(client *vim25.Client) *find.Finder { return find.NewFinder(client, true) }
+	defaultDatacenterFn = func(ctx context.Context, finder *find.Finder) (*object.Datacenter, error) {
 		return finder.DefaultDatacenter(ctx)
 	}
 	setFinderDatacenterFn = func(finder *find.Finder, datacenter *object.Datacenter) { finder.SetDatacenter(datacenter) }
@@ -982,10 +984,14 @@ usb:0.parent = "-1"
 }
 
 func buildInitialVMSpec(config VMConfig) types.VirtualMachineConfigSpec {
+	numCPUs, ok := common.SafeIntToInt32(config.VCPUs)
+	if !ok {
+		common.NewColorLogger().Warn("vSphere CPU count %d exceeds int32 range; clamping to %d", config.VCPUs, numCPUs)
+	}
 	return types.VirtualMachineConfigSpec{
 		Name:     config.Name,
 		GuestId:  "other6xLinux64Guest",
-		NumCPUs:  int32(config.VCPUs),
+		NumCPUs:  numCPUs,
 		MemoryMB: int64(config.Memory),
 		Files: &types.VirtualMachineFileInfo{
 			VmPathName: fmt.Sprintf("[%s] %s", config.Datastore, config.Name),
@@ -1035,7 +1041,11 @@ func buildFlatcarCloneSpec(config VMConfig, pool, datastore types.ManagedObjectR
 		ExtraConfig: buildExtraConfig(config),
 	}
 	if config.VCPUs > 0 {
-		configSpec.NumCPUs = int32(config.VCPUs)
+		numCPUs, ok := common.SafeIntToInt32(config.VCPUs)
+		if !ok {
+			common.NewColorLogger().Warn("vSphere CPU count %d exceeds int32 range; clamping to %d", config.VCPUs, numCPUs)
+		}
+		configSpec.NumCPUs = numCPUs
 	}
 	if config.Memory > 0 {
 		configSpec.MemoryMB = int64(config.Memory)
@@ -1239,8 +1249,9 @@ func powerOnWithRetry(ctx context.Context, logger *common.ColorLogger, vm vmLife
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			logger.Warn("Power-on attempt %d/%d failed: %v", attempt, maxRetries, lastErr)
-			logger.Info("Waiting %v before retry (vSphere may need time to process VMDK files)...", retryDelays[attempt-1])
-			vsphereSleep(retryDelays[attempt-1])
+			delay := retryDelayForAttempt(retryDelays, attempt)
+			logger.Info("Waiting %v before retry (vSphere may need time to process VMDK files)...", delay)
+			vsphereSleep(delay)
 			logger.Info("Retrying power-on (attempt %d/%d)...", attempt+1, maxRetries+1)
 		}
 
@@ -1264,6 +1275,21 @@ func powerOnWithRetry(ctx context.Context, logger *common.ColorLogger, vm vmLife
 		10*time.Second+totalRetryDelay(retryDelays),
 		lastErr,
 	)
+}
+
+// retryDelayForAttempt returns the backoff for the given (1-based) retry
+// attempt, clamping to the last configured delay when a caller supplies fewer
+// delays than maxRetries. This avoids an index-out-of-range panic if the
+// delay slice and retry count ever diverge.
+func retryDelayForAttempt(retryDelays []time.Duration, attempt int) time.Duration {
+	if attempt <= 0 || len(retryDelays) == 0 {
+		return 0
+	}
+	idx := attempt - 1
+	if idx >= len(retryDelays) {
+		return retryDelays[len(retryDelays)-1]
+	}
+	return retryDelays[idx]
 }
 
 func totalRetryDelay(delays []time.Duration) time.Duration {

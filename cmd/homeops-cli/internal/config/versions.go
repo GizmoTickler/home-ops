@@ -77,7 +77,7 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 func loadKubernetesVersionFromPlan(rootDir string) (string, error) {
 	planPath := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade",
 		"kubeadm-upgrade", "app", "plan.yaml")
-	data, err := os.ReadFile(planPath)
+	data, err := os.ReadFile(planPath) // #nosec G304 -- plan path is built from the local repository root, not remote input
 	if err != nil {
 		return "", fmt.Errorf("failed to read kubeadm upgrade plan %s: %w", planPath, err)
 	}
@@ -103,7 +103,7 @@ func loadKubernetesVersionFromPlan(rootDir string) (string, error) {
 func loadFlatcarVersionFromPlan(rootDir string) string {
 	planPath := filepath.Join(rootDir, "kubernetes", "apps", "system-upgrade",
 		"flatcar-upgrade", "app", "plan.yaml")
-	data, err := os.ReadFile(planPath)
+	data, err := os.ReadFile(planPath) // #nosec G304 -- plan path is built from the local repository root, not remote input
 	if err != nil {
 		return ""
 	}

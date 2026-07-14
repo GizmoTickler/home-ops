@@ -85,7 +85,7 @@ func RunCommand(ctx context.Context, opts CommandOptions) (CommandResult, error)
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, opts.Name, opts.Args...)
+	cmd := exec.CommandContext(runCtx, opts.Name, opts.Args...) // #nosec G204 -- exec uses an argument array, no shell interpolation
 	// After the context kills the process, force-close its I/O pipes so Wait
 	// can't be held hostage by orphaned grandchildren that inherited them
 	// (e.g. a shell's `sleep` child surviving the shell's SIGKILL).

@@ -35,7 +35,11 @@ var flatcarTemplates embed.FS
 func readTemplateFile(embedded embed.FS, path string) ([]byte, error) {
 	if dir := config.Get().Templates.Dir; dir != "" {
 		if expanded, err := secrets.ExpandHome(dir); err == nil {
-			if data, err := os.ReadFile(filepath.Join(expanded, path)); err == nil {
+			cleanPath := filepath.Clean(path)
+			if filepath.IsAbs(cleanPath) || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) {
+				return nil, fmt.Errorf("template path escapes templates.dir: %s", path)
+			}
+			if data, err := os.ReadFile(filepath.Join(expanded, cleanPath)); err == nil { // #nosec G304 -- user-configured templates.dir override path validated to stay relative
 				return data, nil
 			}
 		}

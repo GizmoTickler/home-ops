@@ -198,7 +198,11 @@ func (m *VMManager) SetVMResources(name string, memoryMB, cores int) error {
 		spec.MemoryMB = int64(memoryMB)
 	}
 	if cores > 0 {
-		spec.NumCPUs = int32(cores)
+		numCPUs, ok := common.SafeIntToInt32(cores)
+		if !ok {
+			return fmt.Errorf("CPU count %d is outside vSphere int32 range", cores)
+		}
+		spec.NumCPUs = numCPUs
 	}
 	if err := m.client.ReconfigureVM(vm, spec); err != nil {
 		return fmt.Errorf("failed to update VM %s resources: %w", name, err)
@@ -486,7 +490,11 @@ func (m *VMManager) CreateCloudInitVM(cfg CloudInitVMConfig) error {
 		spec.MemoryMB = int64(cfg.MemoryMB)
 	}
 	if cfg.Cores > 0 {
-		spec.NumCPUs = int32(cfg.Cores)
+		numCPUs, ok := common.SafeIntToInt32(cfg.Cores)
+		if !ok {
+			return fmt.Errorf("CPU count %d is outside vSphere int32 range", cfg.Cores)
+		}
+		spec.NumCPUs = numCPUs
 	}
 	if err := m.client.ReconfigureVM(vm, spec); err != nil {
 		return fmt.Errorf("failed to configure VM %s: %w", cfg.Name, err)

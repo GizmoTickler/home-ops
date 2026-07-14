@@ -67,9 +67,9 @@ func buildTalosctlCmd(talosConfig string, args ...string) *exec.Cmd {
 func buildTalosctlCmdContext(ctx context.Context, talosConfig string, args ...string) *exec.Cmd {
 	if talosConfig != "" {
 		cmdArgs := append([]string{"--talosconfig", talosConfig}, args...)
-		return exec.CommandContext(ctx, "talosctl", cmdArgs...)
+		return exec.CommandContext(ctx, "talosctl", cmdArgs...) // #nosec G204 -- exec uses an argument array, no shell interpolation
 	}
-	return exec.CommandContext(ctx, "talosctl", args...)
+	return exec.CommandContext(ctx, "talosctl", args...) // #nosec G204 -- exec uses an argument array, no shell interpolation
 }
 
 func buildKubectlCmd(config *BootstrapConfig, args ...string) *exec.Cmd {
@@ -79,7 +79,7 @@ func buildKubectlCmd(config *BootstrapConfig, args ...string) *exec.Cmd {
 
 func buildKubectlCmdContext(ctx context.Context, config *BootstrapConfig, args ...string) *exec.Cmd {
 	cmdArgs := append(append([]string{}, args...), "--kubeconfig", config.KubeConfig)
-	return exec.CommandContext(ctx, "kubectl", cmdArgs...)
+	return exec.CommandContext(ctx, "kubectl", cmdArgs...) // #nosec G204 -- exec uses an argument array, no shell interpolation
 }
 
 func kubectlOutput(config *BootstrapConfig, args ...string) ([]byte, error) {
