@@ -41,14 +41,14 @@ func TestSyncSecrets(t *testing.T) {
 		return nil
 	}
 
-	require.NoError(t, syncSecrets(false))
+	require.NoError(t, syncSecrets("", false))
 	assert.Equal(t, []string{
 		"kubectl --namespace media annotate externalsecret paperless force-sync=42 --overwrite",
 		"kubectl --namespace default annotate externalsecret homepage force-sync=42 --overwrite",
 	}, calls)
 
 	calls = nil
-	require.NoError(t, syncSecrets(true))
+	require.NoError(t, syncSecrets("", true))
 	assert.Empty(t, calls)
 }
 

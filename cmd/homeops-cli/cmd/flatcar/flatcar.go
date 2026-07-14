@@ -960,7 +960,13 @@ func newRenderIgnitionCommand() *cobra.Command {
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
 	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
 	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
-	cmd.Flags().StringVar(&outFile, "out", "", "Write Ignition JSON to file instead of stdout")
+	cmd.Flags().StringVar(&outFile, "output-file", "", "Write Ignition JSON to file instead of stdout")
+	cmd.Flags().StringVarP(&outFile, "output", "o", "", "Deprecated alias for --output-file")
+	cmd.Flags().StringVar(&outFile, "out", "", "Deprecated alias for --output-file")
+	_ = cmd.Flags().MarkDeprecated("output", "use --output-file")
+	_ = cmd.Flags().MarkHidden("output")
+	_ = cmd.Flags().MarkDeprecated("out", "use --output-file")
+	_ = cmd.Flags().MarkHidden("out")
 
 	return cmd
 }

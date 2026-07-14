@@ -123,6 +123,12 @@ hypervisors.default from homeops.yaml.`,
 		sub.Hidden = true
 		cmd.AddCommand(sub)
 	}
+	// list-all is the cross-provider aggregate (`vm list --all-providers`) as a
+	// dedicated, visible leaf. The flat verbs above are hidden, so the aggregate
+	// is otherwise unreachable from the interactive menu (which walks the command
+	// tree and skips hidden entries, and only ever reaches the provider-pinned
+	// `vm <provider> list`). A dedicated leaf makes it selectable there.
+	cmd.AddCommand(newListAllVMsCommand())
 	return cmd
 }
 
@@ -252,6 +258,23 @@ func newListVMsCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 	cmd.Flags().BoolVar(&allProviders, "all-providers", false, "list VMs from proxmox, truenas, and vsphere; provider errors are reported as notes")
 
+	return cmd
+}
+
+func newListAllVMsCommand() *cobra.Command {
+	var output string
+
+	cmd := &cobra.Command{
+		Use:    "list-all",
+		Hidden: true,
+		Short:  "List VMs from all configured providers",
+		Example: `  homeops-cli vm list-all
+  homeops-cli vm list-all --output json`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return listAllProviderVMs(output)
+		},
+	}
+	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table, json, or yaml")
 	return cmd
 }
 

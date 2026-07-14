@@ -1,6 +1,7 @@
 package volsync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -84,7 +85,7 @@ func newStatusCommand() *cobra.Command {
 		Short:        "Report VolSync backup freshness and missing PVC backups",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runVolsyncStatus(namespace, output, staleAfter, cmd.OutOrStdout())
+			return runVolsyncStatusContext(cmd.Context(), namespace, output, staleAfter, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to inspect (default: all namespaces)")
@@ -95,7 +96,11 @@ func newStatusCommand() *cobra.Command {
 }
 
 func runVolsyncStatus(namespace, output string, staleAfter time.Duration, out io.Writer) error {
-	report := buildVolsyncStatusReport(namespace, staleAfter)
+	return runVolsyncStatusContext(context.Background(), namespace, output, staleAfter, out)
+}
+
+func runVolsyncStatusContext(ctx context.Context, namespace, output string, staleAfter time.Duration, out io.Writer) error {
+	report := buildVolsyncStatusReportContext(ctx, namespace, staleAfter)
 	rendered, err := renderVolsyncStatusReport(report, output)
 	if err != nil {
 		return err
@@ -110,9 +115,13 @@ func runVolsyncStatus(namespace, output string, staleAfter time.Duration, out io
 }
 
 func buildVolsyncStatusReport(namespace string, staleAfter time.Duration) volsyncStatusReport {
+	return buildVolsyncStatusReportContext(context.Background(), namespace, staleAfter)
+}
+
+func buildVolsyncStatusReportContext(ctx context.Context, namespace string, staleAfter time.Duration) volsyncStatusReport {
 	var report volsyncStatusReport
 
-	sources, err := listReplicationSourceStatuses(namespace, staleAfter)
+	sources, err := listReplicationSourceStatusesContext(ctx, namespace, staleAfter)
 	if err != nil {
 		report.Sources = append(report.Sources, volsyncSourceStatus{
 			App:    "replicationsources",
@@ -124,7 +133,7 @@ func buildVolsyncStatusReport(namespace string, staleAfter time.Duration) volsyn
 	}
 	report.Sources = sources
 
-	missing, err := listPVCsWithoutReplicationSource(namespace, sources)
+	missing, err := listPVCsWithoutReplicationSourceContext(ctx, namespace, sources)
 	if err != nil {
 		report.MissingBackups = append(report.MissingBackups, volsyncMissingBackup{
 			PVC:    "persistentvolumeclaims",
@@ -157,9 +166,9 @@ type replicationSourceList struct {
 	} `json:"items"`
 }
 
-func listReplicationSourceStatuses(namespace string, staleAfter time.Duration) ([]volsyncSourceStatus, error) {
+func listReplicationSourceStatusesContext(ctx context.Context, namespace string, staleAfter time.Duration) ([]volsyncSourceStatus, error) {
 	var list replicationSourceList
-	if err := volsyncKubectlGetJSON(namespace, "replicationsources", &list); err != nil {
+	if err := volsyncKubectlGetJSONContext(ctx, namespace, "replicationsources", &list); err != nil {
 		return nil, err
 	}
 	out := make([]volsyncSourceStatus, 0, len(list.Items))
@@ -230,7 +239,7 @@ type pvcList struct {
 	} `json:"items"`
 }
 
-func listPVCsWithoutReplicationSource(namespace string, sources []volsyncSourceStatus) ([]volsyncMissingBackup, error) {
+func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace string, sources []volsyncSourceStatus) ([]volsyncMissingBackup, error) {
 	protectedNamespaces := map[string]bool{}
 	protectedPVCs := map[string]bool{}
 	for _, s := range sources {
@@ -247,7 +256,7 @@ func listPVCsWithoutReplicationSource(namespace string, sources []volsyncSourceS
 	}
 
 	var list pvcList
-	if err := volsyncKubectlGetJSON(namespace, "pvc", &list); err != nil {
+	if err := volsyncKubectlGetJSONContext(ctx, namespace, "pvc", &list); err != nil {
 		return nil, err
 	}
 	var missing []volsyncMissingBackup
@@ -316,7 +325,7 @@ func isPodOwnedPVC(ownerReferences []struct {
 	return false
 }
 
-func volsyncKubectlGetJSON(namespace, resource string, dest interface{}) error {
+func volsyncKubectlGetJSONContext(ctx context.Context, namespace, resource string, dest interface{}) error {
 	args := []string{"get", resource}
 	if namespace != "" {
 		args = append(args, "--namespace", namespace)
@@ -324,7 +333,7 @@ func volsyncKubectlGetJSON(namespace, resource string, dest interface{}) error {
 		args = append(args, "-A")
 	}
 	args = append(args, "-o", "json")
-	out, err := commandOutputFn("kubectl", args...)
+	out, err := commandOutputCtxFn(ctx, "kubectl", args...)
 	if err != nil {
 		return fmt.Errorf("kubectl get %s: %w", resource, err)
 	}

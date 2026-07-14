@@ -61,6 +61,19 @@ func TestNewCommandStructure(t *testing.T) {
 	assert.True(t, subs["save-pki"])
 }
 
+func TestRenderIgnitionUsesOutputFileCanonicalFlag(t *testing.T) {
+	cmd := newRenderIgnitionCommand()
+
+	require.NotNil(t, cmd.Flags().Lookup("output-file"))
+	for _, name := range []string{"output", "out"} {
+		legacy := cmd.Flags().Lookup(name)
+		require.NotNil(t, legacy)
+		assert.True(t, legacy.Hidden, name)
+		assert.NotEmpty(t, legacy.Deprecated, name)
+	}
+	assert.Equal(t, "o", cmd.Flags().Lookup("output").Shorthand)
+}
+
 func TestResetNodeCommand(t *testing.T) {
 	defer stubSecrets(t)()
 	origConfirm, origReset := confirmActionFn, resetNodeFn

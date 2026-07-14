@@ -439,7 +439,7 @@ These commands work against Flux `ks.yaml` files and support multi-document file
 
 ```bash
 homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana
-homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana -o rendered.yaml
+homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana --output-file rendered.yaml
 
 homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 homeops-cli k8s apply-ks --dry-run

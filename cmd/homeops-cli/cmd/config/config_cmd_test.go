@@ -86,6 +86,19 @@ func TestInitCommand(t *testing.T) {
 	})
 }
 
+func TestInitCommandUsesOutputFileCanonicalFlag(t *testing.T) {
+	cmd := NewCommand()
+	initCmd, _, err := cmd.Find([]string{"init"})
+	require.NoError(t, err)
+	require.NotNil(t, initCmd)
+
+	require.NotNil(t, initCmd.Flags().Lookup("output-file"))
+	legacy := initCmd.Flags().Lookup("output")
+	require.NotNil(t, legacy)
+	assert.True(t, legacy.Hidden)
+	assert.NotEmpty(t, legacy.Deprecated)
+}
+
 func TestShowCommandNeverPrintsSecretValues(t *testing.T) {
 	restore := config.SetForTesting(&config.Config{
 		Secrets: map[string]string{

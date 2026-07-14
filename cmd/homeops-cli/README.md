@@ -146,6 +146,7 @@ homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
 
 # Render just the Ignition or kubeadm config
 homeops-cli flatcar render-ignition
+homeops-cli flatcar render-ignition --output-file ./k8s-0.ign
 homeops-cli flatcar gen-kubeadm
 
 # Node lifecycle (reboot-node/reset-node prompt for the node if --node is omitted)
@@ -232,7 +233,7 @@ homeops-cli k8s view-secret
 The Kustomization helpers work with `ks.yaml` files and support multi-document files via `--name`.
 
 ```bash
-homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana
+homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana --output-file ./rendered.yaml
 homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 ```

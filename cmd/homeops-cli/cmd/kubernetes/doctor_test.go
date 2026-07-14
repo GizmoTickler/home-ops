@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 
 func fakeKubectlDoctor(t *testing.T, byKind map[string]string) func(args ...string) ([]byte, error) {
 	t.Helper()
-	return func(args ...string) ([]byte, error) {
+	fn := func(args ...string) ([]byte, error) {
 		kind := ""
 		for i, a := range args {
 			if a == "get" && i+1 < len(args) {
@@ -25,6 +26,12 @@ func fakeKubectlDoctor(t *testing.T, byKind map[string]string) func(args ...stri
 		}
 		return []byte(`{"items":[]}`), nil
 	}
+	oldCtx := kubectlOutputCtxFn
+	kubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+		return fn(args...)
+	}
+	t.Cleanup(func() { kubectlOutputCtxFn = oldCtx })
+	return fn
 }
 
 func statusFor(t *testing.T, r doctorReport, group string) []doctorCheck {
@@ -309,11 +316,15 @@ func TestBuildDoctorReportCerts(t *testing.T) {
 
 func TestDoctorNamespaceScoping(t *testing.T) {
 	old := kubectlOutputFn
-	t.Cleanup(func() { kubectlOutputFn = old })
+	oldCtx := kubectlOutputCtxFn
+	t.Cleanup(func() { kubectlOutputFn = old; kubectlOutputCtxFn = oldCtx })
 	var sawArgs [][]string
 	kubectlOutputFn = func(args ...string) ([]byte, error) {
 		sawArgs = append(sawArgs, append([]string(nil), args...))
 		return []byte(`{"items":[]}`), nil
+	}
+	kubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+		return kubectlOutputFn(args...)
 	}
 	_ = buildDoctorReport("media", doctorDefaultPendingGrace)
 	for _, a := range sawArgs {
@@ -326,6 +337,26 @@ func TestDoctorNamespaceScoping(t *testing.T) {
 		assert.Contains(t, joined, "--namespace media")
 		assert.NotContains(t, joined, "-A")
 	}
+}
+
+func TestRunDoctorContextThreadsCallerContextToKubectl(t *testing.T) {
+	oldCtx := kubectlOutputCtxFn
+	t.Cleanup(func() { kubectlOutputCtxFn = oldCtx })
+
+	type doctorContextKey struct{}
+	key := doctorContextKey{}
+	ctx := context.WithValue(context.Background(), key, "doctor-context")
+	var sawContext bool
+	kubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+		sawContext = sawContext || ctx.Value(key) == "doctor-context"
+		return []byte(`{"items":[]}`), nil
+	}
+
+	var buf strings.Builder
+	err := runDoctorContext(ctx, "", "table", doctorDefaultPendingGrace, &buf)
+
+	require.NoError(t, err)
+	assert.True(t, sawContext)
 }
 
 func TestRenderDoctorReportJSON(t *testing.T) {

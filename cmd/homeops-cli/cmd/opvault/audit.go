@@ -1,11 +1,13 @@
 package opvault
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
@@ -14,6 +16,48 @@ import (
 
 var opAuditKubectlOutputFn = func(args ...string) ([]byte, error) {
 	return common.Output("kubectl", args...)
+}
+
+const opAuditDefaultTimeout = 5 * time.Minute
+
+var opAuditKubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+	result, err := common.RunCommand(ctx, common.CommandOptions{
+		Name:    "kubectl",
+		Args:    args,
+		Timeout: opAuditDefaultTimeout,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("kubectl %s: %w", strings.Join(args, " "), err)
+	}
+	return []byte(result.Stdout), nil
+}
+
+var runOpCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+	result, err := common.RunCommand(ctx, common.CommandOptions{
+		Name:    "op",
+		Args:    args,
+		Timeout: opAuditDefaultTimeout,
+	})
+	if err != nil {
+		return nil, opAuditCommandError(args, result.Stderr, err)
+	}
+	return []byte(result.Stdout), nil
+}
+
+func opAuditCommandError(args []string, stderr string, err error) error {
+	contextLabel := "op"
+	if len(args) >= 2 {
+		contextLabel = "op " + strings.Join(args[:2], " ")
+	} else if len(args) == 1 {
+		contextLabel = "op " + args[0]
+	}
+	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		line = strings.TrimSpace(opErrorPrefix.ReplaceAllString(strings.TrimSpace(line), ""))
+		if line != "" {
+			return fmt.Errorf("%s: %s", contextLabel, line)
+		}
+	}
+	return fmt.Errorf("%s: %w", contextLabel, err)
 }
 
 type auditStatus string
@@ -95,7 +139,9 @@ func newAuditCommand() *cobra.Command {
 		Short:        "Audit ExternalSecrets against 1Password item inventory",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAudit(vault, output, cmd.OutOrStdout())
+			ctx, cancel := context.WithTimeout(cmd.Context(), opAuditDefaultTimeout)
+			defer cancel()
+			return runAuditContext(ctx, vault, output, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().StringVar(&vault, "vault", "all", "1Password vault to inspect, or all accessible vaults")
@@ -104,7 +150,11 @@ func newAuditCommand() *cobra.Command {
 }
 
 func runAudit(vault, output string, out io.Writer) error {
-	report := buildAuditReport(vault)
+	return runAuditContext(context.Background(), vault, output, out)
+}
+
+func runAuditContext(ctx context.Context, vault, output string, out io.Writer) error {
+	report := buildAuditReportContext(ctx, vault)
 	rendered, err := renderAuditReport(report, output)
 	if err != nil {
 		return err
@@ -119,8 +169,12 @@ func runAudit(vault, output string, out io.Writer) error {
 }
 
 func buildAuditReport(vault string) auditReport {
+	return buildAuditReportContext(context.Background(), vault)
+}
+
+func buildAuditReportContext(ctx context.Context, vault string) auditReport {
 	var report auditReport
-	externalSecrets, references, refByItem, err := collectExternalSecretReferences()
+	externalSecrets, references, refByItem, err := collectExternalSecretReferencesContext(ctx)
 	if err != nil {
 		report.ExternalSecrets = append(report.ExternalSecrets, auditExternalSecret{
 			ExternalSecret: "externalsecrets",
@@ -133,7 +187,7 @@ func buildAuditReport(vault string) auditReport {
 	report.ExternalSecrets = externalSecrets
 	report.References = references
 
-	items, err := collectOpItems(vault)
+	items, err := collectOpItemsContext(ctx, vault)
 	if err != nil {
 		report.MissingItems = append(report.MissingItems, auditItemFinding{
 			Item:   "1password-inventory",
@@ -210,8 +264,8 @@ type externalSecretList struct {
 	} `json:"items"`
 }
 
-func collectExternalSecretReferences() ([]auditExternalSecret, []auditReference, map[string][]string, error) {
-	out, err := opAuditKubectlOutputFn("get", "externalsecrets.external-secrets.io", "-A", "-o", "json")
+func collectExternalSecretReferencesContext(ctx context.Context) ([]auditExternalSecret, []auditReference, map[string][]string, error) {
+	out, err := opAuditKubectlOutputCtxFn(ctx, "get", "externalsecrets.external-secrets.io", "-A", "-o", "json")
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("kubectl get externalsecrets: %w", err)
 	}
@@ -281,10 +335,10 @@ func collectExternalSecretReferences() ([]auditExternalSecret, []auditReference,
 	return externalSecrets, references, refByItem, nil
 }
 
-func collectOpItems(vault string) (map[string]string, error) {
+func collectOpItemsContext(ctx context.Context, vault string) (map[string]string, error) {
 	vaults := []string{vault}
 	if strings.TrimSpace(vault) == "" || vault == "all" {
-		list, err := listOpVaultNames()
+		list, err := listOpVaultNamesContext(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +346,7 @@ func collectOpItems(vault string) (map[string]string, error) {
 	}
 	items := map[string]string{}
 	for _, vaultName := range vaults {
-		out, err := runOpFn("item", "list", "--vault", vaultName, "--format=json")
+		out, err := runOpCtxFn(ctx, "item", "list", "--vault", vaultName, "--format=json")
 		if err != nil {
 			return nil, err
 		}
@@ -312,8 +366,8 @@ func collectOpItems(vault string) (map[string]string, error) {
 	return items, nil
 }
 
-func listOpVaultNames() ([]string, error) {
-	out, err := runOpFn("vault", "list", "--format=json")
+func listOpVaultNamesContext(ctx context.Context) ([]string, error) {
+	out, err := runOpCtxFn(ctx, "vault", "list", "--format=json")
 	if err != nil {
 		return nil, err
 	}

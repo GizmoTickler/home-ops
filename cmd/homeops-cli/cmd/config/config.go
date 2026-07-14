@@ -68,7 +68,7 @@ backend afterwards.`,
   homeops-cli config init --backend op
 
   # Scaffold with file:// references under ~/.config/homeops/secrets
-  homeops-cli config init --backend file --output ~/.config/homeops/config.yaml
+  homeops-cli config init --backend file --output-file ~/.config/homeops/config.yaml
 
   # List the canonical secret keys and their portable defaults
   homeops-cli config init --print-keys`,
@@ -109,7 +109,10 @@ backend afterwards.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&output, "output", "homeops.yaml", "where to write the config file")
+	cmd.Flags().StringVar(&output, "output-file", "homeops.yaml", "where to write the config file")
+	cmd.Flags().StringVar(&output, "output", "homeops.yaml", "Deprecated alias for --output-file")
+	_ = cmd.Flags().MarkDeprecated("output", "use --output-file")
+	_ = cmd.Flags().MarkHidden("output")
 	cmd.Flags().StringVar(&backend, "backend", "env", "secret backend style to prefill: env, op, or file")
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing file")
 	cmd.Flags().BoolVar(&printKeys, "print-keys", false, "print the canonical secret keys and defaults, then exit")

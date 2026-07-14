@@ -1,6 +1,7 @@
 package volsync
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ import (
 
 func fakeVolsyncKubectl(t *testing.T, byKind map[string]string) func(name string, args ...string) ([]byte, error) {
 	t.Helper()
-	return func(name string, args ...string) ([]byte, error) {
+	fn := func(name string, args ...string) ([]byte, error) {
 		require.Equal(t, "kubectl", name)
 		kind := ""
 		for i, a := range args {
@@ -28,6 +29,10 @@ func fakeVolsyncKubectl(t *testing.T, byKind map[string]string) func(name string
 		}
 		return []byte(`{"items":[]}`), nil
 	}
+	testutil.Swap(t, &commandOutputCtxFn, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return fn(name, args...)
+	})
+	return fn
 }
 
 func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
@@ -132,9 +137,13 @@ func TestBuildVolsyncStatusReportExcludesPodOwnedEphemeralPVCsButWarnsUnownedPVC
 
 func TestVolsyncStatusNamespaceScoping(t *testing.T) {
 	var calls []string
-	testutil.Swap(t, &commandOutputFn, func(name string, args ...string) ([]byte, error) {
+	output := func(name string, args ...string) ([]byte, error) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return []byte(`{"items":[]}`), nil
+	}
+	testutil.Swap(t, &commandOutputFn, output)
+	testutil.Swap(t, &commandOutputCtxFn, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return output(name, args...)
 	})
 	_ = buildVolsyncStatusReport("downloads", 24*time.Hour)
 	for _, c := range calls {
@@ -172,4 +181,21 @@ func TestRunVolsyncStatusFailsOnFailedSync(t *testing.T) {
 	err := runVolsyncStatus("", "json", 24*time.Hour, &buf)
 	require.Error(t, err)
 	assert.Contains(t, buf.String(), "Failed")
+}
+
+func TestRunVolsyncStatusContextThreadsCallerContext(t *testing.T) {
+	type volsyncStatusContextKey struct{}
+	key := volsyncStatusContextKey{}
+	ctx := context.WithValue(context.Background(), key, "volsync-status")
+	var sawContext bool
+	testutil.Swap(t, &commandOutputCtxFn, func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		sawContext = sawContext || ctx.Value(key) == "volsync-status"
+		return []byte(`{"items":[]}`), nil
+	})
+
+	var buf strings.Builder
+	err := runVolsyncStatusContext(ctx, "", "table", 24*time.Hour, &buf)
+
+	require.NoError(t, err)
+	assert.True(t, sawContext)
 }

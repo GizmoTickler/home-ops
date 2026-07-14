@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -105,7 +106,9 @@ func newDoctorCommand() *cobra.Command {
 		Short:        "Run read-only Kubernetes cluster triage",
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDoctor(namespace, output, pendingGrace, cmd.OutOrStdout())
+			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
+			defer cancel()
+			return runDoctorContext(ctx, namespace, output, pendingGrace, cmd.OutOrStdout())
 		},
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to inspect (default: all namespaces)")
@@ -116,7 +119,11 @@ func newDoctorCommand() *cobra.Command {
 }
 
 func runDoctor(namespace, output string, pendingGrace time.Duration, out io.Writer) error {
-	report := buildDoctorReport(namespace, pendingGrace)
+	return runDoctorContext(context.Background(), namespace, output, pendingGrace, out)
+}
+
+func runDoctorContext(ctx context.Context, namespace, output string, pendingGrace time.Duration, out io.Writer) error {
+	report := buildDoctorReportContext(ctx, namespace, pendingGrace)
 	rendered, err := renderDoctorReport(report, output)
 	if err != nil {
 		return err
@@ -131,12 +138,16 @@ func runDoctor(namespace, output string, pendingGrace time.Duration, out io.Writ
 }
 
 func buildDoctorReport(namespace string, pendingGrace time.Duration) doctorReport {
+	return buildDoctorReportContext(context.Background(), namespace, pendingGrace)
+}
+
+func buildDoctorReportContext(ctx context.Context, namespace string, pendingGrace time.Duration) doctorReport {
 	var report doctorReport
-	report.addFlux(namespace)
-	report.addNodes()
-	report.addPods(namespace, pendingGrace)
-	report.addCeph(namespace)
-	report.addCertificates(namespace)
+	report.addFlux(ctx, namespace)
+	report.addNodes(ctx)
+	report.addPods(ctx, namespace, pendingGrace)
+	report.addCeph(ctx, namespace)
+	report.addCertificates(ctx, namespace)
 	report.finalize()
 	return report
 }
@@ -207,8 +218,8 @@ func scopedKubectlGetArgs(namespace, resource string) []string {
 	return append(args, "-o", "json")
 }
 
-func kubectlGetJSON(namespace, resource string, dest interface{}) error {
-	out, err := kubectlOutputFn(scopedKubectlGetArgs(namespace, resource)...)
+func kubectlGetJSONContext(ctx context.Context, namespace, resource string, dest interface{}) error {
+	out, err := kubectlOutputCtxFn(ctx, scopedKubectlGetArgs(namespace, resource)...)
 	if err != nil {
 		return fmt.Errorf("kubectl get %s: %w", resource, err)
 	}
@@ -218,8 +229,8 @@ func kubectlGetJSON(namespace, resource string, dest interface{}) error {
 	return nil
 }
 
-func kubectlGetClusterJSON(resource string, dest interface{}) error {
-	out, err := kubectlOutputFn("get", resource, "-o", "json")
+func kubectlGetClusterJSONContext(ctx context.Context, resource string, dest interface{}) error {
+	out, err := kubectlOutputCtxFn(ctx, "get", resource, "-o", "json")
 	if err != nil {
 		return fmt.Errorf("kubectl get %s: %w", resource, err)
 	}
@@ -241,18 +252,18 @@ type fluxObjectList struct {
 	} `json:"items"`
 }
 
-func (r *doctorReport) addFlux(namespace string) {
+func (r *doctorReport) addFlux(ctx context.Context, namespace string) {
 	totalProblems := len(r.Checks)
-	r.addFluxResource(namespace, "Kustomization", fluxKustomizationResource)
-	r.addFluxResource(namespace, "HelmRelease", fluxHelmReleaseResource)
+	r.addFluxResource(ctx, namespace, "Kustomization", fluxKustomizationResource)
+	r.addFluxResource(ctx, namespace, "HelmRelease", fluxHelmReleaseResource)
 	if len(r.Checks) == totalProblems {
 		r.add(doctorGroupFlux, "Flux", "", "all", statusPass, "all Kustomizations and HelmReleases are ready and not suspended")
 	}
 }
 
-func (r *doctorReport) addFluxResource(namespace, kind, resource string) {
+func (r *doctorReport) addFluxResource(ctx context.Context, namespace, kind, resource string) {
 	var list fluxObjectList
-	if err := kubectlGetJSON(namespace, resource, &list); err != nil {
+	if err := kubectlGetJSONContext(ctx, namespace, resource, &list); err != nil {
 		r.add(doctorGroupFlux, kind, "", resource, statusFail, err.Error())
 		return
 	}
@@ -284,10 +295,10 @@ type nodeList struct {
 	} `json:"items"`
 }
 
-func (r *doctorReport) addNodes() {
+func (r *doctorReport) addNodes(ctx context.Context) {
 	before := len(r.Checks)
 	var list nodeList
-	if err := kubectlGetClusterJSON("nodes", &list); err != nil {
+	if err := kubectlGetClusterJSONContext(ctx, "nodes", &list); err != nil {
 		r.add(doctorGroupNodes, "Node", "", "nodes", statusFail, err.Error())
 		return
 	}
@@ -353,10 +364,10 @@ type state struct {
 	} `json:"terminated"`
 }
 
-func (r *doctorReport) addPods(namespace string, pendingGrace time.Duration) {
+func (r *doctorReport) addPods(ctx context.Context, namespace string, pendingGrace time.Duration) {
 	before := len(r.Checks)
 	var list podList
-	if err := kubectlGetJSON(namespace, "pods", &list); err != nil {
+	if err := kubectlGetJSONContext(ctx, namespace, "pods", &list); err != nil {
 		r.add(doctorGroupPods, "Pod", "", "pods", statusFail, err.Error())
 		return
 	}
@@ -442,10 +453,10 @@ type cephClusterList struct {
 	} `json:"items"`
 }
 
-func (r *doctorReport) addCeph(namespace string) {
+func (r *doctorReport) addCeph(ctx context.Context, namespace string) {
 	before := len(r.Checks)
 	var list cephClusterList
-	if err := kubectlGetJSON(namespace, cephClusterResource, &list); err != nil {
+	if err := kubectlGetJSONContext(ctx, namespace, cephClusterResource, &list); err != nil {
 		r.add(doctorGroupCeph, "CephCluster", "", "cephclusters", statusFail, err.Error())
 		return
 	}
@@ -476,10 +487,10 @@ type certificateList struct {
 	} `json:"items"`
 }
 
-func (r *doctorReport) addCertificates(namespace string) {
+func (r *doctorReport) addCertificates(ctx context.Context, namespace string) {
 	before := len(r.Checks)
 	var list certificateList
-	if err := kubectlGetJSON(namespace, certificateResource, &list); err != nil {
+	if err := kubectlGetJSONContext(ctx, namespace, certificateResource, &list); err != nil {
 		r.add(doctorGroupCerts, "Certificate", "", "certificates", statusFail, err.Error())
 		return
 	}

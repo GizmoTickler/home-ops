@@ -256,6 +256,7 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 			}
 			subcommands = append(subcommands, fmt.Sprintf("%s - %s", subcmd.Name(), subcmd.Short))
 		}
+		subcommands = appendSyntheticMenuSubcommands(cmd, subcommands)
 
 		if len(subcommands) == 0 {
 			return cmd.Help()
@@ -310,6 +311,21 @@ func showSubcommandMenu(cmd *cobra.Command) error {
 			}
 		}
 	}
+}
+
+func appendSyntheticMenuSubcommands(cmd *cobra.Command, subcommands []string) []string {
+	if cmd == nil {
+		return subcommands
+	}
+	if cmd.CommandPath() != "homeops-cli vm" {
+		return subcommands
+	}
+	for _, subcmd := range cmd.Commands() {
+		if subcmd.Name() == "list-all" {
+			return append(subcommands, fmt.Sprintf("%s - %s", subcmd.Name(), subcmd.Short))
+		}
+	}
+	return subcommands
 }
 
 // menuArgsInputFn prompts for a command's positional arguments. Swappable
@@ -368,6 +384,8 @@ func requiresFlagDrivenInvocation(cmd *cobra.Command) bool {
 
 var menuUnsupportedCommands = map[string]bool{
 	"homeops-cli k8s force-sync-externalsecret": true,
+	"homeops-cli k8s suspend":                   true,
+	"homeops-cli k8s resume":                    true,
 	"homeops-cli op move":                       true,
 	"homeops-cli op duplicate":                  true,
 	"homeops-cli op create":                     true,

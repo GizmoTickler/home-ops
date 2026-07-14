@@ -62,6 +62,18 @@ var (
 	commandRunFn = func(name string, args ...string) error {
 		return runKubernetesCommandRun(name, args...)
 	}
+	// commandRunCtxFn is the context-aware run seam: it wires the caller's
+	// context (e.g. cmd.Context(), which main.go cancels on SIGINT) into the
+	// shell-out so Ctrl-C aborts in-flight kubectl/flux calls. Day-2 commands
+	// (suspend/resume) use this instead of commandRunFn.
+	commandRunCtxFn = func(ctx context.Context, name string, args ...string) error {
+		return runKubernetesCommandRunCtx(ctx, name, args...)
+	}
+	// kubectlOutputCtxFn is the context-aware kubectl stdout seam used by the
+	// day-2 read command (doctor), so a cancelled context aborts the query.
+	kubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+		return runKubernetesCommandOutputCtx(ctx, "kubectl", args...)
+	}
 	commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
 		return runKubernetesCommandCombinedOutput(name, args...)
 	}
@@ -108,7 +120,11 @@ func runManifestCommand(action, manifest string) error {
 }
 
 func runKubernetesCommandOutput(name string, args ...string) ([]byte, error) {
-	result, err := runKubernetesCommand(name, args...)
+	return runKubernetesCommandOutputCtx(context.Background(), name, args...)
+}
+
+func runKubernetesCommandOutputCtx(ctx context.Context, name string, args ...string) ([]byte, error) {
+	result, err := runKubernetesCommandCtx(ctx, name, args...)
 	return []byte(result.Stdout), redactKubernetesCommandError(err, result.Stdout, result.Stderr)
 }
 
@@ -118,12 +134,20 @@ func runKubernetesCommandCombinedOutput(name string, args ...string) ([]byte, er
 }
 
 func runKubernetesCommandRun(name string, args ...string) error {
-	result, err := runKubernetesCommand(name, args...)
+	return runKubernetesCommandRunCtx(context.Background(), name, args...)
+}
+
+func runKubernetesCommandRunCtx(ctx context.Context, name string, args ...string) error {
+	result, err := runKubernetesCommandCtx(ctx, name, args...)
 	return redactKubernetesCommandError(err, result.Stdout, result.Stderr)
 }
 
 func runKubernetesCommand(name string, args ...string) (common.CommandResult, error) {
-	return common.RunCommand(context.Background(), common.CommandOptions{
+	return runKubernetesCommandCtx(context.Background(), name, args...)
+}
+
+func runKubernetesCommandCtx(ctx context.Context, name string, args ...string) (common.CommandResult, error) {
+	return common.RunCommand(ctx, common.CommandOptions{
 		Name:    name,
 		Args:    args,
 		Timeout: kubernetesDefaultCommandTimeout,
@@ -484,7 +508,7 @@ func newBrowsePVCCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&claim, "claim", "", "PVC name (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&image, "image", "docker.io/library/alpine:latest", "Container image to use")
 
@@ -611,28 +635,39 @@ func nodeShell(node string) error {
 }
 
 func newSyncSecretsCommand() *cobra.Command {
-	var dryRun bool
+	var (
+		dryRun    bool
+		namespace string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "sync-secrets",
 		Short: "Sync all ExternalSecrets",
-		Long:  `Forces a sync of all ExternalSecrets across all namespaces`,
+		Long:  `Forces a sync of ExternalSecrets. Defaults to all namespaces unless --namespace is set.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return syncSecrets(dryRun)
+			return syncSecrets(namespace, dryRun)
 		},
 	}
 
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Limit to specific namespace (default: all namespaces)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be synced without making changes")
+	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 
 	return cmd
 }
 
-func syncSecrets(dryRun bool) error {
+func syncSecrets(namespace string, dryRun bool) error {
 	logger := common.NewColorLogger()
 
 	// Get all ExternalSecrets
-	output, err := commandOutputFn("kubectl", "get", "externalsecret", "--all-namespaces",
-		"--no-headers", "--output=jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}")
+	args := []string{"get", "externalsecret"}
+	if strings.TrimSpace(namespace) == "" {
+		args = append(args, "--all-namespaces")
+	} else {
+		args = append(args, "--namespace", namespace)
+	}
+	args = append(args, "--no-headers", "--output=jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}")
+	output, err := commandOutputFn("kubectl", args...)
 	if err != nil {
 		return fmt.Errorf("failed to get ExternalSecrets: %w", err)
 	}
@@ -700,7 +735,7 @@ func newCleansePodsCommand() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be deleted without making changes")
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Limit to specific namespace (optional - will prompt if not provided)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Limit to specific namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&phases, "phase", "", "Comma-separated list of pod phases to prune (Failed,Succeeded,Pending) (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt")
 
@@ -1588,7 +1623,10 @@ func newRenderKsCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Write output to file instead of stdout")
+	cmd.Flags().StringVar(&outputFile, "output-file", "", "Write output to file instead of stdout")
+	cmd.Flags().StringVarP(&outputFile, "output", "o", "", "Deprecated alias for --output-file")
+	_ = cmd.Flags().MarkDeprecated("output", "use --output-file")
+	_ = cmd.Flags().MarkHidden("output")
 	cmd.Flags().StringVar(&ksName, "name", "", "Kustomization name within ks.yaml when the file contains multiple documents")
 
 	return cmd

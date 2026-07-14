@@ -40,6 +40,11 @@ var (
 	commandOutputFn = func(name string, args ...string) ([]byte, error) {
 		return volsyncCommandOutput(name, args...)
 	}
+	// commandOutputCtxFn is the context-aware output seam used by the day-2
+	// read command (status) so a cancelled context aborts the in-flight query.
+	commandOutputCtxFn = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return volsyncCommandOutputCtx(ctx, name, args...)
+	}
 	commandRunFn = func(name string, args ...string) error {
 		return volsyncCommandRun(name, args...)
 	}
@@ -76,7 +81,11 @@ const (
 var kubectlTimeoutArgPattern = regexp.MustCompile(`^--timeout=(.+)$`)
 
 func volsyncCommandOutput(name string, args ...string) ([]byte, error) {
-	result, err := runVolsyncCommand(name, args...)
+	return volsyncCommandOutputCtx(context.Background(), name, args...)
+}
+
+func volsyncCommandOutputCtx(ctx context.Context, name string, args ...string) ([]byte, error) {
+	result, err := runVolsyncCommandCtx(ctx, name, args...)
 	return []byte(result.Stdout), redactCommandError(err, result.Stdout, result.Stderr, nil)
 }
 
@@ -91,7 +100,11 @@ func volsyncCommandRun(name string, args ...string) error {
 }
 
 func runVolsyncCommand(name string, args ...string) (common.CommandResult, error) {
-	return common.RunCommand(context.Background(), common.CommandOptions{
+	return runVolsyncCommandCtx(context.Background(), name, args...)
+}
+
+func runVolsyncCommandCtx(ctx context.Context, name string, args ...string) (common.CommandResult, error) {
+	return common.RunCommand(ctx, common.CommandOptions{
 		Name:    name,
 		Args:    args,
 		Timeout: volsyncCommandTimeout(args...),
@@ -171,7 +184,7 @@ func NewCommand() *cobra.Command {
 }
 
 func newStateCommand() *cobra.Command {
-	var action string
+	var action, output string
 
 	cmd := &cobra.Command{
 		Use:   "state [suspend|resume]",
@@ -189,7 +202,7 @@ positionally or via --action — to change it.`,
 				state = args[0]
 			}
 			if state == "" {
-				return showVolsyncState()
+				return showVolsyncStateOutput(output)
 			}
 			if state != "suspend" && state != "resume" {
 				return fmt.Errorf("state must be 'suspend' or 'resume' (or no argument to show the current state)")
@@ -199,13 +212,39 @@ positionally or via --action — to change it.`,
 	}
 
 	cmd.Flags().StringVar(&action, "action", "", "suspend or resume (default: show the current state)")
+	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format for showing current state: table or json")
 
 	return cmd
 }
 
-// showVolsyncState prints whether the VolSync Flux objects and controller
-// deployment are suspended or running.
-func showVolsyncState() error {
+type volsyncStateComponent struct {
+	Component string `json:"component"`
+	State     string `json:"state"`
+}
+
+type volsyncStateReport struct {
+	Components []volsyncStateComponent `json:"components"`
+	Suspended  bool                    `json:"suspended"`
+}
+
+func showVolsyncStateOutput(output string) error {
+	report := buildVolsyncStateReport()
+	rendered, err := renderVolsyncStateReport(report, output)
+	if err != nil {
+		return err
+	}
+	if rendered != "" {
+		fmt.Println(rendered)
+	}
+	if output == "" || output == "table" {
+		if report.Suspended {
+			fmt.Println("\nVolSync is suspended — resume with 'homeops-cli volsync state resume'")
+		}
+	}
+	return nil
+}
+
+func buildVolsyncStateReport() volsyncStateReport {
 	type check struct {
 		component string
 		args      []string
@@ -236,8 +275,7 @@ func showVolsyncState() error {
 		}},
 	}
 
-	rows := make([][]string, 0, len(checks))
-	suspended := false
+	report := volsyncStateReport{Components: make([]volsyncStateComponent, 0, len(checks))}
 	for _, c := range checks {
 		out, err := kubectlOutputFn(c.args...)
 		state := "unknown"
@@ -245,15 +283,30 @@ func showVolsyncState() error {
 			state = c.render(string(out))
 		}
 		if strings.Contains(state, "suspended") {
-			suspended = true
+			report.Suspended = true
 		}
-		rows = append(rows, []string{c.component, state})
+		report.Components = append(report.Components, volsyncStateComponent{Component: c.component, State: state})
 	}
-	ui.PrintTable([]string{"COMPONENT", "STATE"}, rows)
-	if suspended {
-		fmt.Println("\nVolSync is suspended — resume with 'homeops-cli volsync state resume'")
+	return report
+}
+
+func renderVolsyncStateReport(report volsyncStateReport, output string) (string, error) {
+	switch output {
+	case "", "table":
+		rows := make([][]string, 0, len(report.Components))
+		for _, component := range report.Components {
+			rows = append(rows, []string{component.Component, component.State})
+		}
+		return ui.Table([]string{"COMPONENT", "STATE"}, rows), nil
+	case "json":
+		raw, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
 	}
-	return nil
 }
 
 func changeVolsyncState(state string) error {
@@ -510,7 +563,7 @@ func newSnapshotCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for snapshot to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for snapshot completion")
@@ -678,7 +731,7 @@ func newSnapshotAllCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (if empty, searches all namespaces)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (if empty, searches all namespaces)")
 	cmd.Flags().BoolVar(&wait, "wait", true, "Wait for all snapshots to complete")
 	cmd.Flags().DurationVar(&timeout, "timeout", 120*time.Minute, "Timeout for each snapshot completion")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be snapshotted without actually triggering snapshots")
@@ -895,7 +948,7 @@ func newRestoreCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&app, "app", "", "Application name (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (optional - will prompt if not provided)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
@@ -1393,7 +1446,7 @@ func newRestoreAllCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&namespace, "namespace", "", "Kubernetes namespace (optional - will prompt if not provided)")
+	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "Kubernetes namespace (optional - will prompt if not provided)")
 	cmd.Flags().StringVar(&previous, "previous", "", "Previous snapshot number to restore (required)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force restore without confirmation")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would be restored without actually triggering restores")

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -91,4 +92,36 @@ func TestRenderAllProviderInventoryJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, `"provider": "proxmox"`)
 	assert.Contains(t, out, `"name": "px"`)
+}
+
+func TestVMCommandExposesHiddenListAllProvidersLeafForInteractiveMenu(t *testing.T) {
+	cmd := NewVMCommand()
+
+	var listAll *cobra.Command
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "list-all" {
+			listAll = sub
+			break
+		}
+	}
+
+	require.NotNil(t, listAll)
+	assert.True(t, listAll.Hidden)
+	assert.False(t, listAll.HasSubCommands())
+	assert.NotNil(t, listAll.RunE)
+	assert.Equal(t, "table", listAll.Flags().Lookup("output").DefValue)
+}
+
+func TestListAllCommandUsesAllProviderInventory(t *testing.T) {
+	oldFactory := vmlifecycle.NewVMLifecycleFn
+	t.Cleanup(func() { vmlifecycle.NewVMLifecycleFn = oldFactory })
+	vmlifecycle.NewVMLifecycleFn = func(provider string) (vmprov.VMLifecycle, error) {
+		return &fakeListLifecycle{provider: provider}, nil
+	}
+
+	cmd := newListAllVMsCommand()
+	cmd.SetArgs([]string{"--output", "json"})
+	err := cmd.Execute()
+
+	require.NoError(t, err)
 }
