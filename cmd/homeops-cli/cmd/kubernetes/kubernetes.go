@@ -1214,27 +1214,68 @@ func newSyncCommand() *cobra.Command {
 func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) error {
 	logger := common.NewColorLogger()
 
-	// If resource type is not provided, prompt for selection
+	fullType, cancelled, err := resolveFluxSyncResourceType(resourceType)
+	if err != nil {
+		return err
+	}
+	if cancelled {
+		return nil
+	}
+
+	resources, err := listFluxSyncResources(fullType, namespace)
+	if err != nil {
+		return err
+	}
+	if len(resources) == 0 {
+		logger.Info("No %s resources found", fullType)
+		return nil
+	}
+	logger.Info("Found %d %s resources to sync", len(resources), fullType)
+
+	if dryRun {
+		return dryRunFluxSyncResources(logger, resources)
+	}
+
+	if confirmed, err := confirmLargeFluxSync(logger, fullType, len(resources)); err != nil || !confirmed {
+		return err
+	}
+
+	successCount, failCount := reconcileFluxSyncResources(logger, fullType, resources, parallel)
+	reportFluxSyncResult(logger, successCount, failCount)
+	return nil
+}
+
+func resolveFluxSyncResourceType(resourceType string) (string, bool, error) {
 	if resourceType == "" {
-		options := []string{
-			"gitrepository - Git repositories",
-			"helmrelease - Helm releases",
-			"kustomization - Kustomizations",
-			"ocirepository - OCI repositories",
-		}
-		selected, err := chooseOptionFn("Select resource type to sync:", options)
+		selected, err := chooseOptionFn("Select resource type to sync:", fluxSyncResourceOptions())
 		if err != nil {
 			if ui.IsCancellation(err) {
-				return nil // User cancelled - exit cleanly
+				return "", true, nil // User cancelled - exit cleanly
 			}
-			return fmt.Errorf("resource type selection failed: %w", err)
+			return "", false, fmt.Errorf("resource type selection failed: %w", err)
 		}
 		// Extract the resource type from the selection
 		resourceType = strings.Split(selected, " ")[0]
 	}
 
-	// Validate resource type
-	validTypes := map[string]string{
+	fullType, ok := fluxSyncResourceTypes()[strings.ToLower(resourceType)]
+	if !ok {
+		return "", false, fmt.Errorf("invalid resource type: %s (valid: gitrepo, helmrelease, kustomization, ocirepository)", resourceType)
+	}
+	return fullType, false, nil
+}
+
+func fluxSyncResourceOptions() []string {
+	return []string{
+		"gitrepository - Git repositories",
+		"helmrelease - Helm releases",
+		"kustomization - Kustomizations",
+		"ocirepository - OCI repositories",
+	}
+}
+
+func fluxSyncResourceTypes() map[string]string {
+	return map[string]string{
 		"gitrepo":       "gitrepository",
 		"gitrepository": "gitrepository",
 		"helmrelease":   "helmrelease",
@@ -1244,13 +1285,9 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 		"ocirepository": "ocirepository",
 		"oci":           "ocirepository",
 	}
+}
 
-	fullType, ok := validTypes[strings.ToLower(resourceType)]
-	if !ok {
-		return fmt.Errorf("invalid resource type: %s (valid: gitrepo, helmrelease, kustomization, ocirepository)", resourceType)
-	}
-
-	// Build kubectl command to list resources
+func listFluxSyncResources(fullType, namespace string) ([]string, error) {
 	args := []string{"get", fullType, "-o", "jsonpath={range .items[*]}{.metadata.namespace},{.metadata.name}{\"\\n\"}{end}"}
 	if namespace != "" {
 		args = append(args, "--namespace", namespace)
@@ -1260,122 +1297,134 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 
 	output, err := commandOutputFn("kubectl", args...)
 	if err != nil {
-		return fmt.Errorf("failed to list %s resources: %w", fullType, err)
+		return nil, fmt.Errorf("failed to list %s resources: %w", fullType, err)
 	}
 
 	resources := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(resources) == 0 || (len(resources) == 1 && resources[0] == "") {
-		logger.Info("No %s resources found", fullType)
-		return nil
+		return nil, nil
+	}
+	return resources, nil
+}
+
+func dryRunFluxSyncResources(logger *common.ColorLogger, resources []string) error {
+	logger.Info("[DRY RUN] Would sync the following resources:")
+	for _, resource := range resources {
+		parts, ok := splitFluxSyncResource(resource)
+		if !ok {
+			continue
+		}
+		fmt.Printf("  - %s/%s\n", parts[0], parts[1])
+	}
+	return nil
+}
+
+func confirmLargeFluxSync(logger *common.ColorLogger, fullType string, count int) (bool, error) {
+	if count <= 5 {
+		return true, nil
 	}
 
-	logger.Info("Found %d %s resources to sync", len(resources), fullType)
-
-	// In dry-run mode, just list the resources
-	if dryRun {
-		logger.Info("[DRY RUN] Would sync the following resources:")
-		for _, resource := range resources {
-			if resource == "" {
-				continue
-			}
-			parts := strings.Split(resource, ",")
-			if len(parts) != 2 {
-				continue
-			}
-			fmt.Printf("  - %s/%s\n", parts[0], parts[1])
-		}
-		return nil
+	message := fmt.Sprintf("About to sync %d %s resources. Continue?", count, fullType)
+	confirmed, err := confirmActionFn(message, false)
+	if err != nil {
+		return false, fmt.Errorf("confirmation failed: %w", err)
 	}
-
-	// Ask for confirmation if syncing many resources
-	if len(resources) > 5 {
-		message := fmt.Sprintf("About to sync %d %s resources. Continue?", len(resources), fullType)
-		confirmed, err := confirmActionFn(message, false)
-		if err != nil {
-			return fmt.Errorf("confirmation failed: %w", err)
-		}
-		if !confirmed {
-			logger.Info("Sync cancelled")
-			return nil
-		}
+	if !confirmed {
+		logger.Info("Sync cancelled")
+		return false, nil
 	}
+	return true, nil
+}
 
+func reconcileFluxSyncResources(logger *common.ColorLogger, fullType string, resources []string, parallel bool) (int, int) {
+	if parallel {
+		return reconcileFluxSyncResourcesParallel(logger, fullType, resources)
+	}
+	return reconcileFluxSyncResourcesSequential(logger, fullType, resources)
+}
+
+func reconcileFluxSyncResourcesParallel(logger *common.ColorLogger, fullType string, resources []string) (int, int) {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	successCount := 0
 	failCount := 0
 
-	if parallel {
-		// Parallel execution using goroutines
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-
-		for _, resource := range resources {
-			if resource == "" {
-				continue
-			}
-
-			parts := strings.Split(resource, ",")
-			if len(parts) != 2 {
-				logger.Warn("Invalid resource format: %s", resource)
-				continue
-			}
-
-			ns := parts[0]
-			name := parts[1]
-
-			wg.Add(1)
-			go func(ns, name string) {
-				defer wg.Done()
-
-				logger.Info("Syncing %s %s/%s", fullType, ns, name)
-
-				if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
-					mu.Lock()
-					logger.Error("Failed to sync %s/%s: %v", ns, name, err)
-					failCount++
-					mu.Unlock()
-				} else {
-					mu.Lock()
-					successCount++
-					mu.Unlock()
-				}
-			}(ns, name)
+	for _, resource := range resources {
+		parts, ok := splitFluxSyncResource(resource)
+		if !ok {
+			logger.Warn("Invalid resource format: %s", resource)
+			continue
 		}
 
-		wg.Wait()
-	} else {
-		// Sequential execution
-		for _, resource := range resources {
-			if resource == "" {
-				continue
-			}
+		ns := parts[0]
+		name := parts[1]
 
-			parts := strings.Split(resource, ",")
-			if len(parts) != 2 {
-				logger.Warn("Invalid resource format: %s", resource)
-				continue
-			}
-
-			ns := parts[0]
-			name := parts[1]
+		wg.Add(1)
+		go func(ns, name string) {
+			defer wg.Done()
 
 			logger.Info("Syncing %s %s/%s", fullType, ns, name)
 
 			if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
+				mu.Lock()
 				logger.Error("Failed to sync %s/%s: %v", ns, name, err)
 				failCount++
-				continue
+				mu.Unlock()
+			} else {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
 			}
-			successCount++
-		}
+		}(ns, name)
 	}
 
+	wg.Wait()
+	return successCount, failCount
+}
+
+func reconcileFluxSyncResourcesSequential(logger *common.ColorLogger, fullType string, resources []string) (int, int) {
+	successCount := 0
+	failCount := 0
+
+	for _, resource := range resources {
+		parts, ok := splitFluxSyncResource(resource)
+		if !ok {
+			logger.Warn("Invalid resource format: %s", resource)
+			continue
+		}
+
+		ns := parts[0]
+		name := parts[1]
+
+		logger.Info("Syncing %s %s/%s", fullType, ns, name)
+
+		if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
+			logger.Error("Failed to sync %s/%s: %v", ns, name, err)
+			failCount++
+			continue
+		}
+		successCount++
+	}
+	return successCount, failCount
+}
+
+func splitFluxSyncResource(resource string) ([]string, bool) {
+	if resource == "" {
+		return nil, false
+	}
+	parts := strings.Split(resource, ",")
+	if len(parts) != 2 {
+		return nil, false
+	}
+	return parts, true
+}
+
+func reportFluxSyncResult(logger *common.ColorLogger, successCount, failCount int) {
 	if failCount > 0 {
 		logger.Warn("Sync completed with errors. Success: %d, Failed: %d", successCount, failCount)
 	} else {
 		logger.Success("All %d resources synced successfully", successCount)
 	}
-
-	return nil
 }
 
 func newForceSyncExternalSecretCommand() *cobra.Command {

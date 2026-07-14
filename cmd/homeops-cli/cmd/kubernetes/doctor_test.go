@@ -85,6 +85,83 @@ func TestBuildDoctorReportFluxAllHealthy(t *testing.T) {
 	assert.False(t, r.hasFail())
 }
 
+func TestBuildDoctorReportNodesReadyPasses(t *testing.T) {
+	old := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = old })
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
+		"nodes": `{"items":[{"metadata":{"name":"k8s-0"},"status":{"conditions":[
+			{"type":"Ready","status":"True"},
+			{"type":"MemoryPressure","status":"False"},
+			{"type":"DiskPressure","status":"False"},
+			{"type":"PIDPressure","status":"False"}
+		]}}]}`,
+	})
+
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	nodes := statusFor(t, r, doctorGroupNodes)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, statusPass, nodes[0].Status)
+	assert.False(t, r.hasFail())
+}
+
+func TestBuildDoctorReportNodesNotReadyFails(t *testing.T) {
+	old := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = old })
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
+		"nodes": `{"items":[{"metadata":{"name":"k8s-1"},"status":{"conditions":[
+			{"type":"Ready","status":"False","reason":"KubeletNotReady","message":"container runtime down"}
+		]}}]}`,
+	})
+
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	nodes := statusFor(t, r, doctorGroupNodes)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, statusFail, nodes[0].Status)
+	assert.Equal(t, "k8s-1", nodes[0].Name)
+	assert.Contains(t, nodes[0].Detail, "KubeletNotReady")
+	assert.True(t, r.hasFail())
+}
+
+func TestBuildDoctorReportNodesPressureWarns(t *testing.T) {
+	old := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = old })
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
+		"nodes": `{"items":[{"metadata":{"name":"k8s-2"},"status":{"conditions":[
+			{"type":"Ready","status":"True"},
+			{"type":"MemoryPressure","status":"True"},
+			{"type":"DiskPressure","status":"False"},
+			{"type":"PIDPressure","status":"False"}
+		]}}]}`,
+	})
+
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	nodes := statusFor(t, r, doctorGroupNodes)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, statusWarn, nodes[0].Status)
+	assert.Equal(t, "MemoryPressure=True", nodes[0].Detail)
+	assert.False(t, r.hasFail())
+}
+
+func TestBuildDoctorReportNodesCordonedWarns(t *testing.T) {
+	old := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = old })
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
+		"nodes": `{"items":[{"metadata":{"name":"k8s-3"},"spec":{"unschedulable":true},"status":{"conditions":[
+			{"type":"Ready","status":"True"},
+			{"type":"MemoryPressure","status":"False"},
+			{"type":"DiskPressure","status":"False"},
+			{"type":"PIDPressure","status":"False"}
+		]}}]}`,
+	})
+
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	nodes := statusFor(t, r, doctorGroupNodes)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, statusWarn, nodes[0].Status)
+	assert.Equal(t, "unschedulable", nodes[0].Detail)
+	assert.False(t, r.hasFail())
+}
+
 func TestBuildDoctorReportPods(t *testing.T) {
 	old := kubectlOutputFn
 	oldNow := nowFn
@@ -241,6 +318,11 @@ func TestDoctorNamespaceScoping(t *testing.T) {
 	_ = buildDoctorReport("media", doctorDefaultPendingGrace)
 	for _, a := range sawArgs {
 		joined := strings.Join(a, " ")
+		if strings.Contains(joined, "get nodes ") {
+			assert.NotContains(t, joined, "--namespace")
+			assert.NotContains(t, joined, "-A")
+			continue
+		}
 		assert.Contains(t, joined, "--namespace media")
 		assert.NotContains(t, joined, "-A")
 	}

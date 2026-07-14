@@ -220,6 +220,40 @@ func (c *Client) Close() error {
 
 // CreateVM creates a new VM with specified configuration
 func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
+	inventory, err := c.resolveCreateVMInventory(config)
+	if err != nil {
+		return nil, err
+	}
+
+	vm, datastoreRef, err := c.createVMWithControllers(config, inventory)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.addDisksToCreatedVM(config, vm, datastoreRef); err != nil {
+		return nil, err
+	}
+
+	vm, err = c.reregisterVMForDiskDescriptors(config, vm)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.powerOnCreatedVM(config, vm); err != nil {
+		return nil, err
+	}
+
+	return vm, nil
+}
+
+type createVMInventory struct {
+	pool      *object.ResourcePool
+	datastore *object.Datastore
+	network   object.NetworkReference
+	folders   *object.DatacenterFolders
+}
+
+func (c *Client) resolveCreateVMInventory(config VMConfig) (*createVMInventory, error) {
 	// Find resource pool (use default for standalone ESXi)
 	pool, err := c.finder.DefaultResourcePool(c.ctx)
 	if err != nil {
@@ -244,6 +278,15 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		return nil, fmt.Errorf("failed to get folders: %w", err)
 	}
 
+	return &createVMInventory{
+		pool:      pool,
+		datastore: datastore,
+		network:   network,
+		folders:   folders,
+	}, nil
+}
+
+func (c *Client) createVMWithControllers(config VMConfig, inventory *createVMInventory) (*object.VirtualMachine, types.ManagedObjectReference, error) {
 	spec := buildInitialVMSpec(config)
 
 	// Log IOMMU status
@@ -251,42 +294,45 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		c.logger.Debug("IOMMU/VT-d enabled for VM %s", config.Name)
 	}
 
-	datastoreRef := datastore.Reference()
+	datastoreRef := inventory.datastore.Reference()
 
 	// Create vmxnet3 network adapter and set to vl999 portgroup
-	backing, err := network.EthernetCardBackingInfo(c.ctx)
+	backing, err := inventory.network.EthernetCardBackingInfo(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get network backing: %w", err)
+		return nil, types.ManagedObjectReference{}, fmt.Errorf("failed to get network backing: %w", err)
 	}
 	spec.DeviceChange = buildInitialDeviceChanges(config, datastoreRef, backing)
 
 	// Create VM
-	task, err := folders.VmFolder.CreateVM(c.ctx, spec, pool, nil)
+	task, err := inventory.folders.VmFolder.CreateVM(c.ctx, spec, inventory.pool, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create VM: %w", err)
+		return nil, types.ManagedObjectReference{}, fmt.Errorf("failed to create VM: %w", err)
 	}
 
 	info, err := task.WaitForResult(c.ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create VM: %w", err)
+		return nil, types.ManagedObjectReference{}, fmt.Errorf("failed to create VM: %w", err)
 	}
 
 	vm := object.NewVirtualMachine(c.vim, info.Result.(types.ManagedObjectReference))
 	c.logger.Success("VM %s created successfully (with controllers)", config.Name)
+	return vm, datastoreRef, nil
+}
 
+func (c *Client) addDisksToCreatedVM(config VMConfig, vm *object.VirtualMachine, datastoreRef types.ManagedObjectReference) error {
 	// PHASE 2: Add disks to the VM after controllers are created
 	c.logger.Info("Adding disks to VM %s...", config.Name)
 
 	// Get the actual controller keys from the created VM
 	var vmInfo mo.VirtualMachine
-	err = vm.Properties(c.ctx, vm.Reference(), []string{"config.hardware.device"}, &vmInfo)
+	err := vm.Properties(c.ctx, vm.Reference(), []string{"config.hardware.device"}, &vmInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get VM properties: %w", err)
+		return fmt.Errorf("failed to get VM properties: %w", err)
 	}
 
 	nvme0Key, nvme1Key, err := findNVMEControllerKeys(vmInfo.Config.Hardware.Device)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	c.logger.Debug("Found NVME controllers: nvme0=%d, nvme1=%d", nvme0Key, nvme1Key)
@@ -296,18 +342,21 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		DeviceChange: buildDiskDeviceChanges(config, datastoreRef, nvme0Key, nvme1Key),
 	}
 
-	task, err = vm.Reconfigure(c.ctx, configSpec)
+	task, err := vm.Reconfigure(c.ctx, configSpec)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add disks to VM: %w", err)
+		return fmt.Errorf("failed to add disks to VM: %w", err)
 	}
 
 	err = task.Wait(c.ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add disks to VM: %w", err)
+		return fmt.Errorf("failed to add disks to VM: %w", err)
 	}
 
 	c.logger.Success("Disks added successfully to VM %s", config.Name)
+	return nil
+}
 
+func (c *Client) reregisterVMForDiskDescriptors(config VMConfig, vm *object.VirtualMachine) (*object.VirtualMachine, error) {
 	// PHASE 2.5: Wait for vSphere to fully process VMDK files
 	// vSphere needs time to complete background operations on newly created VMDK files
 	// before they can be used for booting. This typically takes a few seconds.
@@ -322,7 +371,7 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 	// Get the VM's VMX path before unregistering
 	var vmConfig mo.VirtualMachine
-	err = vm.Properties(c.ctx, vm.Reference(), []string{"config.files"}, &vmConfig)
+	err := vm.Properties(c.ctx, vm.Reference(), []string{"config.files"}, &vmConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM VMX path: %w", err)
 	}
@@ -361,7 +410,10 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 
 	vm = object.NewVirtualMachine(c.vim, regInfo.Result.(types.ManagedObjectReference))
 	c.logger.Success("VM %s re-registered with corrected VMDK descriptors", config.Name)
+	return vm, nil
+}
 
+func (c *Client) powerOnCreatedVM(config VMConfig, vm *object.VirtualMachine) error {
 	// PHASE 3: Power on VM if requested with retry logic
 	if config.PowerOn {
 		c.logger.Info("Powering on VM %s...", config.Name)
@@ -369,11 +421,11 @@ func (c *Client) CreateVM(config VMConfig) (*object.VirtualMachine, error) {
 		// Retry power-on with exponential backoff if vSphere needs more time to process VMDK files
 		// Observed behavior: VMs may need 5+ minutes after VMDK creation before successful power-on
 		if err := powerOnWithRetry(c.ctx, c.logger, objectVMLifecycle{vm: vm}, 3, []time.Duration{10 * time.Second, 30 * time.Second, 60 * time.Second}, config.Name); err != nil {
-			return nil, err
+			return err
 		}
 	}
 
-	return vm, nil
+	return nil
 }
 
 // CloneFlatcarVM clones a pre-staged Flatcar template VM (booting from the

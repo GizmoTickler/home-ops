@@ -31,6 +31,21 @@ all, fully-portable defaults apply: every secret resolves from environment
 variables and cluster state (kubeconfig, kubeadm PKI) is stored under
 `~/.config/homeops/state`.
 
+Node inventory lives under `cluster.nodes`. It is the shared source for node
+names/IPs and per-node VM hardware overrides used by Flatcar deployment and
+provider-agnostic VM helpers; the full schema is emitted by `config init`.
+
+```yaml
+cluster:
+  nodes:
+    - name: k8s-0
+      ip: 192.168.122.10
+      vm:
+        vmid: 200
+        mac: "00:a0:98:00:00:01"
+        boot_storage: nvme-mirror
+```
+
 Secret references support several backends and can be mixed freely:
 
 | Scheme | Source |
@@ -59,6 +74,16 @@ homeops-cli vm --help            # provider-agnostic VM platform (see below)
 homeops-cli op --help            # 1Password item management
 homeops-cli config --help        # config scaffold / show / doctor
 homeops-cli version
+```
+
+## 1Password Inventory (`homeops-cli op`)
+
+The `op` group manages 1Password item metadata and can audit Kubernetes
+ExternalSecret references against the accessible item inventory.
+
+```bash
+homeops-cli op audit --vault all
+homeops-cli op audit --vault Infrastructure --output json
 ```
 
 ## VM Platform (`homeops-cli vm`)
@@ -90,6 +115,7 @@ homeops-cli vm proxmox ip dev-vm                                # guest agent / 
 homeops-cli vm proxmox ssh dev-vm --user ubuntu
 homeops-cli vm truenas console dev0                             # noVNC+xterm.js / SPICE / WebMKS URL
 homeops-cli vm list                                             # shorthand: hypervisors.default
+homeops-cli vm list --all-providers                             # merge proxmox + truenas + vsphere (errors shown as notes)
 ```
 
 The full matrix (create, set, resize-disk, restart, snapshot CRUD, clone, ip,
@@ -211,6 +237,19 @@ homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name 
 homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 ```
 
+### Cluster triage and maintenance windows
+
+`k8s doctor` is read-only and reports Flux, node, pod, Ceph, and certificate
+health in table or JSON form. Pending pods younger than `--pending-grace` are
+ignored so short-lived restore/mover pods do not fail the check.
+
+```bash
+homeops-cli k8s doctor
+homeops-cli k8s doctor --pending-grace 20m --output json
+homeops-cli k8s suspend radarr --namespace downloads --dry-run
+homeops-cli k8s resume radarr --namespace downloads
+```
+
 ### Other common operations
 
 ```bash
@@ -226,6 +265,7 @@ homeops-cli k8s force-sync-externalsecret my-secret -n default
 homeops-cli volsync snapshot --app paperless --namespace default
 homeops-cli volsync restore --app paperless --namespace default
 homeops-cli volsync snapshots --namespace default
+homeops-cli volsync status --stale-after 36h --output json
 homeops-cli volsync suspend --all -n default
 homeops-cli volsync resume --all -n default
 ```

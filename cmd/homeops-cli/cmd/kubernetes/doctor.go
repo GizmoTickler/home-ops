@@ -22,6 +22,7 @@ const (
 	doctorGroupPods  = "pods"
 	doctorGroupCeph  = "ceph"
 	doctorGroupCerts = "certificates"
+	doctorGroupNodes = "nodes"
 
 	doctorRecentOOMWindow = 24 * time.Hour
 	doctorCertExpiryWarn  = 14 * 24 * time.Hour
@@ -132,6 +133,7 @@ func runDoctor(namespace, output string, pendingGrace time.Duration, out io.Writ
 func buildDoctorReport(namespace string, pendingGrace time.Duration) doctorReport {
 	var report doctorReport
 	report.addFlux(namespace)
+	report.addNodes()
 	report.addPods(namespace, pendingGrace)
 	report.addCeph(namespace)
 	report.addCertificates(namespace)
@@ -216,6 +218,17 @@ func kubectlGetJSON(namespace, resource string, dest interface{}) error {
 	return nil
 }
 
+func kubectlGetClusterJSON(resource string, dest interface{}) error {
+	out, err := kubectlOutputFn("get", resource, "-o", "json")
+	if err != nil {
+		return fmt.Errorf("kubectl get %s: %w", resource, err)
+	}
+	if err := json.Unmarshal(out, dest); err != nil {
+		return fmt.Errorf("parse kubectl %s json: %w", resource, err)
+	}
+	return nil
+}
+
 type fluxObjectList struct {
 	Items []struct {
 		Metadata metadataJSON `json:"metadata"`
@@ -257,6 +270,55 @@ func (r *doctorReport) addFluxResource(namespace, kind, resource string) {
 			r.add(doctorGroupFlux, kind, item.Metadata.Namespace, item.Metadata.Name, statusFail, conditionDetail(ready))
 		}
 	}
+}
+
+type nodeList struct {
+	Items []struct {
+		Metadata metadataJSON `json:"metadata"`
+		Spec     struct {
+			Unschedulable bool `json:"unschedulable"`
+		} `json:"spec"`
+		Status struct {
+			Conditions []conditionJSON `json:"conditions"`
+		} `json:"status"`
+	} `json:"items"`
+}
+
+func (r *doctorReport) addNodes() {
+	before := len(r.Checks)
+	var list nodeList
+	if err := kubectlGetClusterJSON("nodes", &list); err != nil {
+		r.add(doctorGroupNodes, "Node", "", "nodes", statusFail, err.Error())
+		return
+	}
+	for _, node := range list.Items {
+		ready, ok := readyCondition(node.Status.Conditions)
+		if !ok {
+			r.add(doctorGroupNodes, "Node", "", node.Metadata.Name, statusFail, "Ready condition missing")
+		} else if ready.Status != "True" {
+			r.add(doctorGroupNodes, "Node", "", node.Metadata.Name, statusFail, conditionDetail(ready))
+		}
+		for _, pressureType := range []string{"MemoryPressure", "DiskPressure", "PIDPressure"} {
+			if nodeConditionStatus(node.Status.Conditions, pressureType) == "True" {
+				r.add(doctorGroupNodes, "Node", "", node.Metadata.Name, statusWarn, pressureType+"=True")
+			}
+		}
+		if node.Spec.Unschedulable {
+			r.add(doctorGroupNodes, "Node", "", node.Metadata.Name, statusWarn, "unschedulable")
+		}
+	}
+	if len(r.Checks) == before {
+		r.add(doctorGroupNodes, "Node", "", "all", statusPass, "all nodes are Ready, schedulable, and pressure-free")
+	}
+}
+
+func nodeConditionStatus(conditions []conditionJSON, conditionType string) string {
+	for _, c := range conditions {
+		if c.Type == conditionType {
+			return c.Status
+		}
+	}
+	return ""
 }
 
 type podList struct {

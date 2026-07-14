@@ -1028,36 +1028,7 @@ func newGenKubeadmCommand() *cobra.Command {
 }
 
 func newDeployVMCommand() *cobra.Command {
-	var (
-		provider        string
-		nodes           []string
-		imagePath       string
-		imageVolume     string
-		snippetsDir     string
-		pveSSHHost      string
-		pveSSHUser      string
-		pveSSHPort      string
-		vsphereTemplate string
-		datastore       string
-		vsphereNetwork  string
-		vcpus           int
-		memory          int
-		truenasPool     string
-		networkBridge   string
-		bootZVol        string
-		ignitionDir     string
-		truenasSSHHost  string
-		truenasSSHUser  string
-		truenasPort     int
-		vip             string
-		pauseImage      string
-		kubeVipVersion  string
-		nodeInterface   string
-		concurrent      int
-		powerOn         bool
-		dryRun          bool
-	)
-
+	opts := &deployVMOptions{}
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Flatcar k8s VM(s) on Proxmox, vSphere, or TrueNAS with Ignition",
@@ -1082,70 +1053,45 @@ image zvol (--boot-zvol, or <pool>/VM/<node>-boot under --truenas-pool) and
 receives its Ignition via qemu fw_cfg. The Ignition is staged to a dataset on the
 NAS (--ignition-dir, default /mnt/<pool>/VM) over SSH.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDeployVM(cmd, deployVMOptions{
-				provider:        provider,
-				nodes:           nodes,
-				imagePath:       imagePath,
-				imageVolume:     imageVolume,
-				snippetsDir:     snippetsDir,
-				pveSSHHost:      pveSSHHost,
-				pveSSHUser:      pveSSHUser,
-				pveSSHPort:      pveSSHPort,
-				vsphereTemplate: vsphereTemplate,
-				datastore:       datastore,
-				vsphereNetwork:  vsphereNetwork,
-				vcpus:           vcpus,
-				memory:          memory,
-				truenasPool:     truenasPool,
-				networkBridge:   networkBridge,
-				bootZVol:        bootZVol,
-				ignitionDir:     ignitionDir,
-				truenasSSHHost:  truenasSSHHost,
-				truenasSSHUser:  truenasSSHUser,
-				truenasPort:     truenasPort,
-				vip:             vip,
-				pauseImage:      pauseImage,
-				kubeVipVersion:  kubeVipVersion,
-				nodeInterface:   nodeInterface,
-				concurrent:      concurrent,
-				powerOn:         powerOn,
-				dryRun:          dryRun,
-			})
+			return runDeployVM(cmd, *opts)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi) | truenas")
-	cmd.Flags().StringSliceVar(&nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
-	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
-	cmd.Flags().StringVar(&imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
-	cmd.Flags().StringVar(&imageVolume, "image-volume", "", "[proxmox] Existing storage volume to attach as scsi0 (alternative to --image-path)")
-	cmd.Flags().StringVar(&snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "[proxmox] snippets dir for Ignition files (on the Proxmox node)")
-	cmd.Flags().StringVar(&pveSSHHost, "pve-ssh-host", "", "[proxmox] host to SSH the Ignition to (default: the Proxmox API host)")
-	cmd.Flags().StringVar(&pveSSHUser, "pve-ssh-user", "root", "[proxmox] SSH user on the Proxmox host for Ignition upload")
-	cmd.Flags().StringVar(&pveSSHPort, "pve-ssh-port", "22", "[proxmox] SSH port on the Proxmox host")
-	cmd.Flags().StringVar(&vsphereTemplate, "vsphere-template", "", "[vsphere] name of the imported Flatcar OVA template to clone")
-	cmd.Flags().StringVar(&datastore, "datastore", "", "[vsphere] datastore to clone the VM onto")
-	cmd.Flags().StringVar(&vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
-	cmd.Flags().IntVar(&vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
-	cmd.Flags().IntVar(&memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
-	cmd.Flags().StringVar(&truenasPool, "truenas-pool", "", "[truenas] storage pool/dataset for the VM (e.g. flashstor)")
-	cmd.Flags().StringVar(&networkBridge, "network-bridge", "", "[truenas] bridge to attach the VM NIC to")
-	cmd.Flags().StringVar(&bootZVol, "boot-zvol", "", "[truenas] pre-staged Flatcar boot zvol (single-node; else <pool>/VM/<node>-boot)")
-	cmd.Flags().StringVar(&ignitionDir, "ignition-dir", "", "[truenas] dir on the NAS for Ignition files (default /mnt/<pool>/VM)")
-	cmd.Flags().StringVar(&truenasSSHHost, "truenas-ssh-host", "", "[truenas] host to SSH the Ignition to (default: the TrueNAS API host)")
-	cmd.Flags().StringVar(&truenasSSHUser, "truenas-ssh-user", "truenas_admin", "[truenas] SSH user for Ignition upload")
-	cmd.Flags().IntVar(&truenasPort, "truenas-port", 443, "[truenas] TrueNAS API port")
-	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
-	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
-	cmd.Flags().StringVar(&kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
-	cmd.Flags().StringVar(&nodeInterface, "interface", "", "Node primary interface (default eth0)")
-	cmd.Flags().IntVar(&concurrent, "concurrency", 1, "Max concurrent deployments")
-	cmd.Flags().IntVar(&concurrent, "concurrent", 1, "Max concurrent deployments (deprecated: use --concurrency)")
-	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")
-	cmd.Flags().BoolVar(&powerOn, "power-on", false, "Power on VMs after creation")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Render and build configs but do not create VMs")
-
+	registerDeployVMFlags(cmd, opts)
 	return cmd
+}
+
+func registerDeployVMFlags(cmd *cobra.Command, opts *deployVMOptions) {
+	cmd.Flags().StringVar(&opts.provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi) | truenas")
+	cmd.Flags().StringSliceVar(&opts.nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
+	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
+	cmd.Flags().StringVar(&opts.imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
+	cmd.Flags().StringVar(&opts.imageVolume, "image-volume", "", "[proxmox] Existing storage volume to attach as scsi0 (alternative to --image-path)")
+	cmd.Flags().StringVar(&opts.snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "[proxmox] snippets dir for Ignition files (on the Proxmox node)")
+	cmd.Flags().StringVar(&opts.pveSSHHost, "pve-ssh-host", "", "[proxmox] host to SSH the Ignition to (default: the Proxmox API host)")
+	cmd.Flags().StringVar(&opts.pveSSHUser, "pve-ssh-user", "root", "[proxmox] SSH user on the Proxmox host for Ignition upload")
+	cmd.Flags().StringVar(&opts.pveSSHPort, "pve-ssh-port", "22", "[proxmox] SSH port on the Proxmox host")
+	cmd.Flags().StringVar(&opts.vsphereTemplate, "vsphere-template", "", "[vsphere] name of the imported Flatcar OVA template to clone")
+	cmd.Flags().StringVar(&opts.datastore, "datastore", "", "[vsphere] datastore to clone the VM onto")
+	cmd.Flags().StringVar(&opts.vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
+	cmd.Flags().IntVar(&opts.vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
+	cmd.Flags().IntVar(&opts.memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
+	cmd.Flags().StringVar(&opts.truenasPool, "truenas-pool", "", "[truenas] storage pool/dataset for the VM (e.g. flashstor)")
+	cmd.Flags().StringVar(&opts.networkBridge, "network-bridge", "", "[truenas] bridge to attach the VM NIC to")
+	cmd.Flags().StringVar(&opts.bootZVol, "boot-zvol", "", "[truenas] pre-staged Flatcar boot zvol (single-node; else <pool>/VM/<node>-boot)")
+	cmd.Flags().StringVar(&opts.ignitionDir, "ignition-dir", "", "[truenas] dir on the NAS for Ignition files (default /mnt/<pool>/VM)")
+	cmd.Flags().StringVar(&opts.truenasSSHHost, "truenas-ssh-host", "", "[truenas] host to SSH the Ignition to (default: the TrueNAS API host)")
+	cmd.Flags().StringVar(&opts.truenasSSHUser, "truenas-ssh-user", "truenas_admin", "[truenas] SSH user for Ignition upload")
+	cmd.Flags().IntVar(&opts.truenasPort, "truenas-port", 443, "[truenas] TrueNAS API port")
+	cmd.Flags().StringVar(&opts.vip, "vip", "", "Control-plane VIP (default from constants)")
+	cmd.Flags().StringVar(&opts.pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
+	cmd.Flags().StringVar(&opts.kubeVipVersion, "kube-vip-version", "", "kube-vip image tag (default from versions)")
+	cmd.Flags().StringVar(&opts.nodeInterface, "interface", "", "Node primary interface (default eth0)")
+	cmd.Flags().IntVar(&opts.concurrent, "concurrency", 1, "Max concurrent deployments")
+	cmd.Flags().IntVar(&opts.concurrent, "concurrent", 1, "Max concurrent deployments (deprecated: use --concurrency)")
+	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")
+	cmd.Flags().BoolVar(&opts.powerOn, "power-on", false, "Power on VMs after creation")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Render and build configs but do not create VMs")
 }
 
 type deployVMOptions struct {
