@@ -84,7 +84,7 @@ flux <command>
 ./homeops-cli bootstrap
 
 # Flatcar Container Linux operations (current cluster provider)
-./homeops-cli flatcar deploy-vm --name k8s-test
+./homeops-cli flatcar deploy-vm --nodes k8s-test
 # (Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade Controller Plan)
 
 # Legacy Talos operations (retained provider; not the current cluster OS)
@@ -94,11 +94,11 @@ flux <command>
 
 # Kubernetes operations
 ./homeops-cli k8s browse-pvc --namespace default
-./homeops-cli k8s restart-deployments --namespace flux-system
+./homeops-cli k8s sync --type kustomization --namespace flux-system
 
 # Volume sync operations
-./homeops-cli volsync snapshot --pvc data-pvc --namespace default
-./homeops-cli volsync restore --pvc data-pvc --namespace default
+./homeops-cli volsync snapshot --app paperless --namespace default
+./homeops-cli volsync restore --app paperless --namespace default
 ```
 **Always run format, type-check, and test before completing any task.**
 

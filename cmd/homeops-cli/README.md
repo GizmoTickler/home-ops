@@ -265,7 +265,7 @@ homeops-cli k8s force-sync-externalsecret my-secret -n default
 ```bash
 homeops-cli volsync snapshot --app paperless --namespace default
 homeops-cli volsync restore --app paperless --namespace default
-homeops-cli volsync snapshots --namespace default
+homeops-cli volsync snapshots --app paperless
 homeops-cli volsync status --stale-after 36h --output json
 homeops-cli volsync suspend --all -n default
 homeops-cli volsync resume --all -n default

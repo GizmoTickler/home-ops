@@ -252,7 +252,7 @@ homeops-cli talos deploy-vm
 homeops-cli talos deploy-vm --name test --generate-iso
 
 # Batch deployment on Proxmox or vSphere
-homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrency 3 --generate-iso
 
 # Batch naming with a non-zero start index
 homeops-cli talos deploy-vm --name worker --node-count 2 --start-index 3 --generate-iso
@@ -270,7 +270,7 @@ High-signal flags:
 - `--provider` with `proxmox` default, or `vsphere` / `esxi` / `truenas`
 - `--name`
 - `--node-count`
-- `--concurrent`
+- `--concurrency`
 - `--start-index`
 - `--memory`
 - `--vcpus`
@@ -489,7 +489,7 @@ homeops-cli volsync snapshot-all
 homeops-cli volsync snapshot-all --namespace default --dry-run
 homeops-cli volsync snapshot-all --concurrency 5
 
-homeops-cli volsync snapshots --namespace default
+homeops-cli volsync snapshots --app paperless
 ```
 
 Notes:
@@ -548,14 +548,14 @@ For shell-specific setup, see [`COMPLETION.md`](./COMPLETION.md).
 ### Deploy Flatcar nodes on Proxmox (current)
 
 ```bash
-homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrent 3
+homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
 ```
 
 ### Prepare and Deploy Talos VMs on Proxmox (legacy)
 
 ```bash
 homeops-cli talos prepare-iso
-homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrent 3 --generate-iso
+homeops-cli talos deploy-vm --name k8s --node-count 3 --concurrency 3 --generate-iso
 ```
 
 ### Inspect a Secret Interactively
