@@ -12,6 +12,7 @@ import (
 
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/testutil"
@@ -72,6 +73,18 @@ func TestRenderIgnitionUsesOutputFileCanonicalFlag(t *testing.T) {
 		assert.NotEmpty(t, legacy.Deprecated, name)
 	}
 	assert.Equal(t, "o", cmd.Flags().Lookup("output").Shorthand)
+}
+
+func TestChooseFlatcarNodeExplicitAndNonInteractiveRequiredError(t *testing.T) {
+	node, err := chooseFlatcarNode("k8s-1", "reboot")
+	require.NoError(t, err)
+	assert.Equal(t, "k8s-1", node)
+
+	node, err = chooseFlatcarNode("", "reboot")
+	require.Error(t, err)
+	assert.Empty(t, node)
+	assert.Contains(t, err.Error(), "--node is required")
+	assert.Contains(t, err.Error(), "k8s-0")
 }
 
 func TestResetNodeCommand(t *testing.T) {
@@ -603,6 +616,97 @@ func TestVSphereFlatcarDeployer(t *testing.T) {
 	assert.True(t, fake.closed)
 }
 
+func TestVSphereFlatcarDeployerConnectCachesClientAndCloseHandlesNil(t *testing.T) {
+	fake := &fakeVSphereClient{}
+	var calls int
+	testutil.Swap(t, &newVSphereFlatcarClientFn, func(host, username, password string, insecure bool) (vsphereFlatcarClient, error) {
+		calls++
+		assert.Equal(t, "vc.example.test", host)
+		assert.Equal(t, "svc-user", username)
+		assert.Equal(t, "svc-password", password)
+		assert.True(t, insecure)
+		return fake, nil
+	})
+
+	d := &vsphereFlatcarDeployer{
+		host:     "vc.example.test",
+		username: "svc-user",
+		password: "svc-password",
+		insecure: true,
+	}
+
+	first, err := d.connect()
+	require.NoError(t, err)
+	second, err := d.connect()
+	require.NoError(t, err)
+
+	assert.Same(t, first, second)
+	assert.Equal(t, 1, calls)
+	require.NoError(t, d.Close())
+	assert.True(t, fake.closed)
+
+	empty := &vsphereFlatcarDeployer{}
+	require.NoError(t, empty.Close())
+}
+
+func TestVSphereFlatcarDeployerConnectWrapsConstructorError(t *testing.T) {
+	testutil.Swap(t, &newVSphereFlatcarClientFn, func(string, string, string, bool) (vsphereFlatcarClient, error) {
+		return nil, errors.New("dial failed")
+	})
+
+	_, err := (&vsphereFlatcarDeployer{}).connect()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to connect to vSphere")
+	assert.Contains(t, err.Error(), "dial failed")
+}
+
+func TestResolveVSphereCredentialsPrefersConfigSecretsAndFallsBackToEnv(t *testing.T) {
+	testutil.Swap(t, &resolveSecretKeyFn, func(key string) string {
+		switch key {
+		case versionconfig.KeyVSphereHost:
+			return "vc-from-config"
+		case versionconfig.KeyVSphereUsername:
+			return "user-from-config"
+		case versionconfig.KeyVSpherePassword:
+			return "password-from-config"
+		default:
+			return ""
+		}
+	})
+	t.Setenv(constants.EnvVSphereHost, "vc-from-env")
+	t.Setenv(constants.EnvVSphereUsername, "user-from-env")
+	t.Setenv(constants.EnvVSpherePassword, "password-from-env")
+
+	host, username, password, err := resolveVSphereCredentials()
+
+	require.NoError(t, err)
+	assert.Equal(t, "vc-from-config", host)
+	assert.Equal(t, "user-from-config", username)
+	assert.Equal(t, "password-from-config", password)
+
+	testutil.Swap(t, &resolveSecretKeyFn, func(string) string { return "" })
+	host, username, password, err = resolveVSphereCredentials()
+
+	require.NoError(t, err)
+	assert.Equal(t, "vc-from-env", host)
+	assert.Equal(t, "user-from-env", username)
+	assert.Equal(t, "password-from-env", password)
+}
+
+func TestResolveVSphereCredentialsErrorsWhenIncomplete(t *testing.T) {
+	testutil.Swap(t, &resolveSecretKeyFn, func(string) string { return "" })
+	t.Setenv(constants.EnvVSphereHost, "")
+	t.Setenv(constants.EnvVSphereUsername, "user-only")
+	t.Setenv(constants.EnvVSpherePassword, "")
+
+	_, _, _, err := resolveVSphereCredentials()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vSphere credentials not found")
+	assert.Contains(t, err.Error(), constants.EnvVSphereHost)
+}
+
 func TestDeployVMVSphereRequiresTemplateAndDatastore(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
@@ -637,6 +741,48 @@ func TestDeployVMVSphereDryRun(t *testing.T) {
 	cmd.SetArgs([]string{"--provider", "vsphere", "--nodes", "k8s-0", "--vsphere-template", "flatcar-ova", "--datastore", "ds1", "--dry-run"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "DRY RUN")
+}
+
+func TestDeployVSphereRealPathUsesCredentialAndClientSeams(t *testing.T) {
+	testutil.Swap(t, &getVSphereCredentialsFn, func() (string, string, string, error) {
+		return "vc.example.test", "svc-user", "svc-password", nil
+	})
+	fake := &fakeVSphereClient{}
+	testutil.Swap(t, &newVSphereFlatcarClientFn, func(host, username, password string, insecure bool) (vsphereFlatcarClient, error) {
+		assert.Equal(t, "vc.example.test", host)
+		assert.Equal(t, "svc-user", username)
+		assert.Equal(t, "svc-password", password)
+		return fake, nil
+	})
+	t.Setenv(constants.EnvVSphereInsecure, "true")
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	nodes := []flatcarNode{{name: "k8s-0", ignition: []byte(`{"ignition":{"version":"3.4.0"}}`)}}
+	opts := deployVMOptions{
+		vsphereTemplate: "flatcar-ova",
+		datastore:       "ds1",
+		vsphereNetwork:  "vl999",
+		vcpus:           8,
+		memory:          16384,
+		powerOn:         true,
+		concurrent:      1,
+	}
+
+	err := deployVSphere(cmd, opts, common.NewColorLogger(), nodes)
+
+	require.NoError(t, err)
+	assert.True(t, fake.closed)
+	require.Len(t, fake.cloned, 1)
+	got := fake.cloned[0]
+	assert.Equal(t, "k8s-0", got.Name)
+	assert.Equal(t, "flatcar-ova", got.TemplateName)
+	assert.Equal(t, "ds1", got.Datastore)
+	assert.Equal(t, "vl999", got.Network)
+	assert.Equal(t, 8, got.VCPUs)
+	assert.Equal(t, 16384, got.Memory)
+	assert.True(t, got.PowerOn)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(nodes[0].ignition), got.IgnitionData)
 }
 
 // fakeTrueNASClient records DeployVM calls so the deployer can be tested without
@@ -700,6 +846,91 @@ func TestTrueNASFlatcarDeployer(t *testing.T) {
 	assert.True(t, fake.closed)
 }
 
+func TestTrueNASFlatcarDeployerConnectCachesClientAndCloseHandlesNil(t *testing.T) {
+	fake := &fakeTrueNASClient{}
+	var calls int
+	testutil.Swap(t, &newTrueNASFlatcarClientFn, func(host, apiKey string, port int, useSSL bool) (truenasFlatcarClient, error) {
+		calls++
+		assert.Equal(t, "nas.example.test", host)
+		assert.Equal(t, "api-key-placeholder", apiKey)
+		assert.Equal(t, 8443, port)
+		assert.False(t, useSSL)
+		return fake, nil
+	})
+
+	d := &truenasFlatcarDeployer{
+		host:   "nas.example.test",
+		apiKey: "api-key-placeholder",
+		port:   8443,
+		useSSL: false,
+	}
+
+	first, err := d.connect()
+	require.NoError(t, err)
+	second, err := d.connect()
+	require.NoError(t, err)
+
+	assert.Same(t, first, second)
+	assert.Equal(t, 1, calls)
+	require.NoError(t, d.Close())
+	assert.True(t, fake.closed)
+
+	empty := &truenasFlatcarDeployer{}
+	require.NoError(t, empty.Close())
+}
+
+func TestTrueNASFlatcarDeployerConnectWrapsConstructorError(t *testing.T) {
+	testutil.Swap(t, &newTrueNASFlatcarClientFn, func(string, string, int, bool) (truenasFlatcarClient, error) {
+		return nil, errors.New("api unavailable")
+	})
+
+	_, err := (&truenasFlatcarDeployer{}).connect()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to connect to TrueNAS")
+	assert.Contains(t, err.Error(), "api unavailable")
+}
+
+func TestResolveTrueNASCredentialsPrefersConfigSecretsAndFallsBackToEnv(t *testing.T) {
+	testutil.Swap(t, &resolveSecretKeyFn, func(key string) string {
+		switch key {
+		case versionconfig.KeyTrueNASHost:
+			return "nas-from-config"
+		case versionconfig.KeyTrueNASAPIKey:
+			return "key-from-config"
+		default:
+			return ""
+		}
+	})
+	t.Setenv(constants.EnvTrueNASHost, "nas-from-env")
+	t.Setenv(constants.EnvTrueNASAPIKey, "key-from-env")
+
+	host, apiKey, err := resolveTrueNASCredentials()
+
+	require.NoError(t, err)
+	assert.Equal(t, "nas-from-config", host)
+	assert.Equal(t, "key-from-config", apiKey)
+
+	testutil.Swap(t, &resolveSecretKeyFn, func(string) string { return "" })
+	host, apiKey, err = resolveTrueNASCredentials()
+
+	require.NoError(t, err)
+	assert.Equal(t, "nas-from-env", host)
+	assert.Equal(t, "key-from-env", apiKey)
+}
+
+func TestResolveTrueNASCredentialsErrorsWhenIncomplete(t *testing.T) {
+	testutil.Swap(t, &resolveSecretKeyFn, func(string) string { return "" })
+	t.Setenv(constants.EnvTrueNASHost, "nas-only")
+	t.Setenv(constants.EnvTrueNASAPIKey, "")
+
+	_, _, err := resolveTrueNASCredentials()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "TrueNAS credentials not found")
+	assert.Contains(t, err.Error(), constants.EnvTrueNASAPIKey)
+}
+
 func TestDeployVMTrueNASValidation(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
@@ -734,6 +965,51 @@ func TestDeployVMTrueNASDryRun(t *testing.T) {
 	cmd.SetArgs([]string{"--provider", "truenas", "--nodes", "k8s-0", "--truenas-pool", "flashstor", "--dry-run"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), "DRY RUN")
+}
+
+func TestDeployTrueNASRealPathUsesCredentialUploadAndClientSeams(t *testing.T) {
+	testutil.Swap(t, &getTrueNASCredentialsFn, func() (string, string, error) {
+		return "nas.example.test", "api-key-placeholder", nil
+	})
+	fake := &fakeTrueNASClient{}
+	testutil.Swap(t, &newTrueNASFlatcarClientFn, func(host, apiKey string, port int, useSSL bool) (truenasFlatcarClient, error) {
+		assert.Equal(t, "nas.example.test", host)
+		assert.Equal(t, "api-key-placeholder", apiKey)
+		assert.Equal(t, 443, port)
+		assert.True(t, useSSL)
+		return fake, nil
+	})
+	var uploadedTo string
+	testutil.Swap(t, &uploadIgnitionToNASFn, func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
+		uploadedTo = sshUser + "@" + sshHost + ":" + sshPort + ":" + remotePath + ":" + string(content)
+		return nil
+	})
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(&bytes.Buffer{})
+	nodes := []flatcarNode{{name: "k8s-0", ignition: []byte(`{"ignition":{"version":"3.4.0"}}`)}}
+	opts := deployVMOptions{
+		truenasPool:   "flashstor",
+		networkBridge: "br-test",
+		concurrent:    1,
+	}
+
+	err := deployTrueNAS(cmd, opts, common.NewColorLogger(), nodes)
+
+	require.NoError(t, err)
+	assert.True(t, fake.closed)
+	assert.Equal(t, `truenas_admin@nas.example.test:22:/mnt/flashstor/VM/ignition-k8s-0.json:{"ignition":{"version":"3.4.0"}}`, uploadedTo)
+	require.Len(t, fake.deployed, 1)
+	got := fake.deployed[0]
+	assert.Equal(t, "k8s-0", got.Name)
+	assert.Equal(t, "flashstor", got.StoragePool)
+	assert.Equal(t, "br-test", got.NetworkBridge)
+	assert.Equal(t, "/mnt/flashstor/VM/ignition-k8s-0.json", got.IgnitionPath)
+	assert.True(t, got.Flatcar)
+	assert.True(t, got.SkipZVolCreate)
+	assert.Equal(t, "nas.example.test", got.TrueNASHost)
+	assert.Equal(t, 443, got.TrueNASPort)
+	assert.False(t, got.NoSSL)
 }
 
 var _ = cobra.Command{}

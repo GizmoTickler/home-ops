@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"homeops-cli/internal/secrets"
 )
 
 func TestDefaultConfigIsPortable(t *testing.T) {
@@ -159,6 +162,18 @@ func TestLocateSkipsDiscoveryInTests(t *testing.T) {
 	assert.True(t, explicit)
 }
 
+func TestSetExplicitPathTakesPrecedenceOverEnvConfig(t *testing.T) {
+	ResetForTesting()
+	t.Cleanup(ResetForTesting)
+	t.Setenv(EnvConfigFile, "/tmp/env-homeops.yaml")
+
+	SetExplicitPath("/tmp/flag-homeops.yaml")
+
+	path, explicit := Locate()
+	assert.Equal(t, "/tmp/flag-homeops.yaml", path)
+	assert.True(t, explicit)
+}
+
 func TestGetKeepsExplicitLoadErrorsFatal(t *testing.T) {
 	ResetForTesting()
 	t.Cleanup(ResetForTesting)
@@ -170,6 +185,42 @@ func TestGetKeepsExplicitLoadErrorsFatal(t *testing.T) {
 	require.Error(t, LoadError())
 	assert.True(t, IsExplicitLoadError(LoadError()))
 	assert.Equal(t, "/definitely/missing/homeops.yaml", loadPath)
+}
+
+func TestExplicitLoadErrorUnwrapsCause(t *testing.T) {
+	cause := errors.New("parse failed")
+	err := explicitLoadError{path: "/tmp/homeops.yaml", err: cause}
+
+	assert.Equal(t, "parse failed", err.Error())
+	assert.True(t, errors.Is(err, cause))
+}
+
+func TestRegisteredKeymapResolvesUnknownAndRecursiveSecretReferences(t *testing.T) {
+	restore := SetForTesting(&Config{
+		Secrets: map[string]string{KeyClusterDomain: "literal://example.test"},
+	})
+
+	value, err := secrets.Resolve("secret://" + KeyClusterDomain)
+	if assert.NoError(t, err) {
+		assert.Equal(t, "example.test", value)
+	}
+
+	_, err = secrets.Resolve("secret://not_defined")
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "not_defined")
+		assert.Contains(t, err.Error(), "not defined")
+	}
+
+	restore()
+	restore = SetForTesting(&Config{
+		Secrets: map[string]string{KeyClusterDomain: "secret://nested"},
+	})
+	defer restore()
+
+	_, err = secrets.Resolve("secret://" + KeyClusterDomain)
+	if assert.Error(t, err) {
+		assert.Contains(t, err.Error(), "only one level of indirection")
+	}
 }
 
 func TestLoadFileMergesNodeOverridesByName(t *testing.T) {

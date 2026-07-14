@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -19,6 +20,14 @@ var opAuditKubectlOutputFn = func(args ...string) ([]byte, error) {
 }
 
 const opAuditDefaultTimeout = 5 * time.Minute
+
+const opItemListWorkerLimit = 4
+
+type auditOpItem struct {
+	ID    string
+	Title string
+	Vault string
+}
 
 var opAuditKubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
 	result, err := common.RunCommand(ctx, common.CommandOptions{
@@ -135,8 +144,23 @@ func (r auditReport) hasFail() bool {
 func newAuditCommand() *cobra.Command {
 	var vault, output string
 	cmd := &cobra.Command{
-		Use:          "audit",
-		Short:        "Audit ExternalSecrets against 1Password item inventory",
+		Use:   "audit",
+		Short: "Audit ExternalSecrets against 1Password item inventory",
+		Long: strings.TrimSpace(`
+Audit ExternalSecrets against the 1Password item inventory.
+
+The audit reports ExternalSecret readiness, items referenced by ExternalSecret
+resources but missing from 1Password, and 1Password items not referenced by any
+ExternalSecret.
+
+When --vault=all, item listings for accessible vaults run concurrently with a
+small worker limit.
+
+Caveat: ExternalSecret references are matched to 1Password items by item title,
+because remoteRef keys contain titles rather than item IDs. The 1Password
+inventory itself is keyed by item ID so duplicate titles across vaults remain
+visible in orphan reporting, but a title referenced by an ExternalSecret is
+treated as covering all same-titled inventory items.`),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), opAuditDefaultTimeout)
@@ -197,9 +221,13 @@ func buildAuditReportContext(ctx context.Context, vault string) auditReport {
 		report.finalize()
 		return report
 	}
+	itemTitles := map[string]struct{}{}
+	for _, item := range items {
+		itemTitles[item.Title] = struct{}{}
+	}
 
 	for item, refs := range refByItem {
-		if _, ok := items[item]; !ok {
+		if _, ok := itemTitles[item]; !ok {
 			report.MissingItems = append(report.MissingItems, auditItemFinding{
 				Item:       item,
 				Status:     auditFail,
@@ -208,11 +236,11 @@ func buildAuditReportContext(ctx context.Context, vault string) auditReport {
 			})
 		}
 	}
-	for item, vaultName := range items {
-		if _, ok := refByItem[item]; !ok {
+	for _, item := range items {
+		if _, ok := refByItem[item.Title]; !ok {
 			report.OrphanItems = append(report.OrphanItems, auditItemFinding{
-				Item:   item,
-				Vault:  vaultName,
+				Item:   item.Title,
+				Vault:  item.Vault,
 				Status: auditWarn,
 				Detail: "1Password item is not referenced by any ExternalSecret",
 			})
@@ -335,7 +363,7 @@ func collectExternalSecretReferencesContext(ctx context.Context) ([]auditExterna
 	return externalSecrets, references, refByItem, nil
 }
 
-func collectOpItemsContext(ctx context.Context, vault string) (map[string]string, error) {
+func collectOpItemsContext(ctx context.Context, vault string) (map[string]auditOpItem, error) {
 	vaults := []string{vault}
 	if strings.TrimSpace(vault) == "" || vault == "all" {
 		list, err := listOpVaultNamesContext(ctx)
@@ -344,23 +372,66 @@ func collectOpItemsContext(ctx context.Context, vault string) (map[string]string
 		}
 		vaults = list
 	}
-	items := map[string]string{}
+
+	var (
+		mu       sync.Mutex
+		wg       sync.WaitGroup
+		items    = map[string]auditOpItem{}
+		failures = map[string]error{}
+		sem      = make(chan struct{}, min(opItemListWorkerLimit, max(1, len(vaults))))
+	)
 	for _, vaultName := range vaults {
-		out, err := runOpCtxFn(ctx, "item", "list", "--vault", vaultName, "--format=json")
-		if err != nil {
+		vaultName := vaultName
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			listed, err := listOpItemsInVaultContext(ctx, vaultName)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				failures[vaultName] = err
+				return
+			}
+			for i, item := range listed {
+				if item.Title == "" {
+					continue
+				}
+				key := item.ID
+				if key == "" {
+					key = fmt.Sprintf("%s:%d:%s", vaultName, i, item.Title)
+				}
+				items[key] = auditOpItem{ID: item.ID, Title: item.Title, Vault: vaultName}
+			}
+		}()
+	}
+	wg.Wait()
+	for _, vaultName := range vaults {
+		if err := failures[vaultName]; err != nil {
 			return nil, err
 		}
-		var listed []struct {
-			Title string `json:"title"`
-			ID    string `json:"id"`
-		}
-		if err := json.Unmarshal(out, &listed); err != nil {
-			return nil, fmt.Errorf("parse op item list for vault %s: %w", vaultName, err)
-		}
-		for _, item := range listed {
-			if item.Title != "" {
-				items[item.Title] = vaultName
-			}
+	}
+	return items, nil
+}
+
+func listOpItemsInVaultContext(ctx context.Context, vaultName string) ([]auditOpItem, error) {
+	out, err := runOpCtxFn(ctx, "item", "list", "--vault", vaultName, "--format=json")
+	if err != nil {
+		return nil, err
+	}
+	var listed []struct {
+		Title string `json:"title"`
+		ID    string `json:"id"`
+	}
+	if err := json.Unmarshal(out, &listed); err != nil {
+		return nil, fmt.Errorf("parse op item list for vault %s: %w", vaultName, err)
+	}
+	items := make([]auditOpItem, 0, len(listed))
+	for _, item := range listed {
+		if item.Title != "" {
+			items = append(items, auditOpItem{ID: item.ID, Title: item.Title, Vault: vaultName})
 		}
 	}
 	return items, nil

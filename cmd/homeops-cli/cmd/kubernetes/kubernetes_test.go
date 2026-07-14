@@ -3,15 +3,37 @@ package kubernetes
 import (
 	"bytes"
 	"errors"
+	"io"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"homeops-cli/internal/common"
 	"homeops-cli/internal/testutil"
 )
+
+func captureKubernetesStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	t.Cleanup(func() { os.Stdout = old })
+
+	fn()
+
+	require.NoError(t, w.Close())
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.NoError(t, r.Close())
+	os.Stdout = old
+	return string(out)
+}
 
 func TestNewCommand(t *testing.T) {
 	cmd := NewCommand()
@@ -176,6 +198,174 @@ func TestRunKubernetesCommandReturnsRedactedError(t *testing.T) {
 	// Output should be either empty or already-redacted; sentinel must never appear.
 	assert.NotContains(t, string(output), "SENTINEL_VALUE")
 	assert.NotContains(t, err.Error(), "SENTINEL_VALUE")
+}
+
+func TestSecretValueMapUsesReadablePlaceholdersForBadKeys(t *testing.T) {
+	data := map[string]secretKeyData{
+		"plain":        {value: []byte("visible-placeholder"), meta: secretMetadata{DecodedBytes: 19, SHA256Prefix: "abc123abc123"}},
+		"decode-error": {meta: secretMetadata{DecodeError: "bad base64"}},
+		"read-error":   {meta: secretMetadata{ReadError: "missing key"}},
+	}
+
+	values := secretValueMap(data)
+
+	assert.Equal(t, "visible-placeholder", values["plain"])
+	assert.Equal(t, "<error decoding>", values["decode-error"])
+	assert.Equal(t, "<error reading value>", values["read-error"])
+}
+
+func TestPrintSecretTableCoversMetadataAndMultilineValueBranches(t *testing.T) {
+	data := map[string]secretKeyData{
+		"alpha": {
+			value: []byte("line one\nline two"),
+			meta:  secretMetadata{DecodedBytes: 17, SHA256Prefix: "abc123abc123"},
+		},
+		"broken": {
+			meta: secretMetadata{DecodeError: "bad base64"},
+		},
+	}
+
+	metadataOut := captureKubernetesStdout(t, func() {
+		printSecretTable(data, false)
+	})
+	assert.Contains(t, metadataOut, "KEY: alpha")
+	assert.Contains(t, metadataOut, "DECODED_BYTES: 17")
+	assert.Contains(t, metadataOut, "KEY: broken")
+	assert.Contains(t, metadataOut, "DECODE_ERROR: bad base64")
+
+	valuesOut := captureKubernetesStdout(t, func() {
+		printSecretTable(data, true)
+	})
+	assert.Contains(t, valuesOut, "VALUE (multiline, 2 lines)")
+	assert.Contains(t, valuesOut, "line one\nline two")
+	assert.Contains(t, valuesOut, "VALUE: <error decoding>")
+}
+
+func TestResolveFluxSyncResourceTypeCoversAliasesSelectionAndErrors(t *testing.T) {
+	fullType, cancelled, err := resolveFluxSyncResourceType("hr")
+	require.NoError(t, err)
+	assert.False(t, cancelled)
+	assert.Equal(t, "helmrelease", fullType)
+
+	_, _, err = resolveFluxSyncResourceType("not-a-kind")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid resource type")
+
+	testutil.Swap(t, &chooseOptionFn, func(prompt string, options []string) (string, error) {
+		assert.Equal(t, "Select resource type to sync:", prompt)
+		assert.Contains(t, options, "kustomization - Kustomizations")
+		return "kustomization - Kustomizations", nil
+	})
+	fullType, cancelled, err = resolveFluxSyncResourceType("")
+	require.NoError(t, err)
+	assert.False(t, cancelled)
+	assert.Equal(t, "kustomization", fullType)
+}
+
+func TestResolveFluxSyncResourceTypeTreatsPromptCancellationAsCleanExit(t *testing.T) {
+	testutil.Swap(t, &chooseOptionFn, func(string, []string) (string, error) {
+		return "", errors.New("cancelled by user")
+	})
+
+	fullType, cancelled, err := resolveFluxSyncResourceType("")
+
+	require.NoError(t, err)
+	assert.True(t, cancelled)
+	assert.Empty(t, fullType)
+}
+
+func TestListFluxSyncResourcesBuildsExpectedKubectlArgs(t *testing.T) {
+	var calls [][]string
+	testutil.Swap(t, &commandOutputFn, func(name string, args ...string) ([]byte, error) {
+		assert.Equal(t, "kubectl", name)
+		calls = append(calls, append([]string(nil), args...))
+		return []byte("flux-system,flux-system\nmedia,radarr\n"), nil
+	})
+
+	resources, err := listFluxSyncResources("kustomization", "")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"flux-system,flux-system", "media,radarr"}, resources)
+	require.Len(t, calls, 1)
+	assert.Contains(t, calls[0], "--all-namespaces")
+
+	testutil.Swap(t, &commandOutputFn, func(name string, args ...string) ([]byte, error) {
+		assert.Equal(t, "kubectl", name)
+		calls = append(calls, append([]string(nil), args...))
+		return []byte("\n"), nil
+	})
+	resources, err = listFluxSyncResources("helmrelease", "media")
+
+	require.NoError(t, err)
+	assert.Nil(t, resources)
+	require.Len(t, calls, 2)
+	assert.Contains(t, calls[1], "--namespace")
+	assert.Contains(t, calls[1], "media")
+}
+
+func TestListFluxSyncResourcesWrapsKubectlError(t *testing.T) {
+	testutil.Swap(t, &commandOutputFn, func(string, ...string) ([]byte, error) {
+		return nil, errors.New("kubectl failed")
+	})
+
+	_, err := listFluxSyncResources("ocirepository", "flux-system")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to list ocirepository resources")
+	assert.Contains(t, err.Error(), "kubectl failed")
+}
+
+func TestReconcileFluxSyncResourcesSequentialCountsSuccessFailureAndSkipsInvalid(t *testing.T) {
+	var calls []string
+	testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if strings.Contains(strings.Join(args, " "), "bad") {
+			return errors.New("reconcile failed")
+		}
+		return nil
+	})
+
+	success, failed := reconcileFluxSyncResourcesSequential(common.NewColorLogger(), "kustomization", []string{
+		"flux-system,good",
+		"invalid-resource",
+		"flux-system,bad",
+	})
+
+	assert.Equal(t, 1, success)
+	assert.Equal(t, 1, failed)
+	assert.Equal(t, []string{
+		"flux reconcile kustomization good -n flux-system",
+		"flux reconcile kustomization bad -n flux-system",
+	}, calls)
+}
+
+func TestReconcileFluxSyncResourcesParallelCountsSuccessFailureAndSkipsInvalid(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		calls []string
+	)
+	testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
+		mu.Lock()
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		mu.Unlock()
+		if strings.Contains(strings.Join(args, " "), "bad") {
+			return errors.New("reconcile failed")
+		}
+		return nil
+	})
+
+	success, failed := reconcileFluxSyncResourcesParallel(common.NewColorLogger(), "helmrelease", []string{
+		"media,good",
+		"invalid-resource",
+		"media,bad",
+	})
+
+	assert.Equal(t, 1, success)
+	assert.Equal(t, 1, failed)
+	assert.ElementsMatch(t, []string{
+		"flux reconcile helmrelease good -n media",
+		"flux reconcile helmrelease bad -n media",
+	}, calls)
 }
 
 func TestNonEmptyKubernetesStrings(t *testing.T) {

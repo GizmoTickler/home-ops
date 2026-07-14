@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,6 +91,87 @@ func TestAuditVaultScope(t *testing.T) {
 	assert.Equal(t, []string{"item list --vault HomeOps --format=json"}, opCalls)
 }
 
+func TestCollectOpItemsAllVaultsUsesBoundedConcurrentFanout(t *testing.T) {
+	oldOpCtx := runOpCtxFn
+	t.Cleanup(func() { runOpCtxFn = oldOpCtx })
+
+	var (
+		mu       sync.Mutex
+		inFlight int
+		maxSeen  int
+	)
+	runOpCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "vault list --format=json":
+			return []byte(`[
+				{"name":"Vault 1"},
+				{"name":"Vault 2"},
+				{"name":"Vault 3"},
+				{"name":"Vault 4"},
+				{"name":"Vault 5"},
+				{"name":"Vault 6"}
+			]`), nil
+		case "item list --vault Vault 1 --format=json",
+			"item list --vault Vault 2 --format=json",
+			"item list --vault Vault 3 --format=json",
+			"item list --vault Vault 4 --format=json",
+			"item list --vault Vault 5 --format=json",
+			"item list --vault Vault 6 --format=json":
+			mu.Lock()
+			inFlight++
+			if inFlight > maxSeen {
+				maxSeen = inFlight
+			}
+			mu.Unlock()
+
+			time.Sleep(25 * time.Millisecond)
+
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			vaultName := args[3]
+			return []byte(`[{"id":"` + strings.ReplaceAll(vaultName, " ", "-") + `","title":"` + vaultName + ` item"}]`), nil
+		default:
+			t.Fatalf("unexpected op args: %v", args)
+			return nil, nil
+		}
+	}
+
+	items, err := collectOpItemsContext(context.Background(), "all")
+
+	require.NoError(t, err)
+	assert.Len(t, items, 6)
+	assert.Greater(t, maxSeen, 1, "expected item listings to run concurrently")
+	assert.LessOrEqual(t, maxSeen, 4, "expected item listing fan-out to be bounded")
+}
+
+func TestBuildAuditReportAccountsForDuplicateTitleOrphansAcrossVaults(t *testing.T) {
+	useAuditFakes(t, func(args ...string) ([]byte, error) {
+		return []byte(`{"items":[]}`), nil
+	}, func(args ...string) ([]byte, error) {
+		switch strings.Join(args, " ") {
+		case "vault list --format=json":
+			return []byte(`[{"name":"Vault A"},{"name":"Vault B"}]`), nil
+		case "item list --vault Vault A --format=json":
+			return []byte(`[{"id":"a1","title":"shared-orphan"}]`), nil
+		case "item list --vault Vault B --format=json":
+			return []byte(`[{"id":"b1","title":"shared-orphan"}]`), nil
+		default:
+			t.Fatalf("unexpected op args: %v", args)
+			return nil, nil
+		}
+	})
+
+	r := buildAuditReport("all")
+
+	require.Len(t, r.OrphanItems, 2)
+	assert.Equal(t, "shared-orphan", r.OrphanItems[0].Item)
+	assert.Equal(t, "Vault A", r.OrphanItems[0].Vault)
+	assert.Equal(t, "shared-orphan", r.OrphanItems[1].Item)
+	assert.Equal(t, "Vault B", r.OrphanItems[1].Vault)
+	assert.Equal(t, 2, r.Summary.Warn)
+}
+
 func TestRenderAuditJSON(t *testing.T) {
 	r := auditReport{
 		Summary: auditSummary{Pass: 1, Warn: 1, Fail: 1},
@@ -143,4 +226,74 @@ func TestRunAuditContextThreadsCallerContext(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, sawKubectlContext)
 	assert.True(t, sawOpContext)
+}
+
+func TestOpAuditCommandErrorUsesSpecificOperationAndStripsOpPrefix(t *testing.T) {
+	err := opAuditCommandError(
+		[]string{"item", "list", "--vault", "HomeOps"},
+		"[ERROR] 2026/06/12 19:40:12 item list failed\n",
+		assert.AnError,
+	)
+
+	require.Error(t, err)
+	assert.Equal(t, "op item list: item list failed", err.Error())
+}
+
+func TestRenderAuditReportRejectsUnsupportedOutput(t *testing.T) {
+	_, err := renderAuditReport(auditReport{}, "xml")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported output format "xml"`)
+}
+
+func TestRenderAuditReportTableIncludesMissingAndOrphanSections(t *testing.T) {
+	report := auditReport{
+		Summary: auditSummary{Pass: 1, Warn: 1, Fail: 1},
+		ExternalSecrets: []auditExternalSecret{{
+			ExternalSecret: "flux-system/cluster-config",
+			Status:         auditPass,
+		}},
+		MissingItems: []auditItemFinding{{
+			Item:       "missing-item",
+			Status:     auditFail,
+			References: []string{"media/app"},
+			Detail:     "missing",
+		}},
+		OrphanItems: []auditItemFinding{{
+			Item:   "unused-item",
+			Vault:  "HomeOps",
+			Status: auditWarn,
+			Detail: "orphan",
+		}},
+	}
+
+	out, err := renderAuditReport(report, "table")
+
+	require.NoError(t, err)
+	assert.Contains(t, out, "Summary: PASS=1 WARN=1 FAIL=1")
+	assert.Contains(t, out, "ExternalSecrets")
+	assert.Contains(t, out, "flux-system/cluster-config")
+	assert.Contains(t, out, "Missing 1Password items")
+	assert.Contains(t, out, "missing-item")
+	assert.Contains(t, out, "Unreferenced 1Password items")
+	assert.Contains(t, out, "unused-item")
+	assert.Contains(t, out, "HomeOps")
+}
+
+func TestAuditRowsKeepHumanReadableTitlesAndVaults(t *testing.T) {
+	missingRows := auditItemRows([]auditItemFinding{{
+		Item:       "cluster-config",
+		Status:     auditFail,
+		References: []string{"flux-system/cluster-config", "media/app"},
+		Detail:     "missing",
+	}})
+	orphanRows := auditOrphanRows([]auditItemFinding{{
+		Item:   "unused",
+		Vault:  "HomeOps",
+		Status: auditWarn,
+		Detail: "orphan",
+	}})
+
+	require.Equal(t, [][]string{{"FAIL", "cluster-config", "flux-system/cluster-config, media/app", "missing"}}, missingRows)
+	require.Equal(t, [][]string{{"WARN", "unused", "HomeOps", "orphan"}}, orphanRows)
 }

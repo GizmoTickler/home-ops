@@ -774,6 +774,42 @@ func TestDeployVMProviderOptions(t *testing.T) {
 	assert.Equal(t, "vSphere/ESXi - Deploy to vSphere or ESXi", options[2])
 }
 
+func TestPromptIntWithDefaultParsesDefaultValidAndInvalidInput(t *testing.T) {
+	inputs := []string{"", "7", "not-a-number"}
+	testutil.Swap(t, &inputPromptFn, func(prompt, placeholder string) (string, error) {
+		require.NotEmpty(t, prompt)
+		require.NotEmpty(t, placeholder)
+		next := inputs[0]
+		inputs = inputs[1:]
+		return next, nil
+	})
+
+	value, err := promptIntWithDefault("Enter count:", "3", 3)
+	require.NoError(t, err)
+	assert.Equal(t, 3, value)
+
+	value, err = promptIntWithDefault("Enter count:", "3", 3)
+	require.NoError(t, err)
+	assert.Equal(t, 7, value)
+
+	value, err = promptIntWithDefault("Enter count:", "3", 3)
+	require.Error(t, err)
+	assert.Zero(t, value)
+	assert.Contains(t, err.Error(), `invalid numeric input "not-a-number"`)
+}
+
+func TestPromptIntWithDefaultWrapsPromptError(t *testing.T) {
+	testutil.Swap(t, &inputPromptFn, func(string, string) (string, error) {
+		return "", errors.New("prompt failed")
+	})
+
+	value, err := promptIntWithDefault("Enter count:", "3", 3)
+
+	require.Error(t, err)
+	assert.Zero(t, value)
+	assert.Contains(t, err.Error(), "prompt failed")
+}
+
 func TestCommandProviderDefaults(t *testing.T) {
 	deployCmd := newDeployVMCommand()
 	deployProviderFlag := deployCmd.Flags().Lookup("provider")
@@ -1071,6 +1107,153 @@ func TestTalosNodeHelpers(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"10.0.0.20", "10.0.0.21"}, nodes)
 	})
+}
+
+func TestSelectTalosNodeErrorBranches(t *testing.T) {
+	t.Run("node IP discovery error is returned directly", func(t *testing.T) {
+		testutil.Swap(t, &getTalosNodeIPsFn, func() ([]string, error) {
+			return nil, errors.New("config missing")
+		})
+
+		node, err := selectTalosNode("Select node:")
+
+		require.Error(t, err)
+		assert.Empty(t, node)
+		assert.Contains(t, err.Error(), "config missing")
+	})
+
+	t.Run("prompt cancellation returns empty node without error", func(t *testing.T) {
+		testutil.Swap(t, &getTalosNodeIPsFn, func() ([]string, error) {
+			return []string{"10.0.0.10"}, nil
+		})
+		testutil.Swap(t, &chooseTalosNodeFn, func(string, []string) (string, error) {
+			return "", errors.New("cancelled by user")
+		})
+
+		node, err := selectTalosNode("Select node:")
+
+		require.NoError(t, err)
+		assert.Empty(t, node)
+	})
+
+	t.Run("prompt failure is wrapped with context", func(t *testing.T) {
+		testutil.Swap(t, &getTalosNodeIPsFn, func() ([]string, error) {
+			return []string{"10.0.0.10"}, nil
+		})
+		testutil.Swap(t, &chooseTalosNodeFn, func(string, []string) (string, error) {
+			return "", errors.New("terminal unavailable")
+		})
+
+		node, err := selectTalosNode("Select node:")
+
+		require.Error(t, err)
+		assert.Empty(t, node)
+		assert.Contains(t, err.Error(), "node selection failed")
+		assert.Contains(t, err.Error(), "terminal unavailable")
+	})
+}
+
+func TestGetTalosConfigInfoErrors(t *testing.T) {
+	t.Run("talosctl error", func(t *testing.T) {
+		testutil.Swap(t, &talosctlOutputFn, func(string, ...string) ([]byte, error) {
+			return nil, errors.New("talosctl failed")
+		})
+
+		info, err := getTalosConfigInfo()
+
+		require.Error(t, err)
+		assert.Nil(t, info)
+		assert.Contains(t, err.Error(), "talosctl failed")
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		testutil.Swap(t, &talosctlOutputFn, func(string, ...string) ([]byte, error) {
+			return []byte(`{"nodes":`), nil
+		})
+
+		info, err := getTalosConfigInfo()
+
+		require.Error(t, err)
+		assert.Nil(t, info)
+	})
+}
+
+func TestDeployVMWithPatternRejectsInvalidInputBeforeSideEffects(t *testing.T) {
+	cases := []struct {
+		name        string
+		vmName      string
+		pool        string
+		memory      int
+		vcpus       int
+		diskSize    int
+		openebsSize int
+		want        string
+	}{
+		{name: "empty VM name", vmName: "", pool: "flashstor", memory: 8192, vcpus: 4, diskSize: 40, want: "VM name cannot be empty"},
+		{name: "empty pool", vmName: "app01", pool: "", memory: 8192, vcpus: 4, diskSize: 40, want: "storage pool cannot be empty"},
+		{name: "zero memory", vmName: "app01", pool: "flashstor", memory: 0, vcpus: 4, diskSize: 40, want: "memory must be greater than 0"},
+		{name: "zero vcpus", vmName: "app01", pool: "flashstor", memory: 8192, vcpus: 0, diskSize: 40, want: "vCPUs must be greater than 0"},
+		{name: "zero disk", vmName: "app01", pool: "flashstor", memory: 8192, vcpus: 4, diskSize: 0, want: "disk size must be greater than 0"},
+		{name: "negative openebs", vmName: "app01", pool: "flashstor", memory: 8192, vcpus: 4, diskSize: 40, openebsSize: -1, want: "openebs size cannot be negative"},
+		{name: "invalid VM name", vmName: "bad-name", pool: "flashstor", memory: 8192, vcpus: 4, diskSize: 40, want: "VM name validation failed"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := deployVMWithPattern(tc.vmName, tc.pool, tc.memory, tc.vcpus, tc.diskSize, tc.openebsSize, "", false, false)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.want)
+		})
+	}
+}
+
+func TestDeployVMWithPatternUsesPreparedISOAndDeploysViaSeams(t *testing.T) {
+	testutil.Swap(t, &newTrueNASSSHClientFn, func(config ssh.SSHConfig) trueNASSSHClient {
+		assert.Equal(t, "nas.example.test", config.Host)
+		assert.Equal(t, "nas-admin", config.Username)
+		return &fakeTrueNASSSHClient{exists: true, size: 4096}
+	})
+	manager := &fakeTrueNASVMManager{}
+	testutil.Swap(t, &vmlifecycle.NewTrueNASVMManagerFn, func(host, apiKey string, port int, useSSL bool) vmlifecycle.TrueNASVMManager {
+		assert.Equal(t, "nas.example.test", host)
+		assert.Equal(t, "api-key-placeholder", apiKey)
+		assert.Equal(t, 443, port)
+		assert.True(t, useSSL)
+		return manager
+	})
+	testutil.Swap(t, &vmlifecycle.ResolveSecretKeyFn, func(key string) string {
+		if key == versionconfig.KeyTrueNASUsername {
+			return "nas-admin"
+		}
+		return ""
+	})
+	testutil.Swap(t, &spinWithFuncFn, func(title string, fn func() error) error {
+		assert.Equal(t, "Deploying VM app01", title)
+		return fn()
+	})
+	testutil.Swap(t, &workingDirectoryFn, func() string { return "." })
+	t.Setenv(constants.EnvTrueNASHost, "nas.example.test")
+	t.Setenv(constants.EnvTrueNASAPIKey, "api-key-placeholder")
+	t.Setenv(constants.EnvSPICEPassword, "spice-placeholder")
+	t.Setenv("NETWORK_BRIDGE", "br-test")
+
+	err := deployVMWithPattern("app01", "flashstor", 8192, 4, 40, 100, "00:11:22:33:44:55", true, false)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, manager.connectCalls)
+	assert.Equal(t, 1, manager.closeCalls)
+	require.Len(t, manager.deployed, 1)
+	got := manager.deployed[0]
+	assert.Equal(t, "app01", got.Name)
+	assert.Equal(t, "flashstor", got.StoragePool)
+	assert.Equal(t, "/mnt/flashstor/ISO/metal-amd64.iso", got.TalosISO)
+	assert.Equal(t, "br-test", got.NetworkBridge)
+	assert.Equal(t, "00:11:22:33:44:55", got.MacAddress)
+	assert.Equal(t, "spice-placeholder", got.SpicePassword)
+	assert.True(t, got.UseSpice)
+	assert.True(t, got.CustomISO)
+	assert.True(t, got.SkipZVolCreate)
 }
 
 func TestApplyNodeConfigFlows(t *testing.T) {
