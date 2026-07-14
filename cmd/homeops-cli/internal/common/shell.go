@@ -18,7 +18,7 @@ func ShellQuote(value string) string {
 // (options are comma-separated key=val pairs) or escape a shell command. Paths
 // and Proxmox volume IDs legitimately contain '/', '-', '_', '.' and ':', so
 // those are intentionally allowed; everything dangerous is rejected.
-const proxmoxOptUnsafe = ",;&|<>(){}$`\"'\\\t\r\n "
+const proxmoxOptUnsafe = ",;&|<>(){}$`\"'\\\t\r\n *?[]!~#"
 
 // ValidateProxmoxOptValue rejects a value that is empty or contains a character
 // that could break Proxmox option parsing or inject a shell command. field is
@@ -32,6 +32,12 @@ func ValidateProxmoxOptValue(field, value string) error {
 	if i := strings.IndexAny(value, proxmoxOptUnsafe); i >= 0 {
 		return fmt.Errorf("%s contains unsafe character %q (no whitespace, commas, quotes, or shell metacharacters allowed): %q",
 			field, string(value[i]), value)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%s contains unsafe control character %q (no control characters allowed): %q",
+				field, r, value)
+		}
 	}
 	return nil
 }

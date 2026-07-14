@@ -19,6 +19,11 @@ type Processor struct {
 	metrics *metrics.PerformanceCollector
 }
 
+const (
+	maxDottedPathLength = 4096
+	maxDottedPathDepth  = 128
+)
+
 // NewProcessor creates a new YAML processor
 func NewProcessor(logger interface{}, metrics *metrics.PerformanceCollector) *Processor {
 	return &Processor{
@@ -107,7 +112,10 @@ func (p *Processor) ToString(data interface{}) (string, error) {
 // GetValue extracts a value from YAML data using a dot-separated path
 // Example: GetValue(data, "metadata.name") returns data["metadata"]["name"]
 func (p *Processor) GetValue(data map[string]interface{}, path string) (interface{}, error) {
-	keys := strings.Split(path, ".")
+	keys, err := splitDottedPath(path)
+	if err != nil {
+		return nil, err
+	}
 	current := data
 
 	for i, key := range keys {
@@ -139,7 +147,14 @@ func (p *Processor) GetValue(data map[string]interface{}, path string) (interfac
 
 // SetValue sets a value in YAML data using a dot-separated path
 func (p *Processor) SetValue(data map[string]interface{}, path string, value interface{}) error {
-	keys := strings.Split(path, ".")
+	if data == nil {
+		return errors.NewValidationError("YAML_PATH_INVALID",
+			fmt.Sprintf("path '%s' cannot be set on nil YAML data", path), nil)
+	}
+	keys, err := splitDottedPath(path)
+	if err != nil {
+		return err
+	}
 	current := data
 
 	for i, key := range keys {
@@ -166,6 +181,29 @@ func (p *Processor) SetValue(data map[string]interface{}, path string, value int
 	}
 
 	return nil
+}
+
+func splitDottedPath(path string) ([]string, error) {
+	if path == "" {
+		return nil, errors.NewValidationError("YAML_PATH_INVALID",
+			"YAML path must not be empty", nil)
+	}
+	if len(path) > maxDottedPathLength {
+		return nil, errors.NewValidationError("YAML_PATH_INVALID",
+			fmt.Sprintf("path is too long (%d bytes, max %d)", len(path), maxDottedPathLength), nil)
+	}
+	keys := strings.Split(path, ".")
+	if len(keys) > maxDottedPathDepth {
+		return nil, errors.NewValidationError("YAML_PATH_INVALID",
+			fmt.Sprintf("path is too deep (%d segments, max %d)", len(keys), maxDottedPathDepth), nil)
+	}
+	for _, key := range keys {
+		if key == "" {
+			return nil, errors.NewValidationError("YAML_PATH_INVALID",
+				fmt.Sprintf("path '%s' contains an empty segment", path), nil)
+		}
+	}
+	return keys, nil
 }
 
 // Merge merges two YAML data structures

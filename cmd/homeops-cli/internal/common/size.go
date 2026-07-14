@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -37,6 +38,11 @@ func ParseSizeSpec(spec string) (bytes int64, relative bool, err error) {
 	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil || n <= 0 {
 		return 0, false, fmt.Errorf("invalid size spec %q (use e.g. 20G or +20G)", spec)
+	}
+	// Guard against int64 overflow: n*unit must not wrap to a negative or
+	// truncated byte count (e.g. "9223372036854775807T").
+	if unit != 1 && n > math.MaxInt64/unit {
+		return 0, false, fmt.Errorf("size spec %q overflows int64", spec)
 	}
 	return n * unit, relative, nil
 }
