@@ -29,17 +29,20 @@ jobs:
 
       - name: Build binaries
         run: |
-          mkdir -p dist
+          # Artifacts go outside the checkout: writing into the repo tree marks
+          # the VCS state dirty, which taints the version stamp of later builds.
+          dist="$RUNNER_TEMP/dist"
+          mkdir -p "$dist"
           for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
             goos="${platform%/*}"; goarch="${platform#*/}"
-            out="dist/homeops-cli_${GITHUB_REF_NAME}_${goos}_${goarch}"
+            out="$dist/homeops-cli_${GITHUB_REF_NAME}_${goos}_${goarch}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
               -ldflags "-s -w -X main.version=${GITHUB_REF_NAME} -X main.commit=${GITHUB_SHA::8} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               -o "$out" .
-            tar -czf "${out}.tar.gz" -C dist "$(basename "$out")"
+            tar -czf "${out}.tar.gz" -C "$dist" "$(basename "$out")"
             rm "$out"
           done
-          (cd dist && sha256sum ./*.tar.gz > checksums.txt)
+          (cd "$dist" && sha256sum ./*.tar.gz > checksums.txt)
 
       - name: Create GitHub release
         env:
@@ -48,4 +51,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "homeops-cli $GITHUB_REF_NAME" \
             --generate-notes \
-            dist/*.tar.gz dist/checksums.txt
+            "$RUNNER_TEMP"/dist/*.tar.gz "$RUNNER_TEMP"/dist/checksums.txt
