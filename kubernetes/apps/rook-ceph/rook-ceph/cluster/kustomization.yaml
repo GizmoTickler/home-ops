@@ -6,4 +6,5 @@ resources:
   - ./ocirepository.yaml
   - ./externalsecret.yaml
   - ./securitypolicy.yaml
+  - ./mgr-failover-cronjob.yaml
   - ./helmrelease.yaml
