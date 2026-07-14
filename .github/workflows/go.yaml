@@ -67,3 +67,8 @@ jobs:
             echo "::error::coverage ${total}% fell below the 70% regression floor"
             exit 1
           }
+
+      - name: Vulnerability scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
