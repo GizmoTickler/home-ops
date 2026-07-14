@@ -57,4 +57,13 @@ jobs:
           working-directory: cmd/homeops-cli
 
       - name: Test
-        run: go test -race -short -timeout 120s -count=1 ./...
+        run: go test -race -short -timeout 120s -count=1 -coverprofile=coverage.out ./...
+
+      - name: Coverage floor
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub(/%/, "", $3); print $3}')
+          echo "total coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit (t >= 70) ? 0 : 1 }' || {
+            echo "::error::coverage ${total}% fell below the 70% regression floor"
+            exit 1
+          }
