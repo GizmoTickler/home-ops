@@ -1,12 +1,14 @@
 package flatcar
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/testutil"
 
 	"github.com/stretchr/testify/assert"
@@ -66,6 +68,32 @@ func TestRenderIgnitionProducesValidJSON(t *testing.T) {
 	assert.Contains(t, s, "kubernetes-v1.36.1-x86-64.raw")
 	// The hostname file is an inline data URL: data:,k8s-0 (NODE_NAME substituted).
 	assert.Contains(t, s, "data:,k8s-0")
+}
+
+func TestRenderIgnitionDeterministicAndNodeSpecific(t *testing.T) {
+	restoreConfig := config.SetForTesting(&config.Config{})
+	defer restoreConfig()
+
+	env := sampleEnv()
+	first, err := RenderIgnition(env)
+	require.NoError(t, err)
+	require.NotEmpty(t, first)
+
+	for i := 0; i < 20; i++ {
+		rendered, err := RenderIgnition(env)
+		require.NoError(t, err, "render %d", i)
+		if !bytes.Equal(first, rendered) {
+			t.Fatalf("RenderIgnition is nondeterministic on render %d", i)
+		}
+	}
+
+	other := sampleEnv()
+	other.NodeName = "k8s-1"
+	other.NodeIP = "192.168.122.11"
+	other.NodeMAC = "00:a0:98:1a:f3:72"
+	differentNode, err := RenderIgnition(other)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, differentNode, "different nodes must not render identical Ignition")
 }
 
 func TestRenderIgnitionSubstitutesLocalFiles(t *testing.T) {

@@ -1,6 +1,8 @@
 package common
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +39,42 @@ func TestParseSizeSpec(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.bytes, b)
 			assert.Equal(t, tc.relative, rel)
+		})
+	}
+}
+
+func TestParseSizeSpecAbsoluteMonotonicity(t *testing.T) {
+	units := []struct {
+		name string
+		unit string
+		max  int64
+	}{
+		{name: "bytes", unit: "", max: math.MaxInt64},
+		{name: "megabytes", unit: "M", max: math.MaxInt64 / (1 << 20)},
+		{name: "gigabytes", unit: "G", max: math.MaxInt64 / (1 << 30)},
+		{name: "terabytes", unit: "T", max: math.MaxInt64 / (1 << 40)},
+	}
+
+	for _, u := range units {
+		t.Run(u.name, func(t *testing.T) {
+			var previous int64
+			for n := int64(1); n <= 128; n++ {
+				bytes, relative, err := ParseSizeSpec(strconv.FormatInt(n, 10) + u.unit)
+				require.NoError(t, err)
+				assert.False(t, relative, "absolute specs must not be marked relative")
+				assert.GreaterOrEqual(t, bytes, previous, "absolute size specs must be monotonic")
+				previous = bytes
+			}
+
+			bytes, relative, err := ParseSizeSpec(strconv.FormatInt(u.max, 10) + u.unit)
+			require.NoError(t, err)
+			assert.False(t, relative)
+			assert.Greater(t, bytes, int64(0), "maximum non-overflowing %s spec must remain positive", u.name)
+
+			if u.unit != "" {
+				_, _, err = ParseSizeSpec(strconv.FormatInt(u.max+1, 10) + u.unit)
+				require.Error(t, err, "one past the maximum %s spec must not wrap", u.name)
+			}
 		})
 	}
 }
