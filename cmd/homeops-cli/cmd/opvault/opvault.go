@@ -135,6 +135,23 @@ func runOpItem(item, vault string, build func(vault string) []string) ([]byte, e
 	return runOpFn(build(detected)...)
 }
 
+// runOpItemStdin is runOpItem for commands whose sensitive values are supplied
+// via stdin (for example `op item edit` with a JSON template). It preserves the
+// vault auto-detection behavior for service accounts without moving field values
+// into argv.
+func runOpItemStdin(item, vault string, stdin []byte, build func(vault string) []string) ([]byte, error) {
+	out, err := runOpStdinFn(stdin, build(vault)...)
+	if vault != "" || !needsVaultQuery(err) {
+		return out, err
+	}
+	detected, findErr := findVaultForItem(item)
+	if findErr != nil {
+		return nil, fmt.Errorf("%w\n(vault auto-detect: %v)", err, findErr)
+	}
+	common.NewColorLogger().Info("Found %q in vault %q", item, detected)
+	return runOpStdinFn(stdin, build(detected)...)
+}
+
 var confirmFn = ui.Confirm
 
 // vaultNameCompletion completes --vault style flags from the live vault
@@ -622,8 +639,11 @@ func newEditCommand() *cobra.Command {
 	var fieldPairs []string
 	cmd := &cobra.Command{
 		Use:   "edit <item>",
-		Short: "Set fields on an existing item",
-		Args:  cobra.ExactArgs(1),
+		Short: "Set fields on an existing item (values via stdin, never argv)",
+		Long: `Set fields on an existing item using an op JSON template piped over
+stdin. This avoids assignment arguments, which 1Password warns can expose field
+values to other local processes.`,
+		Args: cobra.ExactArgs(1),
 		Example: `  homeops-cli op edit talosdeploy --vault Infrastructure \
     --field TRUENAS_HOST=nas01.example.com`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -634,17 +654,15 @@ func newEditCommand() *cobra.Command {
 			if len(fields) == 0 {
 				return fmt.Errorf("at least one --field label=value is required")
 			}
-			// NOTE: `op item edit` only accepts field assignments as arguments,
-			// so values briefly appear in this process's argv (same exposure as
-			// using the op CLI directly). For new secrets prefer `op create`,
-			// which passes everything via a stdin template.
-			if _, err := runOpItem(args[0], vault, func(v string) []string {
+			tmpl := map[string]interface{}{"fields": fields}
+			doc, err := json.Marshal(tmpl)
+			if err != nil {
+				return err
+			}
+			if _, err := runOpItemStdin(args[0], vault, doc, func(v string) []string {
 				opArgs := []string{"item", "edit", args[0]}
 				if v != "" {
 					opArgs = append(opArgs, "--vault", v)
-				}
-				for _, f := range fields {
-					opArgs = append(opArgs, fmt.Sprintf("%s=%s", f.Label, f.Value))
 				}
 				return opArgs
 			}); err != nil {

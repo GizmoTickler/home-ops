@@ -39,8 +39,9 @@ type CommandResult struct {
 }
 
 var (
-	privateKeyBlockPattern = regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`)
-	secretLabelPattern     = regexp.MustCompile(`(?i)\b((?:access|refresh|id)[_-]?token|client[_-]?secret|api[_-]?key|private[_ -]?key|password|passwd|token|secret)(\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
+	privateKeyBlockPattern      = regexp.MustCompile(`(?is)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----`)
+	secretLabelPattern          = regexp.MustCompile(`(?i)\b((?:access|refresh|id)[_-]?token|client[_-]?secret|api[_-]?key|private[_ -]?key|password|passwd|token|secret)(\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s\r\n]+)`)
+	kubeconfigClientDataPattern = regexp.MustCompile(`(?im)^(\s*client-(?:key|certificate)-data\s*:\s*)([A-Za-z0-9+/=]+)\s*$`)
 	// kubeadm join material printed in init/join output (and any error that echoes it).
 	kubeadmFlagSecretPattern = regexp.MustCompile(`(--(?:token|certificate-key|discovery-token-ca-cert-hash))([ =])(\S+)`)
 	kubeadmTokenPattern      = regexp.MustCompile(`\b[a-z0-9]{6}\.[a-z0-9]{16}\b`)           // bootstrap token
@@ -156,6 +157,7 @@ func redactCommandOutput(output string, redactor Redactor) string {
 func RedactCommandOutput(output string) string {
 	output = privateKeyBlockPattern.ReplaceAllString(output, "<redacted private key>")
 	output = secretLabelPattern.ReplaceAllString(output, "${1}${2}<redacted>")
+	output = kubeconfigClientDataPattern.ReplaceAllString(output, "${1}<redacted>")
 	// kubeadm join material (token / cert-key / CA hash) — space- or =-separated
 	// flags and the standalone forms kubeadm prints in init/join output.
 	output = kubeadmFlagSecretPattern.ReplaceAllString(output, "${1}${2}<redacted>")

@@ -2,8 +2,12 @@ package flatcar
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"homeops-cli/internal/testutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,6 +84,25 @@ func TestRenderIgnitionSubstitutesLocalFiles(t *testing.T) {
 	assert.Contains(t, renderedFiles, "butane/controlplane.bu")
 	assert.Contains(t, renderedFiles, "files/containerd-config.toml")
 	assert.Contains(t, renderedFiles, "manifests/kube-vip.yaml")
+}
+
+func TestMaterializeFlatcarSubdirWritesRenderedFiles0600(t *testing.T) {
+	testutil.Swap(t, &listFlatcarFilesFn, func(subdir string) ([]string, error) {
+		assert.Equal(t, "files", subdir)
+		return []string{"files/secret-ish.toml"}, nil
+	})
+	testutil.Swap(t, &renderFlatcarTemplateFn, func(name string, env map[string]string) (string, error) {
+		assert.Equal(t, "files/secret-ish.toml", name)
+		assert.Equal(t, "abc", env["TOKEN"])
+		return "bootstrap-token=abc", nil
+	})
+
+	baseDir := t.TempDir()
+	require.NoError(t, materializeFlatcarSubdir(baseDir, "files", map[string]string{"TOKEN": "abc"}))
+
+	info, err := os.Stat(filepath.Join(baseDir, "files", "secret-ish.toml"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 func TestRenderIgnitionTranspileError(t *testing.T) {

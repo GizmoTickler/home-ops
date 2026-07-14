@@ -28,6 +28,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type ignitionSSHClient interface {
+	Connect() error
+	Close() error
+	ExecuteCommand(command string) (string, error)
+	UploadBytes(content []byte, remotePath string) error
+	VerifyFile(string) (bool, int64, error)
+}
+
 // Swappable function vars for testability (mirrors cmd/talos patterns).
 var (
 	getVersionsFn      = versionconfig.GetVersions
@@ -36,6 +44,9 @@ var (
 	// the homeops config; "" on miss. Swappable for tests.
 	resolveSecretKeyFn = func(key string) string {
 		return versionconfig.Get().ResolveSecretSilent(key)
+	}
+	newIgnitionSSHClientFn = func(cfg ssh.SSHConfig) ignitionSSHClient {
+		return ssh.NewSSHClient(cfg)
 	}
 	// capturePKIFn reads the cluster PKI from node0 over SSH (swappable for tests).
 	capturePKIFn = func(sshUser, node0IP string) (map[string]string, error) {
@@ -106,11 +117,12 @@ var (
 )
 
 // uploadIgnitionFile writes content to remotePath on the SSH target described by
-// cfg (base64 over a heredoc so the payload is never shell-interpolated; the paths
-// are ShellQuoted), then verifies it is present and non-empty. Shared by the
-// Proxmox (snippets dir) and TrueNAS (dataset) Ignition staging paths.
+// cfg by streaming it over ssh stdin (sudo tee), so rendered Ignition bytes
+// (resolved SSH keys / join material) never enter local ssh argv or the remote
+// process table. Shared by the Proxmox (snippets dir) and TrueNAS (dataset)
+// Ignition staging paths.
 func uploadIgnitionFile(cfg ssh.SSHConfig, remotePath string, content []byte) error {
-	client := ssh.NewSSHClient(cfg)
+	client := newIgnitionSSHClientFn(cfg)
 	if err := client.Connect(); err != nil {
 		return fmt.Errorf("connect to %s@%s:%s: %w", cfg.Username, cfg.Host, cfg.Port, err)
 	}
@@ -120,10 +132,11 @@ func uploadIgnitionFile(cfg ssh.SSHConfig, remotePath string, content []byte) er
 	if dir == "" {
 		dir = "/"
 	}
-	b64 := base64.StdEncoding.EncodeToString(content)
-	cmd := fmt.Sprintf("mkdir -p %s && base64 -d <<'HOMEOPS_EOF' > %s\n%s\nHOMEOPS_EOF",
-		common.ShellQuote(dir), common.ShellQuote(remotePath), b64)
+	cmd := fmt.Sprintf("mkdir -p %s", common.ShellQuote(dir))
 	if _, err := client.ExecuteCommand(cmd); err != nil {
+		return fmt.Errorf("create ignition directory %s on %s: %w", dir, cfg.Host, err)
+	}
+	if err := client.UploadBytes(content, remotePath); err != nil {
 		return fmt.Errorf("write ignition to %s on %s: %w", remotePath, cfg.Host, err)
 	}
 	ok, size, err := client.VerifyFile(remotePath)
@@ -943,7 +956,7 @@ func newRenderIgnitionCommand() *cobra.Command {
 				if err := os.MkdirAll(filepath.Dir(outFile), 0o755); err != nil {
 					return fmt.Errorf("failed to create output directory for %s: %w", outFile, err)
 				}
-				if err := os.WriteFile(outFile, ign, 0o644); err != nil {
+				if err := os.WriteFile(outFile, ign, 0o600); err != nil {
 					return fmt.Errorf("failed to write ignition to %s: %w", outFile, err)
 				}
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Ignition written to %s\n", outFile)

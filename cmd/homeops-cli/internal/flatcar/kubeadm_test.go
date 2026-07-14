@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/testutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,17 +18,33 @@ type fakeRunner struct {
 	// responder returns (output, error) for a given command.
 	responder func(cmd string) (string, error)
 	commands  []string
+	uploads   []fakeUpload
+	ops       []string
 	closed    bool
+}
+
+type fakeUpload struct {
+	path    string
+	content []byte
 }
 
 func (f *fakeRunner) Connect() error { return f.connectErr }
 func (f *fakeRunner) Close() error   { f.closed = true; return nil }
 func (f *fakeRunner) ExecuteCommand(cmd string) (string, error) {
 	f.commands = append(f.commands, cmd)
+	f.ops = append(f.ops, "cmd:"+cmd)
 	if f.responder != nil {
 		return f.responder(cmd)
 	}
 	return "", nil
+}
+func (f *fakeRunner) UploadBytes(content []byte, remotePath string) error {
+	f.ops = append(f.ops, "upload:"+remotePath)
+	f.uploads = append(f.uploads, fakeUpload{
+		path:    remotePath,
+		content: append([]byte(nil), content...),
+	})
+	return nil
 }
 
 const sampleInitOutput = `
@@ -65,12 +82,10 @@ func TestParseKubeadmInitOutputMissing(t *testing.T) {
 
 func withFakeRunner(t *testing.T, r *fakeRunner) func() {
 	t.Helper()
-	orig := newCommandRunnerFn
-	newCommandRunnerFn = func(_ ssh.SSHConfig) commandRunner { return r }
+	testutil.Swap(t, &newCommandRunnerFn, func(_ ssh.SSHConfig) commandRunner { return r })
 	// No persisted PKI in tests -> provisionPKI is a no-op (hermetic; no real op).
-	origPKI := pkiFieldFn
-	pkiFieldFn = func(string) string { return "" }
-	return func() { newCommandRunnerFn = orig; pkiFieldFn = origPKI }
+	testutil.Swap(t, &pkiFieldFn, func(string) string { return "" })
+	return func() {}
 }
 
 func TestProvisionPKIRestoresAllFiles(t *testing.T) {
@@ -82,13 +97,60 @@ func TestProvisionPKIRestoresAllFiles(t *testing.T) {
 	require.NoError(t, o.provisionPKI(r))
 
 	joined := strings.Join(r.commands, "\n")
-	assert.Contains(t, joined, "mkdir -p /etc/kubernetes/pki/etcd")
+	assert.Contains(t, joined, "mkdir -p '/etc/kubernetes/pki/etcd'")
 	for _, p := range []string{"ca.crt", "ca.key", "sa.key", "sa.pub", "front-proxy-ca.crt", "front-proxy-ca.key", "etcd/ca.crt", "etcd/ca.key"} {
 		assert.Contains(t, joined, "/etc/kubernetes/pki/"+p)
 	}
-	assert.Contains(t, joined, "base64 -d")
-	assert.Contains(t, joined, "chmod 0600 /etc/kubernetes/pki/ca.key")
-	assert.Contains(t, joined, "chmod 0644 /etc/kubernetes/pki/ca.crt")
+	assert.NotContains(t, joined, "QUJD")
+	assert.NotContains(t, joined, "base64 -d")
+	assert.Contains(t, joined, "chmod 0600 '/etc/kubernetes/pki/ca.key'")
+	assert.Contains(t, joined, "chmod 0644 '/etc/kubernetes/pki/ca.crt'")
+	require.Len(t, r.uploads, len(pkiBlobs))
+	for _, upload := range r.uploads {
+		assert.Equal(t, []byte("ABC"), upload.content)
+		assert.Contains(t, upload.path, "/etc/kubernetes/pki/")
+	}
+}
+
+func TestProvisionPKIStreamsPrivateKeysOnlyViaUploadPayload(t *testing.T) {
+	const privateKey = "PRIVATE-KEY-BYTES"
+	r := &fakeRunner{}
+	defer withFakeRunner(t, r)()
+	pkiFieldFn = func(field string) string {
+		switch field {
+		case "ca_crt":
+			return "Q0VSVA==" // CERT
+		case "ca_key":
+			return "UFJJVkFURS1LRVktQllURVM=" // PRIVATE-KEY-BYTES
+		default:
+			return ""
+		}
+	}
+
+	o := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	require.NoError(t, o.provisionPKI(r))
+
+	joinedCommands := strings.Join(r.commands, "\n")
+	assert.NotContains(t, joinedCommands, privateKey)
+	assert.NotContains(t, joinedCommands, "UFJJVkFURS1LRVktCWVRFUw==")
+	require.Len(t, r.uploads, 2)
+	assert.Equal(t, []byte("CERT"), r.uploads[0].content)
+	assert.Equal(t, "/etc/kubernetes/pki/ca.crt", r.uploads[0].path)
+	assert.Equal(t, []byte(privateKey), r.uploads[1].content)
+	assert.Equal(t, "/etc/kubernetes/pki/ca.key", r.uploads[1].path)
+}
+
+func TestWriteRemoteFileStreamsKubeadmConfigOnlyViaUploadPayload(t *testing.T) {
+	const secretConfig = "token: abcdef.0123456789abcdef\ncertificate-key: " +
+		"abc123def4567890abc123def4567890abc123def4567890abc123def4567890\n"
+	r := &fakeRunner{}
+
+	require.NoError(t, writeRemoteFileFn(r, remoteJoinConfigPath, secretConfig))
+
+	assert.Empty(t, r.commands, "kubeadm config contents must not be embedded in remote command strings")
+	require.Len(t, r.uploads, 1)
+	assert.Equal(t, remoteJoinConfigPath, r.uploads[0].path)
+	assert.Equal(t, []byte(secretConfig), r.uploads[0].content)
 }
 
 func TestCapturePKI(t *testing.T) {
@@ -146,20 +208,20 @@ func TestInitFirstControlPlane(t *testing.T) {
 	assert.Equal(t, "abcdef.0123456789abcdef", res.BootstrapToken)
 	assert.NotEmpty(t, res.CertificateKey)
 
-	// init config was staged before kubeadm init ran.
+	// init config was streamed before kubeadm init ran.
 	var stagedIdx, initIdx = -1, -1
-	for i, c := range r.commands {
-		if strings.Contains(c, remoteInitConfigPath) && strings.Contains(c, "tee") {
+	for i, op := range r.ops {
+		if op == "upload:"+remoteInitConfigPath {
 			stagedIdx = i
 		}
-		if strings.Contains(c, "kubeadm init --config") {
+		if strings.Contains(op, "kubeadm init --config") {
 			initIdx = i
 		}
 	}
 	require.GreaterOrEqual(t, stagedIdx, 0)
 	require.GreaterOrEqual(t, initIdx, 0)
 	assert.Less(t, stagedIdx, initIdx, "config must be staged before kubeadm init")
-	assert.Contains(t, r.commands[initIdx], "--upload-certs")
+	assert.Contains(t, r.ops[initIdx], "--upload-certs")
 	assert.True(t, r.closed)
 }
 

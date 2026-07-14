@@ -166,7 +166,7 @@ func materializeFlatcarSubdir(baseDir, subdir string, envVars map[string]string)
 		}
 		// name is "<subdir>/<file>"; preserve only the basename under targetDir.
 		dest := filepath.Join(targetDir, filepath.Base(name))
-		if err := os.WriteFile(dest, []byte(rendered), 0o644); err != nil {
+		if err := os.WriteFile(dest, []byte(rendered), 0o600); err != nil {
 			return fmt.Errorf("failed to write flatcar file %s: %w", dest, err)
 		}
 	}

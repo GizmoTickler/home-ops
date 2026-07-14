@@ -62,6 +62,22 @@ func TestRunCommandRedactsSensitiveOutput(t *testing.T) {
 	assert.NotContains(t, result.Stderr, "SENTINEL_TOKEN_VALUE")
 }
 
+func TestRedactCommandOutputMasksKubeconfigClientData(t *testing.T) {
+	input := `users:
+- name: admin
+  user:
+    client-certificate-data: LS0tQ0VSVC1EQVRBLVNIT1VMRC1OT1QtTEVBSw==
+    client-key-data: LS0tS0VZLURBVEEtU0hPVUxELU5PVC1MRUFL
+`
+
+	out := RedactCommandOutput(input)
+
+	assert.Contains(t, out, "client-certificate-data: <redacted>")
+	assert.Contains(t, out, "client-key-data: <redacted>")
+	assert.NotContains(t, out, "LS0tQ0VSVC1EQVRBLVNIT1VMRC1OT1QtTEVBSw")
+	assert.NotContains(t, out, "LS0tS0VZLURBVEEtU0hPVUxELU5PVC1MRUFL")
+}
+
 func TestRunCommandUsesCustomRedactor(t *testing.T) {
 	result, err := RunCommand(context.Background(), CommandOptions{
 		Name:     "sh",

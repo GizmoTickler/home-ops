@@ -742,7 +742,7 @@ func (c *ESXiSSHClient) Close() {
 
 // ExecuteCommand executes a command on ESXi via SSH using the 1Password key
 func (c *ESXiSSHClient) ExecuteCommand(command string) (string, error) {
-	c.logger.Debug("Executing ESXi command: %s", command)
+	c.logger.Debug("Executing ESXi command on %s (%d bytes)", c.host, len(command))
 
 	args := []string{
 		// Trust-on-first-use: record the host key on first connect, then

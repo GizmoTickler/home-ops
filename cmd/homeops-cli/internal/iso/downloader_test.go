@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"homeops-cli/internal/ssh"
+	"homeops-cli/internal/testutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,9 +21,12 @@ type fakeSSHClient struct {
 	}
 	removeErr     error
 	downloadErr   error
+	commandOutput string
+	commandErr    error
 	verifyCalls   []string
 	removeCalls   []string
 	downloadCalls [][2]string
+	commandCalls  []string
 	connectCalls  int
 	closeCalls    int
 }
@@ -55,6 +59,11 @@ func (f *fakeSSHClient) RemoveFile(path string) error {
 func (f *fakeSSHClient) DownloadISO(url, path string) error {
 	f.downloadCalls = append(f.downloadCalls, [2]string{url, path})
 	return f.downloadErr
+}
+
+func (f *fakeSSHClient) ExecuteCommand(command string) (string, error) {
+	f.commandCalls = append(f.commandCalls, command)
+	return f.commandOutput, f.commandErr
 }
 
 func TestGetDefaultConfig(t *testing.T) {
@@ -290,4 +299,105 @@ func TestDownloaderDownloadCustomISO(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid configuration")
 		assert.Equal(t, 0, fake.connectCalls)
 	})
+}
+
+func TestDownloaderVerifiesFlatcarSHA512Checksum(t *testing.T) {
+	const expected = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" +
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	config := DownloadConfig{
+		TrueNASHost:     "nas.local",
+		TrueNASUsername: "root",
+		TrueNASPort:     "22",
+		ISOURL:          "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_iso_image.iso",
+		ISOStoragePath:  "/mnt/tank/iso dir",
+		ISOFilename:     "flatcar_production_iso_image.iso",
+	}
+	fake := &fakeSSHClient{
+		verifyResults: []struct {
+			exists bool
+			size   int64
+			err    error
+		}{
+			{exists: false, size: 0, err: nil},
+			{exists: true, size: 1024, err: nil},
+		},
+		commandOutput: expected + "  " + filepath.Join(config.ISOStoragePath, config.ISOFilename) + "\n",
+	}
+	var fetchedURLs []string
+	testutil.Swap(t, &newSSHClient, func(ssh.SSHConfig) sshClient { return fake })
+	testutil.Swap(t, &fetchChecksumFileFn, func(url string) ([]byte, error) {
+		fetchedURLs = append(fetchedURLs, url)
+		return []byte(expected + "  flatcar_production_iso_image.iso\n"), nil
+	})
+
+	require.NoError(t, NewDownloader().DownloadCustomISO(config))
+
+	assert.Equal(t, []string{config.ISOURL + ".sha512"}, fetchedURLs)
+	require.Len(t, fake.commandCalls, 1)
+	assert.Equal(t, "sha512sum '/mnt/tank/iso dir/flatcar_production_iso_image.iso' | awk '{print $1}'", fake.commandCalls[0])
+}
+
+func TestDownloaderFailsOnFlatcarSHA512Mismatch(t *testing.T) {
+	const expected = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" +
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const actual = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" +
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	config := DownloadConfig{
+		TrueNASHost:     "nas.local",
+		TrueNASUsername: "root",
+		TrueNASPort:     "22",
+		ISOURL:          "https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_iso_image.iso",
+		ISOStoragePath:  "/mnt/tank/isos",
+		ISOFilename:     "flatcar_production_iso_image.iso",
+	}
+	fake := &fakeSSHClient{
+		verifyResults: []struct {
+			exists bool
+			size   int64
+			err    error
+		}{
+			{exists: false, size: 0, err: nil},
+			{exists: true, size: 1024, err: nil},
+		},
+		commandOutput: actual + "\n",
+	}
+	testutil.Swap(t, &newSSHClient, func(ssh.SSHConfig) sshClient { return fake })
+	testutil.Swap(t, &fetchChecksumFileFn, func(string) ([]byte, error) {
+		return []byte(expected + "  flatcar_production_iso_image.iso\n"), nil
+	})
+
+	err := NewDownloader().DownloadCustomISO(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SHA512 checksum mismatch")
+}
+
+func TestDownloaderSkipsTalosFactoryChecksumFetch(t *testing.T) {
+	config := DownloadConfig{
+		TrueNASHost:     "nas.local",
+		TrueNASUsername: "root",
+		TrueNASPort:     "22",
+		ISOURL:          "https://factory.talos.dev/image/schematic/v1.13.6/metal-amd64.iso",
+		ISOStoragePath:  "/mnt/tank/isos",
+		ISOFilename:     "metal-amd64.iso",
+	}
+	fake := &fakeSSHClient{
+		verifyResults: []struct {
+			exists bool
+			size   int64
+			err    error
+		}{
+			{exists: false, size: 0, err: nil},
+			{exists: true, size: 1024, err: nil},
+		},
+	}
+	fetched := false
+	testutil.Swap(t, &newSSHClient, func(ssh.SSHConfig) sshClient { return fake })
+	testutil.Swap(t, &fetchChecksumFileFn, func(string) ([]byte, error) {
+		fetched = true
+		return nil, nil
+	})
+
+	require.NoError(t, NewDownloader().DownloadCustomISO(config))
+	assert.False(t, fetched)
+	assert.Empty(t, fake.commandCalls)
 }

@@ -1,6 +1,7 @@
 package flatcar
 
 import (
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
@@ -68,6 +69,10 @@ type commandRunner interface {
 	Connect() error
 	Close() error
 	ExecuteCommand(command string) (string, error)
+	// UploadBytes streams content to remotePath over ssh stdin (sudo tee), so
+	// secret payloads (private keys, kubeadm configs carrying join material)
+	// never touch the local ssh argv or the remote process table.
+	UploadBytes(content []byte, remotePath string) error
 }
 
 // newCommandRunnerFn builds a commandRunner for a node. Swappable for tests.
@@ -76,22 +81,11 @@ var newCommandRunnerFn = func(config ssh.SSHConfig) commandRunner {
 }
 
 // writeFileFn writes a rendered config to a remote path over the runner before
-// kubeadm consumes it. Kept as a var so tests can assert on it. The default uses a
-// heredoc via the runner's shell.
+// kubeadm consumes it. Kept as a var so tests can assert on it. The default uses
+// a stdin stream via the runner so kubeadm join material never enters ssh argv or
+// the remote process table.
 var writeRemoteFileFn = func(runner commandRunner, remotePath, content string) error {
-	// Use a quoted heredoc so the content is written verbatim (no shell expansion).
-	cmd := fmt.Sprintf("sudo mkdir -p %s && sudo tee %s > /dev/null <<'HOMEOPS_EOF'\n%s\nHOMEOPS_EOF",
-		shellDir(remotePath), remotePath, content)
-	_, err := runner.ExecuteCommand(cmd)
-	return err
-}
-
-func shellDir(p string) string {
-	idx := strings.LastIndex(p, "/")
-	if idx <= 0 {
-		return "/"
-	}
-	return p[:idx]
+	return runner.UploadBytes([]byte(content), remotePath)
 }
 
 // nodeAlreadyJoinedFn reports whether a node is already a kubeadm cluster member.
@@ -165,7 +159,7 @@ func (o *Orchestrator) provisionPKI(runner commandRunner) error {
 		return nil
 	}
 	o.logger.Info("Restoring persisted cluster PKI to /etc/kubernetes/pki (stable identity across rebuilds)")
-	if _, err := runner.ExecuteCommand("sudo mkdir -p /etc/kubernetes/pki/etcd"); err != nil {
+	if _, err := runner.ExecuteCommand("sudo mkdir -p " + common.ShellQuote("/etc/kubernetes/pki/etcd")); err != nil {
 		return fmt.Errorf("mkdir /etc/kubernetes/pki: %w", err)
 	}
 	for _, b := range pkiBlobs {
@@ -174,14 +168,32 @@ func (o *Orchestrator) provisionPKI(runner commandRunner) error {
 			continue
 		}
 		dst := "/etc/kubernetes/pki/" + b.path
-		// base64 alphabet has no shell metacharacters; single-quote defensively.
-		cmd := fmt.Sprintf("printf '%%s' '%s' | base64 -d | sudo tee %s >/dev/null && sudo chmod %s %s && sudo chown root:root %s",
-			v, dst, b.mode, dst, dst)
-		if _, err := runner.ExecuteCommand(cmd); err != nil {
+		content, err := decodeBase64Field(v)
+		if err != nil {
+			return fmt.Errorf("decode %s: %w", dst, err)
+		}
+		if err := runner.UploadBytes(content, dst); err != nil {
 			return fmt.Errorf("restore %s: %w", dst, err)
+		}
+		quotedDst := common.ShellQuote(dst)
+		cmd := fmt.Sprintf("sudo chmod %s %s && sudo chown root:root %s", b.mode, quotedDst, quotedDst)
+		if _, err := runner.ExecuteCommand(cmd); err != nil {
+			return fmt.Errorf("set permissions on %s: %w", dst, err)
 		}
 	}
 	return nil
+}
+
+func decodeBase64Field(v string) ([]byte, error) {
+	compact := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r':
+			return -1
+		default:
+			return r
+		}
+	}, v)
+	return base64.StdEncoding.DecodeString(compact)
 }
 
 func (o *Orchestrator) runnerFor(host string) commandRunner {

@@ -116,12 +116,39 @@ func TestParseFieldsRejectsBadPairs(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestOpEditBuildsAssignments(t *testing.T) {
-	argvRun, _, _ := stubOp(t, []byte("{}"))
+func TestOpEditSendsValuesViaStdinTemplateOnly(t *testing.T) {
+	argvRun, stdin, argvStdin := stubOp(t, []byte("{}"))
 	cmd := newEditCommand()
-	cmd.SetArgs([]string{"svc", "--vault", "V", "--field", "HOST=nas01.example.com"})
+	cmd.SetArgs([]string{"svc", "--vault", "V",
+		"--field", "HOST=nas01.example.com",
+		"--field", "API_TOKEN=supersecret",
+	})
 	require.NoError(t, cmd.Execute())
-	assert.Equal(t, []string{"item", "edit", "svc", "--vault", "V", "HOST=nas01.example.com"}, *argvRun)
+
+	assert.Nil(t, *argvRun, "edit must not use argv assignments for field values")
+	assert.Equal(t, []string{"item", "edit", "svc", "--vault", "V"}, *argvStdin)
+	assert.NotContains(t, strings.Join(*argvStdin, " "), "supersecret")
+	assert.NotContains(t, strings.Join(*argvStdin, " "), "nas01.example.com")
+
+	var tmpl struct {
+		Fields []struct {
+			Label string `json:"label"`
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		} `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(*stdin, &tmpl))
+	require.Len(t, tmpl.Fields, 2)
+	types := map[string]string{}
+	values := map[string]string{}
+	for _, f := range tmpl.Fields {
+		types[f.Label] = f.Type
+		values[f.Label] = f.Value
+	}
+	assert.Equal(t, "STRING", types["HOST"])
+	assert.Equal(t, "CONCEALED", types["API_TOKEN"])
+	assert.Equal(t, "nas01.example.com", values["HOST"])
+	assert.Equal(t, "supersecret", values["API_TOKEN"])
 }
 
 func TestOpListErrorsPropagate(t *testing.T) {

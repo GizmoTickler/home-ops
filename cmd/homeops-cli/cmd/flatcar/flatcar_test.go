@@ -15,6 +15,7 @@ import (
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vsphere"
@@ -23,6 +24,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type fakeIgnitionSSHClient struct {
+	commands []string
+	uploads  []fakeIgnitionUpload
+}
+
+type fakeIgnitionUpload struct {
+	path    string
+	content []byte
+}
+
+func (f *fakeIgnitionSSHClient) Connect() error { return nil }
+func (f *fakeIgnitionSSHClient) Close() error   { return nil }
+func (f *fakeIgnitionSSHClient) ExecuteCommand(command string) (string, error) {
+	f.commands = append(f.commands, command)
+	return "", nil
+}
+func (f *fakeIgnitionSSHClient) UploadBytes(content []byte, remotePath string) error {
+	f.uploads = append(f.uploads, fakeIgnitionUpload{
+		path:    remotePath,
+		content: append([]byte(nil), content...),
+	})
+	return nil
+}
+func (f *fakeIgnitionSSHClient) VerifyFile(string) (bool, int64, error) {
+	return true, 123, nil
+}
 
 func stubVersions(t *testing.T) func() {
 	t.Helper()
@@ -35,6 +63,23 @@ func stubVersions(t *testing.T) func() {
 		}
 	}
 	return func() { getVersionsFn = orig }
+}
+
+func TestUploadIgnitionFileStreamsContentOnlyViaUploadPayload(t *testing.T) {
+	const remotePath = "/snippets/node.ign"
+	secretContent := []byte(`{"ignition":{"secret":"resolved-ssh-key-and-join-material"}}`)
+	fake := &fakeIgnitionSSHClient{}
+	testutil.Swap(t, &newIgnitionSSHClientFn, func(ssh.SSHConfig) ignitionSSHClient {
+		return fake
+	})
+
+	require.NoError(t, uploadIgnitionFile(ssh.SSHConfig{Host: "pve", Username: "root", Port: "22"}, remotePath, secretContent))
+
+	assert.NotContains(t, strings.Join(fake.commands, "\n"), string(secretContent))
+	assert.NotContains(t, strings.Join(fake.commands, "\n"), base64.StdEncoding.EncodeToString(secretContent))
+	require.Len(t, fake.uploads, 1)
+	assert.Equal(t, remotePath, fake.uploads[0].path)
+	assert.Equal(t, secretContent, fake.uploads[0].content)
 }
 
 // stubSecrets makes the config-sourced node identifiers deterministic (no
@@ -312,6 +357,9 @@ func TestRenderIgnitionCommandWritesToNestedOutDir(t *testing.T) {
 	data, err := os.ReadFile(outPath)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "3.4.0")
+	info, err := os.Stat(outPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 }
 
 func TestGenKubeadmCommandInit(t *testing.T) {

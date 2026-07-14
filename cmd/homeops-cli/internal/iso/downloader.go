@@ -1,14 +1,23 @@
 package iso
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
 	"homeops-cli/internal/ssh"
 )
+
+const checksumFetchTimeout = 20 * time.Second
+
+var sha512HexRe = regexp.MustCompile(`(?i)\b([0-9a-f]{128})\b`)
 
 // DownloadConfig holds configuration for ISO download
 type DownloadConfig struct {
@@ -31,6 +40,7 @@ type Downloader struct {
 type sshClient interface {
 	Connect() error
 	Close() error
+	ExecuteCommand(string) (string, error)
 	VerifyFile(string) (bool, int64, error)
 	RemoveFile(string) error
 	DownloadISO(string, string) error
@@ -39,6 +49,8 @@ type sshClient interface {
 var newSSHClient = func(config ssh.SSHConfig) sshClient {
 	return ssh.NewSSHClient(config)
 }
+
+var fetchChecksumFileFn = fetchChecksumFile
 
 // NewDownloader creates a new ISO downloader
 func NewDownloader() *Downloader {
@@ -111,9 +123,92 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 	if size == 0 {
 		return fmt.Errorf("downloaded ISO file is empty")
 	}
+	if err := d.verifyChecksumIfAvailable(config.ISOURL, fullISOPath, sshClient); err != nil {
+		return err
+	}
 
 	d.logger.Success("Custom ISO downloaded successfully to %s (size: %d bytes)", fullISOPath, size)
 	return nil
+}
+
+func (d *Downloader) verifyChecksumIfAvailable(isoURL, remotePath string, sshClient sshClient) error {
+	checksumURL, reason, ok := checksumURLForISO(isoURL)
+	if !ok {
+		d.logger.Warn("No vendor checksum verification for ISO %s: %s", isoURL, reason)
+		return nil
+	}
+	doc, err := fetchChecksumFileFn(checksumURL)
+	if err != nil {
+		d.logger.Warn("Unable to fetch vendor checksum %s: %v; ISO integrity not verified", checksumURL, err)
+		return nil
+	}
+	expected, err := parseSHA512Checksum(doc)
+	if err != nil {
+		d.logger.Warn("Unable to parse vendor checksum %s: %v; ISO integrity not verified", checksumURL, err)
+		return nil
+	}
+	actual, err := remoteSHA512(sshClient, remotePath)
+	if err != nil {
+		return fmt.Errorf("verify ISO SHA512 checksum for %s: %w", remotePath, err)
+	}
+	if !strings.EqualFold(expected, actual) {
+		return fmt.Errorf("SHA512 checksum mismatch for %s", remotePath)
+	}
+	d.logger.Success("Verified ISO SHA512 checksum using %s", checksumURL)
+	return nil
+}
+
+func checksumURLForISO(isoURL string) (checksumURL, reason string, ok bool) {
+	switch {
+	case strings.Contains(isoURL, "release.flatcar-linux.net/") && strings.HasSuffix(isoURL, ".iso"):
+		return isoURL + ".sha512", "", true
+	case strings.Contains(isoURL, "factory.talos.dev/"):
+		// Talos factory URLs are generated from a schematic ID; that ID is the
+		// content-address of the submitted schematic, so the factory image is tied
+		// to the requested machine definition even though this endpoint does not
+		// publish a sibling checksum file for the ISO URL we consume here.
+		return "", "Talos factory image URL is schematic-addressed and has no sibling checksum file", false
+	default:
+		return "", "no known vendor checksum URL pattern", false
+	}
+}
+
+func parseSHA512Checksum(doc []byte) (string, error) {
+	m := sha512HexRe.FindSubmatch(doc)
+	if len(m) != 2 {
+		return "", fmt.Errorf("no SHA512 hex digest found")
+	}
+	return string(m[1]), nil
+}
+
+func remoteSHA512(sshClient sshClient, remotePath string) (string, error) {
+	cmd := fmt.Sprintf("sha512sum %s | awk '{print $1}'", common.ShellQuote(remotePath))
+	out, err := sshClient.ExecuteCommand(cmd)
+	if err != nil {
+		return "", err
+	}
+	if m := sha512HexRe.FindString(out); m != "" {
+		return m, nil
+	}
+	return "", fmt.Errorf("remote sha512sum output did not contain a SHA512 digest")
+}
+
+func fetchChecksumFile(checksumURL string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), checksumFetchTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // validateConfig validates the download configuration
