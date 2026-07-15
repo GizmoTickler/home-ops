@@ -312,6 +312,72 @@ func TestSetExplicitPathTakesPrecedenceOverEnvConfig(t *testing.T) {
 	assert.True(t, explicit)
 }
 
+func TestSetExplicitPathInvalidatesEarlierLoad(t *testing.T) {
+	ResetForTesting()
+	t.Cleanup(ResetForTesting)
+
+	dir := t.TempDir()
+	decoyPath := writeMinimalConfigFixture(t, dir, "decoy.yaml", "decoy-cluster", "/decoy/snippets")
+	fixturePath := writeMinimalConfigFixture(t, dir, "fixture.yaml", "fixture-cluster", "/fixture/snippets")
+
+	t.Setenv(EnvConfigFile, decoyPath)
+	require.Equal(t, "decoy-cluster", Get().ClusterNameWithDefault())
+
+	SetExplicitPath(fixturePath)
+
+	cfg := Get()
+	require.Equal(t, "fixture-cluster", cfg.ClusterNameWithDefault())
+	assert.Equal(t, "/fixture/snippets", cfg.Hypervisors.Proxmox.SnippetsDir)
+	assert.Equal(t, fixturePath, cfg.Source)
+}
+
+func TestSetExplicitPathWinsOverDiscoveredCWDConfigAfterEarlyLoad(t *testing.T) {
+	ResetForTesting()
+	t.Cleanup(ResetForTesting)
+
+	oldArg0 := os.Args[0]
+	os.Args[0] = "homeops-cli"
+	t.Cleanup(func() { os.Args[0] = oldArg0 })
+
+	decoyDir := t.TempDir()
+	decoyPath := writeMinimalConfigFixture(t, decoyDir, "homeops.yaml", "decoy-cwd-cluster", "/decoy/snippets")
+	fixturePath := writeMinimalConfigFixture(t, t.TempDir(), "fixture.yaml", "fixture-cluster", "/fixture/snippets")
+	t.Chdir(decoyDir)
+
+	require.Equal(t, decoyPath, Get().Source)
+	require.Equal(t, "decoy-cwd-cluster", Get().ClusterNameWithDefault())
+
+	SetExplicitPath(fixturePath)
+
+	cfg := Get()
+	require.Equal(t, "fixture-cluster", cfg.ClusterNameWithDefault())
+	assert.Equal(t, "/fixture/snippets", cfg.Hypervisors.Proxmox.SnippetsDir)
+	assert.Equal(t, fixturePath, cfg.Source)
+}
+
+func TestHomeopsConfigEnvLoadsFixtureFromTempWorkingDirectory(t *testing.T) {
+	ResetForTesting()
+	t.Cleanup(ResetForTesting)
+
+	dir := t.TempDir()
+	fixturePath := writeMinimalConfigFixture(t, dir, "fixture.yaml", "env-fixture-cluster", "/env/snippets")
+	t.Chdir(t.TempDir())
+	t.Setenv(EnvConfigFile, fixturePath)
+
+	cfg := Get()
+	require.Equal(t, "env-fixture-cluster", cfg.ClusterNameWithDefault())
+	assert.Equal(t, "/env/snippets", cfg.Hypervisors.Proxmox.SnippetsDir)
+	assert.Equal(t, fixturePath, cfg.Source)
+}
+
+func writeMinimalConfigFixture(t *testing.T, dir, name, clusterName, snippetsDir string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	content := "cluster:\n  name: " + clusterName + "\nhypervisors:\n  proxmox:\n    snippets_dir: " + snippetsDir + "\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
 func TestGetKeepsExplicitLoadErrorsFatal(t *testing.T) {
 	ResetForTesting()
 	t.Cleanup(ResetForTesting)

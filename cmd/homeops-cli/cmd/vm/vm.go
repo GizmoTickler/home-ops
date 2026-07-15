@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"homeops-cli/internal/cmdutil"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	vmprov "homeops-cli/internal/provider"
@@ -620,6 +621,9 @@ func newCleanupZVolsCommand() *cobra.Command {
 		Short: "Clean up orphaned ZVols for a VM that was already deleted",
 		Long:  `Clean up orphaned ZVols when a VM was deleted but its ZVols remain. This is useful when VM deletion didn't properly clean up the storage volumes.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmdutil.ResolveStringFlagDefault(cmd, "pool", &storagePool, func() string {
+				return vmlifecycle.GetEnvOrDefault("STORAGE_POOL", versionconfig.Get().TrueNASPool())
+			})
 			if !force {
 				confirmed, err := confirmActionFn(fmt.Sprintf("Delete orphaned ZVols for VM '%s'?", vmName), false)
 				if err != nil {
@@ -634,7 +638,7 @@ func newCleanupZVolsCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&vmName, "vm-name", "", "Name of the VM whose ZVols to clean up (required)")
-	cmd.Flags().StringVar(&storagePool, "pool", vmlifecycle.GetEnvOrDefault("STORAGE_POOL", versionconfig.Get().TrueNASPool()), "Storage pool (default: derived from hypervisors.truenas.vm.boot_storage)")
+	cmd.Flags().StringVar(&storagePool, "pool", "", "Storage pool (default: STORAGE_POOL env or hypervisors.truenas.vm.boot_storage from homeops.yaml)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force cleanup without confirmation")
 	_ = cmd.MarkFlagRequired("vm-name")
 

@@ -301,6 +301,7 @@ var (
 	loaded   *Config
 	loadErr  error
 	loadPath string
+	loadMu   sync.Mutex
 
 	// explicitPath is set by the root command's --config flag before any
 	// command runs.
@@ -308,18 +309,34 @@ var (
 	explicitPath   string
 )
 
-// SetExplicitPath records the --config flag value. Must be called before the
-// first Get().
+// SetExplicitPath records the --config flag value. If config was loaded before
+// Cobra parsed --config, invalidate the cached discovery/default result so the
+// next Get() reloads from the explicit path.
 func SetExplicitPath(path string) {
 	explicitPathMu.Lock()
-	defer explicitPathMu.Unlock()
 	explicitPath = path
+	explicitPathMu.Unlock()
+
+	if path == "" {
+		return
+	}
+
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	if loaded != nil && loadPath != path {
+		loadOnce = sync.Once{}
+		loaded = nil
+		loadErr = nil
+		loadPath = ""
+	}
 }
 
 // Get returns the process-wide configuration, loading it on first use. Load
 // problems with an explicitly requested file are fatal; discovery problems
 // fall back to defaults with a warning so read-only commands keep working.
 func Get() *Config {
+	loadMu.Lock()
+	defer loadMu.Unlock()
 	loadOnce.Do(func() {
 		loaded, loadPath, loadErr = load()
 		if loadErr != nil {
@@ -340,14 +357,21 @@ func Get() *Config {
 
 // LoadError returns the error (if any) encountered loading the config file.
 // Get() must have been called first.
-func LoadError() error { return loadErr }
+func LoadError() error {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	return loadErr
+}
 
 // ResetForTesting clears cached config state so tests can force a fresh load.
 func ResetForTesting() {
+	loadMu.Lock()
 	loadOnce = sync.Once{}
 	loaded = nil
 	loadErr = nil
 	loadPath = ""
+	loadMu.Unlock()
+
 	explicitPathMu.Lock()
 	explicitPath = ""
 	explicitPathMu.Unlock()
@@ -356,6 +380,8 @@ func ResetForTesting() {
 // SetForTesting replaces the loaded config for the duration of a test.
 // Returns a restore function the caller should defer.
 func SetForTesting(c *Config) func() {
+	loadMu.Lock()
+	defer loadMu.Unlock()
 	old := loaded
 	loadOnce.Do(func() {}) // mark as loaded
 	if c == nil {
@@ -365,6 +391,8 @@ func SetForTesting(c *Config) func() {
 	loaded = c
 	registerKeymap(c)
 	return func() {
+		loadMu.Lock()
+		defer loadMu.Unlock()
 		if old == nil {
 			// SetForTesting ran before the first Get(); fall back to defaults
 			// rather than reinstating a nil config.

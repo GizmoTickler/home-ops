@@ -21,17 +21,17 @@ func runLifecycleOp(provider string, op func(vmprov.VMLifecycle) error) error {
 }
 
 // providerFlagUsage is the shared --provider help text for vm subcommands.
-const providerFlagUsage = "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)"
+const providerFlagUsage = "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default from homeops.yaml)"
 
 // addProviderFlag registers the shared --provider flag on cmd's local flag set.
 func addProviderFlag(cmd *cobra.Command, provider *string) {
-	cmd.Flags().StringVar(provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	cmd.Flags().StringVar(provider, "provider", "", providerFlagUsage)
 }
 
 // addPersistentProviderFlag registers the shared --provider flag on cmd's
 // persistent flag set (inherited by subcommands).
 func addPersistentProviderFlag(cmd *cobra.Command, provider *string) {
-	cmd.PersistentFlags().StringVar(provider, "provider", vmlifecycle.DefaultProviderName(), providerFlagUsage)
+	cmd.PersistentFlags().StringVar(provider, "provider", "", providerFlagUsage)
 }
 
 // newSetVMCommand updates VM hardware (memory/cores).

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"testing"
 	"time"
 
@@ -342,6 +343,51 @@ func TestRootCommandHonorsExplicitConfigErrors(t *testing.T) {
 	err := cmd.PersistentPreRunE(cmd, nil)
 	require.Error(t, err)
 	assert.True(t, config.IsExplicitLoadError(err))
+}
+
+func TestRootConfigFlagWinsAfterCommandTreeConstruction(t *testing.T) {
+	config.ResetForTesting()
+	t.Cleanup(config.ResetForTesting)
+	origConfigPath := configPath
+	t.Cleanup(func() { configPath = origConfigPath })
+	configPath = ""
+
+	tempCWD := t.TempDir()
+	t.Chdir(tempCWD)
+	fixturePath := writeRootConfigFixture(t, t.TempDir(), "fixture-cluster", "fixture.k8s.test")
+
+	cmd := newRootCommand(context.Background())
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	cmd.SetArgs([]string{
+		"flatcar", "gen-kubeadm",
+		"--node", "k8s-0",
+		"--mode", "init",
+		"--config", fixturePath,
+	})
+
+	require.NoError(t, cmd.Execute())
+	out := buf.String()
+	assert.Contains(t, out, "clusterName: fixture-cluster")
+	assert.Contains(t, out, `- "fixture.k8s.test"`)
+	assert.Equal(t, fixturePath, config.Get().Source)
+}
+
+func writeRootConfigFixture(t *testing.T, dir, clusterName, endpoint string) string {
+	t.Helper()
+	path := filepath.Join(dir, "homeops.yaml")
+	content := strings.Join([]string{
+		"cluster:",
+		"  name: " + clusterName,
+		"  endpoint: " + endpoint,
+		"hypervisors:",
+		"  proxmox:",
+		"    snippets_dir: /fixture/snippets",
+		"",
+	}, "\n")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
 }
 
 func TestApplyBuildInfoFallsBackToVCS(t *testing.T) {

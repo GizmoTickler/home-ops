@@ -94,6 +94,38 @@ func stubSecrets(t *testing.T) func() {
 	})
 }
 
+func TestDeployVMConfigDerivedFlagDefaultsAreLazy(t *testing.T) {
+	versionconfig.ResetForTesting()
+	t.Cleanup(versionconfig.ResetForTesting)
+
+	fixturePath := writeFlatcarConfigFixture(t, t.TempDir())
+	cmd := newDeployVMCommand()
+	versionconfig.SetExplicitPath(fixturePath)
+
+	opts := deployVMOptions{}
+	applyDeployVMConfigDefaults(cmd, &opts)
+
+	assert.Equal(t, "/fixture/snippets", opts.snippetsDir)
+}
+
+func writeFlatcarConfigFixture(t *testing.T, dir string) string {
+	t.Helper()
+	path := filepath.Join(dir, "homeops.yaml")
+	content := strings.Join([]string{
+		"cluster:",
+		"  name: fixture-cluster",
+		"  endpoint: fixture.k8s.test",
+		"hypervisors:",
+		"  proxmox:",
+		"    snippets_dir: /fixture/snippets",
+		"secrets:",
+		"  node_ssh_authorized_key: literal://ssh-ed25519 AAAATESTKEY",
+		"",
+	}, "\n")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
 func TestNewCommandStructure(t *testing.T) {
 	cmd := NewCommand()
 	assert.Equal(t, "flatcar", cmd.Name())

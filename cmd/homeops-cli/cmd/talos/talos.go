@@ -15,6 +15,7 @@ import (
 
 	"homeops-cli/cmd/completion"
 	"homeops-cli/cmd/vm"
+	"homeops-cli/internal/cmdutil"
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
@@ -1116,7 +1117,7 @@ func newDeployVMCommand() *cobra.Command {
   homeops-cli talos deploy-vm --provider truenas --name k8s-0 --generate-iso`,
 		Long: `Deploy a new Talos VM on TrueNAS, vSphere/ESXi, or Proxmox VE.
 
-Defaults to Proxmox VE deployment. Use --provider truenas for TrueNAS or --provider vsphere/esxi for vSphere/ESXi.
+Defaults to hypervisors.default from homeops.yaml (portable default: Proxmox VE). Use --provider truenas for TrueNAS or --provider vsphere/esxi for vSphere/ESXi.
 
 For TrueNAS: Uses proper ZVol naming convention and SPICE console.
 For vSphere/ESXi: Deploys to specified datastore with enhanced VM configuration.
@@ -1127,6 +1128,7 @@ Use --generate-iso to create a custom ISO using the schematic.yaml configuration
 If no flags are provided, presents an interactive menu with default and custom patterns.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := common.NewColorLogger()
+			usedInteractive := false
 
 			// Check if running in interactive mode (no flags set)
 			if name == "" && !cmd.Flags().Changed("provider") && !cmd.Flags().Changed("dry-run") {
@@ -1138,6 +1140,10 @@ If no flags are provided, presents an interactive menu with default and custom p
 					}
 					return err
 				}
+				usedInteractive = true
+			}
+			if !usedInteractive {
+				applyTalosDeployVMConfigDefaults(cmd, &provider, &pool, &memory, &vcpus, &diskSize, &openebsSize, &datastore, &network)
 			}
 
 			normalizedProvider, err := vmlifecycle.NormalizeVMProvider(provider)
@@ -1168,22 +1174,21 @@ If no flags are provided, presents an interactive menu with default and custom p
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", "", "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default from homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
-	cfg := versionconfig.Get()
-	cmd.Flags().StringVar(&pool, "pool", vmlifecycle.TruenasDefaultPool(), "Storage pool (TrueNAS only)")
-	cmd.Flags().IntVar(&memory, "memory", cfg.Hypervisors.TrueNAS.VM.MemoryMB, "Memory in MB (default: 64GB)")
-	cmd.Flags().IntVar(&vcpus, "vcpus", cfg.Hypervisors.TrueNAS.VM.Cores, "Number of vCPUs (default: 16)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", cfg.Hypervisors.TrueNAS.VM.BootDiskGB, "Boot disk size in GB (default: 250GB)")
-	cmd.Flags().IntVar(&openebsSize, "openebs-size", cfg.Hypervisors.TrueNAS.VM.OpenEBSDiskGB, "OpenEBS disk size in GB (default: 800GB)")
+	cmd.Flags().StringVar(&pool, "pool", "", "Storage pool (TrueNAS only; default: hypervisors.truenas.vm.boot_storage from homeops.yaml)")
+	cmd.Flags().IntVar(&memory, "memory", 0, "Memory in MB (default: hypervisors.truenas.vm.memory_mb from homeops.yaml)")
+	cmd.Flags().IntVar(&vcpus, "vcpus", 0, "Number of vCPUs (default: hypervisors.truenas.vm.cores from homeops.yaml)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", 0, "Boot disk size in GB (default: hypervisors.truenas.vm.boot_disk_gb from homeops.yaml)")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", 0, "OpenEBS disk size in GB (default: hypervisors.truenas.vm.openebs_disk_gb from homeops.yaml)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform a dry run without creating the VM")
 
 	// vSphere specific flags
-	cmd.Flags().StringVar(&datastore, "datastore", cfg.Hypervisors.VSphere.VM.OpenEBSStorage, "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
-	cmd.Flags().StringVar(&network, "network", cfg.Hypervisors.VSphere.VM.NetworkBridge, "Network port group name (vSphere only)")
+	cmd.Flags().StringVar(&datastore, "datastore", "", "Datastore name (vSphere; default: hypervisors.vsphere.vm.openebs_storage from homeops.yaml)")
+	cmd.Flags().StringVar(&network, "network", "", "Network port group name (vSphere only; default: hypervisors.vsphere.vm.network_bridge from homeops.yaml)")
 	cmd.Flags().IntVar(&concurrent, "concurrency", 3, "Number of concurrent VM deployments (Proxmox and vSphere)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (deprecated: use --concurrency)")
 	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")
@@ -1195,6 +1200,31 @@ If no flags are provided, presents an interactive menu with default and custom p
 
 func buildVSphereVMNames(baseName string, nodeCount, startIndex int) ([]string, error) {
 	return buildDeploymentVMNames(baseName, nodeCount, startIndex)
+}
+
+func applyTalosDeployVMConfigDefaults(cmd *cobra.Command, provider, pool *string, memory, vcpus, diskSize, openebsSize *int, datastore, network *string) {
+	cmdutil.ResolveStringFlagDefault(cmd, "provider", provider, vmlifecycle.DefaultProviderName)
+	cmdutil.ResolveStringFlagDefault(cmd, "pool", pool, func() string {
+		return vmlifecycle.TruenasDefaultPool()
+	})
+	cmdutil.ResolveIntFlagDefault(cmd, "memory", memory, func() int {
+		return versionconfig.Get().Hypervisors.TrueNAS.VM.MemoryMB
+	})
+	cmdutil.ResolveIntFlagDefault(cmd, "vcpus", vcpus, func() int {
+		return versionconfig.Get().Hypervisors.TrueNAS.VM.Cores
+	})
+	cmdutil.ResolveIntFlagDefault(cmd, "disk-size", diskSize, func() int {
+		return versionconfig.Get().Hypervisors.TrueNAS.VM.BootDiskGB
+	})
+	cmdutil.ResolveIntFlagDefault(cmd, "openebs-size", openebsSize, func() int {
+		return versionconfig.Get().Hypervisors.TrueNAS.VM.OpenEBSDiskGB
+	})
+	cmdutil.ResolveStringFlagDefault(cmd, "datastore", datastore, func() string {
+		return versionconfig.Get().Hypervisors.VSphere.VM.OpenEBSStorage
+	})
+	cmdutil.ResolveStringFlagDefault(cmd, "network", network, func() string {
+		return versionconfig.Get().Hypervisors.VSphere.VM.NetworkBridge
+	})
 }
 
 func buildDeploymentVMNames(baseName string, nodeCount, startIndex int) ([]string, error) {
@@ -2153,11 +2183,12 @@ This command will:
 This separates ISO preparation from VM deployment, allowing you to prepare the ISO once
 and deploy multiple VMs using the same custom configuration.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cmdutil.ResolveStringFlagDefault(cmd, "provider", &provider, vmlifecycle.DefaultProviderName)
 			return prepareISOWithProvider(provider)
 		},
 	}
 
-	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Storage provider: proxmox, truenas, or vsphere/esxi (default: hypervisors.default in homeops.yaml)")
+	cmd.Flags().StringVar(&provider, "provider", "", "Storage provider: proxmox, truenas, or vsphere/esxi (default: hypervisors.default from homeops.yaml)")
 
 	return cmd
 }

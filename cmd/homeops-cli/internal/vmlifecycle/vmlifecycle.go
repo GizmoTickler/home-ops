@@ -327,7 +327,11 @@ func errUnsupportedProvider(provider string) error {
 }
 
 func NormalizeVMProvider(provider string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
+	normalizedInput := strings.ToLower(strings.TrimSpace(provider))
+	if normalizedInput == "" {
+		normalizedInput = DefaultProviderName()
+	}
+	switch strings.ToLower(strings.TrimSpace(normalizedInput)) {
 	case "", "proxmox":
 		return "proxmox", nil
 	case "truenas":

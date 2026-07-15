@@ -814,13 +814,15 @@ func TestCommandProviderDefaults(t *testing.T) {
 	deployCmd := newDeployVMCommand()
 	deployProviderFlag := deployCmd.Flags().Lookup("provider")
 	require.NotNil(t, deployProviderFlag)
-	assert.Equal(t, "proxmox", deployProviderFlag.DefValue)
-	assert.Contains(t, deployCmd.Long, "Defaults to Proxmox VE deployment.")
+	assert.Empty(t, deployProviderFlag.DefValue)
+	assert.Contains(t, deployProviderFlag.Usage, "hypervisors.default")
+	assert.Contains(t, deployCmd.Long, "Defaults to hypervisors.default from homeops.yaml")
 
 	prepareISOCmd := newPrepareISOCommand()
 	prepareISOProviderFlag := prepareISOCmd.Flags().Lookup("provider")
 	require.NotNil(t, prepareISOProviderFlag)
-	assert.Equal(t, "proxmox", prepareISOProviderFlag.DefValue)
+	assert.Empty(t, prepareISOProviderFlag.DefValue)
+	assert.Contains(t, prepareISOProviderFlag.Usage, "hypervisors.default")
 	assert.Contains(t, prepareISOCmd.Long, "Upload the ISO to Proxmox storage, TrueNAS storage, or a vSphere datastore")
 }
 
