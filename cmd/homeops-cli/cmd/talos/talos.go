@@ -890,24 +890,25 @@ func promptDeployVMOptions(name, provider *string, memory, vcpus, diskSize, open
 
 	// Step 5: vSphere-specific configuration (if applicable)
 	if *provider == "vsphere" {
-		datastoreInput, err := inputPromptFn("Enter datastore name:", "truenas-iscsi")
+		vsphereVMDefaults := versionconfig.Get().Hypervisors.VSphere.VM
+		datastoreInput, err := inputPromptFn("Enter datastore name:", vsphereVMDefaults.OpenEBSStorage)
 		if err != nil {
 			return err
 		}
 		if datastoreInput != "" {
 			*datastore = datastoreInput
 		} else {
-			*datastore = "truenas-iscsi"
+			*datastore = vsphereVMDefaults.OpenEBSStorage
 		}
 
-		networkInput, err := inputPromptFn("Enter network port group:", "vl999")
+		networkInput, err := inputPromptFn("Enter network port group:", vsphereVMDefaults.NetworkBridge)
 		if err != nil {
 			return err
 		}
 		if networkInput != "" {
 			*network = networkInput
 		} else {
-			*network = "vl999"
+			*network = vsphereVMDefaults.NetworkBridge
 		}
 	}
 
@@ -1168,19 +1169,20 @@ If no flags are provided, presents an interactive menu with default and custom p
 
 	cmd.Flags().StringVar(&provider, "provider", vmlifecycle.DefaultProviderName(), "Virtualization provider: proxmox, vsphere/esxi, or truenas (default: hypervisors.default in homeops.yaml)")
 	cmd.Flags().StringVar(&name, "name", "", "VM name (required for single VM, base name for multiple VMs)")
-	cmd.Flags().StringVar(&pool, "pool", vmlifecycle.TruenasDefaultPool("flashstor/VM"), "Storage pool (TrueNAS only)")
-	cmd.Flags().IntVar(&memory, "memory", 64*1024, "Memory in MB (default: 64GB)")
-	cmd.Flags().IntVar(&vcpus, "vcpus", 16, "Number of vCPUs (default: 16)")
-	cmd.Flags().IntVar(&diskSize, "disk-size", 250, "Boot disk size in GB (default: 250GB)")
-	cmd.Flags().IntVar(&openebsSize, "openebs-size", 800, "OpenEBS disk size in GB (default: 800GB)")
+	cfg := versionconfig.Get()
+	cmd.Flags().StringVar(&pool, "pool", vmlifecycle.TruenasDefaultPool(), "Storage pool (TrueNAS only)")
+	cmd.Flags().IntVar(&memory, "memory", cfg.Hypervisors.TrueNAS.VM.MemoryMB, "Memory in MB (default: 64GB)")
+	cmd.Flags().IntVar(&vcpus, "vcpus", cfg.Hypervisors.TrueNAS.VM.Cores, "Number of vCPUs (default: 16)")
+	cmd.Flags().IntVar(&diskSize, "disk-size", cfg.Hypervisors.TrueNAS.VM.BootDiskGB, "Boot disk size in GB (default: 250GB)")
+	cmd.Flags().IntVar(&openebsSize, "openebs-size", cfg.Hypervisors.TrueNAS.VM.OpenEBSDiskGB, "OpenEBS disk size in GB (default: 800GB)")
 	cmd.Flags().StringVar(&macAddress, "mac-address", "", "MAC address (optional)")
 	cmd.Flags().BoolVar(&skipZVolCreate, "skip-zvol-create", false, "Skip ZVol creation (TrueNAS only)")
 	cmd.Flags().BoolVar(&generateISO, "generate-iso", false, "Generate custom ISO using schematic.yaml")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform a dry run without creating the VM")
 
 	// vSphere specific flags
-	cmd.Flags().StringVar(&datastore, "datastore", "truenas-iscsi", "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
-	cmd.Flags().StringVar(&network, "network", "vl999", "Network port group name (vSphere only)")
+	cmd.Flags().StringVar(&datastore, "datastore", cfg.Hypervisors.VSphere.VM.OpenEBSStorage, "Datastore name (vSphere: truenas-iscsi, datastore1, etc.)")
+	cmd.Flags().StringVar(&network, "network", cfg.Hypervisors.VSphere.VM.NetworkBridge, "Network port group name (vSphere only)")
 	cmd.Flags().IntVar(&concurrent, "concurrency", 3, "Number of concurrent VM deployments (Proxmox and vSphere)")
 	cmd.Flags().IntVar(&concurrent, "concurrent", 3, "Number of concurrent VM deployments (deprecated: use --concurrency)")
 	_ = cmd.Flags().MarkDeprecated("concurrent", "use --concurrency")

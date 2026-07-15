@@ -21,6 +21,21 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, DefaultNodeInterface, c.Cluster.NodeInterface)
 	assert.Len(t, c.Cluster.Nodes, 3)
 	assert.Equal(t, []string{"k8s-0", "k8s-1", "k8s-2"}, c.NodeNames())
+	assert.Equal(t, DefaultSnippetsDir, c.Hypervisors.Proxmox.SnippetsDir)
+	assert.Equal(t, DefaultProxmoxSSHUser, c.Hypervisors.Proxmox.SSHUser)
+	assert.Equal(t, DefaultProxmoxImageCacheDir, c.Hypervisors.Proxmox.ImageCacheDir)
+	assert.Equal(t, 98304, c.Hypervisors.Proxmox.VM.MemoryMB)
+	assert.Equal(t, 8, c.Hypervisors.Proxmox.VM.NetworkQueues)
+	assert.Equal(t, "host,flags=+pdpe1gb;-spec-ctrl", c.Hypervisors.Proxmox.VM.CPUType)
+	assert.Equal(t, "virtio-scsi-single", c.Hypervisors.Proxmox.VM.SCSIController)
+	assert.Equal(t, "i6300esb", c.Hypervisors.Proxmox.VM.WatchdogModel)
+	assert.Equal(t, DefaultTrueNASSSHUser, c.Hypervisors.TrueNAS.SSHUser)
+	assert.Equal(t, DefaultTrueNASVMBootStorage, c.Hypervisors.TrueNAS.VM.BootStorage)
+	assert.Equal(t, DefaultTrueNASNetworkBridge, c.Hypervisors.TrueNAS.VM.NetworkBridge)
+	assert.Equal(t, DefaultVSphereISODatastore, c.Hypervisors.VSphere.ISODatastore)
+	assert.Equal(t, DefaultVSphereISOFile, c.Hypervisors.VSphere.ISOFile)
+	assert.Equal(t, 1, c.Hypervisors.VSphere.VM.CoresPerSocket)
+	assert.Equal(t, "vl999", c.Hypervisors.VSphere.VM.NetworkBridge)
 
 	// State stores default to local files, not 1Password
 	assert.Equal(t, "file", c.State.Kubeconfig.Backend)
@@ -110,6 +125,7 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		{"invalid reference", "secrets:\n  truenas_host: just-a-string\n", "not a valid secret reference"},
 		{"bad store backend", "state:\n  pki:\n    backend: s3\n", "not supported"},
 		{"bad hypervisor", "hypervisors:\n  default: xen\n", "not supported"},
+		{"negative numeric vm knob", "hypervisors:\n  proxmox:\n    vm:\n      network_queues: -1\n", "must not be negative"},
 		{"unknown field", "clusterz:\n  name: x\n", "field clusterz not found"},
 	}
 	for _, tc := range cases {
@@ -148,6 +164,9 @@ func TestSetForTestingRegistersKeymap(t *testing.T) {
 func TestTrueNASISOPath(t *testing.T) {
 	c := defaultConfig()
 	assert.Equal(t, "/mnt/flashstor/ISO/metal-amd64.iso", c.TrueNASISOPath())
+	assert.Equal(t, "flashstor", c.TrueNASPool())
+	assert.Equal(t, "/mnt/flashstor/VM", c.TrueNASIgnitionDir(c.TrueNASPool()))
+	assert.Equal(t, "[datastore1] vmware-amd64.iso", c.VSphereISOPath())
 }
 
 func TestLocateSkipsDiscoveryInTests(t *testing.T) {

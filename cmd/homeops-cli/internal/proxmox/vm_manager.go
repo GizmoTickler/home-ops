@@ -296,34 +296,22 @@ func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
 // overrides from homeops.yaml applied (sizing, disk backends, network).
 func GetDefaultVMConfig() VMConfig {
 	cfg := DefaultVMConfig
-	vm := homeopscfg.Get().Hypervisors.Proxmox.VM
-	if vm.MemoryMB != 0 {
-		cfg.Memory = vm.MemoryMB
-	}
-	if vm.Cores != 0 {
-		cfg.Cores = vm.Cores
-	}
-	if vm.BootDiskGB != 0 {
-		cfg.BootDiskSize = vm.BootDiskGB
-	}
-	if vm.OpenEBSDiskGB != 0 {
-		cfg.OpenEBSSize = vm.OpenEBSDiskGB
-	}
-	if vm.BootStorage != "" {
-		cfg.BootStorage = vm.BootStorage
-	}
-	if vm.OpenEBSStorage != "" {
-		cfg.OpenEBSStorage = vm.OpenEBSStorage
-	}
-	if vm.NetworkBridge != "" {
-		cfg.NetworkBridge = vm.NetworkBridge
-	}
-	if vm.NetworkMTU != 0 {
-		cfg.NetworkMTU = vm.NetworkMTU
-	}
-	if vm.VLANID != 0 {
-		cfg.VLANID = vm.VLANID
-	}
+	homeCfg := homeopscfg.Get()
+	vm := homeCfg.Hypervisors.Proxmox.VM
+	cfg.Memory = vm.MemoryMB
+	cfg.Cores = vm.Cores
+	cfg.BootDiskSize = vm.BootDiskGB
+	cfg.OpenEBSSize = vm.OpenEBSDiskGB
+	cfg.BootStorage = vm.BootStorage
+	cfg.OpenEBSStorage = vm.OpenEBSStorage
+	cfg.Node = homeCfg.ProxmoxNodeName()
+	cfg.NetworkBridge = vm.NetworkBridge
+	cfg.NetworkMTU = vm.NetworkMTU
+	cfg.NetworkQueues = vm.NetworkQueues
+	cfg.VLANID = vm.VLANID
+	cfg.CPUType = vm.CPUType
+	cfg.SCSIController = vm.SCSIController
+	cfg.WatchdogModel = vm.WatchdogModel
 	if vm.Ceph.Mode != "" {
 		cfg.CephMode = vm.Ceph.Mode
 	}
@@ -341,26 +329,12 @@ func GetDefaultVMConfig() VMConfig {
 
 // DefaultVMConfig provides default VM settings matching actual deployment
 var DefaultVMConfig = VMConfig{
-	Memory:         98304, // 96GB
-	Cores:          16,
 	Sockets:        1,
-	CPUType:        "host,flags=+pdpe1gb;-spec-ctrl",
 	NUMAEnabled:    true,
-	BootDiskSize:   100,
-	BootStorage:    "nvme1",
-	OpenEBSSize:    800,
-	OpenEBSStorage: "nvmeof-vmdata",
-	Node:           "pve",
 	ISOStorage:     "local",
-	NetworkBridge:  "vmbr0",
-	NetworkMTU:     9000,
-	NetworkQueues:  8,
-	VLANID:         999,
-	SCSIController: "virtio-scsi-single",
 	IOThread:       true,
 	Discard:        true,
 	BIOS:           "ovmf",
-	WatchdogModel:  "i6300esb",
 	WatchdogAction: "reset",
 	AgentEnabled:   true,
 }

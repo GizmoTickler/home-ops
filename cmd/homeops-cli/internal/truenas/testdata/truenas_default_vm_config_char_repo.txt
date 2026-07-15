@@ -1,0 +1,30 @@
+== k8s-0 ==
+Name="k8s-0"
+Memory=65536
+VCPUs=16
+DiskSize=250
+OpenEBSSize=800
+TalosISO="/mnt/flashstor/ISO/metal-amd64.iso"
+NetworkBridge="br0"
+StoragePool="flashstor/VM"
+MacAddress=""
+== k8s-1 ==
+Name="k8s-1"
+Memory=65536
+VCPUs=16
+DiskSize=250
+OpenEBSSize=800
+TalosISO="/mnt/flashstor/ISO/metal-amd64.iso"
+NetworkBridge="br0"
+StoragePool="flashstor/VM"
+MacAddress=""
+== k8s-2 ==
+Name="k8s-2"
+Memory=65536
+VCPUs=16
+DiskSize=250
+OpenEBSSize=800
+TalosISO="/mnt/flashstor/ISO/metal-amd64.iso"
+NetworkBridge="br0"
+StoragePool="flashstor/VM"
+MacAddress=""

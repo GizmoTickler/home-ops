@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"homeops-cli/internal/common"
+	versionconfig "homeops-cli/internal/config"
 	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vmlifecycle"
@@ -633,7 +634,7 @@ func newCleanupZVolsCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&vmName, "vm-name", "", "Name of the VM whose ZVols to clean up (required)")
-	cmd.Flags().StringVar(&storagePool, "pool", "flashstor", "Storage pool (default: flashstor)")
+	cmd.Flags().StringVar(&storagePool, "pool", vmlifecycle.GetEnvOrDefault("STORAGE_POOL", versionconfig.Get().TrueNASPool()), "Storage pool (default: derived from hypervisors.truenas.vm.boot_storage)")
 	cmd.Flags().BoolVar(&force, "force", false, "Force cleanup without confirmation")
 	_ = cmd.MarkFlagRequired("vm-name")
 

@@ -95,7 +95,7 @@ func trueNASSSHUser() string {
 	if user := vmlifecycle.ResolveSecretKey(versionconfig.KeyTrueNASUsername); user != "" {
 		return user
 	}
-	return "truenas_admin"
+	return versionconfig.Get().Hypervisors.TrueNAS.SSHUser
 }
 
 // resolveCloudImage resolves --os/--image to a concrete image reference and
@@ -175,10 +175,10 @@ func createProxmoxVM(logger *common.ColorLogger, spec createSpec) error {
 		if pveHost == "" {
 			return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
 		}
-		imagePath = "/var/lib/vz/template/cache/" + path.Base(spec.imageRef)
+		imagePath = path.Join(cfg.Hypervisors.Proxmox.ImageCacheDir, path.Base(spec.imageRef))
 		sshUser := spec.sshUser
 		if sshUser == "" {
-			sshUser = "root"
+			sshUser = cfg.Hypervisors.Proxmox.SSHUser
 		}
 		logger.Info("Staging %s on %s:%s ...", path.Base(spec.imageRef), pveHost, imagePath)
 		if err := stageImageFn(sshUser, pveHost, spec.imageRef, imagePath); err != nil {

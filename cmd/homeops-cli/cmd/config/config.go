@@ -161,6 +161,8 @@ cluster:
       #  mac: "00:a0:98:00:00:01"
       #  boot_storage: nvme-mirror
       #  openebs_storage: nvmeof-vmdata
+      #  pci_device: "0000:04:00.0"                  # vSphere SR-IOV
+      #  rdm_path: "[datastore1] rdm/intel-ssd-1.vmdk" # vSphere pRDM
       #  ceph:                               # Rook-Ceph OSD disk for this node
       #    mode: passthrough                 # passthrough | virtual | none
       #    disk_by_id: ata-INTEL_SSD...      # passthrough: physical disk id
@@ -182,10 +184,13 @@ hypervisors:
   default: proxmox          # proxmox | truenas | vsphere
   proxmox:
     snippets_dir: /var/lib/vz/snippets
+    ssh_user: root
+    image_cache_dir: /var/lib/vz/template/cache
     # Default VM composition for new VMs (unset fields keep built-in defaults):
     #vm:
     #  memory_mb: 98304
     #  cores: 16
+    #  cpu_type: "host,flags=+pdpe1gb;-spec-ctrl"
     #  boot_disk_gb: 100
     #  openebs_disk_gb: 800
     #  boot_storage: nvme1
@@ -196,23 +201,37 @@ hypervisors:
     #    storage: my-pool         # virtual: pool/datastore (defaults to boot storage)
     #  network_bridge: vmbr0
     #  network_mtu: 9000
+    #  network_queues: 8
     #  vlan_id: 999
+    #  scsi_controller: virtio-scsi-single
+    #  watchdog_model: i6300esb
   truenas:
     iso_dir: /mnt/tank/ISO
     iso_file: metal-amd64.iso
+    ssh_user: truenas_admin
     #spice_host: 0.0.0.0
     # Where 'vm create' stages cloud images and NoCloud seed ISOs on the NAS
     # (default: an "images" dir next to iso_dir):
     #image_dir: /mnt/tank/images
+    #ignition_dir: /mnt/tank/VM
     #vm:
     #  boot_storage: tank/VM    # zvol parent dataset
+    #  network_bridge: br0
   #vsphere:
+  #  iso_datastore: datastore1
+  #  iso_file: vmware-amd64.iso
   #  # Default template 'vm create --provider vsphere' clones (see
   #  # 'vm template import --help'); override per-call with --template.
   #  template: ubuntu-cloud-template
   #  vm:
+  #    memory_mb: 65536
+  #    cores: 16
+  #    cores_per_socket: 1
+  #    boot_disk_gb: 250
+  #    openebs_disk_gb: 800
   #    boot_storage: local-nvme1     # boot datastore
   #    openebs_storage: truenas-iscsi
+  #    network_bridge: vl999
 
 # Where cluster state that must survive rebuilds lives: the admin kubeconfig
 # and the kubeadm PKI. backend: file (local, 0600) or op (a 1Password item).

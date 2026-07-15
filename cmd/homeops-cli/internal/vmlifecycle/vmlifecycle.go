@@ -119,13 +119,17 @@ func ResolveSecretKey(key string) string {
 	return ResolveSecretKeyFn(key)
 }
 
-// TruenasDefaultPool returns the configured TrueNAS VM storage pool
-// (hypervisors.truenas.vm.boot_storage in homeops.yaml), or fallback.
-func TruenasDefaultPool(fallback string) string {
+// TruenasDefaultPool returns the configured TrueNAS VM storage dataset
+// (hypervisors.truenas.vm.boot_storage in homeops.yaml). A fallback argument is
+// accepted only for legacy callers; new callers should omit it.
+func TruenasDefaultPool(fallback ...string) string {
 	if p := versionconfig.Get().Hypervisors.TrueNAS.VM.BootStorage; p != "" {
 		return p
 	}
-	return fallback
+	if len(fallback) > 0 {
+		return fallback[0]
+	}
+	return versionconfig.DefaultTrueNASVMBootStorage
 }
 
 // GetSpicePassword retrieves the SPICE password through the configured secret
@@ -252,7 +256,7 @@ func newVMLifecycle(normalizedProvider string) (vmprov.VMLifecycle, error) {
 		return truenasLifecycleAdapter{
 			TrueNASVMManager: vmManager,
 			deleteZVols:      true,
-			storagePool:      GetEnvOrDefault("STORAGE_POOL", TruenasDefaultPool("flashstor")),
+			storagePool:      GetEnvOrDefault("STORAGE_POOL", versionconfig.Get().TrueNASPool()),
 		}, nil
 	case "proxmox":
 		host, tokenID, secret, nodeName, err := GetProxmoxCredentialsFn()
@@ -542,8 +546,7 @@ func ValidateVMName(name string) error {
 	return nil
 }
 
-// TrueNASNetworkBridge returns the configured network bridge (NETWORK_BRIDGE)
-// or the br0 default.
+// TrueNASNetworkBridge returns NETWORK_BRIDGE or the configured TrueNAS bridge.
 func TrueNASNetworkBridge() string {
-	return GetEnvOrDefault("NETWORK_BRIDGE", "br0")
+	return GetEnvOrDefault("NETWORK_BRIDGE", versionconfig.Get().Hypervisors.TrueNAS.VM.NetworkBridge)
 }

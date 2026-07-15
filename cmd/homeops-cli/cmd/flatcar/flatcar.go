@@ -1081,26 +1081,27 @@ NAS (--ignition-dir, default /mnt/<pool>/VM) over SSH.`,
 }
 
 func registerDeployVMFlags(cmd *cobra.Command, opts *deployVMOptions) {
+	cfg := versionconfig.Get()
 	cmd.Flags().StringVar(&opts.provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi) | truenas")
 	cmd.Flags().StringSliceVar(&opts.nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
 	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&opts.imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
 	cmd.Flags().StringVar(&opts.imageVolume, "image-volume", "", "[proxmox] Existing storage volume to attach as scsi0 (alternative to --image-path)")
-	cmd.Flags().StringVar(&opts.snippetsDir, "snippets-dir", "/var/lib/vz/snippets", "[proxmox] snippets dir for Ignition files (on the Proxmox node)")
+	cmd.Flags().StringVar(&opts.snippetsDir, "snippets-dir", cfg.Hypervisors.Proxmox.SnippetsDir, "[proxmox] snippets dir for Ignition files (on the Proxmox node)")
 	cmd.Flags().StringVar(&opts.pveSSHHost, "pve-ssh-host", "", "[proxmox] host to SSH the Ignition to (default: the Proxmox API host)")
-	cmd.Flags().StringVar(&opts.pveSSHUser, "pve-ssh-user", "root", "[proxmox] SSH user on the Proxmox host for Ignition upload")
+	cmd.Flags().StringVar(&opts.pveSSHUser, "pve-ssh-user", cfg.Hypervisors.Proxmox.SSHUser, "[proxmox] SSH user on the Proxmox host for Ignition upload")
 	cmd.Flags().StringVar(&opts.pveSSHPort, "pve-ssh-port", "22", "[proxmox] SSH port on the Proxmox host")
 	cmd.Flags().StringVar(&opts.vsphereTemplate, "vsphere-template", "", "[vsphere] name of the imported Flatcar OVA template to clone")
 	cmd.Flags().StringVar(&opts.datastore, "datastore", "", "[vsphere] datastore to clone the VM onto")
 	cmd.Flags().StringVar(&opts.vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
 	cmd.Flags().IntVar(&opts.vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
 	cmd.Flags().IntVar(&opts.memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
-	cmd.Flags().StringVar(&opts.truenasPool, "truenas-pool", "", "[truenas] storage pool/dataset for the VM (e.g. flashstor)")
-	cmd.Flags().StringVar(&opts.networkBridge, "network-bridge", "", "[truenas] bridge to attach the VM NIC to")
+	cmd.Flags().StringVar(&opts.truenasPool, "truenas-pool", cfg.TrueNASPool(), "[truenas] storage pool/dataset for the VM (e.g. flashstor)")
+	cmd.Flags().StringVar(&opts.networkBridge, "network-bridge", cfg.Hypervisors.TrueNAS.VM.NetworkBridge, "[truenas] bridge to attach the VM NIC to")
 	cmd.Flags().StringVar(&opts.bootZVol, "boot-zvol", "", "[truenas] pre-staged Flatcar boot zvol (single-node; else <pool>/VM/<node>-boot)")
 	cmd.Flags().StringVar(&opts.ignitionDir, "ignition-dir", "", "[truenas] dir on the NAS for Ignition files (default /mnt/<pool>/VM)")
 	cmd.Flags().StringVar(&opts.truenasSSHHost, "truenas-ssh-host", "", "[truenas] host to SSH the Ignition to (default: the TrueNAS API host)")
-	cmd.Flags().StringVar(&opts.truenasSSHUser, "truenas-ssh-user", "truenas_admin", "[truenas] SSH user for Ignition upload")
+	cmd.Flags().StringVar(&opts.truenasSSHUser, "truenas-ssh-user", cfg.Hypervisors.TrueNAS.SSHUser, "[truenas] SSH user for Ignition upload")
 	cmd.Flags().IntVar(&opts.truenasPort, "truenas-port", 443, "[truenas] TrueNAS API port")
 	cmd.Flags().StringVar(&opts.vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&opts.pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
@@ -1283,7 +1284,7 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 	}
 	sshUser := opts.pveSSHUser
 	if sshUser == "" {
-		sshUser = "root"
+		sshUser = versionconfig.Get().Hypervisors.Proxmox.SSHUser
 	}
 	sshPort := opts.pveSSHPort
 	if sshPort == "" {
@@ -1370,8 +1371,7 @@ func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.ColorLogger, nodes []flatcarNode) error {
 	ignitionDir := opts.ignitionDir
 	if ignitionDir == "" {
-		// Default colocated with the VM disks so libvirt-qemu can read the .ign.
-		ignitionDir = fmt.Sprintf("/mnt/%s/VM", opts.truenasPool)
+		ignitionDir = versionconfig.Get().TrueNASIgnitionDir(opts.truenasPool)
 	}
 
 	if opts.dryRun {
@@ -1398,7 +1398,7 @@ func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 	}
 	sshUser := opts.truenasSSHUser
 	if sshUser == "" {
-		sshUser = "truenas_admin"
+		sshUser = versionconfig.Get().Hypervisors.TrueNAS.SSHUser
 	}
 	port := opts.truenasPort
 	if port == 0 {

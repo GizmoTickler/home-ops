@@ -53,6 +53,33 @@ type VMConfig struct {
 	IgnitionPath string // host path on the NAS to the rendered Ignition (.ign) file
 }
 
+// GetDefaultVMConfig returns the effective TrueNAS VM defaults from
+// homeops.yaml after built-in defaults are applied.
+func GetDefaultVMConfig(name string) VMConfig {
+	cfg := homeopscfg.Get()
+	vm := cfg.Hypervisors.TrueNAS.VM
+	out := VMConfig{
+		Name:          name,
+		Memory:        vm.MemoryMB,
+		VCPUs:         vm.Cores,
+		DiskSize:      vm.BootDiskGB,
+		OpenEBSSize:   vm.OpenEBSDiskGB,
+		TalosISO:      cfg.TrueNASISOPath(),
+		NetworkBridge: vm.NetworkBridge,
+		StoragePool:   vm.BootStorage,
+	}
+	if node, found := cfg.NodeByName(name); found {
+		profile := node.VM.ForProvider("truenas")
+		if profile.Mac != "" {
+			out.MacAddress = profile.Mac
+		}
+		if profile.BootStorage != "" {
+			out.StoragePool = profile.BootStorage
+		}
+	}
+	return out
+}
+
 // VMManager handles VM operations
 type VMManager struct {
 	client *WorkingClient
@@ -608,7 +635,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 	// Use the TalosISO path from config to support both default and custom ISOs
 	isoPath := config.TalosISO
 	if isoPath == "" {
-		isoPath = "/mnt/flashstor/ISO/metal-amd64.iso" // Fallback to default
+		isoPath = homeopscfg.Get().TrueNASISOPath()
 	}
 
 	if err := vm.createVMDevice(vmID, 1006, map[string]interface{}{
@@ -639,7 +666,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if err := vm.createVMDevice(vmID, 1001, vm.buildDiskDeviceAttributes(bootPath)); err != nil {
 			return fmt.Errorf("failed to create boot/OpenEBS disk device: %w", err)
 		}
-		vm.logger.Info("Created boot/OpenEBS disk device (250GB): /dev/zvol/%s", bootPath)
+		vm.logger.Info("Created boot/OpenEBS disk device (%dGB): /dev/zvol/%s", config.DiskSize, bootPath)
 	}
 
 	// OpenEBS disk (order 1004) - 1TB disk for local storage
@@ -647,7 +674,7 @@ func (vm *VMManager) createVMDevices(vmID int, config VMConfig) error {
 		if err := vm.createVMDevice(vmID, 1004, vm.buildDiskDeviceAttributes(openebsPath)); err != nil {
 			return fmt.Errorf("failed to create OpenEBS disk device: %w", err)
 		}
-		vm.logger.Info("Created OpenEBS disk device (1TB): /dev/zvol/%s", openebsPath)
+		vm.logger.Info("Created OpenEBS disk device (%dGB): /dev/zvol/%s", config.OpenEBSSize, openebsPath)
 	}
 
 	if config.UseSpice {

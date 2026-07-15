@@ -61,7 +61,9 @@ cluster:
 hypervisors:
   default: proxmox
   proxmox:
+    ssh_user: root
     snippets_dir: /var/lib/vz/snippets
+    image_cache_dir: /var/lib/vz/template/cache
     vm:
       memory_mb: 98304
       cores: 16
@@ -69,11 +71,36 @@ hypervisors:
       openebs_disk_gb: 800
       network_bridge: vmbr0
       network_mtu: 9000
+      network_queues: 8
       vlan_id: 999
+      cpu_type: "host,flags=+pdpe1gb;-spec-ctrl"
+      scsi_controller: virtio-scsi-single
+      watchdog_model: i6300esb
   truenas:
+    ssh_user: truenas_admin
     iso_dir: /mnt/flashstor/ISO
     iso_file: metal-amd64.iso
     spice_host: 192.168.120.10
+    # ignition_dir is derived as /mnt/<pool>/VM when unset
+    vm:
+      boot_storage: flashstor/VM
+      network_bridge: br0
+  # vSphere: no ESXi host is currently deployed; these document the
+  # historical values now owned by config (inert until a host returns).
+  # Per-node vSphere identity (pci_device, rdm_path, cpu_affinity) also
+  # lives under cluster.nodes[].vm.providers.vsphere when needed.
+  vsphere:
+    iso_datastore: datastore1
+    iso_file: vmware-amd64.iso
+    vm:
+      memory_mb: 65536
+      cores: 16
+      cores_per_socket: 1
+      boot_disk_gb: 250
+      openebs_disk_gb: 800
+      boot_storage: local-nvme1
+      openebs_storage: truenas-iscsi
+      network_bridge: vl999
 
 state:
   kubeconfig:

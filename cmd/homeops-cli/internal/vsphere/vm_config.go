@@ -2,13 +2,15 @@ package vsphere
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	homeopscfg "homeops-cli/internal/config"
 )
 
 const (
-	DefaultISODatastore = "datastore1"
-	DefaultISOFilename  = "vmware-amd64.iso"
+	DefaultISODatastore = homeopscfg.DefaultVSphereISODatastore
+	DefaultISOFilename  = homeopscfg.DefaultVSphereISOFile
 )
 
 // VMConfig represents the configuration for a vSphere VM
@@ -98,52 +100,12 @@ type K8sNodeConfig struct {
 	BootDatastore string // Datastore for boot disk
 }
 
-// k8sNodeConfigs contains the predefined configurations for k8s nodes
-// CPU Affinity Layout (2×E5-2697 v4: 2 sockets × 16 cores × 2 HT = 64 CPUs):
-//
-//	Socket 0 (NUMA Node 0): Physical cores 0-15 → CPUs 0-15, HT siblings → CPUs 16-31
-//	Socket 1 (NUMA Node 1): Physical cores 0-15 → CPUs 32-47, HT siblings → CPUs 48-63
-//
-// Each VM gets 8 physical cores + 8 HT siblings = 16 vCPUs with no overlap
-var k8sNodeConfigs = map[string]K8sNodeConfig{
-	"k8s-0": {
-		RDMPath:       "[datastore1] rdm/intel-ssd-1.vmdk",
-		PCIDevice:     "0000:04:00.0",
-		PCIDeviceHex:  "00000:004:00.0",
-		MacAddress:    "00:a0:98:28:c8:83",
-		CPUAffinity:   "0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23", // Socket 0, cores 0-7 + HT
-		BootDatastore: "local-nvme1",
-	},
-	"k8s-1": {
-		RDMPath:       "[datastore1] rdm/intel-ssd-2.vmdk",
-		PCIDevice:     "0000:0b:00.0",
-		PCIDeviceHex:  "00000:011:00.0", // 0x0b = 11 decimal
-		MacAddress:    "00:a0:98:1a:f3:72",
-		CPUAffinity:   "32,33,34,35,36,37,38,39,48,49,50,51,52,53,54,55", // Socket 1, cores 0-7 + HT
-		BootDatastore: "local-nvme1",
-	},
-	"k8s-2": {
-		RDMPath:       "[datastore1] rdm/intel-ssd-3.vmdk",
-		PCIDevice:     "0000:04:00.1",
-		PCIDeviceHex:  "00000:004:00.1",
-		MacAddress:    "00:a0:98:3e:6c:22",
-		CPUAffinity:   "8,9,10,11,12,13,14,15,24,25,26,27,28,29,30,31", // Socket 0, cores 8-15 + HT
-		BootDatastore: "local-nvme2",
-	},
-	"k8s-3": {
-		RDMPath:       "[datastore1] rdm/intel-ssd-4.vmdk",
-		PCIDevice:     "0000:0b:00.1", // Second port on second X540
-		PCIDeviceHex:  "00000:011:00.1",
-		MacAddress:    "",                                                // To be assigned
-		CPUAffinity:   "40,41,42,43,44,45,46,47,56,57,58,59,60,61,62,63", // Socket 1, cores 8-15 + HT
-		BootDatastore: "local-nvme2",
-	},
-}
-
 // GetK8sNodeConfig returns the predefined configuration for a k8s node
 func GetK8sNodeConfig(name string) (K8sNodeConfig, bool) {
-	config, exists := k8sNodeConfigs[name]
-	return config, exists
+	if node, found := defaultVSphereK8sNode(name); found {
+		return k8sNodeConfigFromNode(node), true
+	}
+	return K8sNodeConfig{}, false
 }
 
 // GetDefaultVMConfig returns a VM configuration with default Talos specs,
@@ -152,41 +114,21 @@ func GetK8sNodeConfig(name string) (K8sNodeConfig, bool) {
 func GetDefaultVMConfig(name string) VMConfig {
 	cfg := defaultVMConfig(name)
 	vm := homeopscfg.Get().Hypervisors.VSphere.VM
-	if vm.MemoryMB != 0 {
-		cfg.Memory = vm.MemoryMB
-	}
-	if vm.Cores != 0 {
-		cfg.VCPUs = vm.Cores
-	}
-	if vm.BootDiskGB != 0 {
-		cfg.DiskSize = vm.BootDiskGB
-	}
-	if vm.OpenEBSDiskGB != 0 {
-		cfg.OpenEBSSize = vm.OpenEBSDiskGB
-	}
-	if vm.BootStorage != "" {
-		cfg.BootDatastore = vm.BootStorage
-	}
-	if vm.OpenEBSStorage != "" {
-		cfg.OpenEBSDatastore = vm.OpenEBSStorage
-	}
-	if vm.NetworkBridge != "" {
-		cfg.Network = vm.NetworkBridge
-	}
+	cfg.Memory = vm.MemoryMB
+	cfg.VCPUs = vm.Cores
+	cfg.DiskSize = vm.BootDiskGB
+	cfg.OpenEBSSize = vm.OpenEBSDiskGB
+	cfg.BootDatastore = vm.BootStorage
+	cfg.OpenEBSDatastore = vm.OpenEBSStorage
+	cfg.Network = vm.NetworkBridge
+	cfg.CoresPerSocket = vm.CoresPerSocket
+	cfg.ISODatastore = homeopscfg.Get().Hypervisors.VSphere.ISODatastore
 	return cfg
 }
 
 func defaultVMConfig(name string) VMConfig {
 	return VMConfig{
 		Name:                 name,
-		Memory:               64 * 1024, // 64GB (matches actual VMs)
-		VCPUs:                16,
-		DiskSize:             250,             // 250GB boot (TalosOS)
-		OpenEBSSize:          800,             // 800GB OpenEBS (matches actual VMs)
-		BootDatastore:        "local-nvme1",   // Boot disk on local NVMe
-		OpenEBSDatastore:     "truenas-iscsi", // OpenEBS disk on TrueNAS iSCSI
-		ISODatastore:         DefaultISODatastore,
-		Network:              "vl999",
 		PowerOn:              true, // Power on by default
 		EnableIOMMU:          true, // Enable IOMMU/VT-d
 		ExposeCounters:       true, // Expose CPU performance counters
@@ -195,7 +137,6 @@ func defaultVMConfig(name string) VMConfig {
 		EnableWatchdog:       true, // Add watchdog timer device
 		EnableSRIOV:          true, // Use SR-IOV by default for k8s nodes
 		MemoryPinned:         true, // Pin memory reservation
-		CoresPerSocket:       1,    // 1 core per socket (matches actual VMs)
 	}
 }
 
@@ -216,29 +157,37 @@ func GetK8sVMConfig(name string) VMConfig {
 
 	// Per-node VM profile from homeops.yaml wins over the predefined map.
 	if node, found := homeopscfg.Get().NodeByName(name); found {
-		if node.VM.Mac != "" {
-			config.MacAddress = node.VM.Mac
+		profile := node.VM.ForProvider("vsphere")
+		if profile.Mac != "" {
+			config.MacAddress = profile.Mac
 		}
-		if node.VM.BootStorage != "" {
-			config.BootDatastore = node.VM.BootStorage
+		if profile.BootStorage != "" {
+			config.BootDatastore = profile.BootStorage
 		}
-		if node.VM.OpenEBSStorage != "" {
-			config.OpenEBSDatastore = node.VM.OpenEBSStorage
+		if profile.OpenEBSStorage != "" {
+			config.OpenEBSDatastore = profile.OpenEBSStorage
 		}
-		if node.VM.CPUAffinity != "" {
-			config.CPUAffinity = node.VM.CPUAffinity
+		if profile.CPUAffinity != "" {
+			config.CPUAffinity = profile.CPUAffinity
+		}
+		if profile.RDMPath != "" {
+			config.RDMPath = profile.RDMPath
+		}
+		if profile.PCIDevice != "" {
+			config.PCIDevice = profile.PCIDevice
+			config.PCIDeviceHex = pciDeviceHex(profile.PCIDevice)
 		}
 	}
 
 	// Set ISO path
-	config.ISO = BuildISOPath(config.ISODatastore, DefaultISOFilename)
+	config.ISO = BuildISOPath(config.ISODatastore, homeopscfg.Get().Hypervisors.VSphere.ISOFile)
 
 	return config
 }
 
 // DefaultISOPath returns the standard Talos ISO path used for vSphere deployments.
 func DefaultISOPath() string {
-	return BuildISOPath(DefaultISODatastore, DefaultISOFilename)
+	return homeopscfg.Get().VSphereISOPath()
 }
 
 // BuildISOPath constructs the full ISO path for vSphere
@@ -246,6 +195,51 @@ func BuildISOPath(isoDatastore, isoFilename string) string {
 	// Format: [datastore-name] path/to/file.iso
 	// For NFS datastore with ISO at root level
 	return fmt.Sprintf("[%s] %s", isoDatastore, isoFilename)
+}
+
+func defaultVSphereK8sNode(name string) (homeopscfg.Node, bool) {
+	for _, node := range homeopscfg.DefaultNodes() {
+		if node.Name == name {
+			return node, true
+		}
+	}
+	return homeopscfg.DefaultVSphereK8sNode(name)
+}
+
+func k8sNodeConfigFromNode(node homeopscfg.Node) K8sNodeConfig {
+	profile := node.VM.ForProvider("vsphere")
+	return K8sNodeConfig{
+		RDMPath:       profile.RDMPath,
+		PCIDevice:     profile.PCIDevice,
+		PCIDeviceHex:  pciDeviceHex(profile.PCIDevice),
+		MacAddress:    profile.Mac,
+		CPUAffinity:   profile.CPUAffinity,
+		BootDatastore: profile.BootStorage,
+	}
+}
+
+func pciDeviceHex(device string) string {
+	parts := strings.Split(device, ":")
+	if len(parts) != 3 {
+		return device
+	}
+	domain, err := strconv.ParseInt(parts[0], 16, 64)
+	if err != nil {
+		return device
+	}
+	bus, err := strconv.ParseInt(parts[1], 16, 64)
+	if err != nil {
+		return device
+	}
+	slotFunc := strings.Split(parts[2], ".")
+	if len(slotFunc) != 2 {
+		return device
+	}
+	slot, err := strconv.ParseInt(slotFunc[0], 16, 64)
+	if err != nil {
+		return device
+	}
+	return fmt.Sprintf("%05d:%03d:%02d.%s", domain, bus, slot, slotFunc[1])
 }
 
 // ValidateConfig validates a VM configuration

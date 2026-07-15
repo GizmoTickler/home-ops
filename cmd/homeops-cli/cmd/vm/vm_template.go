@@ -132,10 +132,10 @@ Per provider:
 				if pveHost == "" {
 					return fmt.Errorf("cannot stage image: secrets.%s did not resolve", versionconfig.KeyProxmoxHost)
 				}
-				imagePath = "/var/lib/vz/template/cache/" + path.Base(imageRef)
+				imagePath = path.Join(cfg.Hypervisors.Proxmox.ImageCacheDir, path.Base(imageRef))
 				stagingUser := sshUser
 				if stagingUser == "" {
-					stagingUser = "root"
+					stagingUser = cfg.Hypervisors.Proxmox.SSHUser
 				}
 				logger.Info("Staging %s on %s:%s ...", path.Base(imageRef), pveHost, imagePath)
 				if err := stageImageFn(stagingUser, pveHost, imageRef, imagePath); err != nil {

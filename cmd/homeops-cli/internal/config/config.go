@@ -41,6 +41,8 @@ type VMProfile struct {
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
 	CPUAffinity    string `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
 	NUMANode       *int   `yaml:"numa_node,omitempty"`       // host NUMA node
+	PCIDevice      string `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
+	RDMPath        string `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
 	// Ceph configures this node's Rook-Ceph OSD disk (overrides the provider
 	// default and any built-in node profile).
 	Ceph CephDisk `yaml:"ceph,omitempty"`
@@ -74,6 +76,8 @@ type ProviderVMProfile struct {
 	OpenEBSStorage string   `yaml:"openebs_storage,omitempty"`
 	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`
 	NUMANode       *int     `yaml:"numa_node,omitempty"`
+	PCIDevice      string   `yaml:"pci_device,omitempty"`
+	RDMPath        string   `yaml:"rdm_path,omitempty"`
 	Ceph           CephDisk `yaml:"ceph,omitempty"`
 }
 
@@ -81,6 +85,7 @@ type ProviderVMProfile struct {
 type ProviderVMProfiles struct {
 	Talos   ProviderVMProfile `yaml:"talos,omitempty"`
 	Flatcar ProviderVMProfile `yaml:"flatcar,omitempty"`
+	VSphere ProviderVMProfile `yaml:"vsphere,omitempty"`
 }
 
 // VMDefaults customizes the per-provider defaults for VM composition: sizing,
@@ -89,16 +94,21 @@ type ProviderVMProfiles struct {
 type VMDefaults struct {
 	MemoryMB       int    `yaml:"memory_mb,omitempty"`
 	Cores          int    `yaml:"cores,omitempty"`
+	CoresPerSocket int    `yaml:"cores_per_socket,omitempty"`
 	BootDiskGB     int    `yaml:"boot_disk_gb,omitempty"`
 	OpenEBSDiskGB  int    `yaml:"openebs_disk_gb,omitempty"`
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // default pool/datastore for boot disks
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
 	// Ceph sets the default Rook-Ceph OSD disk for every node (per-node
 	// cluster.nodes[].vm.ceph overrides this).
-	Ceph          CephDisk `yaml:"ceph,omitempty"`
-	NetworkBridge string   `yaml:"network_bridge,omitempty"`
-	NetworkMTU    int      `yaml:"network_mtu,omitempty"`
-	VLANID        int      `yaml:"vlan_id,omitempty"`
+	Ceph           CephDisk `yaml:"ceph,omitempty"`
+	NetworkBridge  string   `yaml:"network_bridge,omitempty"`
+	NetworkMTU     int      `yaml:"network_mtu,omitempty"`
+	NetworkQueues  int      `yaml:"network_queues,omitempty"`
+	VLANID         int      `yaml:"vlan_id,omitempty"`
+	CPUType        string   `yaml:"cpu_type,omitempty"`
+	SCSIController string   `yaml:"scsi_controller,omitempty"`
+	WatchdogModel  string   `yaml:"watchdog_model,omitempty"`
 }
 
 // Node is one control-plane node of the cluster.
@@ -133,6 +143,10 @@ type ProxmoxConfig struct {
 	// SnippetsDir is where rendered Ignition files are uploaded on the PVE
 	// host (read by qemu via fw_cfg).
 	SnippetsDir string `yaml:"snippets_dir,omitempty"`
+	// SSHUser is the default user for SSH-based staging to the PVE host.
+	SSHUser string `yaml:"ssh_user,omitempty"`
+	// ImageCacheDir is where cloud images are staged before import.
+	ImageCacheDir string `yaml:"image_cache_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, disk backends, network).
 	VM VMDefaults `yaml:"vm,omitempty"`
 }
@@ -150,6 +164,11 @@ type TrueNASConfig struct {
 	// the NAS for `vm create`. Defaults to an "images" directory next to
 	// ISODir.
 	ImageDir string `yaml:"image_dir,omitempty"`
+	// SSHUser is the default user for SSH-based staging to the NAS.
+	SSHUser string `yaml:"ssh_user,omitempty"`
+	// IgnitionDir is where Flatcar Ignition files are uploaded. Empty keeps
+	// deriving /mnt/<pool>/VM from the selected pool/dataset.
+	IgnitionDir string `yaml:"ignition_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, zvol pool, network).
 	// BootStorage doubles as the zvol parent dataset (e.g. "flashstor/VM").
 	VM VMDefaults `yaml:"vm,omitempty"`
@@ -157,6 +176,10 @@ type TrueNASConfig struct {
 
 // VSphereConfig holds vSphere/ESXi-specific knobs.
 type VSphereConfig struct {
+	// ISODatastore and ISOFile identify the installer ISO for legacy Talos
+	// deployments.
+	ISODatastore string `yaml:"iso_datastore,omitempty"`
+	ISOFile      string `yaml:"iso_file,omitempty"`
 	// VM overrides the default VM composition (sizing, datastores).
 	VM VMDefaults `yaml:"vm,omitempty"`
 	// Template is the default VM template `vm create` clones (cloud image
@@ -447,6 +470,10 @@ func validate(c *Config) error {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.flatcar.ceph", n.Name), n.VM.Providers.Flatcar.Ceph.Mode})
+		cephModes = append(cephModes, struct {
+			name string
+			mode string
+		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.vsphere.ceph", n.Name), n.VM.Providers.VSphere.Ceph.Mode})
 	}
 	for _, cm := range cephModes {
 		switch cm.mode {
@@ -459,6 +486,30 @@ func validate(c *Config) error {
 	case "", "proxmox", "truenas", "vsphere":
 	default:
 		problems = append(problems, fmt.Sprintf("hypervisors.default: %q is not supported (use proxmox, truenas, or vsphere)", c.Hypervisors.Default))
+	}
+	for _, field := range []struct {
+		name  string
+		value int
+	}{
+		{"hypervisors.proxmox.vm.memory_mb", c.Hypervisors.Proxmox.VM.MemoryMB},
+		{"hypervisors.proxmox.vm.cores", c.Hypervisors.Proxmox.VM.Cores},
+		{"hypervisors.proxmox.vm.boot_disk_gb", c.Hypervisors.Proxmox.VM.BootDiskGB},
+		{"hypervisors.proxmox.vm.openebs_disk_gb", c.Hypervisors.Proxmox.VM.OpenEBSDiskGB},
+		{"hypervisors.proxmox.vm.network_mtu", c.Hypervisors.Proxmox.VM.NetworkMTU},
+		{"hypervisors.proxmox.vm.network_queues", c.Hypervisors.Proxmox.VM.NetworkQueues},
+		{"hypervisors.truenas.vm.memory_mb", c.Hypervisors.TrueNAS.VM.MemoryMB},
+		{"hypervisors.truenas.vm.cores", c.Hypervisors.TrueNAS.VM.Cores},
+		{"hypervisors.truenas.vm.boot_disk_gb", c.Hypervisors.TrueNAS.VM.BootDiskGB},
+		{"hypervisors.truenas.vm.openebs_disk_gb", c.Hypervisors.TrueNAS.VM.OpenEBSDiskGB},
+		{"hypervisors.vsphere.vm.memory_mb", c.Hypervisors.VSphere.VM.MemoryMB},
+		{"hypervisors.vsphere.vm.cores", c.Hypervisors.VSphere.VM.Cores},
+		{"hypervisors.vsphere.vm.cores_per_socket", c.Hypervisors.VSphere.VM.CoresPerSocket},
+		{"hypervisors.vsphere.vm.boot_disk_gb", c.Hypervisors.VSphere.VM.BootDiskGB},
+		{"hypervisors.vsphere.vm.openebs_disk_gb", c.Hypervisors.VSphere.VM.OpenEBSDiskGB},
+	} {
+		if field.value < 0 {
+			problems = append(problems, fmt.Sprintf("%s: must not be negative", field.name))
+		}
 	}
 	if len(problems) > 0 {
 		sort.Strings(problems)
@@ -538,6 +589,8 @@ func (p VMProfile) ForProvider(provider string) VMProfile {
 		applyProviderVMProfile(&out, p.Providers.Talos)
 	case "flatcar":
 		applyProviderVMProfile(&out, p.Providers.Flatcar)
+	case "vsphere", "esxi":
+		applyProviderVMProfile(&out, p.Providers.VSphere)
 	}
 	return out
 }
