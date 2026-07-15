@@ -102,6 +102,7 @@ homeops-cli
 │   ├── restore
 │   ├── restore-all
 │   ├── verify --app <name>
+│   ├── verify-all
 │   └── snapshots
 ├── workstation
 │   ├── setup [--all] [--upgrade] [--dry-run]
@@ -660,6 +661,9 @@ homeops-cli k8s upgrade-plan set v1.36.2 --plan-file kubernetes/path/to/plan.yam
 homeops-cli k8s right-size
 homeops-cli k8s right-size --namespace media --window 14d
 homeops-cli k8s right-size --min-savings 25 --output json
+homeops-cli k8s right-size --apply-git                         # preview diffs only
+homeops-cli k8s right-size --apply-git --write                 # edit files; never commit
+homeops-cli k8s right-size --apply-git --repo-root /path/to/home-ops
 
 # Create a redaction-checked diagnostic archive; skip SSH probes when needed
 homeops-cli k8s support-bundle
@@ -705,7 +709,13 @@ p95/max usage with requests and limits. If VictoriaMetrics cannot be queried,
 it prints a prominent warning and falls back to point-in-time
 `metrics.k8s.io` data. `--min-savings` is a percentage filter for small
 overprovisioning findings. It is advisory and always exits zero after a report
-is produced.
+is produced. `--apply-git` maps actionable workload/container findings to
+`kubernetes/apps/<namespace>/*/app/helmrelease.yaml`, preserves YAML anchors,
+comments, and all unrelated bytes, and updates only existing CPU/memory request
+lines. A memory limit is raised only when observed maximum usage is within 10%
+of that limit and an existing limit line can be located confidently. The
+default prints unified diffs plus APPLY/SKIP reasons; `--write` applies the same
+edits. It never stages or commits and prints the manual Git review commands.
 
 `support-bundle` collects the existing doctor, network, storage, Flux, etcd,
 certificate, Flatcar OS, upgrade, event, node, and version reports into a
@@ -799,6 +809,10 @@ homeops-cli volsync restore-all --namespace default --force
 homeops-cli volsync verify --namespace default --app paperless --yes
 homeops-cli volsync verify --namespace default --app paperless --check --timeout 20m
 homeops-cli volsync verify --namespace default --app paperless --output json --yes
+
+homeops-cli volsync verify-all --yes
+homeops-cli volsync verify-all --namespace media --skip plex,jellyfin --check --yes
+homeops-cli volsync verify-all --limit 3 --timeout 10m --max-duration 45m --output json --yes
 ```
 
 Notes:
@@ -808,6 +822,7 @@ Notes:
 - `verify` restores the latest snapshot into an ownerless scratch PVC with the app PVC's storage class and capacity. It never modifies the app PVC or ReplicationSource.
 - `verify --check` mounts the scratch PVC read-only in a temporary Alpine pod, lists a sample of regular files, and reports `du -sh` output. An empty filesystem fails verification.
 - Verification always attempts cleanup in pod, ReplicationDestination, PVC order after success, failure, timeout, or interrupt. Existing same-app scratch objects cause refusal unless `--force` is supplied. Resource creation still requires confirmation; global `--yes` bypasses the prompt.
+- `verify-all` discovers ReplicationSources across all namespaces (or one with `--namespace`), applies `--skip` and `--limit`, confirms the complete fleet once, then calls the same verifier serially with a per-app `--timeout`. It continues after failures; apps not started before `--max-duration` are SKIP. The final table/JSON report includes PASS/FAIL/SKIP and the command exits 1 only when at least one app fails.
 
 ## Workstation
 

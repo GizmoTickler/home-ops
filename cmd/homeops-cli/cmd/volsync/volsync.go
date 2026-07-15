@@ -179,6 +179,7 @@ func NewCommand() *cobra.Command {
 		newRestoreCommand(),
 		newRestoreAllCommand(),
 		newVerifyCommand(),
+		newVerifyAllCommand(),
 	)
 
 	return cmd

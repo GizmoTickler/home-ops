@@ -168,13 +168,17 @@ func newRightSizeCommand() *cobra.Command {
 	var namespace, output string
 	var windowText string
 	var minSavings float64
+	var applyGit, write bool
+	var repoRoot string
 	cmd := &cobra.Command{
 		Use:          "right-size",
 		Short:        "Find over- and under-provisioned workload containers",
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s right-size
   homeops-cli k8s right-size --namespace media --window 14d
-  homeops-cli k8s right-size --min-savings 25 --output json`,
+  homeops-cli k8s right-size --min-savings 25 --output json
+  homeops-cli k8s right-size --apply-git --repo-root /path/to/home-ops
+  homeops-cli k8s right-size --apply-git --write`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if output != "table" && output != "json" {
 				return fmt.Errorf("unsupported output format %q (table, json)", output)
@@ -189,11 +193,26 @@ func newRightSizeCommand() *cobra.Command {
 			if minSavings < 0 || minSavings > 100 {
 				return fmt.Errorf("--min-savings must be between 0 and 100")
 			}
+			if write && !applyGit {
+				return fmt.Errorf("--write requires --apply-git")
+			}
+			if repoRoot != "" && !applyGit {
+				return fmt.Errorf("--repo-root requires --apply-git")
+			}
+			if applyGit && output != "table" {
+				return fmt.Errorf("--apply-git requires --output table")
+			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
 			defer cancel()
 			report, err := buildRightSizeReport(ctx, namespace, window, minSavings)
 			if err != nil {
 				return err
+			}
+			if applyGit {
+				return applyRightSizeReportToGit(ctx, report, rightSizeGitOptions{
+					RepoRoot: repoRoot,
+					Write:    write,
+				}, cmd.OutOrStdout())
 			}
 			rendered, err := renderRightSizeReport(report, output)
 			if err != nil {
@@ -207,6 +226,9 @@ func newRightSizeCommand() *cobra.Command {
 	cmd.Flags().StringVar(&windowText, "window", "7d", "VictoriaMetrics lookback window (for example 24h or 7d)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
 	cmd.Flags().Float64Var(&minSavings, "min-savings", 0, "hide overprovisioned rows below this estimated savings percentage")
+	cmd.Flags().BoolVar(&applyGit, "apply-git", false, "preview surgical HelmRelease resource request edits")
+	cmd.Flags().BoolVar(&write, "write", false, "write --apply-git edits to disk (never commits)")
+	cmd.Flags().StringVar(&repoRoot, "repo-root", "", "GitOps repository root (default: git rev-parse --show-toplevel)")
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 	return cmd
 }

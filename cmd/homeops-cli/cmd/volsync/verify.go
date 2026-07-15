@@ -196,50 +196,62 @@ func runVolsyncVerify(ctx context.Context, options verifyOptions, out io.Writer)
 		return err
 	}
 	options.Namespace = namespace
-
-	existing, err := findExistingVerifications(ctx, namespace, options.App)
+	report, err := executeVolsyncVerify(ctx, options, true)
 	if err != nil {
 		return err
 	}
+	return writeVerifyReport(out, options.Output, report)
+}
+
+// executeVolsyncVerify is the shared single-app implementation used by both
+// verify and verify-all. Callers decide whether this invocation needs its own
+// confirmation; cleanup remains local to every invocation.
+func executeVolsyncVerify(ctx context.Context, options verifyOptions, confirm bool) (verifyReport, error) {
+	existing, err := findExistingVerifications(ctx, options.Namespace, options.App)
+	if err != nil {
+		return verifyReport{}, err
+	}
 	if len(existing) > 0 && !options.Force {
-		return fmt.Errorf("verification already in progress for %s/%s: %s (use --force to override)", namespace, options.App, strings.Join(existing, ", "))
+		return verifyReport{}, fmt.Errorf("verification already in progress for %s/%s: %s (use --force to override)", options.Namespace, options.App, strings.Join(existing, ", "))
 	}
 
 	name := verifyObjectName(options.App, volsyncNow())
 	trigger := fmt.Sprintf("verify-%d", volsyncNow().UnixNano())
-	config, err := verifyBuildRestoreConfigFn(ctx, namespace, options.App)
+	config, err := verifyBuildRestoreConfigFn(ctx, options.Namespace, options.App)
 	if err != nil {
-		return err
+		return verifyReport{}, err
 	}
-	if confirmed, err := confirmActionFn(verifyConfirmationMessage(namespace, name, options.Check), false); err != nil {
-		return fmt.Errorf("confirmation failed: %w", err)
-	} else if !confirmed {
-		return fmt.Errorf("verification cancelled")
+	if confirm {
+		if confirmed, err := confirmActionFn(verifyConfirmationMessage(options.Namespace, name, options.Check), false); err != nil {
+			return verifyReport{}, fmt.Errorf("confirmation failed: %w", err)
+		} else if !confirmed {
+			return verifyReport{}, fmt.Errorf("verification cancelled")
+		}
 	}
 
-	op := &verifyOperation{namespace: namespace, app: options.App, name: name, logger: common.NewColorLogger()}
+	op := &verifyOperation{namespace: options.Namespace, app: options.App, name: name, logger: common.NewColorLogger()}
 	defer op.cleanup()
 
-	pvcYAML, err := buildVerifyPVC(name, namespace, options.App, config.PVC)
+	pvcYAML, err := buildVerifyPVC(name, options.Namespace, options.App, config.PVC)
 	if err != nil {
-		return err
+		return verifyReport{}, err
 	}
 	if _, err := verifyApplyYAMLFn(ctx, pvcYAML); err != nil {
-		return fmt.Errorf("create scratch PVC %s: %w", name, err)
+		return verifyReport{}, fmt.Errorf("create scratch PVC %s: %w", name, err)
 	}
 
-	destinationYAML, err := buildVerifyDestination(name, namespace, options.App, trigger, config)
+	destinationYAML, err := buildVerifyDestination(name, options.Namespace, options.App, trigger, config)
 	if err != nil {
-		return err
+		return verifyReport{}, err
 	}
 	if _, err := verifyApplyYAMLFn(ctx, destinationYAML); err != nil {
-		return fmt.Errorf("create verification ReplicationDestination %s: %w", name, err)
+		return verifyReport{}, fmt.Errorf("create verification ReplicationDestination %s: %w", name, err)
 	}
 
 	started := volsyncNow()
-	status, err := waitForVerifyDestination(ctx, namespace, name, trigger, options.Timeout)
+	status, err := waitForVerifyDestination(ctx, options.Namespace, name, trigger, options.Timeout)
 	if err != nil {
-		return err
+		return verifyReport{}, err
 	}
 	duration := strings.TrimSpace(status.Status.LastSyncDuration)
 	if duration == "" {
@@ -250,13 +262,13 @@ func runVolsyncVerify(ctx context.Context, options verifyOptions, out io.Writer)
 	if options.Check {
 		checkOutput, err = op.runIntegrityCheck(ctx, options.Timeout)
 		if err != nil {
-			return err
+			return verifyReport{}, err
 		}
 	}
 
 	report := verifyReport{
 		App:              options.App,
-		Namespace:        namespace,
+		Namespace:        options.Namespace,
 		SnapshotRestored: "latest",
 		ScratchPVC:       name,
 		Bytes:            restoredBytes(status.Status.LatestMoverStatus.Logs),
@@ -264,7 +276,7 @@ func runVolsyncVerify(ctx context.Context, options verifyOptions, out io.Writer)
 		IntegrityChecked: options.Check,
 		CheckOutput:      strings.TrimSpace(checkOutput),
 	}
-	return writeVerifyReport(out, options.Output, report)
+	return report, nil
 }
 
 func buildVerifyRestoreConfig(ctx context.Context, namespace, app string) (verifyRestoreConfig, error) {
