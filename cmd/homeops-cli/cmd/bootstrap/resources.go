@@ -18,26 +18,7 @@ func applyNamespaces(config *BootstrapConfig, logger *common.ColorLogger) error 
 
 	// Define all namespaces used in the cluster
 	// This ensures all namespaces exist before any resources are applied
-	namespaces := []string{
-		"actions-runner-system",
-		constants.NSAuth,
-		constants.NSAutomation,
-		constants.NSCertManager,
-		constants.NSDatabase,
-		constants.NSDownloads,
-		constants.NSExternalSecret,
-		constants.NSFluxSystem,
-		constants.NSKubeSystem, // Usually exists but we'll ensure it's there
-		constants.NSMedia,
-		constants.NSNetwork,
-		constants.NSObservability,
-		constants.NSOpenEBSSystem,
-		constants.NSRookCeph,
-		constants.NSSelfHosted,
-		constants.NSSystem,
-		constants.NSSystemUpgrade,
-		constants.NSVolsyncSystem,
-	}
+	namespaces := initialBootstrapNamespaces()
 
 	for _, ns := range namespaces {
 		logger.Debug("Creating namespace: %s", ns)

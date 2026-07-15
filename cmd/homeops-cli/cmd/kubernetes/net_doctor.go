@@ -2,12 +2,16 @@ package kubernetes
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -25,6 +29,10 @@ const (
 	netDoctorGroupTunnel       = "TUNNEL"
 	netDoctorGroupDNS          = "DNS"
 	netDoctorGroupCertificates = "CERTIFICATES"
+	netDoctorGroupProbes       = "PROBES"
+
+	netDoctorDefaultProbeTimeout = 5 * time.Second
+	netDoctorProbeConcurrency    = 8
 )
 
 var (
@@ -40,6 +48,11 @@ var (
 			},
 		}
 		return resolver.LookupHost(ctx, hostname)
+	}
+	netDoctorProbeRootCAs     *x509.CertPool
+	netDoctorProbeFn          = probeNetDoctorHost
+	netDoctorProbeDialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, address)
 	}
 )
 
@@ -59,6 +72,10 @@ type netDoctorGateway struct {
 		} `json:"listeners"`
 	} `json:"spec"`
 	Status struct {
+		Addresses []struct {
+			Type  string `json:"type"`
+			Value string `json:"value"`
+		} `json:"addresses"`
 		Conditions []conditionJSON `json:"conditions"`
 		Listeners  []struct {
 			Name           string `json:"name"`
@@ -81,6 +98,14 @@ type netDoctorBackendRef struct {
 type netDoctorHTTPRoute struct {
 	Metadata metadataJSON `json:"metadata"`
 	Spec     struct {
+		Hostnames  []string `json:"hostnames"`
+		ParentRefs []struct {
+			Group       string `json:"group"`
+			Kind        string `json:"kind"`
+			Name        string `json:"name"`
+			Namespace   string `json:"namespace"`
+			SectionName string `json:"sectionName"`
+		} `json:"parentRefs"`
 		Rules []struct {
 			BackendRefs []netDoctorBackendRef `json:"backendRefs"`
 		} `json:"rules"`
@@ -106,11 +131,16 @@ type netDoctorService struct {
 		LoadBalancerIP string            `json:"loadBalancerIP"`
 		ClusterIP      string            `json:"clusterIP"`
 		Selector       map[string]string `json:"selector"`
+		Ports          []struct {
+			Name string `json:"name"`
+			Port int    `json:"port"`
+		} `json:"ports"`
 	} `json:"spec"`
 	Status struct {
 		LoadBalancer struct {
 			Ingress []struct {
-				IP string `json:"ip"`
+				IP       string `json:"ip"`
+				Hostname string `json:"hostname"`
 			} `json:"ingress"`
 		} `json:"loadBalancer"`
 	} `json:"status"`
@@ -234,15 +264,44 @@ type netDoctorCertRef struct {
 	Listener  string
 }
 
+type netDoctorProbeOptions struct {
+	Enabled bool
+	Timeout time.Duration
+}
+
+type netDoctorProbeTarget struct {
+	RouteNamespace string
+	RouteName      string
+	Hostname       string
+	Gateway        string
+	Address        string
+	Port           int
+	ReadyBackends  bool
+}
+
+type netDoctorProbeResult struct {
+	Target         netDoctorProbeTarget
+	TCPConnected   bool
+	TLSHandshook   bool
+	ChainValid     bool
+	CertNotAfter   time.Time
+	HTTPStatusCode int
+	Latency        time.Duration
+	Err            error
+}
+
 func newNetDoctorCommand() *cobra.Command {
 	var output string
 	var hostnames []string
+	var probe bool
+	probeTimeout := netDoctorDefaultProbeTimeout
 	cmd := &cobra.Command{
 		Use:          "net-doctor",
 		Short:        "Run read-only Gateway API, tunnel, DNS, and TLS triage",
 		SilenceUsage: true,
 		Example: "  homeops-cli k8s net-doctor\n" +
 			"  homeops-cli k8s net-doctor --resolve home.example.com --resolve status.example.com\n" +
+			"  homeops-cli k8s net-doctor --probe --probe-timeout 5s\n" +
 			"  homeops-cli k8s net-doctor --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if output != "table" && output != "json" {
@@ -250,7 +309,10 @@ func newNetDoctorCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
 			defer cancel()
-			report := buildNetDoctorReport(ctx, hostnames)
+			if probeTimeout <= 0 {
+				return fmt.Errorf("--probe-timeout must be greater than zero")
+			}
+			report := buildNetDoctorReportWithOptions(ctx, hostnames, netDoctorProbeOptions{Enabled: probe, Timeout: probeTimeout})
 			rendered, err := renderDoctorReport(report, output)
 			if err != nil {
 				return err
@@ -264,10 +326,16 @@ func newNetDoctorCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
 	cmd.Flags().StringSliceVar(&hostnames, "resolve", nil, "resolve a hostname against a Service selecting a discovered DNS controller (repeatable)")
+	cmd.Flags().BoolVar(&probe, "probe", false, "actively probe every HTTPRoute hostname through its Gateway Service address")
+	cmd.Flags().DurationVar(&probeTimeout, "probe-timeout", netDoctorDefaultProbeTimeout, "timeout for each active Gateway hostname probe")
 	return cmd
 }
 
 func buildNetDoctorReport(ctx context.Context, hostnames []string) doctorReport {
+	return buildNetDoctorReportWithOptions(ctx, hostnames, netDoctorProbeOptions{})
+}
+
+func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, probeOptions netDoctorProbeOptions) doctorReport {
 	var report doctorReport
 	var gateways netDoctorGatewayList
 	gatewaysOK := true
@@ -298,6 +366,9 @@ func buildNetDoctorReport(ctx context.Context, hostnames []string) doctorReport 
 	}
 	if routesOK {
 		addNetDoctorHTTPRoutes(&report, routes.Items, services.Items, slices, servicesOK && slicesOK)
+	}
+	if probeOptions.Enabled {
+		addNetDoctorProbes(ctx, &report, routes.Items, gateways.Items, services.Items, slices, routesOK, gatewaysOK, servicesOK, probeOptions.Timeout)
 	}
 
 	var deployments netDoctorDeploymentList
@@ -508,6 +579,305 @@ func addNetDoctorHTTPRoutes(report *doctorReport, routes []netDoctorHTTPRoute, s
 		status, detail := classifyHTTPRoute(route, services, slices, resolveBackends)
 		report.add(netDoctorGroupHTTPRoutes, "HTTPRoute", route.Metadata.Namespace, route.Metadata.Name, status, detail)
 	}
+}
+
+func netDoctorGatewayKey(namespace, name string) string {
+	return namespacedName(namespace, name)
+}
+
+func netDoctorGatewayService(gateway netDoctorGateway, services []netDoctorService) (netDoctorService, bool) {
+	var fallback *netDoctorService
+	for i := range services {
+		service := &services[i]
+		if service.Metadata.Namespace != gateway.Metadata.Namespace {
+			continue
+		}
+		labels := service.Metadata.Labels
+		if labels["gateway.networking.k8s.io/gateway-name"] == gateway.Metadata.Name ||
+			labels["gateway.envoyproxy.io/owning-gateway-name"] == gateway.Metadata.Name ||
+			labels["gateway.kgateway.dev/owning-gateway-name"] == gateway.Metadata.Name {
+			return *service, true
+		}
+		if service.Metadata.Name == gateway.Metadata.Name {
+			return *service, true
+		}
+		if fallback == nil && strings.Contains(service.Metadata.Name, gateway.Metadata.Name) {
+			fallback = service
+		}
+	}
+	if fallback != nil {
+		return *fallback, true
+	}
+	return netDoctorService{}, false
+}
+
+func netDoctorServiceAddress(service netDoctorService) string {
+	for _, ingress := range service.Status.LoadBalancer.Ingress {
+		if strings.TrimSpace(ingress.IP) != "" {
+			return strings.TrimSpace(ingress.IP)
+		}
+		if strings.TrimSpace(ingress.Hostname) != "" {
+			return strings.TrimSpace(ingress.Hostname)
+		}
+	}
+	if strings.TrimSpace(service.Spec.LoadBalancerIP) != "" {
+		return strings.TrimSpace(service.Spec.LoadBalancerIP)
+	}
+	return strings.TrimSpace(service.Spec.ClusterIP)
+}
+
+func netDoctorServiceHTTPSPort(service netDoctorService) int {
+	for _, port := range service.Spec.Ports {
+		if port.Port == 443 || strings.EqualFold(port.Name, "https") {
+			return port.Port
+		}
+	}
+	return 443
+}
+
+func netDoctorRouteHasReadyBackends(route netDoctorHTTPRoute, slices netDoctorEndpointSliceList) bool {
+	ready := readyEndpointsByService(slices)
+	for _, rule := range route.Spec.Rules {
+		for _, backend := range rule.BackendRefs {
+			if (backend.Group != "" && backend.Group != "core") || (backend.Kind != "" && backend.Kind != "Service") {
+				continue
+			}
+			namespace := backend.Namespace
+			if namespace == "" {
+				namespace = route.Metadata.Namespace
+			}
+			if ready[namespacedName(namespace, backend.Name)] > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func buildNetDoctorProbeTargets(routes []netDoctorHTTPRoute, gateways []netDoctorGateway, services []netDoctorService, slices netDoctorEndpointSliceList) ([]netDoctorProbeTarget, []doctorCheck) {
+	gatewayByName := make(map[string]netDoctorGateway, len(gateways))
+	for _, gateway := range gateways {
+		gatewayByName[netDoctorGatewayKey(gateway.Metadata.Namespace, gateway.Metadata.Name)] = gateway
+	}
+
+	var targets []netDoctorProbeTarget
+	var problems []doctorCheck
+	seen := map[string]struct{}{}
+	for _, route := range routes {
+		for _, hostname := range route.Spec.Hostnames {
+			hostname = strings.TrimSpace(hostname)
+			if hostname == "" {
+				continue
+			}
+			for _, parent := range route.Spec.ParentRefs {
+				if (parent.Group != "" && parent.Group != "gateway.networking.k8s.io") || (parent.Kind != "" && parent.Kind != "Gateway") {
+					continue
+				}
+				gatewayNamespace := parent.Namespace
+				if gatewayNamespace == "" {
+					gatewayNamespace = route.Metadata.Namespace
+				}
+				gatewayName := netDoctorGatewayKey(gatewayNamespace, parent.Name)
+				probeName := namespacedName(route.Metadata.Namespace, route.Metadata.Name) + "/" + hostname + "@" + gatewayName
+				if _, duplicate := seen[probeName]; duplicate {
+					continue
+				}
+				seen[probeName] = struct{}{}
+
+				gateway, ok := gatewayByName[gatewayName]
+				if !ok {
+					problems = append(problems, doctorCheck{Group: netDoctorGroupProbes, Kind: "HTTPSProbe", Name: probeName, Status: statusFail, Detail: "matching Gateway not found"})
+					continue
+				}
+				service, serviceOK := netDoctorGatewayService(gateway, services)
+				address := ""
+				port := 443
+				if serviceOK {
+					address = netDoctorServiceAddress(service)
+					port = netDoctorServiceHTTPSPort(service)
+				}
+				if address == "" {
+					for _, gatewayAddress := range gateway.Status.Addresses {
+						if strings.TrimSpace(gatewayAddress.Value) != "" {
+							address = strings.TrimSpace(gatewayAddress.Value)
+							break
+						}
+					}
+				}
+				if address == "" {
+					detail := "matching Gateway Service has no LoadBalancer, loadBalancerIP, or ClusterIP address"
+					if !serviceOK {
+						detail = "matching Gateway Service not found and Gateway status has no address"
+					}
+					problems = append(problems, doctorCheck{Group: netDoctorGroupProbes, Kind: "HTTPSProbe", Name: probeName, Status: statusFail, Detail: detail})
+					continue
+				}
+				targets = append(targets, netDoctorProbeTarget{
+					RouteNamespace: route.Metadata.Namespace,
+					RouteName:      route.Metadata.Name,
+					Hostname:       hostname,
+					Gateway:        gatewayName,
+					Address:        address,
+					Port:           port,
+					ReadyBackends:  netDoctorRouteHasReadyBackends(route, slices),
+				})
+			}
+		}
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		left := namespacedName(targets[i].RouteNamespace, targets[i].RouteName) + "/" + targets[i].Hostname + "@" + targets[i].Gateway
+		right := namespacedName(targets[j].RouteNamespace, targets[j].RouteName) + "/" + targets[j].Hostname + "@" + targets[j].Gateway
+		return left < right
+	})
+	sort.Slice(problems, func(i, j int) bool { return problems[i].Name < problems[j].Name })
+	return targets, problems
+}
+
+func addNetDoctorProbes(ctx context.Context, report *doctorReport, routes []netDoctorHTTPRoute, gateways []netDoctorGateway, services []netDoctorService, slices netDoctorEndpointSliceList, routesOK, gatewaysOK, servicesOK bool, timeout time.Duration) {
+	if !routesOK || !gatewaysOK || !servicesOK {
+		report.add(netDoctorGroupProbes, "HTTPSProbe", "", "all", statusFail, "active probes require HTTPRoutes, Gateways, and Services to be listed successfully")
+		return
+	}
+	targets, problems := buildNetDoctorProbeTargets(routes, gateways, services, slices)
+	report.Checks = append(report.Checks, problems...)
+	if len(targets) == 0 {
+		if len(problems) == 0 {
+			report.add(netDoctorGroupProbes, "HTTPSProbe", "", "all", statusWarn, "no HTTPRoute hostnames with Gateway parents found")
+		}
+		return
+	}
+
+	results := make([]netDoctorProbeResult, len(targets))
+	jobs := make(chan int)
+	workerCount := netDoctorProbeConcurrency
+	if len(targets) < workerCount {
+		workerCount = len(targets)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for index := range jobs {
+				probeCtx, cancel := context.WithTimeout(ctx, timeout)
+				results[index] = netDoctorProbeFn(probeCtx, targets[index])
+				cancel()
+			}
+		}()
+	}
+	for i := range targets {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+
+	for _, result := range results {
+		status, detail := classifyNetDoctorProbeResult(result, netDoctorNowFn())
+		name := namespacedName(result.Target.RouteNamespace, result.Target.RouteName) + "/" + result.Target.Hostname + "@" + result.Target.Gateway
+		report.add(netDoctorGroupProbes, "HTTPSProbe", "", name, status, detail)
+	}
+}
+
+func probeNetDoctorHost(ctx context.Context, target netDoctorProbeTarget) netDoctorProbeResult {
+	result := netDoctorProbeResult{Target: target}
+	started := time.Now()
+	address := net.JoinHostPort(target.Address, fmt.Sprintf("%d", target.Port))
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+		DialTLSContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
+			conn, err := netDoctorProbeDialContext(dialCtx, "tcp", address)
+			if err != nil {
+				return nil, err
+			}
+			result.TCPConnected = true
+			tlsConn := tls.Client(conn, &tls.Config{ServerName: target.Hostname, RootCAs: netDoctorProbeRootCAs, MinVersion: tls.VersionTLS12})
+			handshakeErr := tlsConn.HandshakeContext(dialCtx)
+			state := tlsConn.ConnectionState()
+			if len(state.PeerCertificates) > 0 {
+				result.CertNotAfter = state.PeerCertificates[0].NotAfter
+			}
+			if handshakeErr != nil {
+				_ = conn.Close()
+				return nil, handshakeErr
+			}
+			result.TLSHandshook = true
+			result.ChainValid = len(state.VerifiedChains) > 0
+			return tlsConn, nil
+		},
+	}
+	defer transport.CloseIdleConnections()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+target.Hostname+"/", nil)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	request.Host = target.Hostname
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	result.Latency = time.Since(started)
+	if err != nil {
+		result.Err = err
+		return result
+	}
+	defer func() { _ = response.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64*1024))
+	result.HTTPStatusCode = response.StatusCode
+	return result
+}
+
+func classifyNetDoctorProbeHTTP(statusCode int, readyBackends bool) doctorStatus {
+	if (statusCode >= 200 && statusCode < 400) || statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		return statusPass
+	}
+	if statusCode == http.StatusNotFound {
+		return statusWarn
+	}
+	if statusCode >= 500 && readyBackends {
+		return statusWarn
+	}
+	if statusCode >= 500 {
+		return statusFail
+	}
+	return statusWarn
+}
+
+func classifyNetDoctorProbeResult(result netDoctorProbeResult, now time.Time) (doctorStatus, string) {
+	address := net.JoinHostPort(result.Target.Address, fmt.Sprintf("%d", result.Target.Port))
+	parts := []string{"gateway=" + result.Target.Gateway, "address=" + address}
+	if !result.TCPConnected {
+		parts = append(parts, "tcp=fail")
+		if result.Err != nil {
+			parts = append(parts, "error="+result.Err.Error())
+		}
+		return statusFail, strings.Join(parts, "; ")
+	}
+	parts = append(parts, "tcp=ok")
+	if !result.TLSHandshook || !result.ChainValid {
+		parts = append(parts, "tls=fail", "chain=invalid")
+		if !result.CertNotAfter.IsZero() {
+			days := int(result.CertNotAfter.Sub(now) / (24 * time.Hour))
+			parts = append(parts, fmt.Sprintf("cert_expires_in=%dd", days))
+		}
+		if result.Err != nil {
+			parts = append(parts, "error="+result.Err.Error())
+		}
+		return statusFail, strings.Join(parts, "; ")
+	}
+	days := int(result.CertNotAfter.Sub(now) / (24 * time.Hour))
+	parts = append(parts, "tls=ok", "chain=valid", fmt.Sprintf("cert_expires_in=%dd", days))
+	if result.Err != nil || result.HTTPStatusCode == 0 {
+		parts = append(parts, "http=fail")
+		if result.Err != nil {
+			parts = append(parts, "error="+result.Err.Error())
+		}
+		parts = append(parts, "latency="+result.Latency.Round(time.Millisecond).String())
+		return statusFail, strings.Join(parts, "; ")
+	}
+	status := classifyNetDoctorProbeHTTP(result.HTTPStatusCode, result.Target.ReadyBackends)
+	parts = append(parts,
+		fmt.Sprintf("http=%d", result.HTTPStatusCode),
+		"ready_backends="+fmt.Sprintf("%t", result.Target.ReadyBackends),
+		"latency="+result.Latency.Round(time.Millisecond).String())
+	return status, strings.Join(parts, "; ")
 }
 
 func templateUsesImage(template netDoctorPodTemplate, substrings []string) bool {

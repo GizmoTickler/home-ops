@@ -173,9 +173,10 @@ func renderDoctorReport(report doctorReport, output string) (string, error) {
 }
 
 type metadataJSON struct {
-	Name              string `json:"name"`
-	Namespace         string `json:"namespace"`
-	CreationTimestamp string `json:"creationTimestamp"`
+	Name              string            `json:"name"`
+	Namespace         string            `json:"namespace"`
+	CreationTimestamp string            `json:"creationTimestamp"`
+	Labels            map[string]string `json:"labels"`
 }
 
 type conditionJSON struct {

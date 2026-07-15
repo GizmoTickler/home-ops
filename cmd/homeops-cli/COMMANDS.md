@@ -143,6 +143,8 @@ Container Linux + kubeadm provider (`--provider flatcar`); pass
 
 ```bash
 homeops-cli bootstrap                       # Flatcar/kubeadm (default)
+homeops-cli bootstrap --plan                # complete ordered plan; no infrastructure changes
+homeops-cli bootstrap --plan --check-secrets --output json
 homeops-cli bootstrap --dry-run
 homeops-cli bootstrap --skip-preflight --skip-crds
 homeops-cli bootstrap --verbose
@@ -153,6 +155,9 @@ homeops-cli bootstrap --provider talos      # legacy Talos path
 Key flags:
 
 - `--provider` (`flatcar` default, or `talos`)
+- `--plan` (pure config/template introspection; prints the complete ordered plan and exits)
+- `--check-secrets` (with `--plan`, availability-check listed references without printing references or values)
+- `--output` (`table` or `json`, with `--plan`)
 - `--root-dir`
 - `--kubeconfig`
 - `--k8s-version`
@@ -559,6 +564,7 @@ homeops-cli k8s doctor --output json
 # Trace Gateway API parents/backends, Envoy Gateways, cloudflared, DNS, and TLS
 homeops-cli k8s net-doctor
 homeops-cli k8s net-doctor --resolve home.example.com --resolve status.example.com
+homeops-cli k8s net-doctor --probe --probe-timeout 5s
 homeops-cli k8s net-doctor --output json
 
 # Audit orphaned claims, unhealthy PVs, Ceph capacity, overcommit, and backup gaps
@@ -587,9 +593,14 @@ homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
 ```
 
 These commands only issue read-only Kubernetes API queries. `net-doctor` also
-performs local DNS lookups against the `network/k8s-gateway` LoadBalancer IP
-when `--resolve` is supplied; without that flag it performs no active network
-probe. Both `doctor` and `net-doctor` exit 1 when a `FAIL` check is present.
+performs local DNS lookups against a discovered DNS-controller Service address
+when `--resolve` is supplied. With `--probe`, it concurrently sends HTTPS GETs
+for every HTTPRoute hostname directly to the matching Gateway Service address,
+using the route hostname for TLS SNI and the HTTP Host header; public route DNS
+is not used. The `PROBES` group records TCP/TLS/chain/expiry/HTTP/latency results.
+Without `--resolve` or `--probe`, it performs no active network probe and its
+output is unchanged. Both `doctor` and `net-doctor` exit 1 when a `FAIL` check
+is present.
 `storage-report`
 returns zero when it finds hygiene issues unless `--fail-on-findings` is set.
 `flux-tree` defaults to the `flux-system` namespace, includes unhealthy nested

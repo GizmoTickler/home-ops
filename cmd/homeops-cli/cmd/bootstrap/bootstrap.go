@@ -47,6 +47,11 @@ type BootstrapConfig struct {
 	// kubeadm-over-SSH) or "talos" (legacy, retained for rollback). Only the
 	// pre-CNI steps differ; the generic post-CNI steps are shared.
 	Provider string
+	// Plan prints a complete, config-derived bootstrap plan and returns before
+	// confirmations, preflight checks, secret resolution, or infrastructure I/O.
+	Plan         bool
+	CheckSecrets bool
+	Output       string
 }
 
 type PreflightResult struct {
@@ -90,6 +95,7 @@ var (
 	bootstrapGetBootstrapFile     = templates.GetBootstrapFile
 	bootstrapGetBootstrapTemplate = templates.GetBootstrapTemplate
 	bootstrapGetTalosTemplate     = templates.GetTalosTemplate
+	bootstrapGetFlatcarTemplate   = templates.GetFlatcarTemplate
 	bootstrapInjectSecrets        = secrets.Inject
 	bootstrapResolveSecrets       = resolve1PasswordReferences
 	bootstrapRenderMachineConfig  = renderMachineConfigFromEmbedded
@@ -204,7 +210,13 @@ kubeadm provider:
 
 Pass --provider talos to run the legacy Talos path (apply machine config,
 talosctl bootstrap) instead.`,
-		Example: `  # Dry-run first: see every step without touching the cluster
+		Example: `  # Print the complete config-derived plan without touching infrastructure
+  homeops-cli bootstrap --plan
+
+  # Include availability-only secret checks; values/references are never printed
+  homeops-cli bootstrap --plan --check-secrets --output json
+
+  # Exercise operational dry-run branches
   homeops-cli bootstrap --dry-run
 
   # Full Flatcar/kubeadm bootstrap
@@ -216,6 +228,27 @@ talosctl bootstrap) instead.`,
   # Legacy Talos path
   homeops-cli bootstrap --provider talos`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if config.CheckSecrets && !config.Plan {
+				return fmt.Errorf("--check-secrets requires --plan")
+			}
+			if config.Output != "table" && config.Output != "json" {
+				return fmt.Errorf("unsupported output format %q (table, json)", config.Output)
+			}
+			if !config.Plan && cmd.Flags().Changed("output") {
+				return fmt.Errorf("--output requires --plan")
+			}
+			if config.Plan {
+				plan, err := bootstrapBuildPlanFn(config)
+				if err != nil {
+					return err
+				}
+				rendered, err := renderBootstrapPlan(plan, config.Output)
+				if err != nil {
+					return err
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), rendered)
+				return nil
+			}
 			// Bare invocation on a terminal (CLI or interactive menu): offer
 			// the mode (dry-run vs real) and skip options first, so dry runs
 			// are one choice away instead of flag-only knowledge.
@@ -260,6 +293,9 @@ talosctl bootstrap) instead.`,
 	cmd.Flags().BoolVar(&config.SkipPreflight, "skip-preflight", false, "Skip preflight checks (not recommended)")
 	cmd.Flags().BoolVar(&config.SkipKubeadm, "skip-kubeadm", false, "Flatcar: skip kubeadm init/join; run only post-CNI bootstrap against an existing control plane")
 	cmd.Flags().BoolVar(&config.FreshPKI, "fresh-pki", false, "Flatcar: mint a NEW cluster CA instead of restoring the persisted PKI from 1Password (breaks existing kubeconfigs)")
+	cmd.Flags().BoolVar(&config.Plan, "plan", false, "print the complete ordered bootstrap plan and exit without making changes")
+	cmd.Flags().BoolVar(&config.CheckSecrets, "check-secrets", false, "with --plan, check whether listed secret references currently resolve without printing values")
+	cmd.Flags().StringVarP(&config.Output, "output", "o", "table", "plan output format: table or json")
 	cmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output (shows all logs, disables spinners)")
 	cmd.Flags().StringVar(&config.Provider, "provider", "flatcar", "Node provisioning provider: flatcar (kubeadm, default) or talos (legacy)")
 	_ = cmd.RegisterFlagCompletionFunc("provider", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
