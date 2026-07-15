@@ -70,6 +70,7 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, DefaultEtcdBackupKeep, c.State.EtcdBackup.Keep)
 	assert.Equal(t, KeyTrueNASHost, c.State.EtcdBackup.Upload.HostRef)
 	assert.Equal(t, DefaultTrueNASSSHUser, c.State.EtcdBackup.Upload.SSHUser)
+	assert.Equal(t, constants.DefaultNodeSSHPort, c.State.EtcdBackup.Upload.SSHPort)
 	assert.Empty(t, c.State.EtcdBackup.Upload.SSHKey)
 	assert.Equal(t, DefaultEtcdUploadDir, c.State.EtcdBackup.Upload.Dir)
 	assert.Equal(t, DefaultEtcdUploadKeep, c.State.EtcdBackup.Upload.Keep)
@@ -100,6 +101,7 @@ state:
     upload:
       host_ref: truenas_host
       ssh_user: backup
+      ssh_port: 2222
       ssh_key: ~/.ssh/keys/nas01-ssh
       dir: /mnt/tank/dr/etcd
       keep: 21
@@ -113,6 +115,7 @@ state:
 	assert.Equal(t, 14, c.State.EtcdBackup.Keep)
 	assert.Equal(t, KeyTrueNASHost, c.State.EtcdBackup.Upload.HostRef)
 	assert.Equal(t, "backup", c.State.EtcdBackup.Upload.SSHUser)
+	assert.Equal(t, 2222, c.State.EtcdBackup.Upload.SSHPort)
 	assert.Equal(t, "~/.ssh/keys/nas01-ssh", c.State.EtcdBackup.Upload.SSHKey)
 	assert.Equal(t, "/mnt/tank/dr/etcd", c.State.EtcdBackup.Upload.Dir)
 	assert.Equal(t, 21, c.State.EtcdBackup.Upload.Keep)

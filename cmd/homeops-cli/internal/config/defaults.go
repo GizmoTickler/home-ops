@@ -295,6 +295,9 @@ func applyDefaults(c *Config) {
 	if upload.SSHUser == "" {
 		upload.SSHUser = c.Hypervisors.TrueNAS.SSHUser
 	}
+	if upload.SSHPort == 0 {
+		upload.SSHPort = constants.DefaultNodeSSHPort
+	}
 	if upload.Dir == "" {
 		upload.Dir = DefaultEtcdUploadDir
 	}

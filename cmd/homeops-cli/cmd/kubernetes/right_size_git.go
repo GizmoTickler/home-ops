@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
+	shareddiff "homeops-cli/internal/diff"
 	"homeops-cli/internal/ui"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -111,7 +112,7 @@ func applyRightSizeReportToGit(ctx context.Context, report rightSizeReport, opti
 	sort.Slice(changed, func(i, j int) bool { return changed[i].path < changed[j].path })
 	for _, file := range changed {
 		relative, _ := filepath.Rel(root, file.path)
-		if _, err := fmt.Fprint(out, unifiedRightSizeDiff(filepath.ToSlash(relative), file.original, file.updated)); err != nil {
+		if _, err := fmt.Fprint(out, shareddiff.Unified(filepath.ToSlash(relative), file.original, file.updated)); err != nil {
 			return err
 		}
 		if options.Write {
@@ -396,43 +397,6 @@ func splitRightSizeLines(content []byte) []string {
 	return lines
 }
 
-func unifiedRightSizeDiff(path string, before, after []byte) string {
-	oldLines := strings.Split(strings.TrimSuffix(string(before), "\n"), "\n")
-	newLines := strings.Split(strings.TrimSuffix(string(after), "\n"), "\n")
-	lcs := make([][]int, len(oldLines)+1)
-	for i := range lcs {
-		lcs[i] = make([]int, len(newLines)+1)
-	}
-	for i := len(oldLines) - 1; i >= 0; i-- {
-		for j := len(newLines) - 1; j >= 0; j-- {
-			if oldLines[i] == newLines[j] {
-				lcs[i][j] = lcs[i+1][j+1] + 1
-			} else if lcs[i+1][j] >= lcs[i][j+1] {
-				lcs[i][j] = lcs[i+1][j]
-			} else {
-				lcs[i][j] = lcs[i][j+1]
-			}
-		}
-	}
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "--- a/%s\n+++ b/%s\n@@ -1,%d +1,%d @@\n", path, path, len(oldLines), len(newLines))
-	for i, j := 0, 0; i < len(oldLines) || j < len(newLines); {
-		switch {
-		case i < len(oldLines) && j < len(newLines) && oldLines[i] == newLines[j]:
-			builder.WriteString(" " + strings.TrimSuffix(oldLines[i], "\r") + "\n")
-			i++
-			j++
-		case i < len(oldLines) && (j == len(newLines) || lcs[i+1][j] >= lcs[i][j+1]):
-			builder.WriteString("-" + strings.TrimSuffix(oldLines[i], "\r") + "\n")
-			i++
-		default:
-			builder.WriteString("+" + strings.TrimSuffix(newLines[j], "\r") + "\n")
-			j++
-		}
-	}
-	return builder.String()
-}
-
 func writeRightSizeGitSummary(out io.Writer, results []rightSizeGitResult, wrote bool) error {
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
@@ -455,7 +419,7 @@ func writeRightSizeGitCommands(out io.Writer, root string, files []*rightSizeGit
 	paths := make([]string, 0, len(files))
 	for _, file := range files {
 		relative, _ := filepath.Rel(root, file.path)
-		paths = append(paths, shellQuote(filepath.ToSlash(relative)))
+		paths = append(paths, common.ShellQuote(filepath.ToSlash(relative)))
 	}
 	if !wrote {
 		if _, err := fmt.Fprintln(out, "\nPreview only; rerun with --write to apply these edits."); err != nil {
@@ -463,10 +427,6 @@ func writeRightSizeGitCommands(out io.Writer, root string, files []*rightSizeGit
 		}
 	}
 	_, err := fmt.Fprintf(out, "\nReview and commit manually (this command never commits):\n  git -C %s diff -- %s\n  git -C %s add -- %s\n  git -C %s commit -m %s\n",
-		shellQuote(root), strings.Join(paths, " "), shellQuote(root), strings.Join(paths, " "), shellQuote(root), shellQuote("chore: right-size Kubernetes resources"))
+		common.ShellQuote(root), strings.Join(paths, " "), common.ShellQuote(root), strings.Join(paths, " "), common.ShellQuote(root), common.ShellQuote("chore: right-size Kubernetes resources"))
 	return err
-}
-
-func shellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

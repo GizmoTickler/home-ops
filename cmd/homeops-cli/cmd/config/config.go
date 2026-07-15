@@ -292,6 +292,7 @@ state:
   #  upload:
   #    host_ref: truenas_host
   #    ssh_user: truenas_admin
+  #    ssh_port: 22
   #    ssh_key: ~/.ssh/keys/nas01-ssh  # optional; passphrase-less private key
   #    dir: /mnt/flashstor/etcd-snapshots
   #    keep: 14

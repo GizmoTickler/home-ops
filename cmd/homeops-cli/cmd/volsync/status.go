@@ -2,7 +2,6 @@ package volsync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -169,7 +168,7 @@ type replicationSourceList struct {
 
 func listReplicationSourceStatusesContext(ctx context.Context, namespace string, staleAfter time.Duration) ([]volsyncSourceStatus, error) {
 	var list replicationSourceList
-	if err := volsyncKubectlGetJSONContext(ctx, namespace, "replicationsources", &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, verifyOutputFn, namespace, "replicationsources", &list); err != nil {
 		return nil, err
 	}
 	out := make([]volsyncSourceStatus, 0, len(list.Items))
@@ -253,7 +252,7 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 	}
 
 	var list pvcList
-	if err := volsyncKubectlGetJSONContext(ctx, namespace, "pvc", &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, verifyOutputFn, namespace, "pvc", &list); err != nil {
 		return nil, err
 	}
 	var missing []volsyncMissingBackup
@@ -284,24 +283,6 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 	return missing, nil
 }
 
-func volsyncKubectlGetJSONContext(ctx context.Context, namespace, resource string, dest interface{}) error {
-	args := []string{"get", resource}
-	if namespace != "" {
-		args = append(args, "--namespace", namespace)
-	} else {
-		args = append(args, "-A")
-	}
-	args = append(args, "-o", "json")
-	out, err := commandOutputCtxFn(ctx, "kubectl", args...)
-	if err != nil {
-		return fmt.Errorf("kubectl get %s: %w", resource, err)
-	}
-	if err := json.Unmarshal(out, dest); err != nil {
-		return fmt.Errorf("parse kubectl %s json: %w", resource, err)
-	}
-	return nil
-}
-
 func renderVolsyncStatusReport(report volsyncStatusReport, output string) (string, error) {
 	switch output {
 	case "", "table":
@@ -324,12 +305,8 @@ func renderVolsyncStatusReport(report volsyncStatusReport, output string) (strin
 		}
 		return b.String(), nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }

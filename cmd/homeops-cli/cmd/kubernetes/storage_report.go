@@ -265,8 +265,8 @@ func newStorageReportCommand() *cobra.Command {
   homeops-cli k8s storage-report --namespace media --ceph-warn-percent 75
   homeops-cli k8s storage-report --output json --fail-on-findings`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			if cephWarnPercent < 0 || cephWarnPercent > 100 {
 				return fmt.Errorf("--ceph-warn-percent must be between 0 and 100")
@@ -297,36 +297,36 @@ func buildStorageReport(ctx context.Context, namespace string, cephWarnPercent f
 	var report storageReport
 	var pvcs storagePVCList
 	pvcOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "persistentvolumeclaims", &pvcs); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "persistentvolumeclaims", &pvcs); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		pvcOK = false
 	}
 	var pods storagePodList
 	podsOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "pods", &pods); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "pods", &pods); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		podsOK = false
 	}
 	var statefulSets storageStatefulSetList
 	statefulSetsOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "statefulsets.apps", &statefulSets); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "statefulsets.apps", &statefulSets); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		statefulSetsOK = false
 	}
 	var workloads storageWorkloadList
 	workloadsOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "deployments.apps,replicasets.apps,daemonsets.apps,jobs.batch,cronjobs.batch", &workloads); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "deployments.apps,replicasets.apps,daemonsets.apps,jobs.batch,cronjobs.batch", &workloads); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		workloadsOK = false
 	}
 	var sources, destinations storageReplicationList
 	sourcesOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "replicationsources.volsync.backube", &sources); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "replicationsources.volsync.backube", &sources); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		sourcesOK = false
 	}
 	destinationsOK := true
-	if err := kubectlGetJSONContext(ctx, namespace, "replicationdestinations.volsync.backube", &destinations); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "replicationdestinations.volsync.backube", &destinations); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 		destinationsOK = false
 	}
@@ -339,14 +339,14 @@ func buildStorageReport(ctx context.Context, namespace string, cephWarnPercent f
 	}
 
 	var pvs storagePVList
-	if err := kubectlGetClusterJSONContext(ctx, "persistentvolumes", &pvs); err != nil {
+	if err := kubeutil.GetClusterJSON(ctx, kubectlOutputCtxFn, "persistentvolumes", &pvs); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	} else {
 		report.PVIssues = detectPVIssues(pvs.Items, namespace, storageNowFn(), storageAvailablePVMaxAge)
 	}
 
 	var clusters cephCapacityList
-	if err := kubectlGetJSONContext(ctx, storageConfigFn().Cluster.Rook.Namespace, cephClusterResource, &clusters); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, storageConfigFn().Cluster.Rook.Namespace, cephClusterResource, &clusters); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	} else {
 		report.CephCapacity = parseCephCapacities(clusters.Items, cephWarnPercent)
@@ -558,11 +558,12 @@ func detectVolSyncGaps(pvcs []storagePVC, sources storageReplicationList) []volS
 
 func renderStorageReport(report storageReport, output string) (string, error) {
 	if output == "json" {
-		raw, err := json.MarshalIndent(report, "", "  ")
-		return string(raw), err
+		return ui.RenderJSON(report)
 	}
-	if output != "" && output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+	if output != "" {
+		if err := ui.ValidateOutputFormat(output); err != nil {
+			return "", err
+		}
 	}
 	var rows [][]string
 	for _, pvc := range report.OrphanedPVCs {

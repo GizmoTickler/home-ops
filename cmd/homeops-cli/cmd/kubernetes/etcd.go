@@ -20,6 +20,7 @@ import (
 	"homeops-cli/internal/cmdutil"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/ui"
 )
@@ -215,7 +216,7 @@ func runEtcdBackupWithUpload(ctx context.Context, outputDir string, keep int, up
 	if err != nil {
 		return result, err
 	}
-	client := etcdNewNodeClientFn(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: strconv.Itoa(config.Get().Cluster.NodeSSHPort)})
+	client := etcdNewNodeClientFn(kubeutil.NodeSSHConfig(node, sshUser))
 	if err := client.Connect(); err != nil {
 		return result, fmt.Errorf("connect to etcd node %s over SSH: %w", node.Name, err)
 	}
@@ -762,13 +763,9 @@ func renderEtcdStatus(report etcdStatusReport, output string) (string, error) {
 		}
 		return result, nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -154,10 +155,6 @@ type kubectlVersionJSON struct {
 	} `json:"serverVersion"`
 }
 
-var upgradeStatusKubectlOutputFn = func(ctx context.Context, args ...string) ([]byte, error) {
-	return kubectlOutputCtxFn(ctx, args...)
-}
-
 func newUpgradeStatusCommand() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
@@ -194,7 +191,7 @@ func runUpgradeStatus(ctx context.Context, output string, out io.Writer) error {
 }
 
 func buildUpgradeStatusReport(ctx context.Context) (upgradeStatusReport, error) {
-	plansRaw, err := upgradeStatusKubectlOutputFn(ctx, "get", systemUpgradePlanResource, "-A", "-o", "json")
+	plansRaw, err := kubectlOutputCtxFn(ctx, "get", systemUpgradePlanResource, "-A", "-o", "json")
 	if err != nil {
 		return upgradeStatusReport{}, fmt.Errorf("list System Upgrade Controller plans: %w", err)
 	}
@@ -202,15 +199,11 @@ func buildUpgradeStatusReport(ctx context.Context) (upgradeStatusReport, error) 
 	if err != nil {
 		return upgradeStatusReport{}, err
 	}
-	nodesRaw, err := upgradeStatusKubectlOutputFn(ctx, "get", "nodes", "-o", "json")
-	if err != nil {
+	var nodeList upgradeStatusNodeList
+	if err := kubeutil.GetClusterJSON(ctx, kubectlOutputCtxFn, "nodes", &nodeList); err != nil {
 		return upgradeStatusReport{}, fmt.Errorf("list Kubernetes nodes: %w", err)
 	}
-	var nodeList upgradeStatusNodeList
-	if err := json.Unmarshal(nodesRaw, &nodeList); err != nil {
-		return upgradeStatusReport{}, fmt.Errorf("parse Kubernetes node list: %w", err)
-	}
-	versionRaw, err := upgradeStatusKubectlOutputFn(ctx, "version", "-o", "json")
+	versionRaw, err := kubectlOutputCtxFn(ctx, "version", "-o", "json")
 	if err != nil {
 		return upgradeStatusReport{}, fmt.Errorf("read apiserver version: %w", err)
 	}
@@ -221,21 +214,13 @@ func buildUpgradeStatusReport(ctx context.Context) (upgradeStatusReport, error) 
 	if strings.TrimSpace(version.ServerVersion.GitVersion) == "" {
 		return upgradeStatusReport{}, fmt.Errorf("kubectl version JSON has no serverVersion.gitVersion")
 	}
-	jobsRaw, err := upgradeStatusKubectlOutputFn(ctx, "get", "jobs", "-A", "-o", "json")
-	if err != nil {
+	var jobs upgradeJobList
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "jobs", &jobs); err != nil {
 		return upgradeStatusReport{}, fmt.Errorf("list upgrade jobs: %w", err)
 	}
-	var jobs upgradeJobList
-	if err := json.Unmarshal(jobsRaw, &jobs); err != nil {
-		return upgradeStatusReport{}, fmt.Errorf("parse upgrade job list: %w", err)
-	}
-	podsRaw, err := upgradeStatusKubectlOutputFn(ctx, "get", "pods", "-A", "-o", "json")
-	if err != nil {
-		return upgradeStatusReport{}, fmt.Errorf("list pods for upgrade job reasons: %w", err)
-	}
 	var pods upgradePodList
-	if err := json.Unmarshal(podsRaw, &pods); err != nil {
-		return upgradeStatusReport{}, fmt.Errorf("parse upgrade pod list: %w", err)
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "pods", &pods); err != nil {
+		return upgradeStatusReport{}, fmt.Errorf("list pods for upgrade job reasons: %w", err)
 	}
 
 	report := upgradeStatusReport{Plans: plans, APIServerVersion: version.ServerVersion.GitVersion}
@@ -570,13 +555,9 @@ func renderUpgradeStatusReport(report upgradeStatusReport, output string) (strin
 			ui.Table([]string{"STATUS", "JOB", "PLAN", "NODE", "REASON"}, jobRows),
 			ui.Table([]string{"STATUS", "NODE", "APISERVER", "KUBELET", "MINOR DELTA", "DETAIL"}, skewRows)), nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	shareddiff "homeops-cli/internal/diff"
 	"homeops-cli/internal/testutil"
 )
 
@@ -113,7 +114,7 @@ func TestEditUpgradePlanVersionPreservesEveryOtherByte(t *testing.T) {
 func TestRenderUpgradePlanDiffIsUnifiedAndKeepsContext(t *testing.T) {
 	before := []byte(upgradePlanFixture)
 	after := []byte(strings.Replace(upgradePlanFixture, "v1.36.1", "v1.36.2", 1))
-	diff := renderUpgradePlanDiff("kubernetes/app/plan.yaml", before, after, 8)
+	diff := shareddiff.UnifiedContext("kubernetes/app/plan.yaml", before, after, 3)
 	assert.Contains(t, diff, "--- a/kubernetes/app/plan.yaml")
 	assert.Contains(t, diff, "+++ b/kubernetes/app/plan.yaml")
 	assert.Contains(t, diff, "@@ -")

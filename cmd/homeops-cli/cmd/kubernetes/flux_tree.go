@@ -2,13 +2,13 @@ package kubernetes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -105,13 +105,13 @@ func newFluxTreeCommand() *cobra.Command {
   homeops-cli k8s flux-tree rook-ceph-cluster --namespace flux-system --all
   homeops-cli k8s flux-tree radarr --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
 			defer cancel()
 			var kustomizations fluxKustomizationList
-			if err := kubectlGetJSONContext(ctx, "", fluxKustomizationResource, &kustomizations); err != nil {
+			if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", fluxKustomizationResource, &kustomizations); err != nil {
 				return err
 			}
 			if len(args) == 0 {
@@ -127,7 +127,7 @@ func newFluxTreeCommand() *cobra.Command {
 				return err
 			}
 			var releases fluxHelmReleaseList
-			if err := kubectlGetJSONContext(ctx, "", fluxHelmReleaseResource, &releases); err != nil {
+			if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", fluxHelmReleaseResource, &releases); err != nil {
 				return err
 			}
 			report, err := buildFluxTree(kustomizations.Items, releases.Items, rootNamespace, args[0])
@@ -307,8 +307,7 @@ func deepestBlockingChain(report fluxTreeReport) []string {
 
 func renderFluxKustomizationList(summaries []fluxKustomizationSummary, output string) (string, error) {
 	if output == "json" {
-		raw, err := json.MarshalIndent(summaries, "", "  ")
-		return string(raw), err
+		return ui.RenderJSON(summaries)
 	}
 	var rows [][]string
 	for _, summary := range summaries {
@@ -334,11 +333,12 @@ func renderFluxTree(report fluxTreeReport, output string, includeAll bool) (stri
 				jsonReport.Nodes[key] = filtered
 			}
 		}
-		raw, err := json.MarshalIndent(jsonReport, "", "  ")
-		return string(raw), err
+		return ui.RenderJSON(jsonReport)
 	}
-	if output != "" && output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+	if output != "" {
+		if err := ui.ValidateOutputFormat(output); err != nil {
+			return "", err
+		}
 	}
 	var b strings.Builder
 	seen := map[string]bool{}

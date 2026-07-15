@@ -3,7 +3,6 @@ package kubernetes
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	"homeops-cli/internal/ui"
 )
 
 const diffFieldManager = "homeops-diff"
@@ -54,8 +54,8 @@ the command presents discovered kubernetes/apps/**/ks.yaml candidates.`,
   homeops-cli k8s diff ./kubernetes/apps/media/plex/ks.yaml --output json`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 
 			ksPath := ""
@@ -96,11 +96,11 @@ func runKustomizationDiff(ctx context.Context, ksPath, ksName, output string, ou
 	}
 
 	if output == "json" {
-		encoded, err := json.MarshalIndent(report, "", "  ")
+		encoded, err := ui.RenderJSON(report)
 		if err != nil {
 			return fmt.Errorf("marshal diff report: %w", err)
 		}
-		_, err = fmt.Fprintln(out, string(encoded))
+		_, err = fmt.Fprintln(out, encoded)
 		return err
 	}
 

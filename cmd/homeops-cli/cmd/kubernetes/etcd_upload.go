@@ -53,7 +53,7 @@ func uploadEtcdSnapshot(ctx context.Context, localPath, localHash string) (resul
 		return result, fmt.Errorf("state.etcd_backup.upload.keep must be at least 1")
 	}
 
-	client := etcdNewUploadClientFn(ssh.SSHConfig{Host: host, Username: upload.SSHUser, Port: "22", KeyPath: upload.SSHKey})
+	client := etcdNewUploadClientFn(ssh.SSHConfig{Host: host, Username: upload.SSHUser, Port: strconv.Itoa(upload.SSHPort), KeyPath: upload.SSHKey})
 	if err := client.Connect(); err != nil {
 		return result, fmt.Errorf("connect to etcd backup host %s over SSH: %w", host, err)
 	}
@@ -105,7 +105,7 @@ func inspectRemoteEtcdBackups(ctx context.Context, staleAfter time.Duration) etc
 	if err != nil {
 		return etcdBackupInventory{Status: "WARN", Detail: fmt.Sprintf("remote backup host is unavailable: %v", err)}
 	}
-	client := etcdNewUploadClientFn(ssh.SSHConfig{Host: strings.TrimSpace(host), Username: upload.SSHUser, Port: "22", KeyPath: upload.SSHKey})
+	client := etcdNewUploadClientFn(ssh.SSHConfig{Host: strings.TrimSpace(host), Username: upload.SSHUser, Port: strconv.Itoa(upload.SSHPort), KeyPath: upload.SSHKey})
 	if err := client.Connect(); err != nil {
 		return etcdBackupInventory{Status: "WARN", Detail: fmt.Sprintf("remote backup SSH failed: %v", err)}
 	}

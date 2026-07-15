@@ -169,8 +169,8 @@ required unless the global --yes flag is set.`,
   homeops-cli volsync verify --app paperless -n self-hosted --output json --yes`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if options.Output != "table" && options.Output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", options.Output)
+			if err := ui.ValidateOutputFormat(options.Output); err != nil {
+				return err
 			}
 			return runVolsyncVerify(cmd.Context(), options, cmd.OutOrStdout())
 		},
@@ -676,11 +676,11 @@ func restoredBytes(logs string) string {
 
 func writeVerifyReport(out io.Writer, output string, report verifyReport) error {
 	if output == "json" {
-		encoded, err := json.MarshalIndent(report, "", "  ")
+		encoded, err := ui.RenderJSON(report)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(out, string(encoded))
+		_, err = fmt.Fprintln(out, encoded)
 		return err
 	}
 	rows := [][]string{{report.Namespace, report.App, report.SnapshotRestored, report.Bytes, report.Duration, strconv.FormatBool(report.IntegrityChecked)}}

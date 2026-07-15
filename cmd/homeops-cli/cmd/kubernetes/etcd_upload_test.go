@@ -46,13 +46,13 @@ func configureEtcdUpload(t *testing.T, client *fakeEtcdUploadClient) string {
 	restore := config.SetForTesting(&config.Config{
 		Hypervisors: config.HypervisorsConfig{TrueNAS: config.TrueNASConfig{SSHUser: "backup"}},
 		State: config.StateConfig{EtcdBackup: config.EtcdBackupConfig{Upload: config.EtcdBackupUploadConfig{
-			HostRef: config.KeyTrueNASHost, SSHUser: "backup", SSHKey: "~/.ssh/keys/nas01-ssh", Dir: "/mnt/tank/etcd", Keep: 2,
+			HostRef: config.KeyTrueNASHost, SSHUser: "backup", SSHPort: 2222, SSHKey: "~/.ssh/keys/nas01-ssh", Dir: "/mnt/tank/etcd", Keep: 2,
 		}}},
 		Secrets: map[string]string{config.KeyTrueNASHost: "literal://nas.example"},
 	})
 	t.Cleanup(restore)
 	testutil.Swap(t, &etcdNewUploadClientFn, func(cfg ssh.SSHConfig) etcdUploadClient {
-		assert.Equal(t, ssh.SSHConfig{Host: "nas.example", Username: "backup", Port: "22", KeyPath: "~/.ssh/keys/nas01-ssh"}, cfg)
+		assert.Equal(t, ssh.SSHConfig{Host: "nas.example", Username: "backup", Port: "2222", KeyPath: "~/.ssh/keys/nas01-ssh"}, cfg)
 		return client
 	})
 	return path

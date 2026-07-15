@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/internal/kubeutil"
+	"homeops-cli/internal/ui"
 )
 
 const (
@@ -304,8 +306,8 @@ func newNetDoctorCommand() *cobra.Command {
 			"  homeops-cli k8s net-doctor --probe --probe-timeout 5s\n" +
 			"  homeops-cli k8s net-doctor --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
 			defer cancel()
@@ -339,7 +341,7 @@ func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, pr
 	var report doctorReport
 	var gateways netDoctorGatewayList
 	gatewaysOK := true
-	if err := kubectlGetJSONContext(ctx, "", netDoctorGatewayResource, &gateways); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", netDoctorGatewayResource, &gateways); err != nil {
 		report.add(netDoctorGroupGateways, "Gateway", "", "all", statusFail, err.Error())
 		gatewaysOK = false
 	} else {
@@ -348,19 +350,19 @@ func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, pr
 
 	var routes netDoctorHTTPRouteList
 	routesOK := true
-	if err := kubectlGetJSONContext(ctx, "", netDoctorHTTPRouteResource, &routes); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", netDoctorHTTPRouteResource, &routes); err != nil {
 		report.add(netDoctorGroupHTTPRoutes, "HTTPRoute", "", "all", statusFail, err.Error())
 		routesOK = false
 	}
 	var services netDoctorServiceList
 	servicesOK := true
-	if err := kubectlGetJSONContext(ctx, "", "services", &services); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "services", &services); err != nil {
 		report.add(netDoctorGroupHTTPRoutes, "Service", "", "all", statusFail, err.Error())
 		servicesOK = false
 	}
 	var slices netDoctorEndpointSliceList
 	slicesOK := true
-	if err := kubectlGetJSONContext(ctx, "", netDoctorEndpointSliceResource, &slices); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", netDoctorEndpointSliceResource, &slices); err != nil {
 		report.add(netDoctorGroupHTTPRoutes, "EndpointSlice", "", "all", statusFail, err.Error())
 		slicesOK = false
 	}
@@ -373,14 +375,14 @@ func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, pr
 
 	var deployments netDoctorDeploymentList
 	deploymentsOK := true
-	if err := kubectlGetJSONContext(ctx, "", "deployments", &deployments); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "deployments", &deployments); err != nil {
 		report.add(netDoctorGroupTunnel, "Deployment", "", "all", statusFail, err.Error())
 		report.add(netDoctorGroupDNS, "Deployment", "", "all", statusFail, err.Error())
 		deploymentsOK = false
 	}
 	var daemonSets netDoctorDaemonSetList
 	daemonSetsOK := true
-	if err := kubectlGetJSONContext(ctx, "", "daemonsets", &daemonSets); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "daemonsets", &daemonSets); err != nil {
 		report.add(netDoctorGroupTunnel, "DaemonSet", "", "all", statusFail, err.Error())
 		daemonSetsOK = false
 	}
@@ -393,7 +395,7 @@ func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, pr
 	} else {
 		addNetDoctorWorkloadReadiness(&report, netDoctorGroupTunnel, tunnelWorkloads)
 		var pods netDoctorPodList
-		if err := kubectlGetJSONContext(ctx, "", "pods", &pods); err != nil {
+		if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "pods", &pods); err != nil {
 			report.add(netDoctorGroupTunnel, "Pod", "", "all", statusFail, err.Error())
 		} else {
 			addNetDoctorTunnelPods(&report, pods, tunnelWorkloads, netDoctorNowFn())
@@ -418,7 +420,7 @@ func buildNetDoctorReportWithOptions(ctx context.Context, hostnames []string, pr
 			report.add(netDoctorGroupCertificates, "Secret", "", "TLS", statusPass, "no Gateway TLS certificate references")
 		} else {
 			var secrets netDoctorSecretList
-			if err := kubectlGetJSONContext(ctx, "", "secrets", &secrets); err != nil {
+			if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", "secrets", &secrets); err != nil {
 				report.add(netDoctorGroupCertificates, "Secret", "", "all", statusFail, err.Error())
 			} else {
 				addNetDoctorCertificates(&report, refs, secrets.Items, netDoctorNowFn())

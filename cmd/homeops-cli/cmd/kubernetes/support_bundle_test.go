@@ -113,7 +113,7 @@ func TestCollectSupportEventsKeepsNewestTwoHundred(t *testing.T) {
 	}
 	raw, err := json.Marshal(map[string]any{"apiVersion": "v1", "kind": "EventList", "items": items})
 	require.NoError(t, err)
-	testutil.Swap(t, &supportBundleKubectlOutputFn, func(context.Context, ...string) ([]byte, error) { return raw, nil })
+	testutil.Swap(t, &kubectlOutputCtxFn, func(context.Context, ...string) ([]byte, error) { return raw, nil })
 	collected, err := collectSupportEvents(context.Background())
 	require.NoError(t, err)
 	var list struct {
@@ -297,7 +297,7 @@ func TestSupportBundleFailOnDriftAndJSONOutput(t *testing.T) {
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	cmd.SetErr(io.Discard)
-	cmd.SetArgs([]string{"--diff", oldPath, "--output", "json", "--fail-on-drift"})
+	cmd.SetArgs([]string{"--diff", oldPath, "--output", "json", "--fail-on-findings"})
 	err := cmd.Execute()
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "1 new failing")
@@ -309,6 +309,18 @@ func TestSupportBundleFailOnDriftAndJSONOutput(t *testing.T) {
 	assert.Equal(t, 1, result.Drift.Summary.NewFail)
 	require.Len(t, result.Drift.Findings, 1)
 	assert.Equal(t, "NEW-FAIL", result.Drift.Findings[0].Classification)
+}
+
+func TestSupportBundleFailOnDriftIsHiddenDeprecatedAlias(t *testing.T) {
+	cmd := newSupportBundleCommand()
+	alias := cmd.Flags().Lookup("fail-on-drift")
+	require.NotNil(t, alias)
+	assert.True(t, alias.Hidden)
+	assert.Contains(t, alias.Deprecated, "--fail-on-findings")
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--fail-on-drift"})
+	require.ErrorContains(t, cmd.Execute(), "--fail-on-findings requires --diff")
 }
 
 func writeSupportBundleFixture(t *testing.T, entries map[string][]byte, collectors []supportBundleCollectorResult) string {

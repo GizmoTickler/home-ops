@@ -20,6 +20,7 @@ import (
 	"homeops-cli/cmd/flatcar"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -67,10 +68,7 @@ type supportBundleFluxSummary struct {
 }
 
 var (
-	supportBundleNowFn           = time.Now
-	supportBundleKubectlOutputFn = func(ctx context.Context, args ...string) ([]byte, error) {
-		return kubectlOutputCtxFn(ctx, args...)
-	}
+	supportBundleNowFn        = time.Now
 	supportBundleCollectorsFn = defaultSupportBundleCollectors
 	supportBundleTempDirFn    = func() (string, error) { return os.MkdirTemp("", "homeops-support-bundle-*") }
 	supportBundleArchiveFn    = writeSupportBundleArchive
@@ -94,7 +92,7 @@ func newSupportBundleCommand() *cobra.Command {
 	var outputPath string
 	var diffPath string
 	var noSSH bool
-	var failOnDrift bool
+	var failOnFindings bool
 	cmd := &cobra.Command{
 		Use:          "support-bundle",
 		Short:        "Create a redaction-checked diagnostic archive",
@@ -104,10 +102,10 @@ func newSupportBundleCommand() *cobra.Command {
   homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
   homeops-cli k8s support-bundle --diff ./before.tar.gz
   homeops-cli k8s support-bundle --diff ./before.tar.gz --output json
-  homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-drift`,
+  homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-findings`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if failOnDrift && strings.TrimSpace(diffPath) == "" {
-				return fmt.Errorf("--fail-on-drift requires --diff")
+			if failOnFindings && strings.TrimSpace(diffPath) == "" {
+				return fmt.Errorf("--fail-on-findings requires --diff")
 			}
 			format := "table"
 			archivePath := outputPath
@@ -136,11 +134,11 @@ func newSupportBundleCommand() *cobra.Command {
 				commandResult.Drift = &drift
 			}
 			if format == "json" {
-				raw, marshalErr := json.MarshalIndent(commandResult, "", "  ")
+				raw, marshalErr := ui.RenderJSON(commandResult)
 				if marshalErr != nil {
 					return fmt.Errorf("marshal support bundle result: %w", marshalErr)
 				}
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), raw)
 			} else {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Support bundle: %s (%s)\n", result.Path, humanBytes(result.Size))
 				if commandResult.Drift != nil {
@@ -148,7 +146,7 @@ func newSupportBundleCommand() *cobra.Command {
 				}
 				_, _ = fmt.Fprintln(cmd.OutOrStdout(), renderSupportBundleStatuses(result.Collectors))
 			}
-			if failOnDrift && commandResult.Drift != nil && commandResult.Drift.Summary.NewFail > 0 {
+			if failOnFindings && commandResult.Drift != nil && commandResult.Drift.Summary.NewFail > 0 {
 				return fmt.Errorf("support bundle drift found %d new failing finding(s)", commandResult.Drift.Summary.NewFail)
 			}
 			return nil
@@ -157,7 +155,10 @@ func newSupportBundleCommand() *cobra.Command {
 	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "archive path; with --diff, use json for structured stdout and the default archive path")
 	cmd.Flags().BoolVar(&noSSH, "no-ssh", false, "skip certificate and Flatcar OS collectors that require SSH")
 	cmd.Flags().StringVar(&diffPath, "diff", "", "compare the fresh bundle with an earlier support bundle archive")
-	cmd.Flags().BoolVar(&failOnDrift, "fail-on-drift", false, "return exit code 1 when drift contains any NEW-FAIL finding")
+	cmd.Flags().BoolVar(&failOnFindings, "fail-on-findings", false, "return exit code 1 when drift contains any NEW-FAIL finding")
+	cmd.Flags().BoolVar(&failOnFindings, "fail-on-drift", false, "deprecated alias for --fail-on-findings")
+	_ = cmd.Flags().MarkDeprecated("fail-on-drift", "use --fail-on-findings")
+	_ = cmd.Flags().MarkHidden("fail-on-drift")
 	return cmd
 }
 
@@ -229,10 +230,11 @@ func runSupportBundle(ctx context.Context, outputPath string, noSSH bool) (suppo
 		CreatedAt: createdAt.Format(time.RFC3339), CLIVersion: supportBundleCLIVersion(), Versions: supportBundleVersions(root),
 		Contents: contents, Collectors: results,
 	}
-	manifestRaw, err := json.MarshalIndent(manifest, "", "  ")
+	manifestJSON, err := ui.RenderJSON(manifest)
 	if err != nil {
 		return supportBundleRunResult{}, fmt.Errorf("marshal support bundle manifest: %w", err)
 	}
+	manifestRaw := []byte(manifestJSON)
 	if err := root.WriteFile("manifest.json", manifestRaw, 0o600); err != nil {
 		return supportBundleRunResult{}, fmt.Errorf("write support bundle manifest: %w", err)
 	}
@@ -277,32 +279,32 @@ func defaultSupportBundleCollectors(_ bool) []supportBundleCollector {
 }
 
 func collectSupportDoctor(ctx context.Context) ([]byte, error) {
-	return json.MarshalIndent(buildDoctorReportContext(ctx, "", doctorDefaultPendingGrace), "", "  ")
+	return renderSupportJSON(buildDoctorReportContext(ctx, "", doctorDefaultPendingGrace))
 }
 
 func collectSupportNetDoctor(ctx context.Context) ([]byte, error) {
-	return json.MarshalIndent(buildNetDoctorReport(ctx, nil), "", "  ")
+	return renderSupportJSON(buildNetDoctorReport(ctx, nil))
 }
 
 func collectSupportStorageReport(ctx context.Context) ([]byte, error) {
-	return json.MarshalIndent(buildStorageReport(ctx, "", storageDefaultCephWarnPercent), "", "  ")
+	return renderSupportJSON(buildStorageReport(ctx, "", storageDefaultCephWarnPercent))
 }
 
 func collectSupportFluxDiscovery(ctx context.Context) ([]byte, error) {
 	var kustomizations fluxKustomizationList
-	if err := kubectlGetJSONContext(ctx, "", fluxKustomizationResource, &kustomizations); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", fluxKustomizationResource, &kustomizations); err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(summarizeKustomizations(kustomizations.Items, ""), "", "  ")
+	return renderSupportJSON(summarizeKustomizations(kustomizations.Items, ""))
 }
 
 func collectSupportFluxSummaries(ctx context.Context) ([]byte, error) {
 	var kustomizations fluxKustomizationList
-	if err := kubectlGetJSONContext(ctx, "", fluxKustomizationResource, &kustomizations); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", fluxKustomizationResource, &kustomizations); err != nil {
 		return nil, err
 	}
 	var releases fluxHelmReleaseList
-	if err := kubectlGetJSONContext(ctx, "", fluxHelmReleaseResource, &releases); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, "", fluxHelmReleaseResource, &releases); err != nil {
 		return nil, err
 	}
 	helm := make([]fluxTreeHelmNode, 0, len(releases.Items))
@@ -317,7 +319,7 @@ func collectSupportFluxSummaries(ctx context.Context) ([]byte, error) {
 		return namespacedName(helm[i].Namespace, helm[i].Name) < namespacedName(helm[j].Namespace, helm[j].Name)
 	})
 	report := supportBundleFluxSummary{Kustomizations: summarizeKustomizations(kustomizations.Items, ""), HelmReleases: helm}
-	return json.MarshalIndent(report, "", "  ")
+	return renderSupportJSON(report)
 }
 
 func collectSupportEtcdStatus(ctx context.Context) ([]byte, error) {
@@ -325,7 +327,7 @@ func collectSupportEtcdStatus(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(report, "", "  ")
+	return renderSupportJSON(report)
 }
 
 func collectSupportCertificates(ctx context.Context) ([]byte, error) {
@@ -333,7 +335,7 @@ func collectSupportCertificates(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(report, "", "  ")
+	return renderSupportJSON(report)
 }
 
 func collectSupportUpgradeStatus(ctx context.Context) ([]byte, error) {
@@ -341,19 +343,19 @@ func collectSupportUpgradeStatus(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return json.MarshalIndent(report, "", "  ")
+	return renderSupportJSON(report)
 }
 
 func collectSupportKubectlVersion(ctx context.Context) ([]byte, error) {
-	return supportBundleKubectlOutputFn(ctx, "version", "-o", "json")
+	return kubectlOutputCtxFn(ctx, "version", "-o", "json")
 }
 
 func collectSupportCLIVersion(_ context.Context) ([]byte, error) {
-	return json.MarshalIndent(map[string]string{"version": supportBundleCLIVersion(), "go_version": runtime.Version()}, "", "  ")
+	return renderSupportJSON(map[string]string{"version": supportBundleCLIVersion(), "go_version": runtime.Version()})
 }
 
 func collectSupportEvents(ctx context.Context) ([]byte, error) {
-	raw, err := supportBundleKubectlOutputFn(ctx, "get", "events", "-A", "--sort-by=.lastTimestamp", "-o", "json")
+	raw, err := kubectlOutputCtxFn(ctx, "get", "events", "-A", "--sort-by=.lastTimestamp", "-o", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -369,11 +371,19 @@ func collectSupportEvents(ctx context.Context) ([]byte, error) {
 	if len(list.Items) > 200 {
 		list.Items = list.Items[len(list.Items)-200:]
 	}
-	return json.MarshalIndent(list, "", "  ")
+	return renderSupportJSON(list)
+}
+
+func renderSupportJSON(value any) ([]byte, error) {
+	rendered, err := ui.RenderJSON(value)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(rendered), nil
 }
 
 func collectSupportNodesWide(ctx context.Context) ([]byte, error) {
-	return supportBundleKubectlOutputFn(ctx, "get", "nodes", "-o", "wide")
+	return kubectlOutputCtxFn(ctx, "get", "nodes", "-o", "wide")
 }
 
 func supportBundleCLIVersion() string {

@@ -231,8 +231,8 @@ talosctl bootstrap) instead.`,
 			if config.CheckSecrets && !config.Plan {
 				return fmt.Errorf("--check-secrets requires --plan")
 			}
-			if config.Output != "table" && config.Output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", config.Output)
+			if err := ui.ValidateOutputFormat(config.Output); err != nil {
+				return err
 			}
 			if !config.Plan && cmd.Flags().Changed("output") {
 				return fmt.Errorf("--output requires --plan")

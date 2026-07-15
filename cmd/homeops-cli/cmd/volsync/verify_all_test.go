@@ -96,7 +96,7 @@ func TestVerifyAllContinuesAfterFailureAndReturnsFailureExitError(t *testing.T) 
 	assert.Equal(t, 1, failure.count)
 	assert.Equal(t, []string{"one", "two", "three"}, calls)
 	assert.Contains(t, output.String(), "restore exploded with detail")
-	assert.Contains(t, output.String(), "PASS 2  FAIL 1  SKIP 0")
+	assert.Contains(t, output.String(), "Summary: PASS=2 FAIL=1 SKIP=0")
 }
 
 func TestVerifyAllExitSuccessAndConfirmationGate(t *testing.T) {

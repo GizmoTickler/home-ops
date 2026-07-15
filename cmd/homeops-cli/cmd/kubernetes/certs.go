@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/ui"
 )
@@ -69,7 +70,7 @@ type parsedKubeadmCert struct {
 var (
 	certNowFn         = time.Now
 	certNodeCommandFn = func(_ context.Context, node config.Node, sshUser, command string) (string, error) {
-		client := ssh.NewSSHClient(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: strconv.Itoa(config.Get().Cluster.NodeSSHPort)})
+		client := ssh.NewSSHClient(kubeutil.NodeSSHConfig(node, sshUser))
 		if err := client.Connect(); err != nil {
 			return "", err
 		}
@@ -104,8 +105,8 @@ must be restarted after renewal before they use the new certificates.`,
   homeops-cli k8s certs --renew
   homeops-cli k8s certs --renew --restart-control-plane --yes`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			if warnDays < 0 {
 				return fmt.Errorf("--warn-days cannot be negative")
@@ -459,13 +460,9 @@ func renderCertWorkflow(workflow certWorkflowReport, output string) (string, err
 		}
 		return "Before renewal\n" + renderCertReportTable(workflow.Before) + "\n\nAfter renewal\n" + renderCertReportTable(*workflow.After), nil
 	case "json":
-		raw, err := json.MarshalIndent(workflow, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(workflow)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 

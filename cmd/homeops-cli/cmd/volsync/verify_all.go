@@ -2,16 +2,15 @@ package volsync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -98,8 +97,8 @@ started before --max-duration expires are reported as SKIP.`,
 }
 
 func runVolsyncVerifyAll(ctx context.Context, options verifyAllOptions, out io.Writer) error {
-	if options.Output != "table" && options.Output != "json" {
-		return fmt.Errorf("unsupported output format %q (table, json)", options.Output)
+	if err := ui.ValidateOutputFormat(options.Output); err != nil {
+		return err
 	}
 	if options.Timeout <= 0 {
 		return fmt.Errorf("timeout must be greater than zero")
@@ -183,20 +182,9 @@ func runVolsyncVerifyAll(ctx context.Context, options verifyAllOptions, out io.W
 }
 
 func listVerifyAllSources(ctx context.Context, namespace string) ([]ReplicationSource, error) {
-	args := []string{"get", "replicationsources"}
-	if namespace == "" {
-		args = append(args, "--all-namespaces")
-	} else {
-		args = append(args, "--namespace", namespace)
-	}
-	args = append(args, "-o", "json")
-	output, err := verifyOutputFn(ctx, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list ReplicationSources: %w", err)
-	}
 	var list replicationSourceList
-	if err := json.Unmarshal(output, &list); err != nil {
-		return nil, fmt.Errorf("parse ReplicationSources: %w", err)
+	if err := kubeutil.GetJSON(ctx, verifyOutputFn, namespace, "replicationsources", &list); err != nil {
+		return nil, fmt.Errorf("list ReplicationSources: %w", err)
 	}
 	sources := make([]ReplicationSource, 0, len(list.Items))
 	for _, item := range list.Items {
@@ -267,11 +255,11 @@ func (report *verifyAllReport) finalize() {
 
 func writeVerifyAllReport(out io.Writer, output string, report verifyAllReport) error {
 	if output == "json" {
-		encoded, err := json.MarshalIndent(report, "", "  ")
+		encoded, err := ui.RenderJSON(report)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(out, string(encoded))
+		_, err = fmt.Fprintln(out, encoded)
 		return err
 	}
 	rows := make([][]string, 0, len(report.Results))
@@ -281,7 +269,7 @@ func writeVerifyAllReport(out io.Writer, output string, report verifyAllReport) 
 	if _, err := fmt.Fprintln(out, ui.Table([]string{"APP", "NAMESPACE", "RESULT", "DURATION", "DETAIL"}, rows)); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(out, "\nPASS %s  FAIL %s  SKIP %s\n",
-		strconv.Itoa(report.Summary.Pass), strconv.Itoa(report.Summary.Fail), strconv.Itoa(report.Summary.Skip))
+	_, err := fmt.Fprintf(out, "\nSummary: PASS=%d FAIL=%d SKIP=%d\n",
+		report.Summary.Pass, report.Summary.Fail, report.Summary.Skip)
 	return err
 }

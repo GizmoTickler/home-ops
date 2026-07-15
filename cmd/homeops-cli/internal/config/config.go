@@ -297,6 +297,7 @@ type StoreConfig struct {
 type EtcdBackupUploadConfig struct {
 	HostRef string `yaml:"host_ref,omitempty"`
 	SSHUser string `yaml:"ssh_user,omitempty"`
+	SSHPort int    `yaml:"ssh_port,omitempty"`
 	SSHKey  string `yaml:"ssh_key,omitempty"`
 	Dir     string `yaml:"dir,omitempty"`
 	Keep    int    `yaml:"keep,omitempty"`
@@ -617,6 +618,9 @@ func validate(c *Config) error {
 	}
 	if c.State.EtcdBackup.Upload.Keep < 0 {
 		problems = append(problems, "state.etcd_backup.upload.keep: must be at least 1 when set")
+	}
+	if c.State.EtcdBackup.Upload.SSHPort < 0 || c.State.EtcdBackup.Upload.SSHPort > 65535 {
+		problems = append(problems, "state.etcd_backup.upload.ssh_port: must be between 1 and 65535 when set")
 	}
 	for key, ref := range c.Secrets {
 		if _, known := defaultSecretRefs[key]; !known {

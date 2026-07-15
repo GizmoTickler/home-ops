@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
+	shareddiff "homeops-cli/internal/diff"
 )
 
 type upgradePlanCandidate struct {
@@ -120,7 +121,7 @@ func runUpgradePlanSet(ctx context.Context, opts upgradePlanSetOptions, out io.W
 		_, _ = fmt.Fprintf(out, "No change: kubeadm Plan is already %s\n", opts.Version)
 		return nil
 	}
-	_, _ = fmt.Fprintln(out, renderUpgradePlanDiff(filepath.ToSlash(relPath), original, edited, candidate.Line))
+	_, _ = fmt.Fprintln(out, strings.TrimSuffix(shareddiff.UnifiedContext(filepath.ToSlash(relPath), original, edited, 3), "\n"))
 	if !opts.Write {
 		_, _ = fmt.Fprintln(out, "Dry run: pass --write to apply this Git-only change.")
 		return nil
@@ -339,30 +340,6 @@ func editUpgradePlanVersion(content []byte, candidate upgradePlanCandidate, targ
 	}
 	result = append(result[:start], append(changed, result[start+len(line):]...)...)
 	return result, nil
-}
-
-func renderUpgradePlanDiff(path string, before, after []byte, changedLine int) string {
-	oldLines := strings.Split(strings.TrimSuffix(string(before), "\n"), "\n")
-	newLines := strings.Split(strings.TrimSuffix(string(after), "\n"), "\n")
-	index := changedLine - 1
-	start := index - 3
-	if start < 0 {
-		start = 0
-	}
-	end := index + 4
-	if end > len(oldLines) {
-		end = len(oldLines)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "--- a/%s\n+++ b/%s\n@@ -%d,%d +%d,%d @@\n", path, path, start+1, end-start, start+1, end-start)
-	for i := start; i < end; i++ {
-		if i == index {
-			fmt.Fprintf(&b, "-%s\n+%s\n", oldLines[i], newLines[i])
-		} else {
-			fmt.Fprintf(&b, " %s\n", oldLines[i])
-		}
-	}
-	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func renderUpgradePlanLiveContext(ctx context.Context) string {

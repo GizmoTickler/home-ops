@@ -19,6 +19,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/ui"
 )
@@ -266,7 +267,7 @@ func preflightEtcdRestore(ctx context.Context, plan etcdRestorePlan) (etcdRestor
 
 	preflight := etcdRestorePreflight{Plan: plan, SnapshotAge: nonNegativeDuration(etcdRestoreNowFn().Sub(info.ModTime()))}
 	for _, node := range plan.Nodes {
-		client := etcdRestoreNewNodeClientFn(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: strconv.Itoa(cfg.Cluster.NodeSSHPort)})
+		client := etcdRestoreNewNodeClientFn(kubeutil.NodeSSHConfig(node, sshUser))
 		if err := client.Connect(); err != nil {
 			closeEtcdRestoreNodes(preflight.Nodes)
 			return etcdRestorePreflight{}, fmt.Errorf("control-plane node %s (%s) is not SSH-reachable: %w", node.Name, node.IP, err)

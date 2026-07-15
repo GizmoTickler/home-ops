@@ -153,8 +153,8 @@ workflow refuses production identities and existing node/VM collisions. Unless
 }
 
 func executeRehearseNodeCommand(cmd *cobra.Command, opts rehearseNodeOptions, operations rehearseOperations) error {
-	if opts.Output != "table" && opts.Output != "json" {
-		return fmt.Errorf("unsupported output format %q (table, json)", opts.Output)
+	if err := ui.ValidateOutputFormat(opts.Output); err != nil {
+		return err
 	}
 	if opts.Timeout <= 0 {
 		return fmt.Errorf("timeout must be greater than zero")
@@ -450,11 +450,10 @@ func writeRehearseReport(cmd *cobra.Command, report rehearseReport, output strin
 
 func renderRehearseReport(report rehearseReport, output string) (string, error) {
 	if output == "json" {
-		data, err := json.MarshalIndent(report, "", "  ")
-		return string(data), err
+		return ui.RenderJSON(report)
 	}
-	if output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+	if err := ui.ValidateOutputFormat(output); err != nil {
+		return "", err
 	}
 	rows := make([][]string, 0, len(report.Steps)+1)
 	for _, step := range report.Steps {

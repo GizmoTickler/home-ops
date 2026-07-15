@@ -1,7 +1,6 @@
 package bootstrap
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -463,14 +462,12 @@ func conditionalPlanStep(steps *[]bootstrapPlanStep, action, effect string, skip
 
 func renderBootstrapPlan(plan bootstrapPlan, output string) (string, error) {
 	if output == "json" {
-		raw, err := json.MarshalIndent(plan, "", "  ")
-		if err != nil {
+		return ui.RenderJSON(plan)
+	}
+	if output != "" {
+		if err := ui.ValidateOutputFormat(output); err != nil {
 			return "", err
 		}
-		return string(raw), nil
-	}
-	if output != "" && output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
 	}
 	versionRows := make([][]string, 0, len(plan.Versions))
 	for _, version := range plan.Versions {

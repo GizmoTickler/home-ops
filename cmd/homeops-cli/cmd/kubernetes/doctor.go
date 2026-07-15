@@ -2,7 +2,6 @@ package kubernetes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -162,13 +162,9 @@ func renderDoctorReport(report doctorReport, output string) (string, error) {
 		summary := fmt.Sprintf("Summary: PASS=%d WARN=%d FAIL=%d", report.Summary.Pass, report.Summary.Warn, report.Summary.Fail)
 		return summary + "\n" + ui.Table([]string{"STATUS", "GROUP", "KIND", "NAME", "DETAIL"}, rows), nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 
@@ -209,38 +205,6 @@ func conditionDetail(c conditionJSON) string {
 	return strings.Join(parts, ": ")
 }
 
-func scopedKubectlGetArgs(namespace, resource string) []string {
-	args := []string{"get", resource}
-	if namespace != "" {
-		args = append(args, "--namespace", namespace)
-	} else {
-		args = append(args, "-A")
-	}
-	return append(args, "-o", "json")
-}
-
-func kubectlGetJSONContext(ctx context.Context, namespace, resource string, dest interface{}) error {
-	out, err := kubectlOutputCtxFn(ctx, scopedKubectlGetArgs(namespace, resource)...)
-	if err != nil {
-		return fmt.Errorf("kubectl get %s: %w", resource, err)
-	}
-	if err := json.Unmarshal(out, dest); err != nil {
-		return fmt.Errorf("parse kubectl %s json: %w", resource, err)
-	}
-	return nil
-}
-
-func kubectlGetClusterJSONContext(ctx context.Context, resource string, dest interface{}) error {
-	out, err := kubectlOutputCtxFn(ctx, "get", resource, "-o", "json")
-	if err != nil {
-		return fmt.Errorf("kubectl get %s: %w", resource, err)
-	}
-	if err := json.Unmarshal(out, dest); err != nil {
-		return fmt.Errorf("parse kubectl %s json: %w", resource, err)
-	}
-	return nil
-}
-
 type fluxObjectList struct {
 	Items []struct {
 		Metadata metadataJSON `json:"metadata"`
@@ -264,7 +228,7 @@ func (r *doctorReport) addFlux(ctx context.Context, namespace string) {
 
 func (r *doctorReport) addFluxResource(ctx context.Context, namespace, kind, resource string) {
 	var list fluxObjectList
-	if err := kubectlGetJSONContext(ctx, namespace, resource, &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, resource, &list); err != nil {
 		r.add(doctorGroupFlux, kind, "", resource, statusFail, err.Error())
 		return
 	}
@@ -299,7 +263,7 @@ type nodeList struct {
 func (r *doctorReport) addNodes(ctx context.Context) {
 	before := len(r.Checks)
 	var list nodeList
-	if err := kubectlGetClusterJSONContext(ctx, "nodes", &list); err != nil {
+	if err := kubeutil.GetClusterJSON(ctx, kubectlOutputCtxFn, "nodes", &list); err != nil {
 		r.add(doctorGroupNodes, "Node", "", "nodes", statusFail, err.Error())
 		return
 	}
@@ -368,7 +332,7 @@ type state struct {
 func (r *doctorReport) addPods(ctx context.Context, namespace string, pendingGrace time.Duration) {
 	before := len(r.Checks)
 	var list podList
-	if err := kubectlGetJSONContext(ctx, namespace, "pods", &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "pods", &list); err != nil {
 		r.add(doctorGroupPods, "Pod", "", "pods", statusFail, err.Error())
 		return
 	}
@@ -457,7 +421,7 @@ type cephClusterList struct {
 func (r *doctorReport) addCeph(ctx context.Context, namespace string) {
 	before := len(r.Checks)
 	var list cephClusterList
-	if err := kubectlGetJSONContext(ctx, namespace, cephClusterResource, &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, cephClusterResource, &list); err != nil {
 		r.add(doctorGroupCeph, "CephCluster", "", "cephclusters", statusFail, err.Error())
 		return
 	}
@@ -491,7 +455,7 @@ type certificateList struct {
 func (r *doctorReport) addCertificates(ctx context.Context, namespace string) {
 	before := len(r.Checks)
 	var list certificateList
-	if err := kubectlGetJSONContext(ctx, namespace, certificateResource, &list); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, certificateResource, &list); err != nil {
 		r.add(doctorGroupCerts, "Certificate", "", "certificates", statusFail, err.Error())
 		return
 	}

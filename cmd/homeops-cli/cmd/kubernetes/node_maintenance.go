@@ -31,9 +31,6 @@ var (
 	nodeMaintenanceConfigFn = func() *config.Config {
 		return config.Get()
 	}
-	nodeMaintenanceKubectlOutputFn = func(ctx context.Context, args ...string) ([]byte, error) {
-		return kubectlOutputCtxFn(ctx, args...)
-	}
 	nodeMaintenanceKubectlRunFn = func(ctx context.Context, args ...string) error {
 		return commandRunCtxFn(ctx, "kubectl", args...)
 	}
@@ -198,8 +195,8 @@ func configuredMaintenanceDuration(value string, fallback time.Duration) time.Du
 }
 
 func executeNodeMaintenanceCommand(cmd *cobra.Command, opts nodeMaintenanceOptions) error {
-	if opts.Output != "table" && opts.Output != "json" {
-		return fmt.Errorf("unsupported output format %q (table, json)", opts.Output)
+	if err := ui.ValidateOutputFormat(opts.Output); err != nil {
+		return err
 	}
 	if opts.Timeout <= 0 || (opts.Action == "enter" && opts.DrainTimeout <= 0) {
 		return fmt.Errorf("maintenance timeouts must be greater than zero")
@@ -479,7 +476,7 @@ func validateMaintenanceNode(ctx context.Context, name string, requireReady bool
 
 func getMaintenanceNode(ctx context.Context, name string) (kubernetesNodeState, error) {
 	var state kubernetesNodeState
-	raw, err := nodeMaintenanceKubectlOutputFn(ctx, "get", "node", name, "-o", "json")
+	raw, err := kubectlOutputCtxFn(ctx, "get", "node", name, "-o", "json")
 	if err != nil {
 		return state, fmt.Errorf("get node %s: %w", name, err)
 	}
@@ -491,7 +488,7 @@ func getMaintenanceNode(ctx context.Context, name string) (kubernetesNodeState, 
 
 func rookCephPresent(ctx context.Context) (bool, error) {
 	rook := nodeMaintenanceRookConfig()
-	raw, err := nodeMaintenanceKubectlOutputFn(ctx, "get", "namespace", rook.Namespace, "--ignore-not-found", "-o", "name")
+	raw, err := kubectlOutputCtxFn(ctx, "get", "namespace", rook.Namespace, "--ignore-not-found", "-o", "name")
 	if err != nil {
 		return false, fmt.Errorf("detect %s namespace: %w", rook.Namespace, err)
 	}
@@ -512,7 +509,7 @@ func cephCommandOutput(ctx context.Context, args ...string) ([]byte, error) {
 	rook := nodeMaintenanceRookConfig()
 	kubectlArgs := []string{"-n", rook.Namespace, "exec", "deploy/" + rook.ToolboxDeployment, "--", "ceph"}
 	kubectlArgs = append(kubectlArgs, args...)
-	raw, err := nodeMaintenanceKubectlOutputFn(ctx, kubectlArgs...)
+	raw, err := kubectlOutputCtxFn(ctx, kubectlArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("ceph %s: %w", strings.Join(args, " "), err)
 	}
@@ -739,11 +736,12 @@ func finalizeNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, 
 
 func renderNodeMaintenanceReport(report nodeMaintenanceReport, output string) (string, error) {
 	if output == "json" {
-		raw, err := json.MarshalIndent(report, "", "  ")
-		return string(raw), err
+		return ui.RenderJSON(report)
 	}
-	if output != "" && output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+	if output != "" {
+		if err := ui.ValidateOutputFormat(output); err != nil {
+			return "", err
+		}
 	}
 	rows := make([][]string, 0, len(report.Steps))
 	for _, step := range report.Steps {

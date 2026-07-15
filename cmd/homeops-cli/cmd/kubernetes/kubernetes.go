@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -954,6 +953,8 @@ func newViewSecretCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "default", "Kubernetes namespace")
+	// Keep -o overloaded as the shorthand for --format here for compatibility;
+	// changing it would churn existing scripts and hidden deprecated aliases.
 	cmd.Flags().StringVarP(&format, "format", "o", "table", "Output format (table|json|yaml)")
 	cmd.Flags().StringVarP(&key, "key", "k", "", "Specific key to inspect (optional)")
 	cmd.Flags().BoolVar(&unsafeRevealValues, "unsafe-reveal-values", false, "Unsafe: reveal decoded secret values")
@@ -1181,17 +1182,17 @@ func secretDisplayValue(data secretKeyData) string {
 }
 
 func printSecretJSON(data map[string]secretKeyData, revealValues bool) error {
-	var output []byte
+	var output string
 	var err error
 	if revealValues {
-		output, err = json.MarshalIndent(secretValueMap(data), "", "  ")
+		output, err = ui.RenderJSON(secretValueMap(data))
 	} else {
-		output, err = json.MarshalIndent(secretMetadataMap(data), "", "  ")
+		output, err = ui.RenderJSON(secretMetadataMap(data))
 	}
 	if err != nil {
 		return fmt.Errorf("failed to marshal secret output: %w", err)
 	}
-	fmt.Println(string(output))
+	fmt.Println(output)
 	return nil
 }
 

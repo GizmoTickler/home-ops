@@ -120,7 +120,7 @@ func TestBuildUpgradeStatusReportWarnsPendingAndSkewFailsOnlyFailedJobs(t *testi
 		"get jobs -A -o json":                    []byte(`{"items":[{"metadata":{"name":"upgrade-k8s-0","namespace":"system-upgrade","labels":{"upgrade.cattle.io/plan":"kubeadm-control-plane","upgrade.cattle.io/node":"k8s-0"}},"status":{"failed":1,"conditions":[{"type":"Failed","status":"True","reason":"BackoffLimitExceeded","message":"upgrade script failed"}]}}]}`),
 		"get pods -A -o json":                    []byte(`{"items":[]}`),
 	}
-	testutil.Swap(t, &upgradeStatusKubectlOutputFn, func(_ context.Context, args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
 		key := strings.Join(args, " ")
 		value, ok := responses[key]
 		if !ok {

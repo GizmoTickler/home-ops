@@ -106,7 +106,7 @@ func TestRightSizeSuggestionRounding(t *testing.T) {
 func TestRightSizeFallbackIsClearlyLabeled(t *testing.T) {
 	cfg := &config.Config{Cluster: config.ClusterConfig{Observability: config.ObservabilityConfig{Namespace: "metrics"}}}
 	testutil.Swap(t, &rightSizeConfigFn, func() *config.Config { return cfg })
-	testutil.Swap(t, &rightSizeKubectlOutputFn, func(_ context.Context, args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
 		switch strings.Join(args, " ") {
 		case "get pods -A -o json":
 			return []byte(`{"items":[{"metadata":{"name":"app-abc","namespace":"media","ownerReferences":[{"kind":"ReplicaSet","name":"app-123"}]},"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"500m","memory":"512Mi"},"limits":{"memory":"1Gi"}}}]}}]}`), nil
@@ -144,7 +144,7 @@ func TestRightSizeFallbackIsClearlyLabeled(t *testing.T) {
 func TestDiscoverVictoriaMetricsServiceByNameAndPort(t *testing.T) {
 	cfg := &config.Config{Cluster: config.ClusterConfig{Observability: config.ObservabilityConfig{Namespace: "observe"}}}
 	testutil.Swap(t, &rightSizeConfigFn, func() *config.Config { return cfg })
-	testutil.Swap(t, &rightSizeKubectlOutputFn, func(_ context.Context, _ ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, _ ...string) ([]byte, error) {
 		return []byte(`{"items":[
           {"metadata":{"name":"grafana"},"spec":{"ports":[{"name":"http","port":80}]}},
           {"metadata":{"name":"vmselect-cluster"},"spec":{"ports":[{"name":"metrics","port":8429}]}},
@@ -160,7 +160,7 @@ func TestDiscoverVictoriaMetricsServiceByNameAndPort(t *testing.T) {
 func TestBuildVictoriaMetricsRightSizeReportJoinsUsageAndResources(t *testing.T) {
 	cfg := &config.Config{Cluster: config.ClusterConfig{Observability: config.ObservabilityConfig{Namespace: "observe"}}}
 	testutil.Swap(t, &rightSizeConfigFn, func() *config.Config { return cfg })
-	testutil.Swap(t, &rightSizeKubectlOutputFn, func(_ context.Context, _ ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, _ ...string) ([]byte, error) {
 		return []byte(`{"items":[{"metadata":{"name":"vmselect-main"},"spec":{"ports":[{"name":"http","port":8429}]}}]}`), nil
 	})
 	testutil.Swap(t, &rightSizePortForwardFn, func(_ context.Context, namespace, service string, port int) (string, func() error, error) {

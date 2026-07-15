@@ -156,6 +156,7 @@ state:
       host_ref: truenas_host
       ssh_user: truenas_admin
       ssh_key: ~/.ssh/keys/nas01-ssh
+      ssh_port: 22
       dir: /mnt/flashstor/etcd-snapshots
       keep: 14
       auto: false

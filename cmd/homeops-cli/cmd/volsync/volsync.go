@@ -3,7 +3,6 @@ package volsync
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
@@ -301,13 +300,9 @@ func renderVolsyncStateReport(report volsyncStateReport, output string) (string,
 		}
 		return ui.Table([]string{"COMPONENT", "STATE"}, rows), nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 
@@ -1770,8 +1765,8 @@ func displaySnapshotsTable(snapshots []AppSnapshot, logger *common.ColorLogger) 
 }
 
 func displaySnapshotsJSON(snapshots []AppSnapshot) {
-	output, _ := json.MarshalIndent(snapshots, "", "  ")
-	fmt.Println(string(output))
+	output, _ := ui.RenderJSON(snapshots)
+	fmt.Println(output)
 }
 
 func displaySnapshotsYAML(snapshots []AppSnapshot) {

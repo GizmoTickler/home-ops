@@ -40,7 +40,7 @@ func setupMaintenanceTest(t *testing.T, cordoned bool, annotation, flags string,
 	t.Helper()
 	events := []string{}
 	testutil.Swap(t, &nodeMaintenanceConfigFn, func() *config.Config { return maintenanceTestConfig() })
-	testutil.Swap(t, &nodeMaintenanceKubectlOutputFn, func(_ context.Context, args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
 		call := "output " + strings.Join(args, " ")
 		events = append(events, call)
 		switch {
@@ -159,7 +159,7 @@ func TestNodeMaintenanceUsesConfiguredRookLocation(t *testing.T) {
 		}}}
 	})
 	var calls []string
-	testutil.Swap(t, &nodeMaintenanceKubectlOutputFn, func(_ context.Context, args ...string) ([]byte, error) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(args, " "))
 		if args[0] == "get" {
 			return []byte("namespace/ceph-custom\n"), nil

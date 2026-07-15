@@ -2,7 +2,6 @@ package flatcar
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -79,8 +78,8 @@ func newOSStatusCommand() *cobra.Command {
 		Example: "  homeops-cli flatcar os-status\n" +
 			"  homeops-cli flatcar os-status --output json",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			report, err := buildFlatcarOSStatus(cmd.Context())
 			rendered, renderErr := renderFlatcarOSStatus(report, output)
@@ -130,11 +129,11 @@ func buildFlatcarOSStatus(ctx context.Context) (flatcarOSStatusReport, error) {
 // in-process diagnostic collectors such as the Kubernetes support bundle.
 func CollectOSStatusJSON(ctx context.Context) ([]byte, error) {
 	report, err := buildFlatcarOSStatus(ctx)
-	raw, marshalErr := json.MarshalIndent(report, "", "  ")
+	rendered, marshalErr := ui.RenderJSON(report)
 	if marshalErr != nil {
 		return nil, marshalErr
 	}
-	return raw, err
+	return []byte(rendered), err
 }
 
 func parseFlatcarOSStatus(node versionconfig.Node, raw string, now time.Time) flatcarOSNodeStatus {
@@ -321,13 +320,9 @@ func renderFlatcarOSStatus(report flatcarOSStatusReport, output string) (string,
 			rows,
 		), nil
 	case "json":
-		raw, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			return "", err
-		}
-		return string(raw), nil
+		return ui.RenderJSON(report)
 	default:
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+		return "", ui.ValidateOutputFormat(output)
 	}
 }
 

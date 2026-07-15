@@ -608,7 +608,8 @@ values lazily after the selected `homeops.yaml` has loaded. `--upload` or
 `state.etcd_backup.upload.auto` streams the `.db` and `.sha256` to the configured
 SSH host, compares `sha256sum` remotely, removes a mismatched copy, and prunes
 only CLI-shaped snapshot names beyond `upload.keep`. When an `upload:` block is
-present, `etcd status` adds a remote inventory row and uses the same
+present, `upload.ssh_port` selects the SSH port (default `22`), and `etcd status`
+adds a remote inventory row and uses the same
 `--stale-after` threshold. Restore requires the
 snapshot's adjacent `.sha256` file and validates it with `etcdutl` locally or in
 a local container. It verifies SSH and reads the etcd image from every configured
@@ -672,7 +673,7 @@ homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
 homeops-cli k8s support-bundle --diff ./before.tar.gz
 homeops-cli k8s support-bundle --diff ./before.tar.gz --no-ssh --output ./after.tar.gz
 homeops-cli k8s support-bundle --diff ./before.tar.gz --output json
-homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-drift
+homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-findings
 ```
 
 The triage commands issue read-only Kubernetes API queries. `upgrade-plan set`
@@ -743,11 +744,12 @@ and `events.json` plus `nodes-wide.txt` are presence-only because their content
 is intentionally noisy.
 
 Drift is informational and does not change the command's exit status unless
-`--fail-on-drift` is supplied; that flag returns exit code 1 only when at least
-one `NEW-FAIL` is found. Existing archive-path use of `--output` still composes
-with `--diff`. When diffing, the special value `--output json` keeps the fresh
-archive at its default timestamped path and writes the full structured bundle
-result and drift findings to stdout.
+`--fail-on-findings` is supplied; that flag returns exit code 1 only when at
+least one `NEW-FAIL` is found. The hidden `--fail-on-drift` flag remains as a
+deprecated compatibility alias. Existing archive-path use of `--output` still
+composes with `--diff`. When diffing, the special value `--output json` keeps the
+fresh archive at its default timestamped path and writes the full structured
+bundle result and drift findings to stdout.
 
 ### Local Flux Kustomization Workflows
 
@@ -845,7 +847,7 @@ Notes:
 - `verify` restores the latest snapshot into an ownerless scratch PVC with the app PVC's storage class and capacity. It never modifies the app PVC or ReplicationSource.
 - `verify --check` mounts the scratch PVC read-only in a temporary Alpine pod, lists a sample of regular files, and reports `du -sh` output. An empty filesystem fails verification.
 - Verification always attempts cleanup in pod, ReplicationDestination, PVC order after success, failure, timeout, or interrupt. Existing same-app scratch objects cause refusal unless `--force` is supplied. Resource creation still requires confirmation; global `--yes` bypasses the prompt.
-- `verify-all` discovers ReplicationSources across all namespaces (or one with `--namespace`), applies `--skip` and `--limit`, confirms the complete fleet once, then calls the same verifier serially with a per-app `--timeout`. It continues after failures; apps not started before `--max-duration` are SKIP. The final table/JSON report includes PASS/FAIL/SKIP and the command exits 1 only when at least one app fails.
+- `verify-all` discovers ReplicationSources across all namespaces (or one with `--namespace`), applies `--skip` and `--limit`, confirms the complete fleet once, then calls the same verifier serially with a per-app `--timeout`. It continues after failures; apps not started before `--max-duration` are SKIP. The table ends with `Summary: PASS=%d FAIL=%d SKIP=%d`; the JSON report carries the same counts, and the command exits 1 only when at least one app fails.
 
 ## Workstation
 
@@ -939,6 +941,7 @@ state:
     upload:
       host_ref: truenas_host
       ssh_user: truenas_admin
+      ssh_port: 22
       ssh_key: ~/.ssh/keys/nas01-ssh
       dir: /mnt/flashstor/etcd-snapshots
       keep: 14

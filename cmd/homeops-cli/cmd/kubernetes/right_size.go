@@ -20,6 +20,7 @@ import (
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -156,10 +157,7 @@ type rightSizeObservation struct {
 }
 
 var (
-	rightSizeConfigFn        = config.Get
-	rightSizeKubectlOutputFn = func(ctx context.Context, args ...string) ([]byte, error) {
-		return kubectlOutputCtxFn(ctx, args...)
-	}
+	rightSizeConfigFn      = config.Get
 	rightSizePortForwardFn = startRightSizePortForward
 	rightSizePromQueryFn   = queryRightSizePrometheus
 )
@@ -180,8 +178,8 @@ func newRightSizeCommand() *cobra.Command {
   homeops-cli k8s right-size --apply-git --repo-root /path/to/home-ops
   homeops-cli k8s right-size --apply-git --write`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if output != "table" && output != "json" {
-				return fmt.Errorf("unsupported output format %q (table, json)", output)
+			if err := ui.ValidateOutputFormat(output); err != nil {
+				return err
 			}
 			window, err := parseRightSizeWindow(windowText)
 			if err != nil {
@@ -252,11 +250,11 @@ func buildRightSizeReport(ctx context.Context, namespace string, window time.Dur
 
 func loadRightSizeResources(ctx context.Context, namespace string) (map[string]rightSizeResource, map[string]rightSizeWorkloadRef, error) {
 	var pods rightSizePodList
-	if err := kubectlGetJSONWithSeam(ctx, namespace, "pods", &pods); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "pods", &pods); err != nil {
 		return nil, nil, err
 	}
 	var replicaSets rightSizeReplicaSetList
-	if err := kubectlGetJSONWithSeam(ctx, namespace, "replicasets.apps", &replicaSets); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "replicasets.apps", &replicaSets); err != nil {
 		return nil, nil, err
 	}
 	replicaOwners := make(map[string]rightSizeWorkloadRef, len(replicaSets.Items))
@@ -293,18 +291,6 @@ func loadRightSizeResources(ctx context.Context, namespace string) (map[string]r
 		}
 	}
 	return resources, podWorkloads, nil
-}
-
-func kubectlGetJSONWithSeam(ctx context.Context, namespace, resourceName string, dest any) error {
-	args := scopedKubectlGetArgs(namespace, resourceName)
-	raw, err := rightSizeKubectlOutputFn(ctx, args...)
-	if err != nil {
-		return fmt.Errorf("kubectl get %s: %w", resourceName, err)
-	}
-	if err := json.Unmarshal(raw, dest); err != nil {
-		return fmt.Errorf("parse kubectl %s json: %w", resourceName, err)
-	}
-	return nil
 }
 
 func buildVictoriaMetricsRightSizeReport(ctx context.Context, namespace string, window time.Duration, resources map[string]rightSizeResource, podWorkloads map[string]rightSizeWorkloadRef) (rightSizeReport, error) {
@@ -397,7 +383,7 @@ func discoverVictoriaMetricsService(ctx context.Context) (string, int, error) {
 		return "", 0, fmt.Errorf("cluster.observability.namespace is empty")
 	}
 	var services rightSizeServiceList
-	if err := kubectlGetJSONWithSeam(ctx, namespace, "services", &services); err != nil {
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "services", &services); err != nil {
 		return "", 0, err
 	}
 	type candidate struct {
@@ -544,7 +530,7 @@ func buildMetricsAPIRightSizeReport(ctx context.Context, namespace string, resou
 	} else {
 		args = append(args, "--namespace", namespace)
 	}
-	raw, err := rightSizeKubectlOutputFn(ctx, args...)
+	raw, err := kubectlOutputCtxFn(ctx, args...)
 	if err != nil {
 		return rightSizeReport{}, err
 	}
@@ -710,11 +696,12 @@ func finalizeRightSizeObservations(containers []rightSizeContainer, minSavings f
 
 func renderRightSizeReport(report rightSizeReport, output string) (string, error) {
 	if output == "json" {
-		raw, err := json.MarshalIndent(report, "", "  ")
-		return string(raw), err
+		return ui.RenderJSON(report)
 	}
-	if output != "" && output != "table" {
-		return "", fmt.Errorf("unsupported output format %q (table, json)", output)
+	if output != "" {
+		if err := ui.ValidateOutputFormat(output); err != nil {
+			return "", err
+		}
 	}
 	var prefix strings.Builder
 	if report.Warning != "" {
