@@ -18,18 +18,14 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ui"
 )
 
-const (
-	selfUpdateOwner       = "GizmoTickler"
-	selfUpdateRepository  = "home-ops"
-	selfUpdateChecksums   = "checksums.txt"
-	selfUpdateMaxDownload = 256 << 20
-)
+const selfUpdateMaxDownload = 256 << 20
 
 var (
-	selfUpdateAPIURL       = "https://api.github.com/repos/" + selfUpdateOwner + "/" + selfUpdateRepository + "/releases/latest"
+	selfUpdateAPIURL       = "https://api.github.com/repos/" + constants.SelfUpdateOwner + "/" + constants.SelfUpdateRepository + "/releases/latest"
 	selfUpdateGOOS         = runtime.GOOS
 	selfUpdateGOARCH       = runtime.GOARCH
 	selfUpdateHTTPClientFn = func() *http.Client {
@@ -214,7 +210,7 @@ func selectSelfUpdateAssets(release githubRelease, goos, goarch string) (githubR
 		switch asset.Name {
 		case wanted:
 			binaryAsset = asset
-		case selfUpdateChecksums:
+		case constants.SelfUpdateChecksums:
 			checksums = asset
 		}
 	}
@@ -222,7 +218,7 @@ func selectSelfUpdateAssets(release githubRelease, goos, goarch string) (githubR
 		return binaryAsset, checksums, fmt.Errorf("release %s has no asset for %s/%s (expected %s)", release.TagName, goos, goarch, wanted)
 	}
 	if checksums.Name == "" {
-		return binaryAsset, checksums, fmt.Errorf("release %s has no %s asset", release.TagName, selfUpdateChecksums)
+		return binaryAsset, checksums, fmt.Errorf("release %s has no %s asset", release.TagName, constants.SelfUpdateChecksums)
 	}
 	for _, asset := range []githubReleaseAsset{binaryAsset, checksums} {
 		parsed, err := url.Parse(asset.BrowserDownloadURL)

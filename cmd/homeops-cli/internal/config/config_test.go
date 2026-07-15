@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/secrets"
 )
 
@@ -27,6 +28,10 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, DefaultNodeSubnet, c.Cluster.NodeSubnet)
 	assert.Equal(t, []string{"10.123.123.123", "10.123.123.124", "10.123.123.125", "10.123.123.126", "10.123.123.127"}, c.Cluster.NTPServers)
 	assert.Equal(t, []string{"192.168.255.10"}, c.Cluster.ExtraCertSANs)
+	assert.Equal(t, constants.DefaultNodeSSHPort, c.Cluster.NodeSSHPort)
+	assert.Equal(t, constants.NSRookCeph, c.Cluster.Rook.Namespace)
+	assert.Equal(t, constants.DefaultRookToolboxDeployment, c.Cluster.Rook.ToolboxDeployment)
+	assert.Equal(t, constants.DefaultVolsyncCheckImage, c.Volsync.CheckImage)
 	assert.Equal(t, 250, c.Cluster.Kubelet.MaxPods)
 	assert.Equal(t, 60, c.Cluster.Kubelet.ImageGCHighPercent)
 	assert.Equal(t, 50, c.Cluster.Kubelet.ImageGCLowPercent)
@@ -231,6 +236,9 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		{"bad service cidr", "cluster:\n  service_cidr: not-a-cidr\n", "cluster.service_cidr"},
 		{"bad node subnet", "cluster:\n  node_subnet: not-a-cidr\n", "cluster.node_subnet"},
 		{"bad kubelet max pods", "cluster:\n  kubelet:\n    max_pods: -1\n", "cluster.kubelet.max_pods"},
+		{"bad node ssh port", "cluster:\n  node_ssh_port: 70000\n", "cluster.node_ssh_port"},
+		{"blank rook namespace", "cluster:\n  rook:\n    namespace: ' '\n", "cluster.rook.namespace"},
+		{"blank volsync check image", "volsync:\n  check_image: ' '\n", "volsync.check_image"},
 		{"unknown field", "clusterz:\n  name: x\n", "field clusterz not found"},
 	}
 	for _, tc := range cases {
@@ -251,40 +259,40 @@ func TestProposedHomeopsAdditionsLoad(t *testing.T) {
 
 	c, err := LoadFile(path)
 	require.NoError(t, err)
-	assert.Equal(t, "home-ops-cluster", c.ClusterNameWithDefault())
-	assert.Equal(t, "10.43.0.10", c.ClusterDNS())
-	assert.Equal(t, "Infrastructure", c.Bootstrap.OpVault)
+	assert.Equal(t, 22, c.Cluster.NodeSSHPort)
+	assert.Equal(t, "rook-ceph", c.Cluster.Rook.Namespace)
+	assert.Equal(t, "rook-ceph-tools", c.Cluster.Rook.ToolboxDeployment)
+	assert.Equal(t, "docker.io/library/alpine:3.22", c.Volsync.CheckImage)
+}
+
+func TestLoadFileOverridesDeploymentSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  node_ssh_port: 2222
+  rook:
+    namespace: ceph-custom
+    toolbox_deployment: ceph-toolbox-custom
+volsync:
+  check_image: registry.example/alpine:3.22
+`), 0o600))
+
+	c, err := LoadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 2222, c.Cluster.NodeSSHPort)
+	assert.Equal(t, "ceph-custom", c.Cluster.Rook.Namespace)
+	assert.Equal(t, "ceph-toolbox-custom", c.Cluster.Rook.ToolboxDeployment)
+	assert.Equal(t, "registry.example/alpine:3.22", c.Volsync.CheckImage)
 }
 
 const ProposedHomeopsAdditionsForTest = `
 cluster:
-  name: home-ops-cluster
-  pod_cidr: 10.42.0.0/16
-  service_cidr: 10.43.0.0/16
-  dns_domain: cluster.local
-  node_subnet: 192.168.120.0/22
-  ntp_servers:
-    - 10.123.123.123
-    - 10.123.123.124
-    - 10.123.123.125
-    - 10.123.123.126
-    - 10.123.123.127
-  extra_cert_sans:
-    - 192.168.255.10
-  kubelet:
-    max_pods: 250
-    image_gc_high_percent: 60
-    image_gc_low_percent: 50
-  talos:
-    discovery_endpoint: http://192.168.123.152:3000
-    controlplane_install_disk: /dev/sda
-    worker_install_disk: /dev/nvme0n1
-    user_volume:
-      disk: /dev/sdb
-      min_size: 800GB
-      max_size: 900GB
-bootstrap:
-  op_vault: Infrastructure
+  node_ssh_port: 22
+  rook:
+    namespace: rook-ceph
+    toolbox_deployment: rook-ceph-tools
+volsync:
+  check_image: docker.io/library/alpine:3.22
 `
 
 func TestAPIEndpoint(t *testing.T) {

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"homeops-cli/internal/constants"
 )
 
 // Topology defaults. These are plain defaults (not references to anyone's
@@ -173,6 +175,15 @@ func defaultConfig() *Config {
 
 // applyDefaults fills unset fields with built-in defaults.
 func applyDefaults(c *Config) {
+	if c.Cluster.NodeSSHPort == 0 {
+		c.Cluster.NodeSSHPort = constants.DefaultNodeSSHPort
+	}
+	if c.Cluster.Rook.Namespace == "" {
+		c.Cluster.Rook.Namespace = constants.NSRookCeph
+	}
+	if c.Cluster.Rook.ToolboxDeployment == "" {
+		c.Cluster.Rook.ToolboxDeployment = constants.DefaultRookToolboxDeployment
+	}
 	if c.Cluster.PodCIDR == "" {
 		c.Cluster.PodCIDR = DefaultPodCIDR
 	}
@@ -274,6 +285,9 @@ func applyDefaults(c *Config) {
 	}
 	if c.Bootstrap.OpVault == "" {
 		c.Bootstrap.OpVault = DefaultOpVault
+	}
+	if c.Volsync.CheckImage == "" {
+		c.Volsync.CheckImage = constants.DefaultVolsyncCheckImage
 	}
 }
 

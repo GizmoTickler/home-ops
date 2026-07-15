@@ -22,6 +22,10 @@ cluster:
   domain_ref: op://Infrastructure/cluster-config/SECRET_DOMAIN
   control_plane_vip: 192.168.123.253
   node_interface: eth0
+  node_ssh_port: 22
+  rook:
+    namespace: rook-ceph
+    toolbox_deployment: rook-ceph-tools
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
   dns_domain: cluster.local
@@ -130,6 +134,9 @@ hypervisors:
 
 bootstrap:
   op_vault: Infrastructure
+
+volsync:
+  check_image: docker.io/library/alpine:3.22
 
 state:
   kubeconfig:

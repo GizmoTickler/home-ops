@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"homeops-cli/internal/constants"
 )
 
 func TestPVCExclusions(t *testing.T) {
@@ -19,8 +20,9 @@ func TestPVCExclusions(t *testing.T) {
 }
 
 func TestSystemNamespaces(t *testing.T) {
-	for _, namespace := range []string{"kube-system", "flux-system", "rook-ceph", "volsync"} {
+	for _, namespace := range []string{constants.NSKubeSystem, constants.NSFluxSystem, constants.NSRookCeph, constants.NSVolsyncSystem} {
 		assert.True(t, IsSystemNamespace(namespace), namespace)
 	}
+	assert.False(t, IsSystemNamespace("volsync"))
 	assert.False(t, IsSystemNamespace("media"))
 }

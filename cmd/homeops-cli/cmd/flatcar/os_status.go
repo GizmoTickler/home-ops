@@ -37,7 +37,7 @@ var (
 		if err := ctx.Err(); err != nil {
 			return "", err
 		}
-		client := ssh.NewSSHClient(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: "22"})
+		client := ssh.NewSSHClient(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: strconv.Itoa(versionconfig.Get().Cluster.NodeSSHPort)})
 		if err := client.Connect(); err != nil {
 			return "", err
 		}

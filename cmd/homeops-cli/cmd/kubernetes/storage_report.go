@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -247,7 +248,10 @@ type storageReport struct {
 	Errors          []string              `json:"errors,omitempty"`
 }
 
-var storageNowFn = time.Now
+var (
+	storageNowFn    = time.Now
+	storageConfigFn = config.Get
+)
 
 func newStorageReportCommand() *cobra.Command {
 	var namespace, output string
@@ -342,7 +346,7 @@ func buildStorageReport(ctx context.Context, namespace string, cephWarnPercent f
 	}
 
 	var clusters cephCapacityList
-	if err := kubectlGetJSONContext(ctx, "rook-ceph", cephClusterResource, &clusters); err != nil {
+	if err := kubectlGetJSONContext(ctx, storageConfigFn().Cluster.Rook.Namespace, cephClusterResource, &clusters); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	} else {
 		report.CephCapacity = parseCephCapacities(clusters.Items, cephWarnPercent)

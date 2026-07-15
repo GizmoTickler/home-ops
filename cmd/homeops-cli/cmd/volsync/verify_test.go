@@ -73,7 +73,7 @@ func TestBuildVerifyObjectsAreNamedLabeledAndOwnerless(t *testing.T) {
 	require.NoError(t, err)
 	destinationYAML, err := buildVerifyDestination(name, "self-hosted", "paperless", "verify-1", verifyTestConfig())
 	require.NoError(t, err)
-	podYAML, err := buildVerifyCheckPod(name, "self-hosted", "paperless")
+	podYAML, err := buildVerifyCheckPod(name, "self-hosted", "paperless", "registry.example/alpine:3.22")
 	require.NoError(t, err)
 
 	for _, manifest := range []string{pvcYAML, destinationYAML, podYAML} {
@@ -86,6 +86,7 @@ func TestBuildVerifyObjectsAreNamedLabeledAndOwnerless(t *testing.T) {
 		assert.Equal(t, "paperless", labels[verifyLabelKey])
 		assert.Equal(t, name, labels[verifyRunLabelKey])
 	}
+	assert.Contains(t, podYAML, "registry.example/alpine:3.22")
 
 	pvcSpec := decodeVerifyYAML(t, pvcYAML)["spec"].(map[string]any)
 	assert.Equal(t, "ceph-block", pvcSpec["storageClassName"])

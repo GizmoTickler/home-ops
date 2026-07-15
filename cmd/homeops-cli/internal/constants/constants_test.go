@@ -16,6 +16,12 @@ func TestConstantValues(t *testing.T) {
 	assert.Equal(t, "flux-system", NSFluxSystem)
 	assert.Equal(t, "kube-system", NSKubeSystem)
 	assert.Equal(t, "network", NSNetwork)
+	assert.Equal(t, "volsync-system", NSVolsyncSystem)
+	assert.Equal(t, 22, DefaultNodeSSHPort)
+	assert.Equal(t, "rook-ceph-tools", DefaultRookToolboxDeployment)
+	assert.Equal(t, "docker.io/library/alpine:3.22", DefaultVolsyncCheckImage)
+	assert.Equal(t, "homeops.io/ceph-noout", CephNooutAnnotation)
+	assert.Equal(t, "checksums.txt", SelfUpdateChecksums)
 
 	assert.Equal(t, "https://factory.talos.dev", TalosFactoryBaseURL)
 

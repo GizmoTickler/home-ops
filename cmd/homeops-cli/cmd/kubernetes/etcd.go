@@ -200,7 +200,7 @@ func runEtcdBackup(ctx context.Context, outputDir string, keep int) (result etcd
 	if err != nil {
 		return result, err
 	}
-	client := etcdNewNodeClientFn(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: "22"})
+	client := etcdNewNodeClientFn(ssh.SSHConfig{Host: node.IP, Username: sshUser, Port: strconv.Itoa(config.Get().Cluster.NodeSSHPort)})
 	if err := client.Connect(); err != nil {
 		return result, fmt.Errorf("connect to etcd node %s over SSH: %w", node.Name, err)
 	}

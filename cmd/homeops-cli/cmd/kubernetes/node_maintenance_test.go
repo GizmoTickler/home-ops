@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/testutil"
 )
 
@@ -30,7 +31,7 @@ func maintenanceTestConfig() *config.Config {
 func maintenanceNodeJSON(cordoned bool, annotation string) []byte {
 	annotations := "{}"
 	if annotation != "" {
-		annotations = fmt.Sprintf(`{%q:%q}`, nodeMaintenanceAnnotation, annotation)
+		annotations = fmt.Sprintf(`{%q:%q}`, constants.CephNooutAnnotation, annotation)
 	}
 	return []byte(fmt.Sprintf(`{"metadata":{"name":"k8s-0","annotations":%s},"spec":{"unschedulable":%t},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`, annotations, cordoned))
 }
@@ -82,7 +83,7 @@ func TestNodeMaintenanceEnterSequencesSafeSteps(t *testing.T) {
 		"output get namespace rook-ceph --ignore-not-found -o name",
 		"output -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd dump --format json",
 		"run -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd set noout",
-		"run annotate node k8s-0 " + nodeMaintenanceAnnotation + "=owned --overwrite",
+		"run annotate node k8s-0 " + constants.CephNooutAnnotation + "=owned --overwrite",
 		"run cordon k8s-0",
 		"run drain k8s-0 --ignore-daemonsets --delete-emptydir-data --timeout=5m0s",
 		"output get node k8s-0 -o json",
@@ -101,7 +102,7 @@ func TestNodeMaintenanceEnterRollsBackInReverseOrder(t *testing.T) {
 	joined := strings.Join(*events, "\n")
 	uncordon := strings.Index(joined, "run uncordon k8s-0")
 	unset := strings.Index(joined, "ceph osd unset noout")
-	remove := strings.Index(joined, nodeMaintenanceAnnotation+"-")
+	remove := strings.Index(joined, constants.CephNooutAnnotation+"-")
 	assert.Greater(t, uncordon, 0)
 	assert.Greater(t, unset, uncordon)
 	assert.Greater(t, remove, unset)
@@ -120,7 +121,7 @@ func TestNodeMaintenanceEnterIsIdempotentWhenAlreadyCordoned(t *testing.T) {
 	joined := strings.Join(*events, "\n")
 	assert.NotContains(t, joined, "run cordon")
 	assert.NotContains(t, joined, "ceph osd set noout")
-	assert.NotContains(t, joined, nodeMaintenanceAnnotation+"=owned")
+	assert.NotContains(t, joined, constants.CephNooutAnnotation+"=owned")
 	assert.Equal(t, "SKIPPED", report.Steps[2].Status)
 	assert.Contains(t, joined, "run drain k8s-0")
 }
@@ -135,8 +136,46 @@ func TestNodeMaintenanceExitIsIdempotentAndPreservesPreexistingNoout(t *testing.
 	joined := strings.Join(*events, "\n")
 	assert.NotContains(t, joined, "run uncordon")
 	assert.NotContains(t, joined, "ceph osd unset noout")
-	assert.Contains(t, joined, nodeMaintenanceAnnotation+"-")
+	assert.Contains(t, joined, constants.CephNooutAnnotation+"-")
+	assert.Contains(t, joined, constants.LegacyCephNooutAnnotation+"-")
 	assert.Equal(t, "HEALTH_OK", report.Final.Ceph)
+}
+
+func TestMaintenanceNooutOwnershipAcceptsLegacyAnnotation(t *testing.T) {
+	assert.Equal(t, nodeMaintenanceNooutOwned, maintenanceNooutOwnership(map[string]string{
+		constants.LegacyCephNooutAnnotation: nodeMaintenanceNooutOwned,
+	}))
+	assert.Equal(t, nodeMaintenanceNooutPreexisting, maintenanceNooutOwnership(map[string]string{
+		constants.CephNooutAnnotation:       nodeMaintenanceNooutPreexisting,
+		constants.LegacyCephNooutAnnotation: nodeMaintenanceNooutOwned,
+	}))
+}
+
+func TestNodeMaintenanceUsesConfiguredRookLocation(t *testing.T) {
+	testutil.Swap(t, &nodeMaintenanceConfigFn, func() *config.Config {
+		return &config.Config{Cluster: config.ClusterConfig{Rook: config.RookConfig{
+			Namespace:         "ceph-custom",
+			ToolboxDeployment: "ceph-toolbox-custom",
+		}}}
+	})
+	var calls []string
+	testutil.Swap(t, &nodeMaintenanceKubectlOutputFn, func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, strings.Join(args, " "))
+		if args[0] == "get" {
+			return []byte("namespace/ceph-custom\n"), nil
+		}
+		return []byte(`{"flags":""}`), nil
+	})
+
+	present, err := rookCephPresent(context.Background())
+	require.NoError(t, err)
+	assert.True(t, present)
+	_, err = cephCommandOutput(context.Background(), "osd", "dump", "--format", "json")
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"get namespace ceph-custom --ignore-not-found -o name",
+		"-n ceph-custom exec deploy/ceph-toolbox-custom -- ceph osd dump --format json",
+	}, calls)
 }
 
 func TestRenderNodeMaintenanceJSON(t *testing.T) {

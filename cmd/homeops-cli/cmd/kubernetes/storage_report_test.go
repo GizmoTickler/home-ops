@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/testutil"
 )
 
@@ -71,6 +72,9 @@ func TestDetectOrphanedPVCsReferencesAndTrueOrphan(t *testing.T) {
 }
 
 func TestBuildStorageReportUsesReadOnlyFake(t *testing.T) {
+	testutil.Swap(t, &storageConfigFn, func() *config.Config {
+		return &config.Config{Cluster: config.ClusterConfig{Rook: config.RookConfig{Namespace: "ceph-custom"}}}
+	})
 	testutil.Swap(t, &storageNowFn, func() time.Time {
 		return time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
 	})
@@ -100,6 +104,7 @@ func TestBuildStorageReportUsesReadOnlyFake(t *testing.T) {
 		assert.NotContains(t, call, "patch")
 		assert.NotContains(t, call, "delete")
 	}
+	assert.Contains(t, calls[len(calls)-1], "ceph-custom")
 }
 
 func TestCephCapacityParsingAndThresholds(t *testing.T) {

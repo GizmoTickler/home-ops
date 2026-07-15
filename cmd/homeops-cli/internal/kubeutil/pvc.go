@@ -1,6 +1,10 @@
 package kubeutil
 
-import "strings"
+import (
+	"strings"
+
+	"homeops-cli/internal/constants"
+)
 
 // OwnerReference is the metadata subset needed by PVC hygiene checks.
 type OwnerReference struct {
@@ -61,7 +65,7 @@ func IsSystemNamespace(namespace string) bool {
 		return true
 	}
 	switch namespace {
-	case "kube-public", "kube-node-lease", "rook-ceph", "volsync":
+	case constants.NSKubePublic, constants.NSKubeNodeLease, constants.NSRookCeph, constants.NSVolsyncSystem:
 		return true
 	default:
 		return false

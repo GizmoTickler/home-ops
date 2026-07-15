@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/ui"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -24,7 +25,6 @@ import (
 const (
 	verifyLabelKey     = "homeops.io/volsync-verify"
 	verifyRunLabelKey  = "homeops.io/volsync-verify-run"
-	verifyCheckImage   = "docker.io/library/alpine:latest"
 	verifyPollInterval = 2 * time.Second
 	verifyCleanupLimit = 2 * time.Minute
 )
@@ -596,7 +596,7 @@ func sleepVerifyContext(ctx context.Context, duration time.Duration) error {
 }
 
 func (op *verifyOperation) runIntegrityCheck(ctx context.Context, timeout time.Duration) (string, error) {
-	podYAML, err := buildVerifyCheckPod(op.name, op.namespace, op.app)
+	podYAML, err := buildVerifyCheckPod(op.name, op.namespace, op.app, config.Get().Volsync.CheckImage)
 	if err != nil {
 		return "", err
 	}
@@ -616,12 +616,12 @@ func (op *verifyOperation) runIntegrityCheck(ctx context.Context, timeout time.D
 	return string(output), nil
 }
 
-func buildVerifyCheckPod(name, namespace, app string) (string, error) {
+func buildVerifyCheckPod(name, namespace, app, checkImage string) (string, error) {
 	spec := map[string]any{
 		"restartPolicy": "Never",
 		"containers": []map[string]any{{
 			"name":    "check",
-			"image":   verifyCheckImage,
+			"image":   checkImage,
 			"command": []string{"sh", "-c", "sleep 3600"},
 			"securityContext": map[string]any{
 				"allowPrivilegeEscalation": false,

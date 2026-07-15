@@ -144,6 +144,12 @@ type TalosSettings struct {
 	UserVolume              TalosUserVolumeSettings `yaml:"user_volume,omitempty"`
 }
 
+// RookConfig identifies the Rook-Ceph installation used by cluster workflows.
+type RookConfig struct {
+	Namespace         string `yaml:"namespace,omitempty"`
+	ToolboxDeployment string `yaml:"toolbox_deployment,omitempty"`
+}
+
 // ClusterConfig is the cluster topology section.
 type ClusterConfig struct {
 	// Name is informational (shown in config show).
@@ -161,6 +167,10 @@ type ClusterConfig struct {
 	NTPServers []string `yaml:"ntp_servers,omitempty"`
 	// ExtraCertSANs are appended to the apiserver/Talos cert SAN lists.
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
+	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
+	NodeSSHPort int `yaml:"node_ssh_port,omitempty"`
+	// Rook identifies the Rook-Ceph namespace and toolbox deployment.
+	Rook RookConfig `yaml:"rook,omitempty"`
 	// Kubelet holds cluster-wide kubelet tuning rendered in kubeadm.
 	Kubelet KubeletConfig `yaml:"kubelet,omitempty"`
 	// Maintenance controls safe node drain and readiness wait defaults.
@@ -295,6 +305,12 @@ type BootstrapSettings struct {
 	OpVault string `yaml:"op_vault,omitempty"`
 }
 
+// VolsyncConfig controls VolSync verification helpers.
+type VolsyncConfig struct {
+	// CheckImage is the image used by the read-only restore integrity-check pod.
+	CheckImage string `yaml:"check_image,omitempty"`
+}
+
 // Config is the root of homeops.yaml.
 type Config struct {
 	Cluster     ClusterConfig     `yaml:"cluster,omitempty"`
@@ -302,6 +318,7 @@ type Config struct {
 	State       StateConfig       `yaml:"state,omitempty"`
 	Templates   TemplatesConfig   `yaml:"templates,omitempty"`
 	Bootstrap   BootstrapSettings `yaml:"bootstrap,omitempty"`
+	Volsync     VolsyncConfig     `yaml:"volsync,omitempty"`
 	// Images overrides the cloud-image catalog used by `vm create`: a map of
 	// OS key (ubuntu, rocky, rhel, debian, fedora) to a qcow2 URL or a path
 	// already present on the hypervisor. RHEL requires this (subscription).
@@ -529,6 +546,21 @@ func LoadFile(path string) (*Config, error) {
 // validate rejects obviously broken configs early with actionable messages.
 func validate(c *Config) error {
 	var problems []string
+	if c.Cluster.NodeSSHPort < 0 || c.Cluster.NodeSSHPort > 65535 {
+		problems = append(problems, "cluster.node_ssh_port: must be between 1 and 65535 when set")
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"cluster.rook.namespace", c.Cluster.Rook.Namespace},
+		{"cluster.rook.toolbox_deployment", c.Cluster.Rook.ToolboxDeployment},
+		{"volsync.check_image", c.Volsync.CheckImage},
+	} {
+		if field.value != "" && strings.TrimSpace(field.value) == "" {
+			problems = append(problems, fmt.Sprintf("%s: must not be blank", field.name))
+		}
+	}
 	if c.State.EtcdBackup.Keep < 0 {
 		problems = append(problems, "state.etcd_backup.keep: must be at least 1 when set")
 	}

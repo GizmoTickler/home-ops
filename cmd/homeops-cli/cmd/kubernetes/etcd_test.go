@@ -82,11 +82,12 @@ func fakeEtcdPodList(t *testing.T) {
 func configureEtcdNodeClient(t *testing.T, client *fakeEtcdNodeClient) {
 	t.Helper()
 	restore := config.SetForTesting(&config.Config{
+		Cluster: config.ClusterConfig{NodeSSHPort: 2222},
 		Secrets: map[string]string{config.KeyNodeSSHUser: "literal://core"},
 	})
 	t.Cleanup(restore)
 	testutil.Swap(t, &etcdNewNodeClientFn, func(cfg ssh.SSHConfig) etcdNodeClient {
-		assert.Equal(t, ssh.SSHConfig{Host: "192.168.122.10", Username: "core", Port: "22"}, cfg)
+		assert.Equal(t, ssh.SSHConfig{Host: "192.168.122.10", Username: "core", Port: "2222"}, cfg)
 		return client
 	})
 }

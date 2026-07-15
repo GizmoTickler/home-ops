@@ -18,11 +18,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/testutil"
 )
 
 func TestSelectSelfUpdateAssetsAllReleasePlatforms(t *testing.T) {
-	assets := []githubReleaseAsset{{Name: selfUpdateChecksums, BrowserDownloadURL: "http://127.0.0.1/checksums.txt"}}
+	assets := []githubReleaseAsset{{Name: constants.SelfUpdateChecksums, BrowserDownloadURL: "http://127.0.0.1/checksums.txt"}}
 	for _, goos := range []string{"darwin", "linux"} {
 		for _, goarch := range []string{"amd64", "arm64"} {
 			name := fmt.Sprintf("homeops-cli_1.2.3_%s_%s.tar.gz", goos, goarch)
@@ -35,7 +36,7 @@ func TestSelectSelfUpdateAssetsAllReleasePlatforms(t *testing.T) {
 			asset, checksums, err := selectSelfUpdateAssets(release, platform[0], platform[1])
 			require.NoError(t, err)
 			assert.Equal(t, fmt.Sprintf("homeops-cli_1.2.3_%s_%s.tar.gz", platform[0], platform[1]), asset.Name)
-			assert.Equal(t, selfUpdateChecksums, checksums.Name)
+			assert.Equal(t, constants.SelfUpdateChecksums, checksums.Name)
 		})
 	}
 }
@@ -70,7 +71,7 @@ func TestSelfUpdateCheckUsesLatestAPIWithoutDownloading(t *testing.T) {
 			apiCalls++
 			release := githubRelease{TagName: "1.2.3", Assets: []githubReleaseAsset{
 				{Name: "homeops-cli_1.2.3_linux_amd64.tar.gz", BrowserDownloadURL: "http://" + r.Host + "/asset"},
-				{Name: selfUpdateChecksums, BrowserDownloadURL: "http://" + r.Host + "/checksums"},
+				{Name: constants.SelfUpdateChecksums, BrowserDownloadURL: "http://" + r.Host + "/checksums"},
 			}}
 			_ = json.NewEncoder(w).Encode(release)
 		default:
@@ -103,7 +104,7 @@ func TestSelfUpdateSendsGitHubToken(t *testing.T) {
 		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 		_ = json.NewEncoder(w).Encode(githubRelease{TagName: "1.0.0", Assets: []githubReleaseAsset{
 			{Name: "homeops-cli_1.0.0_linux_amd64.tar.gz", BrowserDownloadURL: "https://127.0.0.1/asset"},
-			{Name: selfUpdateChecksums, BrowserDownloadURL: "https://127.0.0.1/checksums"},
+			{Name: constants.SelfUpdateChecksums, BrowserDownloadURL: "https://127.0.0.1/checksums"},
 		}})
 	})
 	testutil.Swap(t, &selfUpdateHTTPClientFn, func() *http.Client { return recorderHTTPClient(handler) })
@@ -128,7 +129,7 @@ func TestSelfUpdateDownloadsVerifiesExtractsAndInstalls(t *testing.T) {
 		case "/latest":
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "1.2.3", Assets: []githubReleaseAsset{
 				{Name: assetName, BrowserDownloadURL: "https://127.0.0.1/asset"},
-				{Name: selfUpdateChecksums, BrowserDownloadURL: "https://127.0.0.1/checksums"},
+				{Name: constants.SelfUpdateChecksums, BrowserDownloadURL: "https://127.0.0.1/checksums"},
 			}})
 		case "/asset":
 			_, _ = w.Write(archive)

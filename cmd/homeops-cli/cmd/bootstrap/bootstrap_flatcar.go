@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -582,7 +583,7 @@ var flatcarNewSSHRunner = func(sshUser, host string) flatcarSSHRunner {
 	return ssh.NewSSHClient(ssh.SSHConfig{
 		Host:     host,
 		Username: sshUser,
-		Port:     "22",
+		Port:     strconv.Itoa(versionconfig.Get().Cluster.NodeSSHPort),
 	})
 }
 

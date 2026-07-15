@@ -73,6 +73,8 @@ const (
 	NSFluxSystem     = "flux-system"
 	NSVolsyncSystem  = "volsync-system"
 	NSKubeSystem     = "kube-system"
+	NSKubePublic     = "kube-public"
+	NSKubeNodeLease  = "kube-node-lease"
 	NSCertManager    = "cert-manager"
 	NSExternalSecret = "external-secrets"
 	NSObservability  = "observability"
@@ -87,6 +89,28 @@ const (
 	NSSystemUpgrade  = "system-upgrade"
 	NSSystem         = "system"
 	NSDatabase       = "database"
+)
+
+// Portable defaults for deployment-specific configuration. These values are
+// used by internal/config when the corresponding homeops.yaml keys are unset.
+const (
+	DefaultNodeSSHPort           = 22
+	DefaultRookToolboxDeployment = "rook-ceph-tools"
+	DefaultVolsyncCheckImage     = "docker.io/library/alpine:3.22"
+)
+
+// Node maintenance annotation keys. The legacy key remains read-compatible
+// while nodes can span an upgrade in the middle of maintenance.
+const (
+	CephNooutAnnotation       = "homeops.io/ceph-noout"
+	LegacyCephNooutAnnotation = "homeops.gizmotickler.com/ceph-noout"
+)
+
+// Self-update release metadata.
+const (
+	SelfUpdateOwner      = "GizmoTickler"
+	SelfUpdateRepository = "home-ops"
+	SelfUpdateChecksums  = "checksums.txt"
 )
 
 // Timeouts and intervals

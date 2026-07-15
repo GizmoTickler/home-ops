@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"homeops-cli/internal/cmdutil"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/ui"
 	"homeops-cli/internal/vmlifecycle"
@@ -21,7 +22,6 @@ const (
 	nodeMaintenanceDefaultDrainTimeout = 5 * time.Minute
 	nodeMaintenanceDefaultTimeout      = 10 * time.Minute
 	nodeMaintenancePollInterval        = 5 * time.Second
-	nodeMaintenanceAnnotation          = "homeops.gizmotickler.com/ceph-noout"
 	nodeMaintenanceNooutOwned          = "owned"
 	nodeMaintenanceNooutPreexisting    = "preexisting"
 )
@@ -274,13 +274,13 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 	}
 	runtimeState.ceph = cephPresent
 	if !cephPresent {
-		appendNodeMaintenanceSkip(&report, "ceph-noout", "rook-ceph namespace absent")
+		appendNodeMaintenanceSkip(&report, "ceph-noout", nodeMaintenanceRookConfig().Namespace+" namespace absent")
 	} else if err := runNodeMaintenanceStep(&report, "ceph-noout", func() (string, error) {
 		noout, getErr := cephNooutEnabled(ctx)
 		if getErr != nil {
 			return "", getErr
 		}
-		annotation := runtimeState.node.Metadata.Annotations[nodeMaintenanceAnnotation]
+		annotation := maintenanceNooutOwnership(runtimeState.node.Metadata.Annotations)
 		if noout {
 			ownership := nodeMaintenanceNooutPreexisting
 			detail := "noout was already set; it will be preserved on exit"
@@ -415,10 +415,11 @@ func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, re
 	}
 	cephFinal := "absent"
 	if !cephPresent {
-		appendNodeMaintenanceSkip(&report, "ceph-noout", "rook-ceph namespace absent")
-		appendNodeMaintenanceSkip(&report, "wait-ceph-health", "rook-ceph namespace absent")
+		detail := nodeMaintenanceRookConfig().Namespace + " namespace absent"
+		appendNodeMaintenanceSkip(&report, "ceph-noout", detail)
+		appendNodeMaintenanceSkip(&report, "wait-ceph-health", detail)
 	} else {
-		ownership := nodeState.Metadata.Annotations[nodeMaintenanceAnnotation]
+		ownership := maintenanceNooutOwnership(nodeState.Metadata.Annotations)
 		if ownership != nodeMaintenanceNooutOwned {
 			detail := "no ownership record; preserving noout"
 			if ownership == nodeMaintenanceNooutPreexisting {
@@ -489,15 +490,17 @@ func getMaintenanceNode(ctx context.Context, name string) (kubernetesNodeState, 
 }
 
 func rookCephPresent(ctx context.Context) (bool, error) {
-	raw, err := nodeMaintenanceKubectlOutputFn(ctx, "get", "namespace", "rook-ceph", "--ignore-not-found", "-o", "name")
+	rook := nodeMaintenanceRookConfig()
+	raw, err := nodeMaintenanceKubectlOutputFn(ctx, "get", "namespace", rook.Namespace, "--ignore-not-found", "-o", "name")
 	if err != nil {
-		return false, fmt.Errorf("detect rook-ceph namespace: %w", err)
+		return false, fmt.Errorf("detect %s namespace: %w", rook.Namespace, err)
 	}
 	return strings.TrimSpace(string(raw)) != "", nil
 }
 
 func runCephCommand(ctx context.Context, args ...string) error {
-	kubectlArgs := []string{"-n", "rook-ceph", "exec", "deploy/rook-ceph-tools", "--", "ceph"}
+	rook := nodeMaintenanceRookConfig()
+	kubectlArgs := []string{"-n", rook.Namespace, "exec", "deploy/" + rook.ToolboxDeployment, "--", "ceph"}
 	kubectlArgs = append(kubectlArgs, args...)
 	if err := nodeMaintenanceKubectlRunFn(ctx, kubectlArgs...); err != nil {
 		return fmt.Errorf("ceph %s: %w", strings.Join(args, " "), err)
@@ -506,7 +509,8 @@ func runCephCommand(ctx context.Context, args ...string) error {
 }
 
 func cephCommandOutput(ctx context.Context, args ...string) ([]byte, error) {
-	kubectlArgs := []string{"-n", "rook-ceph", "exec", "deploy/rook-ceph-tools", "--", "ceph"}
+	rook := nodeMaintenanceRookConfig()
+	kubectlArgs := []string{"-n", rook.Namespace, "exec", "deploy/" + rook.ToolboxDeployment, "--", "ceph"}
 	kubectlArgs = append(kubectlArgs, args...)
 	raw, err := nodeMaintenanceKubectlOutputFn(ctx, kubectlArgs...)
 	if err != nil {
@@ -533,17 +537,35 @@ func cephNooutEnabled(ctx context.Context) (bool, error) {
 }
 
 func annotateMaintenanceNoout(ctx context.Context, node, ownership string) error {
-	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, nodeMaintenanceAnnotation+"="+ownership, "--overwrite"); err != nil {
+	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, constants.CephNooutAnnotation+"="+ownership, "--overwrite"); err != nil {
 		return fmt.Errorf("record Ceph noout ownership on node %s: %w", node, err)
 	}
 	return nil
 }
 
 func removeMaintenanceNooutAnnotation(ctx context.Context, node string) error {
-	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, nodeMaintenanceAnnotation+"-"); err != nil {
+	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, constants.CephNooutAnnotation+"-", constants.LegacyCephNooutAnnotation+"-"); err != nil {
 		return fmt.Errorf("remove Ceph noout ownership from node %s: %w", node, err)
 	}
 	return nil
+}
+
+func maintenanceNooutOwnership(annotations map[string]string) string {
+	if ownership := annotations[constants.CephNooutAnnotation]; ownership != "" {
+		return ownership
+	}
+	return annotations[constants.LegacyCephNooutAnnotation]
+}
+
+func nodeMaintenanceRookConfig() config.RookConfig {
+	rook := nodeMaintenanceConfigFn().Cluster.Rook
+	if rook.Namespace == "" {
+		rook.Namespace = constants.NSRookCeph
+	}
+	if rook.ToolboxDeployment == "" {
+		rook.ToolboxDeployment = constants.DefaultRookToolboxDeployment
+	}
+	return rook
 }
 
 func waitForMaintenanceNodeReady(ctx context.Context, node string, timeout time.Duration) error {

@@ -147,6 +147,12 @@ func scaffold(backend string) string {
 
 cluster:
   name: my-cluster
+  # Direct SSH connections to configured cluster nodes.
+  node_ssh_port: 22
+  # Rook-Ceph installation used by maintenance and storage workflows.
+  rook:
+    namespace: rook-ceph
+    toolbox_deployment: rook-ceph-tools
   # Cluster-level environment rendered into Flatcar/kubeadm and legacy Talos templates.
   # Defaults preserve the historical embedded template literals.
   pod_cidr: 10.42.0.0/16
@@ -206,6 +212,10 @@ cluster:
       ip: 192.168.122.11
     - name: k8s-2
       ip: 192.168.122.12
+
+# VolSync restore verification helper image.
+volsync:
+  check_image: docker.io/library/alpine:3.22
 
 hypervisors:
   default: proxmox          # proxmox | truenas | vsphere
@@ -424,6 +434,21 @@ func runDoctor(skipSecrets, network bool) error {
 	}
 	if cfg.Cluster.Kubelet.MaxPods <= 0 {
 		fail("cluster.kubelet.max_pods must be positive")
+	}
+	if cfg.Cluster.NodeSSHPort <= 0 || cfg.Cluster.NodeSSHPort > 65535 {
+		fail("cluster.node_ssh_port must be between 1 and 65535")
+	}
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{"cluster.rook.namespace", cfg.Cluster.Rook.Namespace},
+		{"cluster.rook.toolbox_deployment", cfg.Cluster.Rook.ToolboxDeployment},
+		{"volsync.check_image", cfg.Volsync.CheckImage},
+	} {
+		if strings.TrimSpace(field.value) == "" {
+			fail("%s is empty", field.name)
+		}
 	}
 	if net.ParseIP(cfg.Cluster.ControlPlaneVIP) == nil {
 		fail("cluster.control_plane_vip %q is not a valid IP", cfg.Cluster.ControlPlaneVIP)
