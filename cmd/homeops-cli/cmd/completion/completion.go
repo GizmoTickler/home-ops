@@ -194,7 +194,7 @@ func ValidNamespaces(cmd *cobra.Command, args []string, toComplete string) ([]st
 		constants.NSOpenEBSSystem,
 		constants.NSVolsyncSystem,
 		constants.NSSystemUpgrade,
-		"actions-runner-system",
+		constants.NSActionsRunner,
 	}
 	return namespaces, cobra.ShellCompDirectiveNoFileComp
 }

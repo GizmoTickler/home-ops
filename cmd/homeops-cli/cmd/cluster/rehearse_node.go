@@ -14,6 +14,7 @@ import (
 	cmdflatcar "homeops-cli/cmd/flatcar"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	flatcarinternal "homeops-cli/internal/flatcar"
 	vmprov "homeops-cli/internal/provider"
 	"homeops-cli/internal/ui"
@@ -628,7 +629,7 @@ func (realRehearseOperations) SmokeTest(ctx context.Context, spec rehearseNodeSp
 		return err
 	}
 	if _, err := rehearseCommandFn(ctx, "kubectl", "run", name, "--namespace", "default", "--image", spec.CheckImage,
-		"--restart=Never", "--labels", "homeops.io/rehearse-node=true", "--overrides", string(overrides),
+		"--restart=Never", "--labels", constants.RehearseNodeLabel+"=true", "--overrides", string(overrides),
 		"--command", "--", "sh", "-c", "sleep 3600"); err != nil {
 		return fmt.Errorf("create smoke pod: %w", err)
 	}

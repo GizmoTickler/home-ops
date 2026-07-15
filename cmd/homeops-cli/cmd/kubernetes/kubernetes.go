@@ -21,6 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"homeops-cli/cmd/completion"
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/ui"
 )
 
@@ -1598,7 +1599,7 @@ func upgradeARC() error {
 
 	// Uninstall runner
 	logger.Info("Uninstalling home-ops-runner...")
-	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "home-ops-runner"); err != nil {
+	if output, err := commandCombinedOutputFn("helm", "-n", constants.NSActionsRunner, "uninstall", "home-ops-runner"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
 			redacted := common.RedactCommandOutput(string(output))
@@ -1608,7 +1609,7 @@ func upgradeARC() error {
 
 	// Uninstall controller
 	logger.Info("Uninstalling actions-runner-controller...")
-	if output, err := commandCombinedOutputFn("helm", "-n", "actions-runner-system", "uninstall", "actions-runner-controller"); err != nil {
+	if output, err := commandCombinedOutputFn("helm", "-n", constants.NSActionsRunner, "uninstall", "actions-runner-controller"); err != nil {
 		// It might not exist, which is okay
 		if !strings.Contains(string(output), "not found") {
 			redacted := common.RedactCommandOutput(string(output))
@@ -1622,13 +1623,13 @@ func upgradeARC() error {
 
 	// Reconcile controller
 	logger.Info("Reconciling actions-runner-controller HelmRelease...")
-	if err := commandRunFn("flux", "-n", "actions-runner-system", "reconcile", "hr", "actions-runner-controller"); err != nil {
+	if err := commandRunFn("flux", "-n", constants.NSActionsRunner, "reconcile", "hr", "actions-runner-controller"); err != nil {
 		return fmt.Errorf("failed to reconcile actions-runner-controller: %w", err)
 	}
 
 	// Reconcile runner
 	logger.Info("Reconciling home-ops-runner HelmRelease...")
-	if err := commandRunFn("flux", "-n", "actions-runner-system", "reconcile", "hr", "home-ops-runner"); err != nil {
+	if err := commandRunFn("flux", "-n", constants.NSActionsRunner, "reconcile", "hr", "home-ops-runner"); err != nil {
 		return fmt.Errorf("failed to reconcile home-ops-runner: %w", err)
 	}
 

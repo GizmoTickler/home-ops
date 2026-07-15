@@ -328,7 +328,7 @@ func buildBootstrapPlanArtifacts(provider string, options BootstrapConfig, nodes
 
 func initialBootstrapNamespaces() []string {
 	return []string{
-		"actions-runner-system", constants.NSAuth, constants.NSAutomation, constants.NSCertManager, constants.NSDatabase,
+		constants.NSActionsRunner, constants.NSAuth, constants.NSAutomation, constants.NSCertManager, constants.NSDatabase,
 		constants.NSDownloads, constants.NSExternalSecret, constants.NSFluxSystem, constants.NSKubeSystem, constants.NSMedia,
 		constants.NSNetwork, constants.NSObservability, constants.NSOpenEBSSystem, constants.NSRookCeph, constants.NSSelfHosted,
 		constants.NSSystem, constants.NSSystemUpgrade, constants.NSVolsyncSystem,

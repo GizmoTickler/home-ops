@@ -86,6 +86,7 @@ const (
 	NSAuth           = "auth"
 	NSOpenEBSSystem  = "openebs-system"
 	NSRookCeph       = "rook-ceph"
+	NSActionsRunner  = "actions-runner-system"
 	NSSystemUpgrade  = "system-upgrade"
 	NSSystem         = "system"
 	NSDatabase       = "database"
@@ -104,6 +105,9 @@ const (
 const (
 	CephNooutAnnotation       = "homeops.io/ceph-noout"
 	LegacyCephNooutAnnotation = "homeops.gizmotickler.com/ceph-noout"
+	// RehearseNodeLabel marks the disposable smoke-test pod created by
+	// cluster rehearse-node.
+	RehearseNodeLabel = "homeops.io/rehearse-node"
 )
 
 // Self-update release metadata.
