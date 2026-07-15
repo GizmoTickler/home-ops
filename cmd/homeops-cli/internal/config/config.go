@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -162,6 +163,8 @@ type ClusterConfig struct {
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// Kubelet holds cluster-wide kubelet tuning rendered in kubeadm.
 	Kubelet KubeletConfig `yaml:"kubelet,omitempty"`
+	// Maintenance controls safe node drain and readiness wait defaults.
+	Maintenance MaintenanceConfig `yaml:"maintenance,omitempty"`
 	// Talos holds legacy Talos-provider-only settings.
 	Talos TalosSettings `yaml:"talos,omitempty"`
 	// DomainRef is a secret reference resolving to the cluster base domain.
@@ -177,6 +180,13 @@ type ClusterConfig struct {
 	// Nodes are the control-plane nodes in order; the first is the kubeadm
 	// init node.
 	Nodes []Node `yaml:"nodes,omitempty"`
+}
+
+// MaintenanceConfig holds human-readable Go duration strings for node
+// maintenance workflows (for example "5m" or "15m30s").
+type MaintenanceConfig struct {
+	DrainTimeout string `yaml:"drain_timeout,omitempty"`
+	Timeout      string `yaml:"timeout,omitempty"`
 }
 
 // ProxmoxConfig holds Proxmox-specific knobs.
@@ -552,6 +562,20 @@ func validate(c *Config) error {
 			if _, err := netip.ParsePrefix(cidr.value); err != nil {
 				problems = append(problems, fmt.Sprintf("%s: %q is not a valid CIDR", cidr.name, cidr.value))
 			}
+		}
+	}
+	for _, duration := range []struct {
+		name  string
+		value string
+	}{
+		{"cluster.maintenance.drain_timeout", c.Cluster.Maintenance.DrainTimeout},
+		{"cluster.maintenance.timeout", c.Cluster.Maintenance.Timeout},
+	} {
+		if duration.value == "" {
+			continue
+		}
+		if parsed, err := time.ParseDuration(duration.value); err != nil || parsed <= 0 {
+			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
 	cephModes := []struct {

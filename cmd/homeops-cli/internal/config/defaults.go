@@ -24,6 +24,8 @@ const (
 	DefaultTrueNASISOFile  = "metal-amd64.iso"
 	DefaultSnippetsDir     = "/var/lib/vz/snippets"
 	DefaultEtcdBackupKeep  = 7
+	DefaultDrainTimeout    = "5m"
+	DefaultMaintenanceWait = "10m"
 )
 
 var (
@@ -190,6 +192,12 @@ func applyDefaults(c *Config) {
 		c.Cluster.ExtraCertSANs = append([]string(nil), defaultExtraCertSANs...)
 	}
 	applyKubeletDefaults(&c.Cluster.Kubelet)
+	if c.Cluster.Maintenance.DrainTimeout == "" {
+		c.Cluster.Maintenance.DrainTimeout = DefaultDrainTimeout
+	}
+	if c.Cluster.Maintenance.Timeout == "" {
+		c.Cluster.Maintenance.Timeout = DefaultMaintenanceWait
+	}
 	applyTalosDefaults(&c.Cluster.Talos)
 	if c.Cluster.ControlPlaneVIP == "" {
 		c.Cluster.ControlPlaneVIP = DefaultControlPlaneVIP

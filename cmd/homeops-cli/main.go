@@ -144,6 +144,7 @@ Environment:
 		opvault.NewCommand(),
 		volsync.NewCommand(),
 		workstation.NewCommand(),
+		newSelfUpdateCommand(),
 		newVersionCommand(),
 	)
 

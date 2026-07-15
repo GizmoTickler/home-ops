@@ -39,7 +39,9 @@ homeops-cli
 │   ├── etcd
 │   │   ├── backup
 │   │   └── status
-│   └── certs
+│   ├── certs
+│   └── node
+│       └── maintenance [enter|exit] <node>
 ├── talos                    # legacy provider (retained for reference/rollback)
 │   ├── apply-node
 │   ├── upgrade-node
@@ -93,10 +95,12 @@ homeops-cli
 │   ├── restore-all
 │   ├── verify --app <name>
 │   └── snapshots
-└── workstation
-    ├── setup [--all] [--upgrade] [--dry-run]
-    ├── brew
-    └── krew
+├── workstation
+│   ├── setup [--all] [--upgrade] [--dry-run]
+│   ├── brew
+│   └── krew
+├── self-update
+└── version
 ```
 
 ## Root Usage
@@ -105,9 +109,27 @@ homeops-cli
 homeops-cli --help
 homeops-cli --version
 homeops-cli --log-level debug
+homeops-cli self-update --check
 ```
 
 If you run `homeops-cli` with no subcommand, it opens the interactive command menu.
+
+### Self-update
+
+```bash
+# Query the latest release without changing the current binary
+homeops-cli self-update --check
+homeops-cli self-update --check --output json
+
+# Download the matching darwin/linux amd64/arm64 release, verify its SHA256,
+# and atomically replace the current executable
+homeops-cli self-update --yes
+```
+
+`self-update` reads the latest `GizmoTickler/home-ops` GitHub release and uses
+`GITHUB_TOKEN` when set. It accepts only HTTPS release/download URLs, verifies
+the selected `.tar.gz` against `checksums.txt`, and never runs the downloaded
+binary. Development builds refuse self-update unless `--force` is supplied.
 
 ## Bootstrap
 
@@ -452,6 +474,30 @@ Notes:
 
 - `sync --type` accepts `gitrepo`, `helmrelease`, `kustomization`, or `ocirepository`.
 - `upgrade-arc` uninstalls and reconciles ARC resources and asks for confirmation unless `--force` is set.
+
+### Node Maintenance
+
+```bash
+# Print the complete plan, confirm, set Ceph noout, cordon, and drain
+homeops-cli k8s node maintenance enter k8s-0
+
+# Also stop the VM selected by hypervisors.default and the node's configured VMID
+homeops-cli k8s node maintenance enter k8s-1 --shutdown-vm --drain-timeout 10m --yes
+
+# Start the VM, wait for kubelet Ready, uncordon, restore Ceph, and report health
+homeops-cli k8s node maintenance exit k8s-1 --start-vm --timeout 15m
+homeops-cli k8s node maintenance exit k8s-1 --output json
+```
+
+The workflow only accepts nodes listed under `cluster.nodes`. Enter requires a
+Ready node, records whether it owns the Ceph `noout` flag, and rolls back a
+new cordon and maintenance-owned `noout` when a later step fails. A pre-existing
+cordon or `noout` is preserved. If the `rook-ceph` namespace is absent, Ceph
+steps are reported as skipped. Global `--yes` bypasses confirmation.
+
+`cluster.maintenance.drain_timeout` (default `5m`) and
+`cluster.maintenance.timeout` (default `10m`) provide lazy configuration
+defaults; explicit flags take precedence.
 
 ### Kubeadm Disaster Recovery and PKI
 

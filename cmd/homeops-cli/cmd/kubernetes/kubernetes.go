@@ -510,6 +510,7 @@ func NewCommand() *cobra.Command {
 		newFluxTreeCommand(),
 		newEtcdCommand(),
 		newCertsCommand(),
+		newNodeMaintenanceCommand(),
 		newSuspendAppCommand(),
 		newResumeAppCommand(),
 	)
