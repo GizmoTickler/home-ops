@@ -126,6 +126,17 @@ func buildFlatcarOSStatus(ctx context.Context) (flatcarOSStatusReport, error) {
 	return report, nil
 }
 
+// CollectOSStatusJSON returns the read-only OS status report as JSON for
+// in-process diagnostic collectors such as the Kubernetes support bundle.
+func CollectOSStatusJSON(ctx context.Context) ([]byte, error) {
+	report, err := buildFlatcarOSStatus(ctx)
+	raw, marshalErr := json.MarshalIndent(report, "", "  ")
+	if marshalErr != nil {
+		return nil, marshalErr
+	}
+	return raw, err
+}
+
 func parseFlatcarOSStatus(node versionconfig.Node, raw string, now time.Time) flatcarOSNodeStatus {
 	status := flatcarOSNodeStatus{Node: node.Name, IP: node.IP}
 	osRelease := parseKeyValueOutput(sectionBetween(raw, "__HOMEOPS_OS_RELEASE__\n", "__HOMEOPS_UPDATE_ENGINE__\n"))

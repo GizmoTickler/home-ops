@@ -31,6 +31,7 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, constants.DefaultNodeSSHPort, c.Cluster.NodeSSHPort)
 	assert.Equal(t, constants.NSRookCeph, c.Cluster.Rook.Namespace)
 	assert.Equal(t, constants.DefaultRookToolboxDeployment, c.Cluster.Rook.ToolboxDeployment)
+	assert.Equal(t, constants.NSObservability, c.Cluster.Observability.Namespace)
 	assert.Equal(t, constants.DefaultVolsyncCheckImage, c.Volsync.CheckImage)
 	assert.Equal(t, 250, c.Cluster.Kubelet.MaxPods)
 	assert.Equal(t, 60, c.Cluster.Kubelet.ImageGCHighPercent)

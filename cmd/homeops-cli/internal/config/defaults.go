@@ -184,6 +184,9 @@ func applyDefaults(c *Config) {
 	if c.Cluster.Rook.ToolboxDeployment == "" {
 		c.Cluster.Rook.ToolboxDeployment = constants.DefaultRookToolboxDeployment
 	}
+	if c.Cluster.Observability.Namespace == "" {
+		c.Cluster.Observability.Namespace = constants.NSObservability
+	}
 	if c.Cluster.PodCIDR == "" {
 		c.Cluster.PodCIDR = DefaultPodCIDR
 	}

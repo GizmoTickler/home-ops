@@ -35,8 +35,10 @@ homeops-cli
 │   ├── doctor
 │   ├── net-doctor
 │   ├── storage-report
+│   ├── right-size
 │   ├── flux-tree [kustomization-name]
 │   ├── upgrade-status
+│   ├── support-bundle
 │   ├── etcd
 │   │   ├── backup
 │   │   ├── status
@@ -572,6 +574,16 @@ homeops-cli k8s flux-tree radarr --all --output json
 # Compare SUC plans and jobs with apiserver/kubelet/containerd/OS versions
 homeops-cli k8s upgrade-status
 homeops-cli k8s upgrade-status --output json
+
+# Find workload containers whose requests are too high or too low
+homeops-cli k8s right-size
+homeops-cli k8s right-size --namespace media --window 14d
+homeops-cli k8s right-size --min-savings 25 --output json
+
+# Create a redaction-checked diagnostic archive; skip SSH probes when needed
+homeops-cli k8s support-bundle
+homeops-cli k8s support-bundle --no-ssh
+homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
 ```
 
 These commands only issue read-only Kubernetes API queries. `net-doctor` also
@@ -588,6 +600,24 @@ Jobs and their pod-derived reasons, marks nodes `UpToDate`, `Pending`, or
 and warns when apiserver/kubelet skew exceeds one minor. It exits
 nonzero only when an SUC upgrade Job has failed (apart from Kubernetes API or
 input errors that prevent a report).
+
+`right-size` discovers a `vmsingle*` or `vmselect*` Service in
+`cluster.observability.namespace` (default `observability`), opens a temporary
+loopback `kubectl port-forward`, and compares historical CPU p95 and memory
+p95/max usage with requests and limits. If VictoriaMetrics cannot be queried,
+it prints a prominent warning and falls back to point-in-time
+`metrics.k8s.io` data. `--min-savings` is a percentage filter for small
+overprovisioning findings. It is advisory and always exits zero after a report
+is produced.
+
+`support-bundle` collects the existing doctor, network, storage, Flux, etcd,
+certificate, Flatcar OS, upgrade, event, node, and version reports into a
+timestamped `.tar.gz`. Collectors are isolated: a failed probe becomes an
+`.error` entry and does not stop the archive. `--no-ssh` skips certificate and
+Flatcar OS probes. Before publishing the archive, the command scans every
+entry for private keys, kubeconfig key data, common token/password shapes, and
+other likely secret material; a match refuses the entire bundle. The manifest
+records contents, component versions, timings, and per-collector status.
 
 ### Local Flux Kustomization Workflows
 

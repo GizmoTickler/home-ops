@@ -150,6 +150,12 @@ type RookConfig struct {
 	ToolboxDeployment string `yaml:"toolbox_deployment,omitempty"`
 }
 
+// ObservabilityConfig identifies the namespace containing cluster metrics
+// services such as VictoriaMetrics. Service names are discovered at runtime.
+type ObservabilityConfig struct {
+	Namespace string `yaml:"namespace,omitempty"`
+}
+
 // ClusterConfig is the cluster topology section.
 type ClusterConfig struct {
 	// Name is informational (shown in config show).
@@ -171,6 +177,9 @@ type ClusterConfig struct {
 	NodeSSHPort int `yaml:"node_ssh_port,omitempty"`
 	// Rook identifies the Rook-Ceph namespace and toolbox deployment.
 	Rook RookConfig `yaml:"rook,omitempty"`
+	// Observability identifies the namespace where metrics backends are
+	// discovered. No service name is configured or assumed.
+	Observability ObservabilityConfig `yaml:"observability,omitempty"`
 	// Kubelet holds cluster-wide kubelet tuning rendered in kubeadm.
 	Kubelet KubeletConfig `yaml:"kubelet,omitempty"`
 	// Maintenance controls safe node drain and readiness wait defaults.
