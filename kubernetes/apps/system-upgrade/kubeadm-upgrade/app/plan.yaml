@@ -67,7 +67,9 @@ spec:
         find /etc/sysupdate.kubernetes.d -maxdepth 1 -name 'kubernetes-v*.conf' \
           ! -name "kubernetes-${MINOR}.conf" -delete
         # Update only the kubernetes sysext (its own definitions dir), then merge it.
-        systemd-sysupdate --definitions=/etc/sysupdate.kubernetes.d update
+        # Full path: systemd-sysupdate is not on Flatcar's PATH (proven live on the
+        # first run of this Plan — the job failed here with command not found).
+        /usr/lib/systemd/systemd-sysupdate --definitions=/etc/sysupdate.kubernetes.d update
         systemd-sysext refresh
 
         # FAIL-SAFE: if the new kubeadm isn't active, stop BEFORE touching the cluster.
