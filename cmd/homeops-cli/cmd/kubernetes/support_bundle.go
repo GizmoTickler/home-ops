@@ -54,6 +54,13 @@ type supportBundleRunResult struct {
 	Collectors []supportBundleCollectorResult
 }
 
+type supportBundleCommandResult struct {
+	Path       string                         `json:"path"`
+	Size       int64                          `json:"size_bytes"`
+	Collectors []supportBundleCollectorResult `json:"collectors"`
+	Drift      *supportBundleDriftReport      `json:"drift,omitempty"`
+}
+
 type supportBundleFluxSummary struct {
 	Kustomizations []fluxKustomizationSummary `json:"kustomizations"`
 	HelmReleases   []fluxTreeHelmNode         `json:"helm_releases"`
@@ -85,25 +92,72 @@ var supportBundleForbiddenPatterns = []struct {
 
 func newSupportBundleCommand() *cobra.Command {
 	var outputPath string
+	var diffPath string
 	var noSSH bool
+	var failOnDrift bool
 	cmd := &cobra.Command{
 		Use:          "support-bundle",
 		Short:        "Create a redaction-checked diagnostic archive",
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s support-bundle
   homeops-cli k8s support-bundle --no-ssh
-  homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz`,
+  homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
+  homeops-cli k8s support-bundle --diff ./before.tar.gz
+  homeops-cli k8s support-bundle --diff ./before.tar.gz --output json
+  homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-drift`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			result, err := runSupportBundle(cmd.Context(), outputPath, noSSH)
+			if failOnDrift && strings.TrimSpace(diffPath) == "" {
+				return fmt.Errorf("--fail-on-drift requires --diff")
+			}
+			format := "table"
+			archivePath := outputPath
+			if diffPath != "" && strings.EqualFold(strings.TrimSpace(outputPath), "json") {
+				format, archivePath = "json", ""
+			}
+			var oldBundle *supportBundleArchive
+			if strings.TrimSpace(diffPath) != "" {
+				validated, err := loadSupportBundleArchive(diffPath)
+				if err != nil {
+					return fmt.Errorf("validate old support bundle: %w", err)
+				}
+				oldBundle = &validated
+			}
+			result, err := runSupportBundle(cmd.Context(), archivePath, noSSH)
 			if err != nil {
 				return err
 			}
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Support bundle: %s (%s)\n%s\n", result.Path, humanBytes(result.Size), renderSupportBundleStatuses(result.Collectors))
+			commandResult := supportBundleCommandResult{Path: result.Path, Size: result.Size, Collectors: result.Collectors}
+			if oldBundle != nil {
+				freshBundle, readErr := loadSupportBundleArchive(result.Path)
+				if readErr != nil {
+					return fmt.Errorf("read fresh support bundle: %w", readErr)
+				}
+				drift := compareSupportBundles(*oldBundle, freshBundle)
+				commandResult.Drift = &drift
+			}
+			if format == "json" {
+				raw, marshalErr := json.MarshalIndent(commandResult, "", "  ")
+				if marshalErr != nil {
+					return fmt.Errorf("marshal support bundle result: %w", marshalErr)
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(raw))
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Support bundle: %s (%s)\n", result.Path, humanBytes(result.Size))
+				if commandResult.Drift != nil {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\n%s\n\n", renderSupportBundleDrift(*commandResult.Drift))
+				}
+				_, _ = fmt.Fprintln(cmd.OutOrStdout(), renderSupportBundleStatuses(result.Collectors))
+			}
+			if failOnDrift && commandResult.Drift != nil && commandResult.Drift.Summary.NewFail > 0 {
+				return fmt.Errorf("support bundle drift found %d new failing finding(s)", commandResult.Drift.Summary.NewFail)
+			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "archive path (default: ./homeops-support-bundle-<UTC timestamp>.tar.gz)")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "", "archive path; with --diff, use json for structured stdout and the default archive path")
 	cmd.Flags().BoolVar(&noSSH, "no-ssh", false, "skip certificate and Flatcar OS collectors that require SSH")
+	cmd.Flags().StringVar(&diffPath, "diff", "", "compare the fresh bundle with an earlier support bundle archive")
+	cmd.Flags().BoolVar(&failOnDrift, "fail-on-drift", false, "return exit code 1 when drift contains any NEW-FAIL finding")
 	return cmd
 }
 

@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,6 +121,222 @@ func TestCollectSupportEventsKeepsNewestTwoHundred(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(collected, &list))
 	assert.Len(t, list.Items, 200)
+}
+
+func TestSupportBundleDriftClassificationMatrix(t *testing.T) {
+	tests := []struct {
+		name                   string
+		oldStatus, newStatus   string
+		oldPresent, newPresent bool
+		want                   string
+	}{
+		{name: "new fail", newStatus: "FAIL", newPresent: true, want: "NEW-FAIL"},
+		{name: "warn worsens to fail", oldStatus: "WARN", newStatus: "FAIL", oldPresent: true, newPresent: true, want: "NEW-FAIL"},
+		{name: "new warn", newStatus: "WARN", newPresent: true, want: "NEW-WARN"},
+		{name: "pass worsens to warn", oldStatus: "PASS", newStatus: "WARN", oldPresent: true, newPresent: true, want: "NEW-WARN"},
+		{name: "fail becomes pass", oldStatus: "FAIL", newStatus: "PASS", oldPresent: true, newPresent: true, want: "RESOLVED"},
+		{name: "warn disappears", oldStatus: "WARN", oldPresent: true, want: "RESOLVED"},
+		{name: "fail improves to warn", oldStatus: "FAIL", newStatus: "WARN", oldPresent: true, newPresent: true, want: "CHANGED"},
+		{name: "neutral status changes", oldStatus: "PASS", newStatus: "OK", oldPresent: true, newPresent: true, want: "CHANGED"},
+		{name: "unchanged", oldStatus: "WARN", newStatus: "WARN", oldPresent: true, newPresent: true},
+		{name: "new healthy row", newStatus: "OK", newPresent: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, classifyDriftStatus(test.oldStatus, test.oldPresent, test.newStatus, test.newPresent))
+		})
+	}
+}
+
+func TestSupportBundleDriftReportShapes(t *testing.T) {
+	tests := []struct {
+		name, collector, oldJSON, newJSON string
+		wantClass, wantKey                string
+		wantChanged                       int
+	}{
+		{
+			name: "doctor", collector: "doctor",
+			oldJSON:   `{"checks":[{"group":"pods","kind":"Pod","name":"media/plex","status":"PASS"}]}`,
+			newJSON:   `{"checks":[{"group":"pods","kind":"Pod","name":"media/plex","status":"FAIL","detail":"CrashLoopBackOff"}]}`,
+			wantClass: "NEW-FAIL", wantKey: "pods/Pod/media/plex",
+		},
+		{
+			name: "net doctor", collector: "net-doctor",
+			oldJSON:   `{"checks":[{"group":"GATEWAYS","kind":"Gateway","name":"network/internal","status":"WARN"}]}`,
+			newJSON:   `{"checks":[]}`,
+			wantClass: "RESOLVED", wantKey: "GATEWAYS/Gateway/network/internal",
+		},
+		{
+			name: "storage", collector: "storage-report",
+			oldJSON:   `{"orphaned_pvcs":[],"pv_issues":[],"ceph_capacity":[],"provisioned_vs_capacity":[],"volsync_coverage_gaps":[]}`,
+			newJSON:   `{"orphaned_pvcs":[{"namespace":"media","name":"stale","storage_class":"ceph","size":"1Gi"}],"pv_issues":[],"ceph_capacity":[],"provisioned_vs_capacity":[],"volsync_coverage_gaps":[]}`,
+			wantClass: "NEW-WARN", wantKey: "orphaned-pvc/media/stale",
+		},
+		{
+			name: "certificates", collector: "certificates",
+			oldJSON:   `{"before":{"checks":[{"node":"k8s-0","name":"apiserver","status":"WARN"}]}}`,
+			newJSON:   `{"before":{"checks":[{"node":"k8s-0","name":"apiserver","status":"OK"}]}}`,
+			wantClass: "RESOLVED", wantKey: "k8s-0/apiserver",
+		},
+		{
+			name: "etcd", collector: "etcd-status",
+			oldJSON:   `{"endpoints":[{"endpoint":"https://127.0.0.1:2379","healthy":true}],"backup":{"status":"OK"}}`,
+			newJSON:   `{"endpoints":[{"endpoint":"https://127.0.0.1:2379","healthy":false,"error":"timeout"}],"backup":{"status":"OK"}}`,
+			wantClass: "NEW-FAIL", wantKey: "endpoint/https://127.0.0.1:2379",
+		},
+		{
+			name: "upgrade", collector: "upgrade-status",
+			oldJSON:   `{"apiserver_version":"v1.35.1","plans":[],"nodes":[{"name":"k8s-0","status":"UpToDate","kubelet_version":"v1.35.1"}],"jobs":[],"skew":[]}`,
+			newJSON:   `{"apiserver_version":"v1.35.1","plans":[],"nodes":[{"name":"k8s-0","status":"Pending","kubelet_version":"v1.35.1"}],"jobs":[],"skew":[]}`,
+			wantClass: "NEW-WARN", wantKey: "node/k8s-0",
+		},
+		{
+			name: "flatcar", collector: "flatcar-os-status",
+			oldJSON:   `{"nodes":[{"node":"k8s-0","flatcar_version":"4300.0.0","kernel":"6.12.1","reboot_needed":false}]}`,
+			newJSON:   `{"nodes":[{"node":"k8s-0","flatcar_version":"4310.0.0","kernel":"6.12.1","reboot_needed":true}]}`,
+			wantClass: "NEW-WARN", wantKey: "node/k8s-0", wantChanged: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			oldRows, oldVersions, err := extractDriftRows(test.collector, []byte(test.oldJSON))
+			require.NoError(t, err)
+			newRows, newVersions, err := extractDriftRows(test.collector, []byte(test.newJSON))
+			require.NoError(t, err)
+			findings := append(diffDriftRows(test.collector, oldRows, newRows), diffVersionValues(test.collector, oldVersions, newVersions)...)
+			require.NotEmpty(t, findings)
+			assert.Equal(t, test.wantClass, findings[0].Classification)
+			assert.Equal(t, test.wantKey, findings[0].Key)
+			changed := 0
+			for _, finding := range findings {
+				if finding.Classification == "CHANGED" {
+					changed++
+				}
+			}
+			assert.Equal(t, test.wantChanged, changed)
+		})
+	}
+}
+
+func TestSupportBundleVersionChanges(t *testing.T) {
+	oldValues, err := extractVersionValues("kubectl-version", []byte(`{"clientVersion":{"gitVersion":"v1.35.0"},"serverVersion":{"gitVersion":"v1.35.1"}}`))
+	require.NoError(t, err)
+	newValues, err := extractVersionValues("kubectl-version", []byte(`{"clientVersion":{"gitVersion":"v1.36.0"},"serverVersion":{"gitVersion":"v1.35.1"}}`))
+	require.NoError(t, err)
+	findings := diffVersionValues("kubectl-version", oldValues, newValues)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "client", findings[0].Key)
+	assert.Equal(t, "v1.35.0", findings[0].OldValue)
+	assert.Equal(t, "v1.36.0", findings[0].NewValue)
+}
+
+func TestSupportBundleDriftMissingCollectorsAndIncomparable(t *testing.T) {
+	oldPath := writeSupportBundleFixture(t, map[string][]byte{
+		"doctor.json": []byte(`{"checks":[]}`),
+		"broken.json": []byte(`{"unexpected":true}`),
+		"legacy.json": []byte(`{}`),
+	}, []supportBundleCollectorResult{
+		{Name: "doctor", File: "doctor.json", Status: "OK"},
+		{Name: "net-doctor", File: "broken.json", Status: "OK"},
+		{Name: "legacy", File: "legacy.json", Status: "OK"},
+	})
+	newPath := writeSupportBundleFixture(t, map[string][]byte{
+		"doctor.json":      []byte(`{"checks":[]}`),
+		"broken.json":      []byte(`{"checks":42}`),
+		"cli-version.json": []byte(`{"version":"v2","go_version":"go1.25"}`),
+	}, []supportBundleCollectorResult{
+		{Name: "doctor", File: "doctor.json", Status: "OK"},
+		{Name: "net-doctor", File: "broken.json", Status: "OK"},
+		{Name: "cli-version", File: "cli-version.json", Status: "OK"},
+	})
+	oldBundle, err := loadSupportBundleArchive(oldPath)
+	require.NoError(t, err)
+	newBundle, err := loadSupportBundleArchive(newPath)
+	require.NoError(t, err)
+	report := compareSupportBundles(oldBundle, newBundle)
+	states := map[string]string{}
+	for _, collector := range report.Collectors {
+		states[collector.Collector] = collector.State
+		if collector.Collector == "net-doctor" {
+			assert.Contains(t, collector.Detail, "incomparable:")
+		}
+	}
+	assert.Equal(t, "ADDED", states["cli-version"])
+	assert.Equal(t, "INCOMPARABLE", states["net-doctor"])
+	assert.Equal(t, "REMOVED", states["legacy"])
+}
+
+func TestSupportBundleDiffValidatesArchiveBeforeCollecting(t *testing.T) {
+	invalid := filepath.Join(t.TempDir(), "invalid.tar.gz")
+	writeTarFixture(t, invalid, map[string][]byte{"doctor.json": []byte(`{"checks":[]}`)})
+	called := false
+	testutil.Swap(t, &supportBundleCollectorsFn, func(bool) []supportBundleCollector {
+		called = true
+		return nil
+	})
+	cmd := newSupportBundleCommand()
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--diff", invalid})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "manifest.json")
+	assert.False(t, called)
+}
+
+func TestSupportBundleFailOnDriftAndJSONOutput(t *testing.T) {
+	oldPath := writeSupportBundleFixture(t, map[string][]byte{
+		"doctor.json": []byte(`{"checks":[{"group":"pods","kind":"Pod","name":"media/plex","status":"PASS"}]}`),
+	}, []supportBundleCollectorResult{{Name: "doctor", File: "doctor.json", Status: "OK"}})
+	testutil.Swap(t, &supportBundleCollectorsFn, func(bool) []supportBundleCollector {
+		return []supportBundleCollector{{Name: "doctor", Filename: "doctor.json", Collect: func(context.Context) ([]byte, error) {
+			return []byte(`{"checks":[{"group":"pods","kind":"Pod","name":"media/plex","status":"FAIL"}]}`), nil
+		}}}
+	})
+	t.Chdir(t.TempDir())
+	cmd := newSupportBundleCommand()
+	var output bytes.Buffer
+	cmd.SetOut(&output)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"--diff", oldPath, "--output", "json", "--fail-on-drift"})
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "1 new failing")
+	jsonStart := strings.Index(output.String(), "{")
+	require.NotEqual(t, -1, jsonStart)
+	var result supportBundleCommandResult
+	require.NoError(t, json.Unmarshal([]byte(output.String()[jsonStart:]), &result))
+	require.NotNil(t, result.Drift)
+	assert.Equal(t, 1, result.Drift.Summary.NewFail)
+	require.Len(t, result.Drift.Findings, 1)
+	assert.Equal(t, "NEW-FAIL", result.Drift.Findings[0].Classification)
+}
+
+func writeSupportBundleFixture(t *testing.T, entries map[string][]byte, collectors []supportBundleCollectorResult) string {
+	t.Helper()
+	manifest := supportBundleManifest{CreatedAt: "2026-07-15T00:00:00Z", CLIVersion: "test", Collectors: collectors}
+	for name := range entries {
+		manifest.Contents = append(manifest.Contents, name)
+	}
+	manifest.Contents = append(manifest.Contents, "manifest.json")
+	sort.Strings(manifest.Contents)
+	raw, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	entries["manifest.json"] = raw
+	archivePath := filepath.Join(t.TempDir(), "bundle.tar.gz")
+	writeTarFixture(t, archivePath, entries)
+	return archivePath
+}
+
+func writeTarFixture(t *testing.T, archivePath string, entries map[string][]byte) {
+	t.Helper()
+	sourceDir := t.TempDir()
+	contents := make([]string, 0, len(entries))
+	for name, data := range entries {
+		require.NoError(t, os.WriteFile(filepath.Join(sourceDir, name), data, 0o600))
+		contents = append(contents, name)
+	}
+	sort.Strings(contents)
+	require.NoError(t, writeSupportBundleArchive(sourceDir, archivePath, contents))
 }
 
 func readSupportBundleArchive(t *testing.T, path string) map[string][]byte {

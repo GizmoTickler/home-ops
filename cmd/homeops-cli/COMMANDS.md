@@ -669,6 +669,10 @@ homeops-cli k8s right-size --apply-git --repo-root /path/to/home-ops
 homeops-cli k8s support-bundle
 homeops-cli k8s support-bundle --no-ssh
 homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
+homeops-cli k8s support-bundle --diff ./before.tar.gz
+homeops-cli k8s support-bundle --diff ./before.tar.gz --no-ssh --output ./after.tar.gz
+homeops-cli k8s support-bundle --diff ./before.tar.gz --output json
+homeops-cli k8s support-bundle --diff ./before.tar.gz --fail-on-drift
 ```
 
 The triage commands issue read-only Kubernetes API queries. `upgrade-plan set`
@@ -725,6 +729,25 @@ Flatcar OS probes. Before publishing the archive, the command scans every
 entry for private keys, kubeconfig key data, common token/password shapes, and
 other likely secret material; a match refuses the entire bundle. The manifest
 records contents, component versions, timings, and per-collector status.
+
+With `--diff <old-bundle.tar.gz>`, `support-bundle` validates that the old
+archive contains a readable `manifest.json` before starting any live
+collection, then compares the freshly collected bundle at the finding level.
+The `HEALTH DRIFT` table reports new failures, new warnings, resolved findings,
+other status changes, and explicit component or node version changes. Finding
+identity is stable per report shape (for example group/kind/name,
+node/certificate, etcd endpoint, or storage object), so changing timestamps and
+formatting do not create raw-byte noise. Collectors added or removed between CLI
+versions are noted, incompatible older schemas are isolated to that collector,
+and `events.json` plus `nodes-wide.txt` are presence-only because their content
+is intentionally noisy.
+
+Drift is informational and does not change the command's exit status unless
+`--fail-on-drift` is supplied; that flag returns exit code 1 only when at least
+one `NEW-FAIL` is found. Existing archive-path use of `--output` still composes
+with `--diff`. When diffing, the special value `--output json` keeps the fresh
+archive at its default timestamped path and writes the full structured bundle
+result and drift findings to stdout.
 
 ### Local Flux Kustomization Workflows
 
