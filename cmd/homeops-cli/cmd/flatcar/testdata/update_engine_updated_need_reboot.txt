@@ -1,0 +1,5 @@
+# Some update_engine builds use colon-delimited status output.
+CURRENT_OP: UPDATE_STATUS_UPDATED_NEED_REBOOT
+NEW_VERSION: 4230.2.0
+NEW_SIZE: 1123456789
+PROGRESS: 1.0

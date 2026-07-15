@@ -16,6 +16,7 @@ homeops-cli
 │   ├── deploy-vm
 │   ├── save-pki
 │   ├── kubeconfig
+│   ├── os-status
 │   ├── reset-node
 │   └── reset-cluster
 ├── k8s
@@ -31,6 +32,7 @@ homeops-cli
 │   ├── apply-ks [ks.yaml]
 │   ├── delete-ks <ks.yaml>
 │   ├── doctor
+│   ├── net-doctor
 │   ├── storage-report
 │   ├── flux-tree [kustomization-name]
 │   ├── etcd
@@ -177,7 +179,16 @@ homeops-cli flatcar save-pki --node k8s-1
 homeops-cli flatcar kubeconfig                       # -> $KUBECONFIG or ~/.kube/config
 homeops-cli flatcar kubeconfig --push                # also save to op://Infrastructure/kubeconfig
 homeops-cli flatcar kubeconfig --pull --output ./kc  # retrieve from 1Password
+
+# Read Flatcar version, update-engine, reboot, kernel, and boot-time state over SSH
+homeops-cli flatcar os-status
+homeops-cli flatcar os-status --output json
 ```
+
+`os-status` is read-only. It checks every `cluster.nodes` entry, warns when
+Flatcar versions differ or a reboot is pending, and exits nonzero only when a
+node cannot be inspected over SSH. `update_engine_client -status` is attempted
+without elevation first and retried with non-interactive `sudo` when required.
 
 `deploy-vm` flags. `--provider` selects the hypervisor — `proxmox` (default),
 `vsphere` (alias `esxi`), or `truenas`. Common: `--nodes`, `--concurrency`,
@@ -471,6 +482,15 @@ component at a time and requires `--renew`.
 ### Read-only Cluster Triage
 
 ```bash
+# Check Flux, node, pod, Ceph, and certificate health
+homeops-cli k8s doctor
+homeops-cli k8s doctor --output json
+
+# Trace Gateway API parents/backends, Envoy Gateways, cloudflared, DNS, and TLS
+homeops-cli k8s net-doctor
+homeops-cli k8s net-doctor --resolve home.example.com --resolve status.example.com
+homeops-cli k8s net-doctor --output json
+
 # Audit orphaned claims, unhealthy PVs, Ceph capacity, overcommit, and backup gaps
 homeops-cli k8s storage-report
 homeops-cli k8s storage-report --namespace media --ceph-warn-percent 75
@@ -482,7 +502,11 @@ homeops-cli k8s flux-tree radarr
 homeops-cli k8s flux-tree radarr --all --output json
 ```
 
-Both commands only issue read-only Kubernetes API queries. `storage-report`
+These commands only issue read-only Kubernetes API queries. `net-doctor` also
+performs local DNS lookups against the `network/k8s-gateway` LoadBalancer IP
+when `--resolve` is supplied; without that flag it performs no active network
+probe. Both `doctor` and `net-doctor` exit 1 when a `FAIL` check is present.
+`storage-report`
 returns zero when it finds hygiene issues unless `--fail-on-findings` is set.
 `flux-tree` defaults to the `flux-system` namespace, includes unhealthy nested
 HelmReleases, and uses `--all` to include ready HelmReleases too.

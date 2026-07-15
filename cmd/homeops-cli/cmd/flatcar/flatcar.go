@@ -517,6 +517,7 @@ Subcommands:
   gen-kubeadm      Render kubeadm init/join config for a node
   save-pki         Persist cluster PKI into the configured state store
   kubeconfig       Pull or save kubeconfig via node or configured state store
+  os-status        Show Flatcar OS and update-engine status across nodes
   reset-node       Reset a single Flatcar/kubeadm node
   reset-cluster    Reset the entire Flatcar/kubeadm cluster`,
 	}
@@ -527,6 +528,7 @@ Subcommands:
 		newDeployVMCommand(),
 		newSavePKICommand(),
 		newKubeconfigCommand(),
+		newOSStatusCommand(),
 		newRebootNodeCommand(),
 		newShutdownClusterCommand(),
 		newResetNodeCommand(),

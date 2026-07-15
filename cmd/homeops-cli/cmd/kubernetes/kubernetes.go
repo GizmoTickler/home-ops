@@ -485,6 +485,7 @@ func NewCommand() *cobra.Command {
 		newApplyKsCommand(),
 		newDeleteKsCommand(),
 		newDoctorCommand(),
+		newNetDoctorCommand(),
 		newStorageReportCommand(),
 		newFluxTreeCommand(),
 		newEtcdCommand(),
