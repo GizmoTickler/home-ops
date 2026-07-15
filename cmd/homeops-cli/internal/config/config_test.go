@@ -59,6 +59,8 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, "file", c.State.PKI.Backend)
 	assert.NotEmpty(t, c.State.Kubeconfig.Path)
 	assert.NotEmpty(t, c.State.PKI.Path)
+	assert.Equal(t, filepath.Join(filepath.Dir(c.State.Kubeconfig.Path), "etcd"), c.State.EtcdBackup.Dir)
+	assert.Equal(t, DefaultEtcdBackupKeep, c.State.EtcdBackup.Keep)
 
 	// No default secret reference uses 1Password
 	assert.False(t, c.UsesOpReferences())
@@ -67,6 +69,33 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 		assert.NotEmpty(t, ref, "key %s has no default", key)
 		assert.False(t, strings.HasPrefix(ref, "op://"), "default for %s must not be op:// (got %s)", key, ref)
 	}
+}
+
+func TestLoadFileAcceptsEtcdBackupConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	// This is the exact shape proposed for the repository-level homeops.yaml.
+	require.NoError(t, os.WriteFile(path, []byte(`
+state:
+  etcd_backup:
+    dir: ~/.config/homeops/state/etcd
+    keep: 14
+`), 0o600))
+
+	c, err := LoadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "~/.config/homeops/state/etcd", c.State.EtcdBackup.Dir)
+	assert.Equal(t, 14, c.State.EtcdBackup.Keep)
+}
+
+func TestLoadFileRejectsNegativeEtcdBackupRetention(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("state:\n  etcd_backup:\n    keep: -1\n"), 0o600))
+
+	_, err := LoadFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "state.etcd_backup.keep")
 }
 
 func TestSecretRefPrecedence(t *testing.T) {

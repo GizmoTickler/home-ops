@@ -256,10 +256,19 @@ type StoreConfig struct {
 	Path string `yaml:"path,omitempty"`
 }
 
+// EtcdBackupConfig controls local kubeadm etcd snapshot retention.
+type EtcdBackupConfig struct {
+	// Dir is the local directory that receives snapshot and checksum files.
+	Dir string `yaml:"dir,omitempty"`
+	// Keep is the number of newest snapshots retained after a successful backup.
+	Keep int `yaml:"keep,omitempty"`
+}
+
 // StateConfig groups the persisted-state stores.
 type StateConfig struct {
-	Kubeconfig StoreConfig `yaml:"kubeconfig,omitempty"`
-	PKI        StoreConfig `yaml:"pki,omitempty"`
+	Kubeconfig StoreConfig      `yaml:"kubeconfig,omitempty"`
+	PKI        StoreConfig      `yaml:"pki,omitempty"`
+	EtcdBackup EtcdBackupConfig `yaml:"etcd_backup,omitempty"`
 }
 
 // TemplatesConfig controls template resolution.
@@ -510,6 +519,9 @@ func LoadFile(path string) (*Config, error) {
 // validate rejects obviously broken configs early with actionable messages.
 func validate(c *Config) error {
 	var problems []string
+	if c.State.EtcdBackup.Keep < 0 {
+		problems = append(problems, "state.etcd_backup.keep: must be at least 1 when set")
+	}
 	for key, ref := range c.Secrets {
 		if _, known := defaultSecretRefs[key]; !known {
 			problems = append(problems, fmt.Sprintf("secrets.%s: unknown secret key (known keys: run 'homeops-cli config init --print-keys')", key))

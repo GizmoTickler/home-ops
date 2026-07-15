@@ -29,7 +29,12 @@ homeops-cli
 │   ├── upgrade-arc
 │   ├── render-ks <ks.yaml>
 │   ├── apply-ks [ks.yaml]
-│   └── delete-ks <ks.yaml>
+│   ├── delete-ks <ks.yaml>
+│   ├── doctor
+│   ├── etcd
+│   │   ├── backup
+│   │   └── status
+│   └── certs
 ├── talos                    # legacy provider (retained for reference/rollback)
 │   ├── apply-node
 │   ├── upgrade-node
@@ -432,6 +437,34 @@ Notes:
 
 - `sync --type` accepts `gitrepo`, `helmrelease`, `kustomization`, or `ocirepository`.
 - `upgrade-arc` uninstalls and reconciles ARC resources and asks for confirmation unless `--force` is set.
+
+### Kubeadm Disaster Recovery and PKI
+
+```bash
+# Create an in-pod etcd snapshot, verify it, download it, and retain 7 by default
+homeops-cli k8s etcd backup
+homeops-cli k8s etcd backup --output /secure/backups/etcd --keep 14
+
+# Check etcd membership, endpoint health, and local backup freshness
+homeops-cli k8s etcd status
+homeops-cli k8s etcd status --stale-after 24h --output json
+
+# Check kubeadm PKI on every cluster.nodes control-plane node over SSH
+homeops-cli k8s certs
+homeops-cli k8s certs --warn-days 45 --fail-on-warn --output json
+
+# Destructive paths are confirmation-gated; global --yes is suitable for CI
+homeops-cli k8s certs --renew
+homeops-cli k8s certs --renew --restart-control-plane --yes
+```
+
+`state.etcd_backup.dir` controls the default local snapshot directory and
+`state.etcd_backup.keep` controls retention. `--output`/`--keep` override those
+values lazily after the selected `homeops.yaml` has loaded. Certificate renewal
+does not make new certificates active until the kube-apiserver,
+kube-controller-manager, kube-scheduler, and etcd static pods restart on every
+control-plane node. `--restart-control-plane` performs that restart one
+component at a time and requires `--renew`.
 
 ### Local Flux Kustomization Workflows
 

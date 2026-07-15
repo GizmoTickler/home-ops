@@ -28,6 +28,10 @@ type CommandOptions struct {
 	// Stdin, when set, is wired to the process's standard input (e.g. to
 	// stream file content through ssh without touching argv).
 	Stdin io.Reader
+	// Stdout, when set, receives process stdout directly instead of buffering it
+	// in CommandResult. Callers use this for large or binary streams and are
+	// responsible for handling the unredacted bytes safely.
+	Stdout io.Writer
 }
 
 // CommandResult contains redacted command output streams and process metadata.
@@ -94,7 +98,11 @@ func RunCommand(ctx context.Context, opts CommandOptions) (CommandResult, error)
 		cmd.Stdin = opts.Stdin
 	}
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	if opts.Stdout != nil {
+		cmd.Stdout = opts.Stdout
+	} else {
+		cmd.Stdout = &stdout
+	}
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()

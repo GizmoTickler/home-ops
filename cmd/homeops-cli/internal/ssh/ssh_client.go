@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"time"
@@ -109,6 +110,26 @@ func (c *SSHClient) ExecuteCommand(command string) (string, error) {
 	}
 
 	return result.Stdout, nil
+}
+
+// StreamCommand executes a remote command and writes stdout directly to the
+// supplied writer. It is intended for large or binary responses that must not
+// be buffered in memory.
+func (c *SSHClient) StreamCommand(ctx context.Context, command string, stdout io.Writer) error {
+	if stdout == nil {
+		return fmt.Errorf("SSH stream writer is required")
+	}
+	c.logger.Debug("Streaming SSH command output (%d command bytes)", len(command))
+	result, err := runCommand(ctx, common.CommandOptions{
+		Name:    "ssh",
+		Args:    append(c.sshArgs(), command),
+		Timeout: defaultSSHCommandTimeout,
+		Stdout:  stdout,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to stream command output via SSH: %w\nOutput: %s", err, combinedCommandOutput(result))
+	}
+	return nil
 }
 
 func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, error) {

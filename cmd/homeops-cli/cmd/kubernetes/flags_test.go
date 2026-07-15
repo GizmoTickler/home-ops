@@ -36,3 +36,17 @@ func TestRenderKsUsesOutputFileCanonicalFlag(t *testing.T) {
 	assert.NotEmpty(t, legacy.Deprecated)
 	assert.Equal(t, "o", legacy.Shorthand)
 }
+
+func TestDayTwoCommandsRegistered(t *testing.T) {
+	etcd := findK8sSubcommand(t, "etcd")
+	for _, name := range []string{"backup", "status"} {
+		child, _, err := etcd.Find([]string{name})
+		require.NoError(t, err)
+		assert.Equal(t, name, child.Name())
+	}
+
+	certs := findK8sSubcommand(t, "certs")
+	for _, name := range []string{"warn-days", "fail-on-warn", "renew", "restart-control-plane", "output"} {
+		assert.NotNil(t, certs.Flags().Lookup(name), name)
+	}
+}

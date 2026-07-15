@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -137,6 +138,25 @@ func TestSSHClientExecuteCommandReturnsStdoutFromRunner(t *testing.T) {
 	output, err := client.ExecuteCommand("echo test")
 	require.NoError(t, err)
 	assert.Equal(t, "ran-command", output)
+}
+
+func TestSSHClientStreamCommandWritesDirectlyToWriter(t *testing.T) {
+	snapshot := []byte("snapshot\x00bytes")
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		assert.Equal(t, defaultSSHCommandTimeout, opts.Timeout)
+		assert.Equal(t, "ssh", opts.Name)
+		assert.Equal(t, "sudo cat /var/lib/etcd/homeops-etcd-snapshot.db", opts.Args[len(opts.Args)-1])
+		require.NotNil(t, opts.Stdout)
+		_, err := opts.Stdout.Write(snapshot)
+		return common.CommandResult{}, err
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "node.local", Username: "core", Port: "22"})
+	var output bytes.Buffer
+	err := client.StreamCommand(context.Background(), "sudo cat /var/lib/etcd/homeops-etcd-snapshot.db", &output)
+	require.NoError(t, err)
+	assert.Equal(t, snapshot, output.Bytes())
 }
 
 func TestSSHCommandTimeoutIsConfigured(t *testing.T) {

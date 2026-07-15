@@ -1,6 +1,7 @@
 package common
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -87,4 +88,17 @@ func TestRunCommandUsesCustomRedactor(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "custom-redacted", result.Stdout)
+}
+
+func TestRunCommandStreamsStdoutWithoutBuffering(t *testing.T) {
+	var stdout bytes.Buffer
+	result, err := RunCommand(context.Background(), CommandOptions{
+		Name:   "sh",
+		Args:   []string{"-c", "printf 'binary\\000stream'"},
+		Stdout: &stdout,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []byte("binary\x00stream"), stdout.Bytes())
+	assert.Empty(t, result.Stdout)
 }

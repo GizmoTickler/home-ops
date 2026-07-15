@@ -485,6 +485,8 @@ func NewCommand() *cobra.Command {
 		newApplyKsCommand(),
 		newDeleteKsCommand(),
 		newDoctorCommand(),
+		newEtcdCommand(),
+		newCertsCommand(),
 		newSuspendAppCommand(),
 		newResumeAppCommand(),
 	)

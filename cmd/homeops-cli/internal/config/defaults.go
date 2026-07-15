@@ -23,6 +23,7 @@ const (
 	DefaultTrueNASISODir   = "/mnt/flashstor/ISO"
 	DefaultTrueNASISOFile  = "metal-amd64.iso"
 	DefaultSnippetsDir     = "/var/lib/vz/snippets"
+	DefaultEtcdBackupKeep  = 7
 )
 
 var (
@@ -253,6 +254,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.State.PKI.Backend == "op" && c.State.PKI.Op.Item == "" {
 		c.State.PKI.Op.Item = "kubernetes-pki"
+	}
+	if c.State.EtcdBackup.Dir == "" {
+		c.State.EtcdBackup.Dir = filepath.Join(defaultStateDir(), "etcd")
+	}
+	if c.State.EtcdBackup.Keep == 0 {
+		c.State.EtcdBackup.Keep = DefaultEtcdBackupKeep
 	}
 	if c.Secrets == nil {
 		c.Secrets = map[string]string{}
