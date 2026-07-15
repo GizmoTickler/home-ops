@@ -31,6 +31,8 @@ homeops-cli
 │   ├── apply-ks [ks.yaml]
 │   ├── delete-ks <ks.yaml>
 │   ├── doctor
+│   ├── storage-report
+│   ├── flux-tree [kustomization-name]
 │   ├── etcd
 │   │   ├── backup
 │   │   └── status
@@ -465,6 +467,25 @@ does not make new certificates active until the kube-apiserver,
 kube-controller-manager, kube-scheduler, and etcd static pods restart on every
 control-plane node. `--restart-control-plane` performs that restart one
 component at a time and requires `--renew`.
+
+### Read-only Cluster Triage
+
+```bash
+# Audit orphaned claims, unhealthy PVs, Ceph capacity, overcommit, and backup gaps
+homeops-cli k8s storage-report
+homeops-cli k8s storage-report --namespace media --ceph-warn-percent 75
+homeops-cli k8s storage-report --output json --fail-on-findings
+
+# Discover Flux Kustomizations, then trace a dependency tree and its root blocker
+homeops-cli k8s flux-tree
+homeops-cli k8s flux-tree radarr
+homeops-cli k8s flux-tree radarr --all --output json
+```
+
+Both commands only issue read-only Kubernetes API queries. `storage-report`
+returns zero when it finds hygiene issues unless `--fail-on-findings` is set.
+`flux-tree` defaults to the `flux-system` namespace, includes unhealthy nested
+HelmReleases, and uses `--all` to include ready HelmReleases too.
 
 ### Local Flux Kustomization Workflows
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
 
@@ -227,14 +228,10 @@ func listReplicationSourceStatusesContext(ctx context.Context, namespace string,
 type pvcList struct {
 	Items []struct {
 		Metadata struct {
-			Name            string            `json:"name"`
-			Namespace       string            `json:"namespace"`
-			Labels          map[string]string `json:"labels"`
-			OwnerReferences []struct {
-				APIVersion string `json:"apiVersion"`
-				Kind       string `json:"kind"`
-				Name       string `json:"name"`
-			} `json:"ownerReferences"`
+			Name            string                    `json:"name"`
+			Namespace       string                    `json:"namespace"`
+			Labels          map[string]string         `json:"labels"`
+			OwnerReferences []kubeutil.OwnerReference `json:"ownerReferences"`
 		} `json:"metadata"`
 	} `json:"items"`
 }
@@ -265,8 +262,8 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 			continue
 		}
 		key := pvc.Metadata.Namespace + "/" + pvc.Metadata.Name
-		if isVolsyncPlumbingPVC(pvc.Metadata.Name, pvc.Metadata.Labels, pvc.Metadata.OwnerReferences) ||
-			isPodOwnedPVC(pvc.Metadata.OwnerReferences) {
+		if kubeutil.IsVolSyncPlumbingPVC(pvc.Metadata.Name, pvc.Metadata.Labels, pvc.Metadata.OwnerReferences) ||
+			kubeutil.IsPodOwnedPVC(pvc.Metadata.OwnerReferences) {
 			continue
 		}
 		if !protectedPVCs[key] {
@@ -285,44 +282,6 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 		return missing[i].Namespace < missing[j].Namespace
 	})
 	return missing, nil
-}
-
-func isVolsyncPlumbingPVC(name string, labels map[string]string, ownerReferences []struct {
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-}) bool {
-	for _, ref := range ownerReferences {
-		if (ref.Kind == "ReplicationSource" || ref.Kind == "ReplicationDestination") &&
-			strings.Contains(ref.APIVersion, "volsync.backube") {
-			return true
-		}
-	}
-	for _, key := range []string{
-		"app.kubernetes.io/created-by",
-		"app.kubernetes.io/managed-by",
-		"volsync.backube/created-by",
-	} {
-		if strings.EqualFold(labels[key], "volsync") {
-			return true
-		}
-	}
-	return strings.HasPrefix(name, "volsync-") &&
-		(strings.HasSuffix(name, "-src") ||
-			strings.HasSuffix(name, "-cache"))
-}
-
-func isPodOwnedPVC(ownerReferences []struct {
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Name       string `json:"name"`
-}) bool {
-	for _, ref := range ownerReferences {
-		if ref.Kind == "Pod" {
-			return true
-		}
-	}
-	return false
 }
 
 func volsyncKubectlGetJSONContext(ctx context.Context, namespace, resource string, dest interface{}) error {

@@ -18,7 +18,7 @@ func findK8sSubcommand(t *testing.T, name string) *cobra.Command {
 }
 
 func TestK8sNamespaceFlagsHaveShorthand(t *testing.T) {
-	for _, name := range []string{"browse-pvc", "sync-secrets"} {
+	for _, name := range []string{"browse-pvc", "sync-secrets", "storage-report", "flux-tree"} {
 		cmd := findK8sSubcommand(t, name)
 		flag := cmd.Flags().Lookup("namespace")
 		require.NotNil(t, flag, name)
@@ -38,6 +38,16 @@ func TestRenderKsUsesOutputFileCanonicalFlag(t *testing.T) {
 }
 
 func TestDayTwoCommandsRegistered(t *testing.T) {
+	storageReport := findK8sSubcommand(t, "storage-report")
+	for _, name := range []string{"namespace", "output", "ceph-warn-percent", "fail-on-findings"} {
+		assert.NotNil(t, storageReport.Flags().Lookup(name), name)
+	}
+
+	fluxTree := findK8sSubcommand(t, "flux-tree")
+	for _, name := range []string{"namespace", "output", "all"} {
+		assert.NotNil(t, fluxTree.Flags().Lookup(name), name)
+	}
+
 	etcd := findK8sSubcommand(t, "etcd")
 	for _, name := range []string{"backup", "status"} {
 		child, _, err := etcd.Find([]string{name})
