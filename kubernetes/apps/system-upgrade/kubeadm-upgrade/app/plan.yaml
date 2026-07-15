@@ -24,7 +24,7 @@ spec:
   # the Plan once to baseline a selected node even if versions matched, so dormancy is
   # enforced by the `homeops.io/kubeadm-upgrade` node-label gate below (no node carries
   # it by default => SUC selects nothing => no Jobs).
-  version: v1.36.1
+  version: v1.36.2
   concurrency: 1
   nodeSelector:
     matchExpressions:
