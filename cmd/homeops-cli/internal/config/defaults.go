@@ -220,6 +220,9 @@ func applyDefaults(c *Config) {
 		c.Cluster.NodeInterface = DefaultNodeInterface
 	}
 	c.Cluster.Nodes = mergeNodesWithDefaults(c.Cluster.Nodes)
+	if c.Cluster.TestNode != nil && strings.TrimSpace(c.Cluster.TestNode.Name) == "" {
+		c.Cluster.TestNode.Name = "k8s-test"
+	}
 	if c.Hypervisors.Default == "" {
 		c.Hypervisors.Default = "proxmox"
 	}

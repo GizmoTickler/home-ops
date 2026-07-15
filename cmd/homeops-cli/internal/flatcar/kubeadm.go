@@ -1,10 +1,12 @@
 package flatcar
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
@@ -78,6 +80,17 @@ type commandRunner interface {
 // newCommandRunnerFn builds a commandRunner for a node. Swappable for tests.
 var newCommandRunnerFn = func(config ssh.SSHConfig) commandRunner {
 	return ssh.NewSSHClient(config)
+}
+
+var orchestratorSleepFn = func(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // writeFileFn writes a rendered config to a remote path over the runner before
@@ -277,6 +290,103 @@ func (o *Orchestrator) uploadCerts(runner commandRunner) (string, error) {
 		return "", fmt.Errorf("could not parse certificate key from upload-certs output")
 	}
 	return key, nil
+}
+
+// CreateJoinMaterial mints a short-lived bootstrap token on the existing init
+// node and refreshes the uploaded control-plane certificates. The token and CA
+// hash are parsed from kubeadm's canonical join command; callers must invalidate
+// the token after the rehearsal, even when a later step fails.
+func (o *Orchestrator) CreateJoinMaterial(node0IP string, ttl time.Duration) (*KubeadmResult, error) {
+	if ttl <= 0 {
+		return nil, fmt.Errorf("bootstrap token ttl must be greater than zero")
+	}
+	runner := o.runnerFor(node0IP)
+	if err := runner.Connect(); err != nil {
+		return nil, fmt.Errorf("failed to connect to init node %s: %w", node0IP, err)
+	}
+	defer func() { _ = runner.Close() }()
+
+	out, err := runner.ExecuteCommand(fmt.Sprintf("sudo kubeadm token create --ttl %s --print-join-command", ttl.String()))
+	if err != nil {
+		return nil, fmt.Errorf("create kubeadm bootstrap token on %s: %w\n%s", node0IP, err, common.RedactCommandOutput(out))
+	}
+	result, err := ParseKubeadmInitOutput(out)
+	if err != nil {
+		return nil, fmt.Errorf("parse kubeadm token create output: %w", err)
+	}
+	key, err := o.uploadCerts(runner)
+	if err != nil {
+		_ = deleteBootstrapTokenWithRunner(runner, result.BootstrapToken)
+		return nil, fmt.Errorf("refresh control-plane certificates: %w", err)
+	}
+	result.CertificateKey = key
+	if err := ValidateJoinMaterial(result.BootstrapToken, result.CACertHash, result.CertificateKey); err != nil {
+		_ = deleteBootstrapTokenWithRunner(runner, result.BootstrapToken)
+		return nil, err
+	}
+	return result, nil
+}
+
+// DeleteBootstrapToken invalidates one kubeadm bootstrap token on the init node.
+func (o *Orchestrator) DeleteBootstrapToken(node0IP, token string) error {
+	if !strictTokenRe.MatchString(token) {
+		return fmt.Errorf("invalid kubeadm bootstrap token")
+	}
+	runner := o.runnerFor(node0IP)
+	if err := runner.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to init node %s: %w", node0IP, err)
+	}
+	defer func() { _ = runner.Close() }()
+	if err := deleteBootstrapTokenWithRunner(runner, token); err != nil {
+		return fmt.Errorf("delete kubeadm bootstrap token on %s: %w", node0IP, err)
+	}
+	return nil
+}
+
+func deleteBootstrapTokenWithRunner(runner commandRunner, token string) error {
+	if !strictTokenRe.MatchString(token) {
+		return fmt.Errorf("invalid kubeadm bootstrap token")
+	}
+	tokenID := strings.SplitN(token, ".", 2)[0]
+	out, err := runner.ExecuteCommand("sudo kubeadm token delete " + tokenID)
+	if err != nil {
+		return fmt.Errorf("delete token %s: %w\n%s", tokenID, err, common.RedactCommandOutput(out))
+	}
+	return nil
+}
+
+// WaitForKubeadm waits until the disposable node accepts SSH and the first-boot
+// Kubernetes system extension has made kubeadm available.
+func (o *Orchestrator) WaitForKubeadm(ctx context.Context, nodeIP string) error {
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			if lastErr != nil {
+				return fmt.Errorf("wait for kubeadm on %s: %w (last probe: %v)", nodeIP, err, lastErr)
+			}
+			return fmt.Errorf("wait for kubeadm on %s: %w", nodeIP, err)
+		}
+
+		runner := o.runnerFor(nodeIP)
+		if err := runner.Connect(); err != nil {
+			lastErr = err
+		} else {
+			out, err := runner.ExecuteCommand("command -v kubeadm")
+			_ = runner.Close()
+			if err == nil && strings.TrimSpace(out) != "" {
+				return nil
+			}
+			if err != nil {
+				lastErr = err
+			} else {
+				lastErr = fmt.Errorf("kubeadm is not installed yet")
+			}
+		}
+
+		if err := orchestratorSleepFn(ctx, 5*time.Second); err != nil {
+			continue
+		}
+	}
 }
 
 // JoinControlPlane stages the join config on a node and runs `kubeadm join`.

@@ -227,8 +227,12 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 
 	vmConfig := proxmoxDefaultVMConfig()
 	vmConfig.Name = node.name
-	vmConfig.BootStorage = nodeConfig.BootStorage
-	vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+	if nodeConfig.BootStorage != "" {
+		vmConfig.BootStorage = nodeConfig.BootStorage
+	}
+	if nodeConfig.OpenEBSStorage != "" {
+		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
+	}
 	if nodeConfig.CephMode != "" {
 		vmConfig.CephMode = nodeConfig.CephMode
 	}

@@ -199,6 +199,10 @@ type ClusterConfig struct {
 	// Nodes are the control-plane nodes in order; the first is the kubeadm
 	// init node.
 	Nodes []Node `yaml:"nodes,omitempty"`
+	// TestNode is an optional disposable Flatcar node identity used exclusively
+	// by cluster rehearsal workflows. It is deliberately separate from Nodes so
+	// production maintenance and bootstrap loops never include it implicitly.
+	TestNode *Node `yaml:"test_node,omitempty"`
 }
 
 // MaintenanceConfig holds human-readable Go duration strings for node
@@ -746,6 +750,23 @@ func (c *Config) NodeByName(name string) (Node, bool) {
 		if n.Name == name {
 			return n, true
 		}
+	}
+	return Node{}, false
+}
+
+// ProvisioningNodeByName returns a production node or the explicitly configured
+// disposable test node. VM deployment uses this broader lookup; operational
+// cluster workflows should continue to use NodeByName so they remain scoped to
+// production nodes.
+func (c *Config) ProvisioningNodeByName(name string) (Node, bool) {
+	if c == nil {
+		return Node{}, false
+	}
+	if node, ok := c.NodeByName(name); ok {
+		return node, true
+	}
+	if c != nil && c.Cluster.TestNode != nil && c.Cluster.TestNode.Name == name {
+		return *c.Cluster.TestNode, true
 	}
 	return Node{}, false
 }

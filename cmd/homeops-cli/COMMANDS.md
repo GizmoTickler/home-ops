@@ -9,6 +9,8 @@ It is intentionally structured around the live Cobra command tree in `main.go` a
 ```text
 homeops-cli
 ├── bootstrap
+├── cluster
+│   └── rehearse-node
 ├── completion [bash|zsh|fish|powershell]
 ├── flatcar                  # current provider (Flatcar Container Linux + kubeadm)
 │   ├── render-ignition
@@ -171,6 +173,65 @@ Key flags:
 - `--skip-helmfile`
 - `--skip-preflight`
 - `--verbose`
+
+## Cluster assurance
+
+`cluster rehearse-node` proves the complete disposable Flatcar VM deployment,
+kubeadm control-plane join, Kubernetes Ready/CNI, and pod DNS path. It reads the
+identity from `cluster.test_node`, refuses any production name/IP/VMID/MAC or
+live node/VM collision, and normally destroys only the disposable resources.
+
+```bash
+# Pure plan: no Kubernetes, SSH, secret, or hypervisor calls; no confirmation
+homeops-cli cluster rehearse-node --plan
+homeops-cli cluster rehearse-node --plan --output json
+
+# Proxmox execution using the same image inputs as flatcar deploy-vm
+homeops-cli cluster rehearse-node \
+  --image-volume nvme-mirror:vm-900-disk-0 \
+  --timeout 15m \
+  --yes
+
+# Retain the node, VM/disks, and 30-minute token for manual inspection
+homeops-cli cluster rehearse-node \
+  --image-path /var/lib/vz/template/iso/flatcar.raw \
+  --keep \
+  --output json \
+  --yes
+```
+
+The execution sequence is: live preconditions; mint a 30-minute kubeadm token
+over SSH to `cluster.nodes[0]`; render/stage Ignition and deploy/power on with
+the existing Flatcar deployer; issue the kubeadm join; wait for Ready and CNI;
+run a pinned DNS smoke pod using `volsync.check_image`; then drain/delete the
+node, power off/delete the VM and disks, and invalidate the token. Teardown also
+runs after post-deploy failures. `--keep` skips teardown and prints exact manual
+cleanup commands.
+
+Required configuration addition (the name defaults to `k8s-test` when omitted):
+
+```yaml
+cluster:
+  test_node:
+    name: k8s-test
+    ip: 192.168.122.99
+    vm:
+      vmid: 299
+      mac: "02:00:00:00:02:99"
+      boot_storage: nvme-mirror
+      openebs_storage: nvmeof-vmdata
+      ceph:
+        mode: none
+```
+
+Key flags:
+
+- `--plan` (prints `PASS`/`FAIL`/`SKIP` step plan and exits without side effects)
+- `--keep` (retain disposable resources and token; print cleanup commands)
+- `--timeout` (default `15m`)
+- `--provider` (default `hypervisors.default`)
+- `--image-path` / `--image-volume` (Proxmox Flatcar image source)
+- `--output table|json`
 
 ## Flatcar
 

@@ -26,6 +26,17 @@ cluster:
   rook:
     namespace: rook-ceph
     toolbox_deployment: rook-ceph-tools
+  # Disposable node identity for `cluster rehearse-node` (join drill).
+  test_node:
+    name: k8s-test
+    ip: 192.168.122.99
+    vm:
+      vmid: 299
+      mac: "02:00:00:00:02:99"
+      boot_storage: nvme-mirror
+      openebs_storage: nvmeof-vmdata
+      ceph:
+        mode: none
   pod_cidr: 10.42.0.0/16
   service_cidr: 10.43.0.0/16
   dns_domain: cluster.local

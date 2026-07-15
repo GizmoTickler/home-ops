@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"homeops-cli/cmd/bootstrap"
+	"homeops-cli/cmd/cluster"
 	"homeops-cli/cmd/completion"
 	configcmd "homeops-cli/cmd/config"
 	"homeops-cli/cmd/flatcar"
@@ -136,6 +137,7 @@ Environment:
 	rootCmd.AddCommand(
 		bootstrap.NewCommand(),
 		completion.NewCommand(),
+		cluster.NewCommand(),
 		configcmd.NewCommand(),
 		flatcar.NewCommand(),
 		kubernetes.NewCommand(),

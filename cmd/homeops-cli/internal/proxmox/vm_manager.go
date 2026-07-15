@@ -285,7 +285,7 @@ func vmProfileNUMANode(profile homeopscfg.VMProfile) int {
 // GetFlatcarNodeConfig retrieves the effective config for a Flatcar node from
 // homeops.yaml after embedded defaults and per-provider overlays are applied.
 func GetFlatcarNodeConfig(name string) (FlatcarNodeConfig, bool) {
-	node, found := homeopscfg.Get().NodeByName(name)
+	node, found := homeopscfg.Get().ProvisioningNodeByName(name)
 	if !found {
 		return FlatcarNodeConfig{}, false
 	}

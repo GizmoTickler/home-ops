@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/testutil"
@@ -79,6 +80,36 @@ func TestParseKubeadmInitOutputMissing(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "missing")
 }
+
+func TestCreateAndDeleteRehearsalJoinMaterial(t *testing.T) {
+	r := &fakeRunner{responder: func(cmd string) (string, error) {
+		switch {
+		case strings.Contains(cmd, "kubeadm token create"):
+			return sampleInitOutput, nil
+		case strings.Contains(cmd, "upload-certs"):
+			return "[upload-certs] Using certificate key:\n" + strings.Repeat("2", 64), nil
+		case strings.Contains(cmd, "kubeadm token delete"):
+			return "abcdef", nil
+		default:
+			return "", nil
+		}
+	}}
+	defer withFakeRunner(t, r)()
+
+	orchestrator := NewOrchestrator(OrchestratorConfig{SSHUser: "core"})
+	material, err := orchestrator.CreateJoinMaterial("192.0.2.10", 30*time.Minute)
+	require.NoError(t, err)
+	assert.Equal(t, testBootstrapTokenForRehearsal, material.BootstrapToken)
+	assert.Equal(t, strings.Repeat("2", 64), material.CertificateKey)
+	require.NoError(t, orchestrator.DeleteBootstrapToken("192.0.2.10", material.BootstrapToken))
+
+	joined := strings.Join(r.commands, "\n")
+	assert.Contains(t, joined, "kubeadm token create --ttl 30m0s --print-join-command")
+	assert.Contains(t, joined, "kubeadm token delete abcdef")
+	assert.NotContains(t, joined, material.BootstrapToken+" ", "deletion must use only the token ID")
+}
+
+const testBootstrapTokenForRehearsal = "abcdef.0123456789abcdef"
 
 func withFakeRunner(t *testing.T, r *fakeRunner) func() {
 	t.Helper()
