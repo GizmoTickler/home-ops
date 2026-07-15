@@ -85,8 +85,11 @@ spec:
           -o jsonpath='{.data.ClusterConfiguration}' \
           | sed -n 's/^kubernetesVersion:[[:space:]]*//p' | tr -d '"' | head -1)"
         if [ "${CFG_VER}" != "${TARGET}" ]; then
-          echo "[kubeadm-upgrade] cluster at ${CFG_VER}; running: kubeadm upgrade apply -y ${TARGET}"
-          kubeadm upgrade apply -y "${TARGET}"
+          # Skip the addon phases: CoreDNS is Flux/Helm-managed (its corefile
+          # uses the `template` plugin kubeadm cannot migrate — proven live)
+          # and kube-proxy does not exist (Cilium kube-proxy replacement).
+          echo "[kubeadm-upgrade] cluster at ${CFG_VER}; running: kubeadm upgrade apply -y --skip-phases=addon/coredns,addon/kubeproxy ${TARGET}"
+          kubeadm upgrade apply -y --skip-phases=addon/coredns,addon/kubeproxy "${TARGET}"
         else
           echo "[kubeadm-upgrade] cluster already at ${TARGET}; running: kubeadm upgrade node"
           kubeadm upgrade node
