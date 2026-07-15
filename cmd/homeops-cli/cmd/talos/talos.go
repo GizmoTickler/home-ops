@@ -73,7 +73,7 @@ var (
 		defer cancel()
 		result, err := common.RunCommand(ctx, common.CommandOptions{
 			Name: "talosctl",
-			Args: []string{"kubeconfig", "--nodes", node, "--force", "--force-context-name", "home-ops-cluster", rootDir},
+			Args: []string{"kubeconfig", "--nodes", node, "--force", "--force-context-name", versionconfig.Get().ClusterNameWithDefault(), rootDir},
 		})
 		// Combined output preserves diagnostic information without leaking raw secrets
 		// (kubeconfig content goes to disk via talosctl, not stdout).
@@ -371,6 +371,7 @@ func renderMachineConfigFromEmbeddedWithSchematic(baseTemplate, patchTemplate, s
 	versionConfig := versionconfig.GetVersions(common.GetWorkingDirectory())
 	env["KUBERNETES_VERSION"] = versionConfig.KubernetesVersion
 	env["TALOS_VERSION"] = versionConfig.TalosVersion
+	env["TALOS_KUBERNETES_VERSION"] = versionConfig.TalosKubernetesVersion
 
 	// Use the unified renderer for Talos config rendering and merging
 	return renderer.RenderTalosConfigWithMerge(baseTemplate, patchTemplate, env)
@@ -2409,8 +2410,12 @@ func updateNodeTemplatesWithSchematic(schematicID, talosVersion string) error {
 		return fmt.Errorf("failed to read controlplane template %s: %w", templateFile, err)
 	}
 
-	// Build the new factory image URL with the schematic ID
-	newFactoryImage := fmt.Sprintf("factory.talos.dev/installer/%s:%s", schematicID, talosVersion)
+	// Build the new factory image URL with the schematic ID while preserving
+	// the template-time Talos version placeholder. The talosVersion parameter
+	// is retained for CLI/API compatibility; the actual rendered version now
+	// comes from internal/config/versions.go.
+	_ = talosVersion
+	newFactoryImage := fmt.Sprintf("factory.talos.dev/installer/%s:{{ ENV.TALOS_VERSION }}", schematicID)
 
 	// Replace the existing factory image URL with the new schematic-based URL
 	contentStr := string(content)

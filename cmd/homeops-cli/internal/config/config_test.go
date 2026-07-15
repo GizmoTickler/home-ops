@@ -17,8 +17,25 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	c := defaultConfig()
 
 	// Topology defaults
+	assert.Equal(t, DefaultClusterName, c.ClusterNameWithDefault())
 	assert.Equal(t, DefaultControlPlaneVIP, c.Cluster.ControlPlaneVIP)
 	assert.Equal(t, DefaultNodeInterface, c.Cluster.NodeInterface)
+	assert.Equal(t, DefaultPodCIDR, c.Cluster.PodCIDR)
+	assert.Equal(t, DefaultServiceCIDR, c.Cluster.ServiceCIDR)
+	assert.Equal(t, DefaultDNSDomain, c.Cluster.DNSDomain)
+	assert.Equal(t, "10.43.0.10", c.ClusterDNS())
+	assert.Equal(t, DefaultNodeSubnet, c.Cluster.NodeSubnet)
+	assert.Equal(t, []string{"10.123.123.123", "10.123.123.124", "10.123.123.125", "10.123.123.126", "10.123.123.127"}, c.Cluster.NTPServers)
+	assert.Equal(t, []string{"192.168.255.10"}, c.Cluster.ExtraCertSANs)
+	assert.Equal(t, 250, c.Cluster.Kubelet.MaxPods)
+	assert.Equal(t, 60, c.Cluster.Kubelet.ImageGCHighPercent)
+	assert.Equal(t, 50, c.Cluster.Kubelet.ImageGCLowPercent)
+	assert.Equal(t, "http://192.168.123.152:3000", c.Cluster.Talos.DiscoveryEndpoint)
+	assert.Equal(t, "/dev/sda", c.Cluster.Talos.ControlPlaneInstallDisk)
+	assert.Equal(t, "/dev/nvme0n1", c.Cluster.Talos.WorkerInstallDisk)
+	assert.Equal(t, "/dev/sdb", c.Cluster.Talos.UserVolume.Disk)
+	assert.Equal(t, "800GB", c.Cluster.Talos.UserVolume.MinSize)
+	assert.Equal(t, "900GB", c.Cluster.Talos.UserVolume.MaxSize)
 	assert.Len(t, c.Cluster.Nodes, 3)
 	assert.Equal(t, []string{"k8s-0", "k8s-1", "k8s-2"}, c.NodeNames())
 	assert.Equal(t, DefaultSnippetsDir, c.Hypervisors.Proxmox.SnippetsDir)
@@ -96,6 +113,7 @@ state:
 	c, err := LoadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, "test-cluster", c.Cluster.Name)
+	assert.Equal(t, "test-cluster", c.ClusterNameWithDefault())
 	assert.Equal(t, "10.0.0.5", c.Cluster.ControlPlaneVIP)
 	assert.Equal(t, []string{"k8s-0", "k8s-1", "k8s-2", "n0"}, c.NodeNames())
 	// defaults fill the rest
@@ -113,6 +131,60 @@ state:
 	assert.False(t, ok)
 }
 
+func TestLoadFileAcceptsClusterEnvironmentKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  name: home-ops-cluster
+  pod_cidr: 10.244.0.0/16
+  service_cidr: 10.96.0.0/12
+  dns_domain: corp.local
+  node_subnet: 10.0.0.0/24
+  ntp_servers:
+    - 10.0.0.1
+    - 10.0.0.2
+  extra_cert_sans:
+    - 10.0.0.100
+    - api.internal
+  kubelet:
+    max_pods: 111
+    image_gc_high_percent: 70
+    image_gc_low_percent: 55
+  talos:
+    discovery_endpoint: http://10.0.0.10:3000
+    controlplane_install_disk: /dev/disk/by-id/control
+    worker_install_disk: /dev/disk/by-id/worker
+    user_volume:
+      disk: /dev/disk/by-id/local
+      min_size: 750GB
+      max_size: 950GB
+bootstrap:
+  op_vault: OpsVault
+`), 0o644))
+
+	c, err := LoadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "home-ops-cluster", c.ClusterNameWithDefault())
+	assert.Equal(t, "10.244.0.0/16", c.Cluster.PodCIDR)
+	assert.Equal(t, "10.96.0.0/12", c.Cluster.ServiceCIDR)
+	assert.Equal(t, "10.96.0.10", c.ClusterDNS())
+	assert.Equal(t, "corp.local", c.Cluster.DNSDomain)
+	assert.Equal(t, "10.0.0.0/24", c.Cluster.NodeSubnet)
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, c.Cluster.NTPServers)
+	assert.Equal(t, []string{"10.0.0.100", "api.internal"}, c.Cluster.ExtraCertSANs)
+	assert.Equal(t, 111, c.Cluster.Kubelet.MaxPods)
+	assert.Equal(t, 70, c.Cluster.Kubelet.ImageGCHighPercent)
+	assert.Equal(t, 55, c.Cluster.Kubelet.ImageGCLowPercent)
+	assert.Equal(t, "http://10.0.0.10:3000", c.Cluster.Talos.DiscoveryEndpoint)
+	assert.Equal(t, "/dev/disk/by-id/control", c.Cluster.Talos.ControlPlaneInstallDisk)
+	assert.Equal(t, "/dev/disk/by-id/worker", c.Cluster.Talos.WorkerInstallDisk)
+	assert.Equal(t, "/dev/disk/by-id/local", c.Cluster.Talos.UserVolume.Disk)
+	assert.Equal(t, "750GB", c.Cluster.Talos.UserVolume.MinSize)
+	assert.Equal(t, "950GB", c.Cluster.Talos.UserVolume.MaxSize)
+	assert.Equal(t, "OpsVault", c.Bootstrap.OpVault)
+}
+
 func TestLoadFileRejectsBadConfig(t *testing.T) {
 	dir := t.TempDir()
 
@@ -126,6 +198,10 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		{"bad store backend", "state:\n  pki:\n    backend: s3\n", "not supported"},
 		{"bad hypervisor", "hypervisors:\n  default: xen\n", "not supported"},
 		{"negative numeric vm knob", "hypervisors:\n  proxmox:\n    vm:\n      network_queues: -1\n", "must not be negative"},
+		{"bad pod cidr", "cluster:\n  pod_cidr: not-a-cidr\n", "cluster.pod_cidr"},
+		{"bad service cidr", "cluster:\n  service_cidr: not-a-cidr\n", "cluster.service_cidr"},
+		{"bad node subnet", "cluster:\n  node_subnet: not-a-cidr\n", "cluster.node_subnet"},
+		{"bad kubelet max pods", "cluster:\n  kubelet:\n    max_pods: -1\n", "cluster.kubelet.max_pods"},
 		{"unknown field", "clusterz:\n  name: x\n", "field clusterz not found"},
 	}
 	for _, tc := range cases {
@@ -138,6 +214,49 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestProposedHomeopsAdditionsLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(ProposedHomeopsAdditionsForTest), 0o644))
+
+	c, err := LoadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "home-ops-cluster", c.ClusterNameWithDefault())
+	assert.Equal(t, "10.43.0.10", c.ClusterDNS())
+	assert.Equal(t, "Infrastructure", c.Bootstrap.OpVault)
+}
+
+const ProposedHomeopsAdditionsForTest = `
+cluster:
+  name: home-ops-cluster
+  pod_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  dns_domain: cluster.local
+  node_subnet: 192.168.120.0/22
+  ntp_servers:
+    - 10.123.123.123
+    - 10.123.123.124
+    - 10.123.123.125
+    - 10.123.123.126
+    - 10.123.123.127
+  extra_cert_sans:
+    - 192.168.255.10
+  kubelet:
+    max_pods: 250
+    image_gc_high_percent: 60
+    image_gc_low_percent: 50
+  talos:
+    discovery_endpoint: http://192.168.123.152:3000
+    controlplane_install_disk: /dev/sda
+    worker_install_disk: /dev/nvme0n1
+    user_volume:
+      disk: /dev/sdb
+      min_size: 800GB
+      max_size: 900GB
+bootstrap:
+  op_vault: Infrastructure
+`
 
 func TestAPIEndpoint(t *testing.T) {
 	c := defaultConfig()

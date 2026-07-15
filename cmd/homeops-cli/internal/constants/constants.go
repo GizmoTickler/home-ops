@@ -55,6 +55,17 @@ const (
 	EnvCACertHash       = "CA_CERT_HASH"
 	EnvK8sEndpoint      = "K8S_ENDPOINT"
 	EnvSSHAuthorizedKey = "SSH_AUTHORIZED_KEY"
+	EnvClusterName      = "CLUSTER_NAME"
+	EnvPodCIDR          = "POD_CIDR"
+	EnvServiceCIDR      = "SERVICE_CIDR"
+	EnvDNSDomain        = "DNS_DOMAIN"
+	EnvClusterDNS       = "CLUSTER_DNS"
+	EnvExtraCertSANs    = "EXTRA_CERT_SANS"
+	EnvKubeletMaxPods   = "KUBELET_MAX_PODS"
+	EnvImageGCHigh      = "IMAGE_GC_HIGH_PERCENT"
+	EnvImageGCLow       = "IMAGE_GC_LOW_PERCENT"
+	EnvNTPServers       = "NTP_SERVERS"
+	EnvNetworkMTU       = "NETWORK_MTU"
 )
 
 // Kubernetes namespaces commonly used

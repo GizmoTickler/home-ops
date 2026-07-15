@@ -16,10 +16,36 @@
 # `homeops-cli config doctor` to check what resolves.
 
 cluster:
-  name: home-kubernetes
+  # name unifies the kubeconfig context and rendered clusterName; the live
+  # kubeadm cluster was initialized as home-ops-cluster, so keep it.
+  name: home-ops-cluster
   domain_ref: op://Infrastructure/cluster-config/SECRET_DOMAIN
   control_plane_vip: 192.168.123.253
   node_interface: eth0
+  pod_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  dns_domain: cluster.local
+  node_subnet: 192.168.120.0/22
+  ntp_servers:
+    - 10.123.123.123
+    - 10.123.123.124
+    - 10.123.123.125
+    - 10.123.123.126
+    - 10.123.123.127
+  extra_cert_sans:
+    - 192.168.255.10
+  kubelet:
+    max_pods: 250
+    image_gc_high_percent: 60
+    image_gc_low_percent: 50
+  talos: # legacy Talos provider only
+    discovery_endpoint: http://192.168.123.152:3000
+    controlplane_install_disk: /dev/sda
+    worker_install_disk: /dev/nvme0n1
+    user_volume:
+      disk: /dev/sdb
+      min_size: 800GB
+      max_size: 900GB
   nodes:
     - name: k8s-0
       ip: 192.168.122.10
@@ -101,6 +127,9 @@ hypervisors:
       boot_storage: local-nvme1
       openebs_storage: truenas-iscsi
       network_bridge: vl999
+
+bootstrap:
+  op_vault: Infrastructure
 
 state:
   kubeconfig:

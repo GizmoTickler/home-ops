@@ -621,6 +621,11 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		NodeMAC:           nodeConfig.MacAddress,
 		K8sEndpoint:       k8sEndpoint,
 		SSHAuthorizedKey:  sshKey,
+		ClusterName:       cfg.ClusterNameWithDefault(),
+		PodCIDR:           cfg.Cluster.PodCIDR,
+		ServiceCIDR:       cfg.Cluster.ServiceCIDR,
+		DNSDomain:         cfg.Cluster.DNSDomain,
+		ClusterDNS:        cfg.ClusterDNS(),
 	}, nil
 }
 

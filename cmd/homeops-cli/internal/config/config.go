@@ -15,8 +15,10 @@
 package config
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -119,10 +121,49 @@ type Node struct {
 	VM VMProfile `yaml:"vm,omitempty"`
 }
 
+// KubeletConfig holds cluster-wide kubelet tuning rendered into kubeadm.
+type KubeletConfig struct {
+	MaxPods            int `yaml:"max_pods,omitempty"`
+	ImageGCHighPercent int `yaml:"image_gc_high_percent,omitempty"`
+	ImageGCLowPercent  int `yaml:"image_gc_low_percent,omitempty"`
+}
+
+// TalosUserVolumeSettings controls the legacy Talos UserVolumeConfig block.
+type TalosUserVolumeSettings struct {
+	Disk    string `yaml:"disk,omitempty"`
+	MinSize string `yaml:"min_size,omitempty"`
+	MaxSize string `yaml:"max_size,omitempty"`
+}
+
+// TalosSettings holds legacy Talos-provider cluster knobs.
+type TalosSettings struct {
+	DiscoveryEndpoint       string                  `yaml:"discovery_endpoint,omitempty"`
+	ControlPlaneInstallDisk string                  `yaml:"controlplane_install_disk,omitempty"`
+	WorkerInstallDisk       string                  `yaml:"worker_install_disk,omitempty"`
+	UserVolume              TalosUserVolumeSettings `yaml:"user_volume,omitempty"`
+}
+
 // ClusterConfig is the cluster topology section.
 type ClusterConfig struct {
 	// Name is informational (shown in config show).
 	Name string `yaml:"name,omitempty"`
+	// PodCIDR, ServiceCIDR and DNSDomain are rendered into kubeadm/Talos
+	// networking settings. Cluster DNS is derived as service CIDR + 10.
+	PodCIDR     string `yaml:"pod_cidr,omitempty"`
+	ServiceCIDR string `yaml:"service_cidr,omitempty"`
+	DNSDomain   string `yaml:"dns_domain,omitempty"`
+	// NodeSubnet is the node/VLAN subnet Talos uses for nodeIP validity and
+	// etcd advertise selection.
+	NodeSubnet string `yaml:"node_subnet,omitempty"`
+	// NTPServers are rendered into Flatcar systemd-timesyncd and Talos
+	// machine.time.servers.
+	NTPServers []string `yaml:"ntp_servers,omitempty"`
+	// ExtraCertSANs are appended to the apiserver/Talos cert SAN lists.
+	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
+	// Kubelet holds cluster-wide kubelet tuning rendered in kubeadm.
+	Kubelet KubeletConfig `yaml:"kubelet,omitempty"`
+	// Talos holds legacy Talos-provider-only settings.
+	Talos TalosSettings `yaml:"talos,omitempty"`
 	// DomainRef is a secret reference resolving to the cluster base domain.
 	// The apiserver endpoint is derived as "k8s." + domain unless Endpoint is
 	// set explicitly. Optional: with neither set, no extra certSAN is added.
@@ -228,12 +269,20 @@ type TemplatesConfig struct {
 	Dir string `yaml:"dir,omitempty"`
 }
 
+// BootstrapSettings controls embedded bootstrap manifests.
+type BootstrapSettings struct {
+	// OpVault is the 1Password vault name used by the External Secrets
+	// ClusterSecretStore manifest.
+	OpVault string `yaml:"op_vault,omitempty"`
+}
+
 // Config is the root of homeops.yaml.
 type Config struct {
 	Cluster     ClusterConfig     `yaml:"cluster,omitempty"`
 	Hypervisors HypervisorsConfig `yaml:"hypervisors,omitempty"`
 	State       StateConfig       `yaml:"state,omitempty"`
 	Templates   TemplatesConfig   `yaml:"templates,omitempty"`
+	Bootstrap   BootstrapSettings `yaml:"bootstrap,omitempty"`
 	// Images overrides the cloud-image catalog used by `vm create`: a map of
 	// OS key (ubuntu, rocky, rhel, debian, fedora) to a qcow2 URL or a path
 	// already present on the hypervisor. RHEL requires this (subscription).
@@ -451,6 +500,20 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s.backend: %q is not supported (use \"op\" or \"file\")", store.name, store.cfg.Backend))
 		}
 	}
+	for _, cidr := range []struct {
+		name  string
+		value string
+	}{
+		{"cluster.pod_cidr", c.Cluster.PodCIDR},
+		{"cluster.service_cidr", c.Cluster.ServiceCIDR},
+		{"cluster.node_subnet", c.Cluster.NodeSubnet},
+	} {
+		if cidr.value != "" {
+			if _, err := netip.ParsePrefix(cidr.value); err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %q is not a valid CIDR", cidr.name, cidr.value))
+			}
+		}
+	}
 	cephModes := []struct {
 		name string
 		mode string
@@ -506,6 +569,9 @@ func validate(c *Config) error {
 		{"hypervisors.vsphere.vm.cores_per_socket", c.Hypervisors.VSphere.VM.CoresPerSocket},
 		{"hypervisors.vsphere.vm.boot_disk_gb", c.Hypervisors.VSphere.VM.BootDiskGB},
 		{"hypervisors.vsphere.vm.openebs_disk_gb", c.Hypervisors.VSphere.VM.OpenEBSDiskGB},
+		{"cluster.kubelet.max_pods", c.Cluster.Kubelet.MaxPods},
+		{"cluster.kubelet.image_gc_high_percent", c.Cluster.Kubelet.ImageGCHighPercent},
+		{"cluster.kubelet.image_gc_low_percent", c.Cluster.Kubelet.ImageGCLowPercent},
 	} {
 		if field.value < 0 {
 			problems = append(problems, fmt.Sprintf("%s: must not be negative", field.name))
@@ -577,6 +643,50 @@ func (c *Config) NodeByName(name string) (Node, bool) {
 		}
 	}
 	return Node{}, false
+}
+
+// NodeByIP returns the configured node with the given IP address.
+func (c *Config) NodeByIP(ip string) (Node, bool) {
+	for _, n := range c.Cluster.Nodes {
+		if n.IP == ip {
+			return n, true
+		}
+	}
+	return Node{}, false
+}
+
+// ClusterNameWithDefault returns cluster.name, or the historical kubeconfig /
+// template name when cluster.name is unset. applyDefaults intentionally does
+// not write the default into Cluster.Name so config show can distinguish an
+// explicit repo setting from the built-in fallback.
+func (c *Config) ClusterNameWithDefault() string {
+	if c != nil && strings.TrimSpace(c.Cluster.Name) != "" {
+		return c.Cluster.Name
+	}
+	return DefaultClusterName
+}
+
+// ClusterDNS returns the Kubernetes cluster DNS service IP derived from
+// service_cidr as the 10th address in the range.
+func (c *Config) ClusterDNS() string {
+	serviceCIDR := DefaultServiceCIDR
+	if c != nil && c.Cluster.ServiceCIDR != "" {
+		serviceCIDR = c.Cluster.ServiceCIDR
+	}
+	prefix, err := netip.ParsePrefix(serviceCIDR)
+	if err != nil {
+		return ""
+	}
+	addr := prefix.Masked().Addr()
+	if !addr.Is4() {
+		return ""
+	}
+	as4 := addr.As4()
+	v := binary.BigEndian.Uint32(as4[:])
+	v += 10
+	var out [4]byte
+	binary.BigEndian.PutUint32(out[:], v)
+	return netip.AddrFrom4(out).String()
 }
 
 // ForProvider returns this VM profile with the named provider overlay applied.

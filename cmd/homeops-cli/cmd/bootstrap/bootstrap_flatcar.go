@@ -148,6 +148,11 @@ func buildFlatcarNodeEnv(node flatcarBootstrapNode, versions *versionconfig.Vers
 		KubeVipVersion:    versions.KubeVipVersion,
 		NodeInterface:     cfg.Cluster.NodeInterface,
 		K8sEndpoint:       flatcarGetK8sEndpoint(),
+		ClusterName:       cfg.ClusterNameWithDefault(),
+		PodCIDR:           cfg.Cluster.PodCIDR,
+		ServiceCIDR:       cfg.Cluster.ServiceCIDR,
+		DNSDomain:         cfg.Cluster.DNSDomain,
+		ClusterDNS:        cfg.ClusterDNS(),
 	}
 }
 

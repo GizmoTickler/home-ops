@@ -47,6 +47,10 @@ func TestInitCommand(t *testing.T) {
 		cfg, err := config.LoadFile(path)
 		require.NoError(t, err)
 		assert.NotEmpty(t, cfg.Cluster.Nodes)
+		assert.Equal(t, config.DefaultPodCIDR, cfg.Cluster.PodCIDR)
+		assert.Equal(t, config.DefaultServiceCIDR, cfg.Cluster.ServiceCIDR)
+		assert.Equal(t, config.DefaultDNSDomain, cfg.Cluster.DNSDomain)
+		assert.Equal(t, "Infrastructure", cfg.Bootstrap.OpVault)
 	})
 
 	t.Run("refuses to overwrite without --force", func(t *testing.T) {
@@ -183,6 +187,27 @@ func TestRunDoctorSkipSecrets(t *testing.T) {
 
 	require.NoError(t, runDoctor(true, false))
 	assert.Zero(t, resolved, "--skip-secrets must not resolve references")
+}
+
+func TestRunDoctorValidatesClusterEnvironmentKeys(t *testing.T) {
+	doctorSeams(t)
+	restore := config.SetForTesting(&config.Config{
+		Cluster: config.ClusterConfig{
+			PodCIDR:     "not-a-cidr",
+			ServiceCIDR: "10.43.0.0/16",
+			DNSDomain:   "cluster.local",
+			NodeSubnet:  "192.168.120.0/22",
+		},
+	})
+	defer restore()
+
+	lookPathFn = func(string) error { return nil }
+	locateConfigFn = func() (string, bool) { return "", false }
+	currentConfigFn = config.Get
+
+	err := runDoctor(true, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "1 problem(s)")
 }
 
 func TestRunDoctorBadConfigFileFailsFast(t *testing.T) {

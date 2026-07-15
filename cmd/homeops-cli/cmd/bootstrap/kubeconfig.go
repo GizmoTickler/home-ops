@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"homeops-cli/internal/common"
+	homeopscfg "homeops-cli/internal/config"
 
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -57,7 +58,7 @@ func fetchKubeconfig(config *BootstrapConfig, logger *common.ColorLogger) error 
 		logger.Debug("Kubeconfig fetch attempt (elapsed: %v)", elapsed.Round(time.Second))
 
 		output, err := bootstrapTalosctlCombined(config.TalosConfig, "kubeconfig", "--nodes", controller,
-			"--force", "--force-context-name", "home-ops-cluster", config.KubeConfig)
+			"--force", "--force-context-name", homeopscfg.Get().ClusterNameWithDefault(), config.KubeConfig)
 		if err == nil {
 			logger.Debug("Kubeconfig fetched successfully")
 

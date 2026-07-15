@@ -2,7 +2,9 @@ package flatcar
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,6 +70,55 @@ func TestRenderIgnitionProducesValidJSON(t *testing.T) {
 	assert.Contains(t, s, "kubernetes-v1.36.1-x86-64.raw")
 	// The hostname file is an inline data URL: data:,k8s-0 (NODE_NAME substituted).
 	assert.Contains(t, s, "data:,k8s-0")
+}
+
+func TestRenderIgnitionUsesNTPServersAndNetworkMTU(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{
+		Cluster: config.ClusterConfig{
+			NTPServers: []string{"10.0.0.1", "10.0.0.2"},
+		},
+		Hypervisors: config.HypervisorsConfig{
+			Proxmox: config.ProxmoxConfig{VM: config.VMDefaults{NetworkMTU: 1400}},
+		},
+	})
+	defer restore()
+
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/timesyncd.conf"), "NTP=10.0.0.1 10.0.0.2")
+	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/network/10-k8s.network"), "MTUBytes=1400")
+}
+
+func ignitionFileContent(t *testing.T, ign []byte, path string) string {
+	t.Helper()
+	var doc struct {
+		Storage struct {
+			Files []struct {
+				Path     string `json:"path"`
+				Contents struct {
+					Source string `json:"source"`
+				} `json:"contents"`
+			} `json:"files"`
+		} `json:"storage"`
+	}
+	require.NoError(t, json.Unmarshal(ign, &doc))
+	for _, f := range doc.Storage.Files {
+		if f.Path != path {
+			continue
+		}
+		source := f.Contents.Source
+		if strings.HasPrefix(source, "data:;base64,") {
+			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(source, "data:;base64,"))
+			require.NoError(t, err)
+			return string(decoded)
+		}
+		require.True(t, strings.HasPrefix(source, "data:,"), "unsupported data URL %q", source)
+		decoded, err := url.PathUnescape(strings.TrimPrefix(source, "data:,"))
+		require.NoError(t, err)
+		return decoded
+	}
+	t.Fatalf("Ignition file %s not found", path)
+	return ""
 }
 
 func TestRenderIgnitionDeterministicAndNodeSpecific(t *testing.T) {
@@ -158,6 +209,38 @@ func TestRenderKubeadmInitConfig(t *testing.T) {
 	// No real {{ ENV.NAME }} placeholders remain (the descriptive "{{ ENV.* }}"
 	// comment is allowed and not treated as unresolved).
 	assert.NotRegexp(t, `{{ ENV\.[A-Z0-9_]+ }}`, out)
+}
+
+func TestRenderKubeadmInitConfigUsesClusterEnvironmentFields(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{
+		Cluster: config.ClusterConfig{
+			Name:          "custom-cluster",
+			PodCIDR:       "10.244.0.0/16",
+			ServiceCIDR:   "10.96.0.0/12",
+			DNSDomain:     "corp.local",
+			ExtraCertSANs: []string{"10.0.0.100", "api.internal"},
+			Kubelet: config.KubeletConfig{
+				MaxPods:            111,
+				ImageGCHighPercent: 70,
+				ImageGCLowPercent:  55,
+			},
+		},
+	})
+	defer restore()
+
+	out, err := RenderKubeadmInitConfig(sampleEnv())
+	require.NoError(t, err)
+	assert.Contains(t, out, "clusterName: custom-cluster")
+	assert.Contains(t, out, "podSubnet: 10.244.0.0/16")
+	assert.Contains(t, out, "serviceSubnet: 10.96.0.0/12")
+	assert.Contains(t, out, "dnsDomain: corp.local")
+	assert.Contains(t, out, "clusterDomain: corp.local")
+	assert.Contains(t, out, "- 10.96.0.10")
+	assert.Contains(t, out, "- 10.0.0.100")
+	assert.Contains(t, out, "- api.internal")
+	assert.Contains(t, out, "maxPods: 111")
+	assert.Contains(t, out, "imageGCHighThresholdPercent: 70")
+	assert.Contains(t, out, "imageGCLowThresholdPercent: 55")
 }
 
 func TestRenderKubeadmJoinConfig(t *testing.T) {

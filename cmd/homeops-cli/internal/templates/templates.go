@@ -77,6 +77,7 @@ func GetVolsyncTemplate(templateName string) (string, error) {
 
 // RenderTalosTemplate renders a Jinja2-style Talos template with environment variables
 func RenderTalosTemplate(templateName string, env map[string]string) (string, error) {
+	env = enrichTalosEnv(templateName, env)
 	content, err := readTemplateFile(talosTemplates, templateName)
 	if err != nil {
 		return "", fmt.Errorf("failed to read template %s: %w", templateName, err)
@@ -90,6 +91,63 @@ func RenderTalosTemplate(templateName string, env map[string]string) (string, er
 	}
 
 	return result, nil
+}
+
+func enrichTalosEnv(templateName string, env map[string]string) map[string]string {
+	merged := map[string]string{}
+	for k, v := range talosDefaultEnv(templateName) {
+		merged[k] = v
+	}
+	for k, v := range env {
+		merged[k] = v
+	}
+	return merged
+}
+
+func talosDefaultEnv(templateName string) map[string]string {
+	cfg := config.Get()
+	out := map[string]string{
+		"CLUSTER_NAME":                    cfg.ClusterNameWithDefault(),
+		"POD_CIDR":                        cfg.Cluster.PodCIDR,
+		"SERVICE_CIDR":                    cfg.Cluster.ServiceCIDR,
+		"DNS_DOMAIN":                      cfg.Cluster.DNSDomain,
+		"NODE_SUBNET":                     cfg.Cluster.NodeSubnet,
+		"TALOS_EXTRA_CERT_SANS_MACHINE":   formatYAMLList(cfg.Cluster.ExtraCertSANs, 4, false),
+		"TALOS_EXTRA_CERT_SANS_APISERVER": formatYAMLList(cfg.Cluster.ExtraCertSANs, 6, false),
+		"TALOS_NTP_SERVERS":               formatYAMLList(cfg.Cluster.NTPServers, 6, false),
+		"TALOS_DISCOVERY_ENDPOINT":        cfg.Cluster.Talos.DiscoveryEndpoint,
+		"TALOS_CONTROLPLANE_INSTALL_DISK": cfg.Cluster.Talos.ControlPlaneInstallDisk,
+		"TALOS_WORKER_INSTALL_DISK":       cfg.Cluster.Talos.WorkerInstallDisk,
+		"TALOS_USER_VOLUME_DISK":          cfg.Cluster.Talos.UserVolume.Disk,
+		"TALOS_USER_VOLUME_MIN_SIZE":      cfg.Cluster.Talos.UserVolume.MinSize,
+		"TALOS_USER_VOLUME_MAX_SIZE":      cfg.Cluster.Talos.UserVolume.MaxSize,
+		"TALOS_KUBERNETES_VERSION":        config.GetVersions(".").TalosKubernetesVersion,
+		"TALOS_VERSION":                   config.GetVersions(".").TalosVersion,
+	}
+	if node, ok := talosNodeForTemplate(templateName, cfg); ok {
+		profile := node.VM.ForProvider("talos")
+		out["TALOS_NODE_MAC"] = profile.Mac
+		out["TALOS_NODE_HOSTNAME"] = node.Name
+	}
+	return out
+}
+
+func talosNodeForTemplate(templateName string, cfg *config.Config) (config.Node, bool) {
+	base := filepath.Base(templateName)
+	ip := strings.TrimSuffix(base, filepath.Ext(base))
+	return cfg.NodeByIP(ip)
+}
+
+func formatYAMLList(values []string, indent int, quote bool) string {
+	prefix := strings.Repeat(" ", indent) + "- "
+	lines := make([]string, 0, len(values))
+	for _, v := range values {
+		if quote {
+			v = fmt.Sprintf("%q", v)
+		}
+		lines = append(lines, prefix+v)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // GetTalosTemplate returns the raw Talos template content
@@ -153,6 +211,7 @@ func ListFlatcarFiles(subdir string) ([]string, error) {
 
 // RenderBootstrapTemplate renders a Jinja2-style bootstrap template with environment variables
 func RenderBootstrapTemplate(templateName string, env map[string]string) (string, error) {
+	env = enrichBootstrapEnv(env)
 	templateFile := fmt.Sprintf("bootstrap/%s", templateName)
 	content, err := readTemplateFile(bootstrapTemplates, templateFile)
 	if err != nil {
@@ -174,6 +233,16 @@ func RenderBootstrapTemplate(templateName string, env map[string]string) (string
 	}
 
 	return result, nil
+}
+
+func enrichBootstrapEnv(env map[string]string) map[string]string {
+	merged := map[string]string{
+		"OP_VAULT": config.Get().Bootstrap.OpVault,
+	}
+	for k, v := range env {
+		merged[k] = v
+	}
+	return merged
 }
 
 // GetBootstrapTemplate returns the content of a bootstrap template

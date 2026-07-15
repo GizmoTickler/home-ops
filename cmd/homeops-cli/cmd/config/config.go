@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -146,6 +147,32 @@ func scaffold(backend string) string {
 
 cluster:
   name: my-cluster
+  # Cluster-level environment rendered into Flatcar/kubeadm and legacy Talos templates.
+  # Defaults preserve the historical embedded template literals.
+  pod_cidr: 10.42.0.0/16
+  service_cidr: 10.43.0.0/16
+  dns_domain: cluster.local
+  node_subnet: 192.168.120.0/22
+  ntp_servers:
+    - 10.123.123.123
+    - 10.123.123.124
+    - 10.123.123.125
+    - 10.123.123.126
+    - 10.123.123.127
+  extra_cert_sans:
+    - 192.168.255.10
+  kubelet:
+    max_pods: 250
+    image_gc_high_percent: 60
+    image_gc_low_percent: 50
+  talos:
+    discovery_endpoint: http://192.168.123.152:3000
+    controlplane_install_disk: /dev/sda
+    worker_install_disk: /dev/nvme0n1
+    user_volume:
+      disk: /dev/sdb
+      min_size: 800GB
+      max_size: 900GB
   # Apiserver DNS name added to the cert SANs. Either set endpoint directly,
   # or set domain_ref and the endpoint is derived as "k8s." + domain.
   #endpoint: k8s.example.com
@@ -259,6 +286,10 @@ state:
 #templates:
 #  dir: ~/.config/homeops/templates
 
+# Bootstrap manifest settings.
+bootstrap:
+  op_vault: Infrastructure
+
 secrets:
 `)
 	for _, key := range config.KnownSecretKeys() {
@@ -370,10 +401,34 @@ func runDoctor(skipSecrets, network bool) error {
 			fail("cluster.nodes: node %q has invalid IP %q", n.Name, n.IP)
 		}
 	}
+	for _, cidr := range []struct {
+		name  string
+		value string
+	}{
+		{"cluster.pod_cidr", cfg.Cluster.PodCIDR},
+		{"cluster.service_cidr", cfg.Cluster.ServiceCIDR},
+		{"cluster.node_subnet", cfg.Cluster.NodeSubnet},
+	} {
+		if _, err := netip.ParsePrefix(cidr.value); err != nil {
+			fail("%s %q is not a valid CIDR", cidr.name, cidr.value)
+		}
+	}
+	if cfg.Cluster.DNSDomain == "" {
+		fail("cluster.dns_domain is empty")
+	}
+	if len(cfg.Cluster.NTPServers) == 0 {
+		fail("cluster.ntp_servers is empty")
+	}
+	if len(cfg.Cluster.ExtraCertSANs) == 0 {
+		fail("cluster.extra_cert_sans is empty")
+	}
+	if cfg.Cluster.Kubelet.MaxPods <= 0 {
+		fail("cluster.kubelet.max_pods must be positive")
+	}
 	if net.ParseIP(cfg.Cluster.ControlPlaneVIP) == nil {
 		fail("cluster.control_plane_vip %q is not a valid IP", cfg.Cluster.ControlPlaneVIP)
 	} else {
-		logger.Success("topology: %d node(s), VIP %s, interface %s", len(cfg.Cluster.Nodes), cfg.Cluster.ControlPlaneVIP, cfg.Cluster.NodeInterface)
+		logger.Success("topology: %d node(s), VIP %s, interface %s, pod/service CIDRs %s/%s", len(cfg.Cluster.Nodes), cfg.Cluster.ControlPlaneVIP, cfg.Cluster.NodeInterface, cfg.Cluster.PodCIDR, cfg.Cluster.ServiceCIDR)
 	}
 
 	// 3. Required binaries

@@ -1,0 +1,137 @@
+cluster:
+    ca:
+        crt: secret://talos_cluster_ca_crt
+    clusterName: home-ops-cluster
+    controlPlane:
+        endpoint: secret://talos_k8s_endpoint
+    discovery:
+        enabled: true
+        registries:
+            kubernetes:
+                disabled: true
+            service:
+                disabled: false
+                endpoint: http://192.168.123.152:3000
+    id: secret://talos_cluster_id
+    network:
+        cni:
+            name: none
+        dnsDomain: cluster.local
+        podSubnets:
+            - 10.42.0.0/16
+        serviceSubnets:
+            - 10.43.0.0/16
+    secret: secret://talos_cluster_secret
+    token: secret://talos_cluster_token
+machine:
+    ca:
+        crt: secret://talos_machine_ca_crt
+    certSANs:
+        - 127.0.0.1
+        - 192.168.255.10
+    features:
+        apidCheckExtKeyUsage: true
+        diskQuotaSupport: true
+        hostDNS:
+            enabled: true
+            forwardKubeDNSToHost: false
+            resolveMemberNames: true
+        kubePrism:
+            enabled: true
+            port: 7445
+        rbac: true
+    files:
+        - content: |
+            [plugins."io.containerd.cri.v1.images"]
+              discard_unpacked_layers = false
+            [plugins."io.containerd.cri.v1.runtime"]
+              device_ownership_from_security_context = true
+          op: create
+          path: /etc/cri/conf.d/20-customization.part
+        - content: |
+            [ NFSMount_Global_Options ]
+            nfsvers=4.2
+            hard=True
+            nconnect=16
+            noatime=True
+          op: overwrite
+          path: /etc/nfsmount.conf
+          permissions: 420
+    install:
+        disk: /dev/nvme0n1
+        image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.13.6
+        wipe: false
+    kernel:
+        modules:
+            - name: nbd
+            - name: nvme_tcp
+            - name: vfio-pci
+            - name: uio_pci_generic
+    kubelet:
+        defaultRuntimeSeccompProfileEnabled: true
+        disableManifestsDirectory: true
+        extraConfig:
+            featureGates:
+                ImageVolume: true
+            serializeImagePulls: false
+        image: ghcr.io/siderolabs/kubelet:v1.36.2
+        nodeIP:
+            validSubnets:
+                - 192.168.120.0/22
+    network:
+        interfaces:
+            - deviceSelector:
+                hardwareAddr: 00:a0:98:1a:f3:72
+              dhcp: true
+              mtu: 9000
+    nodeLabels:
+        topology.kubernetes.io/region: main
+        topology.kubernetes.io/zone: m
+    sysctls:
+        fs.inotify.max_user_instances: "8192"
+        fs.inotify.max_user_watches: "1048576"
+        net.core.default_qdisc: fq
+        net.core.rmem_max: "67108864"
+        net.core.wmem_max: "67108864"
+        net.ipv4.neigh.default.gc_thresh1: "4096"
+        net.ipv4.neigh.default.gc_thresh2: "8192"
+        net.ipv4.neigh.default.gc_thresh3: "16384"
+        net.ipv4.tcp_congestion_control: bbr
+        net.ipv4.tcp_fastopen: "3"
+        net.ipv4.tcp_mtu_probing: "1"
+        net.ipv4.tcp_rmem: 4096 87380 33554432
+        net.ipv4.tcp_window_scaling: "1"
+        net.ipv4.tcp_wmem: 4096 65536 33554432
+        sunrpc.tcp_max_slot_table_entries: "128"
+        sunrpc.tcp_slot_table_entries: "128"
+        user.max_user_namespaces: "11255"
+        vm.nr_hugepages: "1024"
+    time:
+        servers:
+            - 10.123.123.123
+            - 10.123.123.124
+            - 10.123.123.125
+            - 10.123.123.126
+            - 10.123.123.127
+    token: secret://talos_machine_token
+version: v1alpha1
+
+---
+apiVersion: v1alpha1
+kind: HostnameConfig
+hostname: k8s-1
+---
+apiVersion: v1alpha1
+kind: WatchdogTimerConfig
+device: /dev/watchdog0
+timeout: 5m
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-hostpath
+provisioning:
+  diskSelector:
+    # Select /dev/sdc explicitly for local-hostpath storage (leaves sdb for Ceph)
+    match: disk.dev_path == "/dev/sdb"
+  minSize: 800GB
+  maxSize: 900GB

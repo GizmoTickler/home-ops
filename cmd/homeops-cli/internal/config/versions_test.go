@@ -34,6 +34,7 @@ func TestGetDefaultVersions(t *testing.T) {
 	versions := getDefaultVersions()
 	require.NotNil(t, versions)
 	assert.Equal(t, "v1.36.1", versions.KubernetesVersion)
+	assert.Equal(t, "v1.36.2", versions.TalosKubernetesVersion)
 	// Flatcar ignores TalosVersion, but the loader populates the legacy-talos
 	// default so a `--provider talos` bootstrap still resolves a real version.
 	assert.Equal(t, defaultTalosVersion, versions.TalosVersion)
@@ -70,6 +71,7 @@ spec:
 		versions, err := LoadVersionsFromSystemUpgrade(tmpDir)
 		require.NoError(t, err)
 		assert.Equal(t, "v1.36.1", versions.KubernetesVersion)
+		assert.Equal(t, "v1.36.2", versions.TalosKubernetesVersion)
 		assert.Equal(t, defaultTalosVersion, versions.TalosVersion, "legacy-talos default populated; Flatcar ignores it")
 		assert.NotEmpty(t, versions.FlatcarVersion)
 		assert.NotEmpty(t, versions.KubeVipVersion)

@@ -7,7 +7,7 @@ machine:
     key: secret://talos_machine_ca_key
   certSANs:
     - 127.0.0.1
-    - 192.168.255.10
+{{ ENV.TALOS_EXTRA_CERT_SANS_MACHINE }}
   features:
     apidCheckExtKeyUsage: true
     diskQuotaSupport: true
@@ -46,8 +46,8 @@ machine:
         rsize=1048576
         wsize=1048576
   install:
-    disk: /dev/sda
-    image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.13.6
+    disk: {{ ENV.TALOS_CONTROLPLANE_INSTALL_DISK }}
+    image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:{{ ENV.TALOS_VERSION }}
     wipe: false
   kernel:
     modules:
@@ -60,10 +60,10 @@ machine:
     disableManifestsDirectory: true
     extraConfig:
       serializeImagePulls: false
-    image: ghcr.io/siderolabs/kubelet:v1.36.2
+    image: ghcr.io/siderolabs/kubelet:{{ ENV.TALOS_KUBERNETES_VERSION }}
     nodeIP:
       validSubnets:
-        - 192.168.120.0/22
+        - {{ ENV.NODE_SUBNET }}
   nodeLabels:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
@@ -95,18 +95,18 @@ cluster:
   ca:
     crt: secret://talos_cluster_ca_crt
     key: secret://talos_cluster_ca_key
-  clusterName: home-ops-cluster
+  clusterName: {{ ENV.CLUSTER_NAME }}
   controlPlane:
     endpoint: secret://talos_k8s_endpoint
   id: secret://talos_cluster_id
   network:
     cni:
       name: none
-    dnsDomain: cluster.local
+    dnsDomain: {{ ENV.DNS_DOMAIN }}
     podSubnets:
-      - 10.42.0.0/16
+      - {{ ENV.POD_CIDR }}
     serviceSubnets:
-      - 10.43.0.0/16
+      - {{ ENV.SERVICE_CIDR }}
   secret: secret://talos_cluster_secret
   token: secret://talos_cluster_token
   aggregatorCA:
@@ -122,21 +122,21 @@ cluster:
     certSANs:
       - 127.0.0.1
       - 192.168.120.100
-      - 192.168.255.10
+{{ ENV.TALOS_EXTRA_CERT_SANS_APISERVER }}
     disablePodSecurityPolicy: true
     extraArgs:
       enable-aggregator-routing: "true"
-    image: registry.k8s.io/kube-apiserver:v1.36.2
+    image: registry.k8s.io/kube-apiserver:{{ ENV.TALOS_KUBERNETES_VERSION }}
   controllerManager:
     extraArgs:
       bind-address: 0.0.0.0
       feature-gates: HPAScaleToZero=true
-    image: registry.k8s.io/kube-controller-manager:v1.36.2
+    image: registry.k8s.io/kube-controller-manager:{{ ENV.TALOS_KUBERNETES_VERSION }}
   coreDNS:
     disabled: true
   etcd:
     advertisedSubnets:
-      - 192.168.120.0/22
+      - {{ ENV.NODE_SUBNET }}
     ca:
       crt: secret://talos_etcd_ca_crt
       key: secret://talos_etcd_ca_key
@@ -144,7 +144,7 @@ cluster:
       listen-metrics-urls: http://0.0.0.0:2381
   proxy:
     disabled: true
-    image: registry.k8s.io/kube-proxy:v1.36.2
+    image: registry.k8s.io/kube-proxy:{{ ENV.TALOS_KUBERNETES_VERSION }}
   scheduler:
     config:
       apiVersion: kubescheduler.config.k8s.io/v1
@@ -162,7 +162,7 @@ cluster:
           # the upstream Talos deep-copy regression is fixed.
     extraArgs:
       bind-address: 0.0.0.0
-    image: registry.k8s.io/kube-scheduler:v1.36.2
+    image: registry.k8s.io/kube-scheduler:{{ ENV.TALOS_KUBERNETES_VERSION }}
   secretboxEncryptionSecret: secret://talos_secretbox_encryption_secret
   serviceAccount:
     key: secret://talos_service_account_key

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"homeops-cli/internal/common"
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/metrics"
 
 	"github.com/stretchr/testify/assert"
@@ -125,7 +126,72 @@ func TestTemplateRenderer(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestTalosTemplatesUseClusterConfig(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{
+		Cluster: config.ClusterConfig{
+			Name:          "custom-cluster",
+			PodCIDR:       "10.244.0.0/16",
+			ServiceCIDR:   "10.96.0.0/12",
+			DNSDomain:     "corp.local",
+			NodeSubnet:    "10.0.0.0/24",
+			NTPServers:    []string{"10.0.0.1", "10.0.0.2"},
+			ExtraCertSANs: []string{"10.0.0.100", "api.internal"},
+			Talos: config.TalosSettings{
+				DiscoveryEndpoint:       "http://10.0.0.10:3000",
+				ControlPlaneInstallDisk: "/dev/control",
+				WorkerInstallDisk:       "/dev/worker",
+				UserVolume: config.TalosUserVolumeSettings{
+					Disk:    "/dev/local",
+					MinSize: "750GB",
+					MaxSize: "950GB",
+				},
+			},
+			Nodes: []config.Node{
+				{
+					Name: "k8s-0",
+					IP:   "192.168.122.10",
+					VM: config.VMProfile{Providers: config.ProviderVMProfiles{
+						Talos: config.ProviderVMProfile{Mac: "02:00:00:00:00:11"},
+					}},
+				},
+			},
+		},
+	})
+	defer restore()
+
+	controlplane, err := RenderTalosTemplate("talos/controlplane.yaml", nil)
+	require.NoError(t, err)
+	assert.Contains(t, controlplane, "disk: /dev/control")
+	assert.Contains(t, controlplane, "factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.13.6")
+	assert.Contains(t, controlplane, "image: ghcr.io/siderolabs/kubelet:v1.36.2")
+	assert.Contains(t, controlplane, "clusterName: custom-cluster")
+	assert.Contains(t, controlplane, "dnsDomain: corp.local")
+	assert.Contains(t, controlplane, "- 10.244.0.0/16")
+	assert.Contains(t, controlplane, "- 10.96.0.0/12")
+	assert.Contains(t, controlplane, "- 10.0.0.0/24")
+	assert.Contains(t, controlplane, "- 10.0.0.100")
+	assert.Contains(t, controlplane, "- api.internal")
+
+	worker, err := RenderTalosTemplate("talos/worker.yaml", nil)
+	require.NoError(t, err)
+	assert.Contains(t, worker, "disk: /dev/worker")
+
+	node, err := RenderTalosTemplate("talos/nodes/192.168.122.10.yaml", nil)
+	require.NoError(t, err)
+	assert.Contains(t, node, "hardwareAddr: 02:00:00:00:00:11")
+	assert.Contains(t, node, "hostname: k8s-0")
+	assert.Contains(t, node, "- 10.0.0.1")
+	assert.Contains(t, node, "- 10.0.0.2")
+	assert.Contains(t, node, "endpoint: http://10.0.0.10:3000")
+	assert.Contains(t, node, `match: disk.dev_path == "/dev/local"`)
+	assert.Contains(t, node, "minSize: 750GB")
+	assert.Contains(t, node, "maxSize: 950GB")
+}
+
 func TestBootstrapTemplateHelpers(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{Bootstrap: config.BootstrapSettings{OpVault: "OpsVault"}})
+	defer restore()
+
 	rendered, err := RenderBootstrapTemplate("resources.yaml", map[string]string{
 		"BOOTSTRAP_RESOURCES_NAMESPACE": "flux-system",
 		"SECRET_DOMAIN":                 "example.com",
@@ -134,6 +200,10 @@ func TestBootstrapTemplateHelpers(t *testing.T) {
 	assert.Contains(t, rendered, "external-secrets")
 	assert.Contains(t, rendered, "network")
 	assert.Contains(t, rendered, "cloudflare-tunnel-id-secret")
+
+	store, err := RenderBootstrapTemplate("clustersecretstore.yaml", nil)
+	require.NoError(t, err)
+	assert.Contains(t, store, "OpsVault: 1")
 
 	_, err = RenderBootstrapTemplate("missing.yaml", nil)
 	require.Error(t, err)

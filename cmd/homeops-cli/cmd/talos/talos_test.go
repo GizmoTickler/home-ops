@@ -1980,7 +1980,7 @@ func TestUpdateNodeTemplatesWithSchematic(t *testing.T) {
 
 	updated, err := os.ReadFile(templatePath)
 	require.NoError(t, err)
-	assert.Contains(t, string(updated), "image: factory.talos.dev/installer/schematic-xyz:v1.10.0")
+	assert.Contains(t, string(updated), "image: factory.talos.dev/installer/schematic-xyz:{{ ENV.TALOS_VERSION }}")
 }
 
 func TestRenderMachineConfigFromEmbedded(t *testing.T) {

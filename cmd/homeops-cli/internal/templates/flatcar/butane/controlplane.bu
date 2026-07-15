@@ -70,7 +70,7 @@ storage:
           [Link]
           Name=eth0
 
-    # --- networking: jumbo frames (MTU 9000) on the primary NIC.
+    # --- networking: jumbo frames on the primary NIC.
     # Flatcar names the virtio NIC eth0 (NOT ens18 like Talos) — confirmed in the P2 lab;
     # the 10-eth0.link above pins that name to the MAC. Kea also hands MTU 9000 via DHCP,
     # but we set it explicitly here too. ---
@@ -82,7 +82,7 @@ storage:
           [Match]
           Name=eth0
           [Link]
-          MTUBytes=9000
+          MTUBytes={{ ENV.NETWORK_MTU }}
           [Network]
           DHCP=yes
           [DHCPv4]
@@ -109,7 +109,7 @@ storage:
       contents:
         inline: |
           [Time]
-          NTP=10.123.123.123 10.123.123.124 10.123.123.125 10.123.123.126 10.123.123.127
+          NTP={{ ENV.NTP_SERVERS }}
 
     # --- OS tuning ported from Talos (ENV-substituted by the renderer where needed) ---
     - path: /etc/sysctl.d/99-homeops.conf

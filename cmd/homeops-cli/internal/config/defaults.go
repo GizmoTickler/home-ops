@@ -11,12 +11,29 @@ import (
 // infrastructure manager) and every one of them is overridable in
 // homeops.yaml.
 const (
+	DefaultClusterName     = "home-ops-cluster"
 	DefaultControlPlaneVIP = "192.168.123.253"
 	DefaultNodeInterface   = "eth0"
+	DefaultPodCIDR         = "10.42.0.0/16"
+	DefaultServiceCIDR     = "10.43.0.0/16"
+	DefaultDNSDomain       = "cluster.local"
+	DefaultNodeSubnet      = "192.168.120.0/22"
+	DefaultOpVault         = "Infrastructure"
 	DefaultProxmoxNodeName = "pve"
 	DefaultTrueNASISODir   = "/mnt/flashstor/ISO"
 	DefaultTrueNASISOFile  = "metal-amd64.iso"
 	DefaultSnippetsDir     = "/var/lib/vz/snippets"
+)
+
+var (
+	defaultNTPServers = []string{
+		"10.123.123.123",
+		"10.123.123.124",
+		"10.123.123.125",
+		"10.123.123.126",
+		"10.123.123.127",
+	}
+	defaultExtraCertSANs = []string{"192.168.255.10"}
 )
 
 const (
@@ -153,6 +170,26 @@ func defaultConfig() *Config {
 
 // applyDefaults fills unset fields with built-in defaults.
 func applyDefaults(c *Config) {
+	if c.Cluster.PodCIDR == "" {
+		c.Cluster.PodCIDR = DefaultPodCIDR
+	}
+	if c.Cluster.ServiceCIDR == "" {
+		c.Cluster.ServiceCIDR = DefaultServiceCIDR
+	}
+	if c.Cluster.DNSDomain == "" {
+		c.Cluster.DNSDomain = DefaultDNSDomain
+	}
+	if c.Cluster.NodeSubnet == "" {
+		c.Cluster.NodeSubnet = DefaultNodeSubnet
+	}
+	if len(c.Cluster.NTPServers) == 0 {
+		c.Cluster.NTPServers = append([]string(nil), defaultNTPServers...)
+	}
+	if len(c.Cluster.ExtraCertSANs) == 0 {
+		c.Cluster.ExtraCertSANs = append([]string(nil), defaultExtraCertSANs...)
+	}
+	applyKubeletDefaults(&c.Cluster.Kubelet)
+	applyTalosDefaults(&c.Cluster.Talos)
 	if c.Cluster.ControlPlaneVIP == "" {
 		c.Cluster.ControlPlaneVIP = DefaultControlPlaneVIP
 	}
@@ -219,6 +256,42 @@ func applyDefaults(c *Config) {
 	}
 	if c.Secrets == nil {
 		c.Secrets = map[string]string{}
+	}
+	if c.Bootstrap.OpVault == "" {
+		c.Bootstrap.OpVault = DefaultOpVault
+	}
+}
+
+func applyKubeletDefaults(k *KubeletConfig) {
+	if k.MaxPods == 0 {
+		k.MaxPods = 250
+	}
+	if k.ImageGCHighPercent == 0 {
+		k.ImageGCHighPercent = 60
+	}
+	if k.ImageGCLowPercent == 0 {
+		k.ImageGCLowPercent = 50
+	}
+}
+
+func applyTalosDefaults(t *TalosSettings) {
+	if t.DiscoveryEndpoint == "" {
+		t.DiscoveryEndpoint = "http://192.168.123.152:3000"
+	}
+	if t.ControlPlaneInstallDisk == "" {
+		t.ControlPlaneInstallDisk = "/dev/sda"
+	}
+	if t.WorkerInstallDisk == "" {
+		t.WorkerInstallDisk = "/dev/nvme0n1"
+	}
+	if t.UserVolume.Disk == "" {
+		t.UserVolume.Disk = "/dev/sdb"
+	}
+	if t.UserVolume.MinSize == "" {
+		t.UserVolume.MinSize = "800GB"
+	}
+	if t.UserVolume.MaxSize == "" {
+		t.UserVolume.MaxSize = "900GB"
 	}
 }
 

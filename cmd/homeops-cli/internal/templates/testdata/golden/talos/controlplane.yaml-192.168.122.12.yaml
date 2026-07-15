@@ -1,0 +1,201 @@
+cluster:
+    aggregatorCA:
+        crt: secret://talos_aggregator_ca_crt
+        key: secret://talos_aggregator_ca_key
+    allowSchedulingOnControlPlanes: true
+    apiServer:
+        auditPolicy:
+            apiVersion: audit.k8s.io/v1
+            kind: Policy
+            rules:
+                - level: Metadata
+        certSANs:
+            - 127.0.0.1
+            - 192.168.120.100
+            - 192.168.255.10
+        disablePodSecurityPolicy: true
+        extraArgs:
+            enable-aggregator-routing: "true"
+        image: registry.k8s.io/kube-apiserver:v1.36.2
+    ca:
+        crt: secret://talos_cluster_ca_crt
+        key: secret://talos_cluster_ca_key
+    clusterName: home-ops-cluster
+    controlPlane:
+        endpoint: secret://talos_k8s_endpoint
+    controllerManager:
+        extraArgs:
+            bind-address: 0.0.0.0
+            feature-gates: HPAScaleToZero=true
+        image: registry.k8s.io/kube-controller-manager:v1.36.2
+    coreDNS:
+        disabled: true
+    discovery:
+        enabled: true
+        registries:
+            kubernetes:
+                disabled: true
+            service:
+                disabled: false
+                endpoint: http://192.168.123.152:3000
+    etcd:
+        advertisedSubnets:
+            - 192.168.120.0/22
+        ca:
+            crt: secret://talos_etcd_ca_crt
+            key: secret://talos_etcd_ca_key
+        extraArgs:
+            listen-metrics-urls: http://0.0.0.0:2381
+    id: secret://talos_cluster_id
+    network:
+        cni:
+            name: none
+        dnsDomain: cluster.local
+        podSubnets:
+            - 10.42.0.0/16
+        serviceSubnets:
+            - 10.43.0.0/16
+    proxy:
+        disabled: true
+        image: registry.k8s.io/kube-proxy:v1.36.2
+    scheduler:
+        config:
+            apiVersion: kubescheduler.config.k8s.io/v1
+            kind: KubeSchedulerConfiguration
+            profiles:
+                - plugins:
+                    score:
+                        disabled:
+                            - name: ImageLocality
+                  schedulerName: default-scheduler
+        extraArgs:
+            bind-address: 0.0.0.0
+        image: registry.k8s.io/kube-scheduler:v1.36.2
+    secret: secret://talos_cluster_secret
+    secretboxEncryptionSecret: secret://talos_secretbox_encryption_secret
+    serviceAccount:
+        key: secret://talos_service_account_key
+    token: secret://talos_cluster_token
+machine:
+    ca:
+        crt: secret://talos_machine_ca_crt
+        key: secret://talos_machine_ca_key
+    certSANs:
+        - 127.0.0.1
+        - 192.168.255.10
+    features:
+        apidCheckExtKeyUsage: true
+        diskQuotaSupport: true
+        hostDNS:
+            enabled: true
+            forwardKubeDNSToHost: false
+            resolveMemberNames: true
+        kubePrism:
+            enabled: true
+            port: 7445
+        kubernetesTalosAPIAccess:
+            allowedKubernetesNamespaces:
+                - actions-runner-system
+                - system-upgrade
+            allowedRoles:
+                - os:admin
+            enabled: true
+        rbac: true
+    files:
+        - content: |
+            [plugins."io.containerd.cri.v1.images"]
+              discard_unpacked_layers = false
+            [plugins."io.containerd.cri.v1.runtime"]
+              device_ownership_from_security_context = true
+          op: create
+          path: /etc/cri/conf.d/20-customization.part
+        - content: |
+            [ NFSMount_Global_Options ]
+            nfsvers=4.2
+            hard=True
+            nconnect=16
+            noatime=True
+            rsize=1048576
+            wsize=1048576
+          op: overwrite
+          path: /etc/nfsmount.conf
+          permissions: 420
+    install:
+        disk: /dev/sda
+        image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.13.6
+        wipe: false
+    kernel:
+        modules:
+            - name: nbd
+            - name: nvme_tcp
+            - name: vfio-pci
+            - name: uio_pci_generic
+    kubelet:
+        defaultRuntimeSeccompProfileEnabled: true
+        disableManifestsDirectory: true
+        extraConfig:
+            serializeImagePulls: false
+        image: ghcr.io/siderolabs/kubelet:v1.36.2
+        nodeIP:
+            validSubnets:
+                - 192.168.120.0/22
+    network:
+        interfaces:
+            - deviceSelector:
+                hardwareAddr: 00:a0:98:3e:6c:22
+              dhcp: true
+              mtu: 9000
+    nodeLabels:
+        topology.kubernetes.io/region: main
+        topology.kubernetes.io/zone: m
+    sysctls:
+        fs.inotify.max_user_instances: 8192
+        fs.inotify.max_user_watches: 1048576
+        net.core.default_qdisc: fq
+        net.core.netdev_max_backlog: "16384"
+        net.core.rmem_max: "134217728"
+        net.core.somaxconn: "8192"
+        net.core.wmem_max: "134217728"
+        net.ipv4.tcp_congestion_control: bbr
+        net.ipv4.tcp_fastopen: 3
+        net.ipv4.tcp_mtu_probing: 1
+        net.ipv4.tcp_notsent_lowat: "131072"
+        net.ipv4.tcp_rmem: 4096 87380 67108864
+        net.ipv4.tcp_slow_start_after_idle: "0"
+        net.ipv4.tcp_tw_reuse: "1"
+        net.ipv4.tcp_window_scaling: 1
+        net.ipv4.tcp_wmem: 4096 65536 67108864
+        sunrpc.tcp_max_slot_table_entries: 128
+        sunrpc.tcp_slot_table_entries: 128
+        user.max_user_namespaces: 11255
+        vm.nr_hugepages: 1024
+    time:
+        servers:
+            - 10.123.123.123
+            - 10.123.123.124
+            - 10.123.123.125
+            - 10.123.123.126
+            - 10.123.123.127
+    token: secret://talos_machine_token
+    type: controlplane
+version: v1alpha1
+
+---
+apiVersion: v1alpha1
+kind: HostnameConfig
+hostname: k8s-2
+---
+apiVersion: v1alpha1
+kind: WatchdogTimerConfig
+device: /dev/watchdog0
+timeout: 5m
+---
+apiVersion: v1alpha1
+kind: UserVolumeConfig
+name: local-hostpath
+provisioning:
+  diskSelector:
+    # Select /dev/sdc explicitly for local-hostpath storage (leaves sdb for Ceph)
+    match: disk.dev_path == "/dev/sdb"
+  minSize: 800GB
+  maxSize: 900GB

@@ -9,7 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
 	"homeops-cli/internal/templates"
 
@@ -60,6 +63,17 @@ type NodeEnv struct {
 	NodeMAC           string // NODE_MAC (primary NIC MAC; pins the eth0 name via 10-eth0.link)
 	K8sEndpoint       string // K8S_ENDPOINT (apiserver cert SAN DNS, e.g. k8s.<domain>; sourced from op)
 	SSHAuthorizedKey  string // SSH_AUTHORIZED_KEY (node access public key; sourced from op)
+	ClusterName       string // CLUSTER_NAME
+	PodCIDR           string // POD_CIDR
+	ServiceCIDR       string // SERVICE_CIDR
+	DNSDomain         string // DNS_DOMAIN / kubelet clusterDomain
+	ClusterDNS        string // CLUSTER_DNS derived from SERVICE_CIDR
+	ExtraCertSANs     string // EXTRA_CERT_SANS pre-rendered kubeadm YAML list
+	KubeletMaxPods    string // KUBELET_MAX_PODS
+	ImageGCHigh       string // IMAGE_GC_HIGH_PERCENT
+	ImageGCLow        string // IMAGE_GC_LOW_PERCENT
+	NTPServers        string // NTP_SERVERS space-separated
+	NetworkMTU        string // NETWORK_MTU
 
 	// Runtime join material (only set for join configs, after `kubeadm init`).
 	CertificateKey string // CERTIFICATE_KEY
@@ -70,6 +84,7 @@ type NodeEnv struct {
 // envMap converts a NodeEnv into the map[string]string used by the renderers,
 // omitting empty values so unrelated placeholders are left intact.
 func (e NodeEnv) envMap() map[string]string {
+	e = e.withClusterDefaults()
 	m := map[string]string{}
 	add := func(k, v string) {
 		if v != "" {
@@ -90,10 +105,70 @@ func (e NodeEnv) envMap() map[string]string {
 	add(constants.EnvNodeMAC, e.NodeMAC)
 	add(constants.EnvK8sEndpoint, e.K8sEndpoint)
 	add(constants.EnvSSHAuthorizedKey, e.SSHAuthorizedKey)
+	add(constants.EnvClusterName, e.ClusterName)
+	add(constants.EnvPodCIDR, e.PodCIDR)
+	add(constants.EnvServiceCIDR, e.ServiceCIDR)
+	add(constants.EnvDNSDomain, e.DNSDomain)
+	add(constants.EnvClusterDNS, e.ClusterDNS)
+	add(constants.EnvExtraCertSANs, e.ExtraCertSANs)
+	add(constants.EnvKubeletMaxPods, e.KubeletMaxPods)
+	add(constants.EnvImageGCHigh, e.ImageGCHigh)
+	add(constants.EnvImageGCLow, e.ImageGCLow)
+	add(constants.EnvNTPServers, e.NTPServers)
+	add(constants.EnvNetworkMTU, e.NetworkMTU)
 	add(constants.EnvCertificateKey, e.CertificateKey)
 	add(constants.EnvBootstrapToken, e.BootstrapToken)
 	add(constants.EnvCACertHash, e.CACertHash)
 	return m
+}
+
+func (e NodeEnv) withClusterDefaults() NodeEnv {
+	cfg := config.Get()
+	if e.ClusterName == "" {
+		e.ClusterName = cfg.ClusterNameWithDefault()
+	}
+	if e.PodCIDR == "" {
+		e.PodCIDR = cfg.Cluster.PodCIDR
+	}
+	if e.ServiceCIDR == "" {
+		e.ServiceCIDR = cfg.Cluster.ServiceCIDR
+	}
+	if e.DNSDomain == "" {
+		e.DNSDomain = cfg.Cluster.DNSDomain
+	}
+	if e.ClusterDNS == "" {
+		e.ClusterDNS = cfg.ClusterDNS()
+	}
+	if e.ExtraCertSANs == "" {
+		e.ExtraCertSANs = formatFlatcarCertSANs(cfg.Cluster.ExtraCertSANs)
+	}
+	if e.KubeletMaxPods == "" {
+		e.KubeletMaxPods = strconv.Itoa(cfg.Cluster.Kubelet.MaxPods)
+	}
+	if e.ImageGCHigh == "" {
+		e.ImageGCHigh = strconv.Itoa(cfg.Cluster.Kubelet.ImageGCHighPercent)
+	}
+	if e.ImageGCLow == "" {
+		e.ImageGCLow = strconv.Itoa(cfg.Cluster.Kubelet.ImageGCLowPercent)
+	}
+	if e.NTPServers == "" {
+		e.NTPServers = strings.Join(cfg.Cluster.NTPServers, " ")
+	}
+	if e.NetworkMTU == "" {
+		e.NetworkMTU = strconv.Itoa(cfg.Hypervisors.Proxmox.VM.NetworkMTU)
+	}
+	return e
+}
+
+func formatFlatcarCertSANs(values []string) string {
+	if len(values) == 1 && values[0] == "192.168.255.10" {
+		return "    - 192.168.255.10                  # Cilium BGP external API LB (second path)"
+	}
+	lines := make([]string, 0, len(values))
+	for _, v := range values {
+		lines = append(lines, "    - "+v)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // RenderIgnition renders the Flatcar control-plane Butane config for a node and

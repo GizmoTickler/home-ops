@@ -18,7 +18,12 @@ import (
 // should continue to use the tuppr path (which is separate).
 type VersionConfig struct {
 	KubernetesVersion string
-	TalosVersion      string
+	// TalosKubernetesVersion is the Kubernetes image pin used by the legacy
+	// Talos templates. It intentionally defaults independently from the
+	// Flatcar/kubeadm KubernetesVersion so threading template values does not
+	// change historical Talos rendered bytes.
+	TalosKubernetesVersion string
+	TalosVersion           string
 
 	// Flatcar/kubeadm migration knobs.
 	FlatcarVersion string // Flatcar stable release version (e.g. "current" or "4152.2.0")
@@ -35,7 +40,8 @@ const (
 	// defaultTalosVersion is the version used by the LEGACY `--provider talos`
 	// path (bootstrap preflight + Talos ISO generation). Flatcar ignores it.
 	// Tracks the install.image tag in internal/templates/talos/controlplane.yaml.
-	defaultTalosVersion = "v1.13.3"
+	defaultTalosVersion           = "v1.13.6"
+	defaultTalosKubernetesVersion = "v1.36.2"
 )
 
 // LoadVersionsFromSystemUpgrade loads the Kubernetes target version from
@@ -51,7 +57,8 @@ func LoadVersionsFromSystemUpgrade(rootDir string) (*VersionConfig, error) {
 	}
 
 	config := &VersionConfig{
-		KubernetesVersion: k8sVersion,
+		KubernetesVersion:      k8sVersion,
+		TalosKubernetesVersion: defaultTalosKubernetesVersion,
 		// Flatcar ignores TalosVersion; populate the legacy-talos default so a
 		// `--provider talos` bootstrap (preflight + ISO naming) still resolves.
 		TalosVersion: defaultTalosVersion,
@@ -143,7 +150,8 @@ func applyFlatcarDefaults(c *VersionConfig) {
 // getDefaultVersions returns hardcoded fallback versions.
 func getDefaultVersions() *VersionConfig {
 	c := &VersionConfig{
-		KubernetesVersion: "v1.36.1",
+		KubernetesVersion:      "v1.36.1",
+		TalosKubernetesVersion: defaultTalosKubernetesVersion,
 		// Flatcar ignores TalosVersion; use the legacy-talos default (not a
 		// v0.0.0 stub) so the `--provider talos` path resolves a real version.
 		TalosVersion: defaultTalosVersion,

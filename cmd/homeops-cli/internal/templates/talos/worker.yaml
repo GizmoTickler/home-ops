@@ -5,7 +5,7 @@ machine:
     crt: secret://talos_machine_ca_crt
   certSANs:
     - 127.0.0.1
-    - 192.168.255.10
+{{ ENV.TALOS_EXTRA_CERT_SANS_MACHINE }}
   features:
     apidCheckExtKeyUsage: true
     diskQuotaSupport: true
@@ -35,8 +35,8 @@ machine:
         nconnect=16
         noatime=True
   install:
-    disk: /dev/nvme0n1
-    image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:v1.13.6
+    disk: {{ ENV.TALOS_WORKER_INSTALL_DISK }}
+    image: factory.talos.dev/installer/c682c3b7e2747ecadb2b2f9eb73336e40373cfbe6f7ec588336ece6f3a1059cf:{{ ENV.TALOS_VERSION }}
     wipe: false
   kernel:
     modules:
@@ -51,10 +51,10 @@ machine:
       featureGates:
         ImageVolume: true
       serializeImagePulls: false
-    image: ghcr.io/siderolabs/kubelet:v1.36.2
+    image: ghcr.io/siderolabs/kubelet:{{ ENV.TALOS_KUBERNETES_VERSION }}
     nodeIP:
       validSubnets:
-        - 192.168.120.0/22
+        - {{ ENV.NODE_SUBNET }}
   nodeLabels:
     topology.kubernetes.io/region: main
     topology.kubernetes.io/zone: m
@@ -81,17 +81,17 @@ machine:
 cluster:
   ca:
     crt: secret://talos_cluster_ca_crt
-  clusterName: home-ops-cluster
+  clusterName: {{ ENV.CLUSTER_NAME }}
   controlPlane:
     endpoint: secret://talos_k8s_endpoint
   id: secret://talos_cluster_id
   network:
     cni:
       name: none
-    dnsDomain: cluster.local
+    dnsDomain: {{ ENV.DNS_DOMAIN }}
     podSubnets:
-      - 10.42.0.0/16
+      - {{ ENV.POD_CIDR }}
     serviceSubnets:
-      - 10.43.0.0/16
+      - {{ ENV.SERVICE_CIDR }}
   secret: secret://talos_cluster_secret
   token: secret://talos_cluster_token

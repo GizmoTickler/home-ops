@@ -8,14 +8,14 @@
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: "{{ ENV.NODE_IP }}"
+  advertiseAddress: "192.168.122.10"
   bindPort: 6443
 nodeRegistration:
-  name: "{{ ENV.NODE_NAME }}"
+  name: "k8s-0"
   criSocket: unix:///run/containerd/containerd.sock
   kubeletExtraArgs:
     - name: node-ip
-      value: "{{ ENV.NODE_IP }}"
+      value: "192.168.122.10"
   # allowSchedulingOnControlPlanes: true  -> no control-plane NoSchedule taint
   taints: []
 # CNI installed separately (Cilium); kube-proxy replaced by Cilium; CoreDNS via Flux.
@@ -25,16 +25,16 @@ skipPhases:
 ---
 apiVersion: kubeadm.k8s.io/v1beta4
 kind: ClusterConfiguration
-kubernetesVersion: "{{ ENV.KUBERNETES_VERSION }}"
-clusterName: {{ ENV.CLUSTER_NAME }}
+kubernetesVersion: "v1.36.1"
+clusterName: home-ops-cluster
 # Bootstrap-reliable VIP (kube-vip ARP, CNI-independent) — the primary endpoint
 # that DNS (K8S_ENDPOINT) and kubeconfigs point at. A second API path via the
 # Cilium BGP LB (192.168.255.10) is also in certSANs below.
-controlPlaneEndpoint: "{{ ENV.CONTROL_PLANE_VIP }}:6443"
+controlPlaneEndpoint: "192.168.123.253:6443"
 networking:
-  podSubnet: {{ ENV.POD_CIDR }}
-  serviceSubnet: {{ ENV.SERVICE_CIDR }}
-  dnsDomain: {{ ENV.DNS_DOMAIN }}
+  podSubnet: 10.42.0.0/16
+  serviceSubnet: 10.43.0.0/16
+  dnsDomain: cluster.local
 etcd:
   local:
     # stacked etcd (3-node HA). Talos advertisedSubnets 192.168.120.0/22 == node subnet,
@@ -46,12 +46,12 @@ apiServer:
   certSANs:
     - 127.0.0.1
     - localhost
-    - "{{ ENV.CONTROL_PLANE_VIP }}"   # 192.168.123.253 (kube-vip ARP VIP — primary)
-{{ ENV.EXTRA_CERT_SANS }}
-    - "{{ ENV.K8S_ENDPOINT }}"        # external API DNS (k8s.<domain>, from op) -> kube-vip
-    - "{{ ENV.NODE0_IP }}"
-    - "{{ ENV.NODE1_IP }}"
-    - "{{ ENV.NODE2_IP }}"
+    - "192.168.123.253"   # 192.168.123.253 (kube-vip ARP VIP — primary)
+    - 192.168.255.10                  # Cilium BGP external API LB (second path)
+    - "k8s.example.test"        # external API DNS (k8s.<domain>, from op) -> kube-vip
+    - "192.168.122.10"
+    - "192.168.122.11"
+    - "192.168.122.12"
   extraArgs:
     - name: enable-aggregator-routing
       value: "true"
@@ -102,13 +102,13 @@ cgroupDriver: systemd
 serializeImagePulls: false            # machine.kubelet.extraConfig.serializeImagePulls
 seccompDefault: true                  # defaultRuntimeSeccompProfileEnabled
 rotateServerCertificates: true
-clusterDomain: {{ ENV.DNS_DOMAIN }}
+clusterDomain: cluster.local
 clusterDNS:
-  - {{ ENV.CLUSTER_DNS }}                        # CoreDNS Service clusterIP (verify vs coredns HR)
-maxPods: {{ ENV.KUBELET_MAX_PODS }}
+  - 10.43.0.10                        # CoreDNS Service clusterIP (verify vs coredns HR)
+maxPods: 250
 # The Rook Ceph mon shares this node's root/EPHEMERAL fs with the containerd image
 # store. kubelet's default imageGC high=85 lets the image cache grow until Ceph's
 # mon_data_avail_warn (30% avail / 70% used) flags MON_DISK_LOW on the busiest node.
 # Trim earlier so kubelet GCs unused images before Ceph complains.
-imageGCHighThresholdPercent: {{ ENV.IMAGE_GC_HIGH_PERCENT }}
-imageGCLowThresholdPercent: {{ ENV.IMAGE_GC_LOW_PERCENT }}
+imageGCHighThresholdPercent: 60
+imageGCLowThresholdPercent: 50
