@@ -88,8 +88,13 @@ spec:
           # Skip the addon phases: CoreDNS is Flux/Helm-managed (its corefile
           # uses the `template` plugin kubeadm cannot migrate — proven live)
           # and kube-proxy does not exist (Cilium kube-proxy replacement).
-          echo "[kubeadm-upgrade] cluster at ${CFG_VER}; running: kubeadm upgrade apply -y --skip-phases=addon/coredns,addon/kubeproxy ${TARGET}"
-          kubeadm upgrade apply -y --skip-phases=addon/coredns,addon/kubeproxy "${TARGET}"
+          # The preflight CoreDNS-migration check is ignored for the same
+          # reason. Phase name is addon/kube-proxy (hyphen — proven live).
+          echo "[kubeadm-upgrade] cluster at ${CFG_VER}; running: kubeadm upgrade apply -y --skip-phases=addon/coredns,addon/kube-proxy ${TARGET}"
+          kubeadm upgrade apply -y \
+            --skip-phases=addon/coredns,addon/kube-proxy \
+            --ignore-preflight-errors=CoreDNSUnsupportedPlugins \
+            "${TARGET}"
         else
           echo "[kubeadm-upgrade] cluster already at ${TARGET}; running: kubeadm upgrade node"
           kubeadm upgrade node
