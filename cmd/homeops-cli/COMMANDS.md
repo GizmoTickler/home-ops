@@ -36,9 +36,11 @@ homeops-cli
 │   ├── net-doctor
 │   ├── storage-report
 │   ├── flux-tree [kustomization-name]
+│   ├── upgrade-status
 │   ├── etcd
 │   │   ├── backup
-│   │   └── status
+│   │   ├── status
+│   │   └── restore <snapshot-file>
 │   ├── certs
 │   └── node
 │       └── maintenance [enter|exit] <node>
@@ -510,6 +512,15 @@ homeops-cli k8s etcd backup --output /secure/backups/etcd --keep 14
 homeops-cli k8s etcd status
 homeops-cli k8s etcd status --stale-after 24h --output json
 
+# Safe default: render the complete restore plan and make no changes
+homeops-cli k8s etcd restore /secure/backups/etcd/etcd-snapshot-k8s-0-20260714T123456Z.db
+
+# Execute only after checksum/status/SSH/revision preflight and typing cluster.name
+homeops-cli k8s etcd restore /secure/backups/etcd/etcd-snapshot-k8s-0-20260714T123456Z.db --execute
+
+# Automation must provide both --execute and global --yes
+homeops-cli k8s etcd restore /secure/backups/etcd/etcd-snapshot-k8s-0-20260714T123456Z.db --execute --yes
+
 # Check kubeadm PKI on every cluster.nodes control-plane node over SSH
 homeops-cli k8s certs
 homeops-cli k8s certs --warn-days 45 --fail-on-warn --output json
@@ -521,7 +532,16 @@ homeops-cli k8s certs --renew --restart-control-plane --yes
 
 `state.etcd_backup.dir` controls the default local snapshot directory and
 `state.etcd_backup.keep` controls retention. `--output`/`--keep` override those
-values lazily after the selected `homeops.yaml` has loaded. Certificate renewal
+values lazily after the selected `homeops.yaml` has loaded. Restore requires the
+snapshot's adjacent `.sha256` file and validates it with `etcdutl` locally or in
+a local container. It verifies SSH and reads the etcd image from every configured
+`cluster.nodes` member before mutation. During execution it parks etcd and
+kube-apiserver static-pod manifests, preserves every old `member` directory, and
+restores with the parked image through Flatcar's containerd `ctr`. A partial
+failure intentionally leaves the cluster parked and prints the exact holding,
+snapshot, and preserved-member paths; it never attempts an automatic rollback.
+
+Certificate renewal
 does not make new certificates active until the kube-apiserver,
 kube-controller-manager, kube-scheduler, and etcd static pods restart on every
 control-plane node. `--restart-control-plane` performs that restart one
@@ -548,6 +568,10 @@ homeops-cli k8s storage-report --output json --fail-on-findings
 homeops-cli k8s flux-tree
 homeops-cli k8s flux-tree radarr
 homeops-cli k8s flux-tree radarr --all --output json
+
+# Compare SUC plans and jobs with apiserver/kubelet/containerd/OS versions
+homeops-cli k8s upgrade-status
+homeops-cli k8s upgrade-status --output json
 ```
 
 These commands only issue read-only Kubernetes API queries. `net-doctor` also
@@ -558,6 +582,12 @@ probe. Both `doctor` and `net-doctor` exit 1 when a `FAIL` check is present.
 returns zero when it finds hygiene issues unless `--fail-on-findings` is set.
 `flux-tree` defaults to the `flux-system` namespace, includes unhealthy nested
 HelmReleases, and uses `--all` to include ready HelmReleases too.
+`upgrade-status` reads all `plans.upgrade.cattle.io`, reports active/failed SUC
+Jobs and their pod-derived reasons, marks nodes `UpToDate`, `Pending`, or
+`Unknown`, shows each Plan's `status.latestHash` as its last-applied plan hash,
+and warns when apiserver/kubelet skew exceeds one minor. It exits
+nonzero only when an SUC upgrade Job has failed (apart from Kubernetes API or
+input errors that prevent a report).
 
 ### Local Flux Kustomization Workflows
 

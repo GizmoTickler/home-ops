@@ -508,6 +508,7 @@ func NewCommand() *cobra.Command {
 		newNetDoctorCommand(),
 		newStorageReportCommand(),
 		newFluxTreeCommand(),
+		newUpgradeStatusCommand(),
 		newEtcdCommand(),
 		newCertsCommand(),
 		newNodeMaintenanceCommand(),

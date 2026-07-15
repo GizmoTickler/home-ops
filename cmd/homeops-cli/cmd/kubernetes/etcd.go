@@ -121,7 +121,7 @@ func newEtcdCommand() *cobra.Command {
 		Short: "Back up and inspect kubeadm-managed etcd",
 		Long:  "Disaster-recovery operations for the stacked etcd static pods managed by kubeadm.",
 	}
-	cmd.AddCommand(newEtcdBackupCommand(), newEtcdStatusCommand())
+	cmd.AddCommand(newEtcdBackupCommand(), newEtcdStatusCommand(), newEtcdRestoreCommand())
 	return cmd
 }
 

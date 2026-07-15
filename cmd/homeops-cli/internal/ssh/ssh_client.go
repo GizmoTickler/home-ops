@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -157,6 +158,33 @@ func (c *SSHClient) UploadBytes(content []byte, remotePath string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload to %s: %w\nOutput: %s", remotePath, err, combinedCommandOutput(result))
+	}
+	return nil
+}
+
+// UploadFile streams a local file to remotePath through sudo tee. Unlike
+// UploadBytes, it does not buffer the payload in memory, which makes it suitable
+// for large disaster-recovery artifacts such as etcd snapshots.
+func (c *SSHClient) UploadFile(ctx context.Context, localPath, remotePath string) error {
+	file, err := os.Open(localPath) // #nosec G304 -- caller explicitly selects the local file to upload
+	if err != nil {
+		return fmt.Errorf("failed to open local upload file %s: %w", localPath, err)
+	}
+	defer func() { _ = file.Close() }()
+
+	mkdir := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath)))
+	if _, err := c.ExecuteCommand(mkdir); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", remotePath, err)
+	}
+	command := fmt.Sprintf("sudo tee %s > /dev/null", common.ShellQuote(remotePath))
+	result, err := runCommand(ctx, common.CommandOptions{
+		Name:    "ssh",
+		Args:    append(c.sshArgs(), command),
+		Timeout: defaultSSHCommandTimeout,
+		Stdin:   file,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to upload %s to %s: %w\nOutput: %s", localPath, remotePath, err, combinedCommandOutput(result))
 	}
 	return nil
 }

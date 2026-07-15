@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -157,6 +158,34 @@ func TestSSHClientStreamCommandWritesDirectlyToWriter(t *testing.T) {
 	err := client.StreamCommand(context.Background(), "sudo cat /var/lib/etcd/homeops-etcd-snapshot.db", &output)
 	require.NoError(t, err)
 	assert.Equal(t, snapshot, output.Bytes())
+}
+
+func TestSSHClientUploadFileStreamsFileToSudoTee(t *testing.T) {
+	path := t.TempDir() + "/snapshot.db"
+	snapshot := []byte("snapshot\x00bytes")
+	require.NoError(t, os.WriteFile(path, snapshot, 0o600))
+	calls := 0
+	restore := setCommandRunnerForTesting(func(_ context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		calls++
+		switch calls {
+		case 1:
+			assert.Equal(t, "sudo mkdir -p '/var/lib/etcd'", opts.Args[len(opts.Args)-1])
+		case 2:
+			assert.Equal(t, "sudo tee '/var/lib/etcd/restore.db' > /dev/null", opts.Args[len(opts.Args)-1])
+			require.NotNil(t, opts.Stdin)
+			content, err := io.ReadAll(opts.Stdin)
+			require.NoError(t, err)
+			assert.Equal(t, snapshot, content)
+		default:
+			t.Fatalf("unexpected runner call %d", calls)
+		}
+		return common.CommandResult{}, nil
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "node.local", Username: "core", Port: "22"})
+	require.NoError(t, client.UploadFile(context.Background(), path, "/var/lib/etcd/restore.db"))
+	assert.Equal(t, 2, calls)
 }
 
 func TestSSHCommandTimeoutIsConfigured(t *testing.T) {
