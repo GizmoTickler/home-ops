@@ -178,6 +178,7 @@ func NewCommand() *cobra.Command {
 		newSnapshotsCommand(),
 		newRestoreCommand(),
 		newRestoreAllCommand(),
+		newVerifyCommand(),
 	)
 
 	return cmd
@@ -1251,11 +1252,12 @@ func (restore *restoreOperation) buildRestoreTemplateEnv() (map[string]string, e
 	}
 
 	env := map[string]string{
-		"NS":       restore.namespace,
-		"APP":      restore.app,
-		"PREVIOUS": restore.previous,
-		"CLAIM":    claim,
-		"CAPACITY": pvcCapacity,
+		"NS":           restore.namespace,
+		"APP":          restore.app,
+		"PREVIOUS":     restore.previous,
+		"CLAIM":        claim,
+		"SOURCE_CLAIM": claim,
+		"CAPACITY":     pvcCapacity,
 	}
 
 	for envKey, jsonPath := range jsonPathFields {

@@ -26,6 +26,7 @@ func TestVolsyncNamespaceFlagsHaveShorthand(t *testing.T) {
 		{"restore"},
 		{"restore-all"},
 		{"status"},
+		{"verify"},
 	} {
 		cmd := findVolsyncSubcommand(t, args...)
 		flag := cmd.Flags().Lookup("namespace")

@@ -85,12 +85,31 @@ var (
 		return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 	}
 	fluxBuildKustomizationFn = func(name, namespace, path, ksFile string) ([]byte, error) {
-		return runKubernetesCommandOutput("flux", "build", "kustomization", name,
+		output, err := spinWithOutputFn(
+			fmt.Sprintf("Rendering Kustomization %s/%s", namespace, name),
+			"flux", "build", "kustomization", name,
 			"--namespace", namespace,
 			"--path", path,
 			"--kustomization-file", ksFile,
 			"--dry-run")
+		return []byte(output), err
 	}
+	// fluxBuildKustomizationOnlineFn renders against the LIVE Kustomization
+	// object (no --dry-run, no --kustomization-file): the root Flux patches
+	// add postBuild substituteFrom cluster-config only cluster-side, so the
+	// local ks.yaml renders ${SECRET_DOMAIN} et al as empty strings. k8s diff
+	// needs the live spec for substitution-accurate manifests; the app must
+	// already exist in the cluster.
+	fluxBuildKustomizationOnlineFn = func(name, namespace, path, _ string) ([]byte, error) {
+		output, err := spinWithOutputFn(
+			fmt.Sprintf("Rendering Kustomization %s/%s (live substitutions)", namespace, name),
+			"flux", "build", "kustomization", name,
+			"--namespace", namespace,
+			"--path", path)
+		return []byte(output), err
+	}
+	buildKustomizationManifestFn       = buildKustomizationManifest
+	buildKustomizationManifestOnlineFn = buildKustomizationManifestOnline
 
 	// manifestStdout/manifestStderr let tests capture output produced by the default
 	// apply/delete manifest implementations without mutating os.Stdout/os.Stderr.
@@ -482,6 +501,7 @@ func NewCommand() *cobra.Command {
 		newSyncCommand(),
 		newForceSyncExternalSecretCommand(),
 		newRenderKsCommand(),
+		newDiffCommand(),
 		newApplyKsCommand(),
 		newDeleteKsCommand(),
 		newDoctorCommand(),
@@ -1619,12 +1639,25 @@ func newRenderKsCommand() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "render-ks <ks.yaml>",
+		Use:   "render-ks [ks.yaml]",
 		Short: "Render a Kustomization locally using flux",
-		Long:  `Builds and renders a Kustomization locally without applying to cluster. Provide path to ks.yaml file. Use --name when the file contains multiple Flux Kustomizations.`,
-		Args:  cobra.ExactArgs(1),
+		Long:  `Builds and renders a Kustomization locally without applying to the cluster. With no path, presents the repository's ks.yaml files. Use --name when the file contains multiple Flux Kustomizations.`,
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return renderKustomization(args[0], ksName, outputFile)
+			ksPath := ""
+			if len(args) == 0 {
+				selected, selectedName, err := selectKustomizationFile()
+				if err != nil || selected == "" {
+					return err
+				}
+				ksPath = selected
+				if ksName == "" {
+					ksName = selectedName
+				}
+			} else {
+				ksPath = args[0]
+			}
+			return renderKustomization(ksPath, ksName, outputFile)
 		},
 	}
 
@@ -1640,26 +1673,11 @@ func newRenderKsCommand() *cobra.Command {
 func renderKustomization(ksPath, ksName, outputFile string) error {
 	logger := common.NewColorLogger()
 
-	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
+	ksInfo, outputStr, err := buildKustomizationManifestFn(ksPath, ksName)
 	if err != nil {
 		return err
 	}
-
-	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
-
-	// Build the kustomization using flux build with dry-run (with spinner)
-	outputStr, err := spinWithOutputFn(
-		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
-		"flux", "build", "kustomization", ksInfo.Name,
-		"--namespace", ksInfo.Namespace,
-		"--path", ksInfo.FullPath,
-		"--kustomization-file", ksInfo.KsFile,
-		"--dry-run",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to render kustomization: %w", err)
-	}
+	logger.Info("Rendered Kustomization from %s", ksInfo.KsFile)
 
 	if outputFile != "" {
 		// Write to file
@@ -1673,6 +1691,37 @@ func renderKustomization(ksPath, ksName, outputFile string) error {
 	}
 
 	return nil
+}
+
+// buildKustomizationManifest is the single local-render path for render, apply,
+// delete, and diff. flux build performs SOPS decryption and Flux postBuild
+// substitution using the same dry-run behavior for every caller.
+func buildKustomizationManifest(ksPath, ksName string) (*KustomizationInfo, string, error) {
+	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	output, err := fluxBuildKustomizationFn(ksInfo.Name, ksInfo.Namespace, ksInfo.FullPath, ksInfo.KsFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to render kustomization: %w", err)
+	}
+	return ksInfo, string(output), nil
+}
+
+// buildKustomizationManifestOnline renders with live cluster substitutions
+// (no --dry-run); used by k8s diff for substitution-accurate manifests.
+func buildKustomizationManifestOnline(ksPath, ksName string) (*KustomizationInfo, string, error) {
+	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
+	if err != nil {
+		return nil, "", err
+	}
+
+	output, err := fluxBuildKustomizationOnlineFn(ksInfo.Name, ksInfo.Namespace, ksInfo.FullPath, ksInfo.KsFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to render kustomization: %w", err)
+	}
+	return ksInfo, string(output), nil
 }
 
 func newApplyKsCommand() *cobra.Command {
@@ -1725,28 +1774,11 @@ func newApplyKsCommand() *cobra.Command {
 func applyKustomization(ksPath, ksName string, dryRun bool) error {
 	logger := common.NewColorLogger()
 
-	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
+	ksInfo, outputStr, err := buildKustomizationManifestFn(ksPath, ksName)
 	if err != nil {
 		return err
 	}
-
-	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
-
-	// Build the kustomization using flux build with dry-run (with spinner)
-	logger.Info("Building Kustomization %s", ksInfo.Name)
-
-	outputStr, err := spinWithOutputFn(
-		fmt.Sprintf("Rendering Kustomization %s/%s", ksInfo.Namespace, ksInfo.Name),
-		"flux", "build", "kustomization", ksInfo.Name,
-		"--namespace", ksInfo.Namespace,
-		"--path", ksInfo.FullPath,
-		"--kustomization-file", ksInfo.KsFile,
-		"--dry-run",
-	)
-	if err != nil {
-		return fmt.Errorf("failed to render kustomization: %w", err)
-	}
+	logger.Info("Rendered Kustomization from %s", ksInfo.KsFile)
 
 	if dryRun {
 		logger.Info("[DRY RUN] Would apply the following resources:")
@@ -1870,25 +1902,17 @@ func newDeleteKsCommand() *cobra.Command {
 func deleteKustomization(ksPath, ksName string) error {
 	logger := common.NewColorLogger()
 
-	// Parse the ks.yaml file using the common helper
-	ksInfo, err := parseKustomizationFileWithSelector(ksPath, ksName)
+	ksInfo, output, err := buildKustomizationManifestFn(ksPath, ksName)
 	if err != nil {
 		return err
 	}
-
-	logger.Info("Rendering Kustomization from %s", ksInfo.KsFile)
-
-	// Build the kustomization using flux build with dry-run
-	output, err := fluxBuildKustomizationFn(ksInfo.Name, ksInfo.Namespace, ksInfo.FullPath, ksInfo.KsFile)
-	if err != nil {
-		return fmt.Errorf("failed to render kustomization: %w", err)
-	}
+	logger.Info("Rendered Kustomization from %s", ksInfo.KsFile)
 
 	// Delete the rendered output
 	logger.Warn("Deleting rendered manifests directly bypasses git state; Flux may recreate these resources until the source is removed from the repository.")
 	logger.Info("Deleting resources from Kustomization")
 	if err := spinWithFuncFn("Deleting Kustomization resources", func() error {
-		return kubectlDeleteManifestFn(string(output))
+		return kubectlDeleteManifestFn(output)
 	}); err != nil {
 		return fmt.Errorf("failed to delete kustomization resources: %w", err)
 	}

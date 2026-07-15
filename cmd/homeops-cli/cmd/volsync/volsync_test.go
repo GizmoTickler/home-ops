@@ -26,6 +26,7 @@ func TestNewCommand(t *testing.T) {
 		"restore",
 		"restore-all",
 		"snapshots",
+		"verify",
 	}
 
 	for _, subCmd := range subCommands {
@@ -61,6 +62,7 @@ func TestSubcommandHelp(t *testing.T) {
 		"restore",
 		"restore-all",
 		"snapshots",
+		"verify",
 	}
 
 	for _, subCmd := range tests {

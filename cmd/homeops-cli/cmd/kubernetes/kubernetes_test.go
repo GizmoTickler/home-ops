@@ -48,6 +48,7 @@ func TestNewCommand(t *testing.T) {
 		"sync-secrets",
 		"prune-pods",
 		"upgrade-arc",
+		"diff",
 	}
 
 	for _, subCmd := range subCommands {
@@ -82,6 +83,7 @@ func TestSubcommandHelp(t *testing.T) {
 		"sync-secrets",
 		"prune-pods",
 		"upgrade-arc",
+		"diff",
 	}
 
 	for _, subCmd := range tests {

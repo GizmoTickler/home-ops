@@ -28,7 +28,8 @@ homeops-cli
 │   ├── sync
 │   ├── force-sync-externalsecret <name>
 │   ├── upgrade-arc
-│   ├── render-ks <ks.yaml>
+│   ├── render-ks [ks.yaml]
+│   ├── diff [ks.yaml]
 │   ├── apply-ks [ks.yaml]
 │   ├── delete-ks <ks.yaml>
 │   ├── doctor
@@ -90,6 +91,7 @@ homeops-cli
 │   ├── snapshot-all
 │   ├── restore
 │   ├── restore-all
+│   ├── verify --app <name>
 │   └── snapshots
 └── workstation
     ├── setup [--all] [--upgrade] [--dry-run]
@@ -519,6 +521,9 @@ These commands work against Flux `ks.yaml` files and support multi-document file
 homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana
 homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana --output-file rendered.yaml
 
+homeops-cli k8s diff ./kubernetes/apps/observability/grafana/ks.yaml --name grafana
+homeops-cli k8s diff ./kubernetes/apps/observability/grafana/ks.yaml --name grafana --output json
+
 homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 homeops-cli k8s apply-ks --dry-run
 
@@ -528,8 +533,11 @@ homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name
 
 Notes:
 
-- `apply-ks` supports interactive `ks.yaml` selection if no path is provided.
-- `render-ks` and `delete-ks` require an explicit `ks.yaml` path.
+- `render-ks`, `diff`, and `apply-ks` support interactive `ks.yaml` selection if no path is provided.
+- `diff` uses `kubectl diff --server-side --field-manager=homeops-diff -f -`. Exit status 1 means differences were found and is not treated as an error; no resources are applied.
+- `diff` includes rendered-object counts before the unified diff. JSON output contains `changed`, `added`, and `diff` fields.
+- Local rendering includes the same SOPS and cluster-config substitutions as `render-ks`. It cannot predict Flux pruning, controller-generated objects, admission effects outside the dry-run response, or unavailable external sources. Secret data is masked by kubectl by default.
+- `delete-ks` requires an explicit `ks.yaml` path.
 - Use `--name` when one `ks.yaml` file contains multiple Flux `Kustomization` documents.
 
 ## VolSync
@@ -584,12 +592,19 @@ homeops-cli volsync restore --namespace default --app paperless --previous 12
 homeops-cli volsync restore --namespace default --app paperless --previous 12 --force
 
 homeops-cli volsync restore-all --namespace default --force
+
+homeops-cli volsync verify --namespace default --app paperless --yes
+homeops-cli volsync verify --namespace default --app paperless --check --timeout 20m
+homeops-cli volsync verify --namespace default --app paperless --output json --yes
 ```
 
 Notes:
 
 - `restore` prompts for namespace, application, and snapshot when omitted.
 - `restore-all` is the bulk restore workflow for a namespace or broader recovery operation; use `--help` before running it on live workloads.
+- `verify` restores the latest snapshot into an ownerless scratch PVC with the app PVC's storage class and capacity. It never modifies the app PVC or ReplicationSource.
+- `verify --check` mounts the scratch PVC read-only in a temporary Alpine pod, lists a sample of regular files, and reports `du -sh` output. An empty filesystem fails verification.
+- Verification always attempts cleanup in pod, ReplicationDestination, PVC order after success, failure, timeout, or interrupt. Existing same-app scratch objects cause refusal unless `--force` is supplied. Resource creation still requires confirmation; global `--yes` bypasses the prompt.
 
 ## Workstation
 
@@ -646,6 +661,7 @@ homeops-cli k8s view-secret
 
 ```bash
 homeops-cli k8s render-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
+homeops-cli k8s diff ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 ```
 
@@ -653,6 +669,7 @@ homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name 
 
 ```bash
 homeops-cli volsync snapshot --namespace default --app paperless
+homeops-cli volsync verify --namespace default --app paperless --check --yes
 homeops-cli volsync restore --namespace default --app paperless --previous 12
 ```
 
