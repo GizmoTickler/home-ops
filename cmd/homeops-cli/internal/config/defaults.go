@@ -26,6 +26,8 @@ const (
 	DefaultTrueNASISOFile  = "metal-amd64.iso"
 	DefaultSnippetsDir     = "/var/lib/vz/snippets"
 	DefaultEtcdBackupKeep  = 7
+	DefaultEtcdUploadDir   = "/mnt/flashstor/etcd-snapshots"
+	DefaultEtcdUploadKeep  = 14
 	DefaultDrainTimeout    = "5m"
 	DefaultMaintenanceWait = "10m"
 )
@@ -285,6 +287,19 @@ func applyDefaults(c *Config) {
 	}
 	if c.State.EtcdBackup.Keep == 0 {
 		c.State.EtcdBackup.Keep = DefaultEtcdBackupKeep
+	}
+	upload := &c.State.EtcdBackup.Upload
+	if upload.HostRef == "" {
+		upload.HostRef = KeyTrueNASHost
+	}
+	if upload.SSHUser == "" {
+		upload.SSHUser = c.Hypervisors.TrueNAS.SSHUser
+	}
+	if upload.Dir == "" {
+		upload.Dir = DefaultEtcdUploadDir
+	}
+	if upload.Keep == 0 {
+		upload.Keep = DefaultEtcdUploadKeep
 	}
 	if c.Secrets == nil {
 		c.Secrets = map[string]string{}

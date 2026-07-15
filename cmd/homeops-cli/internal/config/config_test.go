@@ -53,6 +53,7 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, "virtio-scsi-single", c.Hypervisors.Proxmox.VM.SCSIController)
 	assert.Equal(t, "i6300esb", c.Hypervisors.Proxmox.VM.WatchdogModel)
 	assert.Equal(t, DefaultTrueNASSSHUser, c.Hypervisors.TrueNAS.SSHUser)
+	assert.Empty(t, c.Hypervisors.TrueNAS.SSHKey)
 	assert.Equal(t, DefaultTrueNASVMBootStorage, c.Hypervisors.TrueNAS.VM.BootStorage)
 	assert.Equal(t, DefaultTrueNASNetworkBridge, c.Hypervisors.TrueNAS.VM.NetworkBridge)
 	assert.Equal(t, DefaultVSphereISODatastore, c.Hypervisors.VSphere.ISODatastore)
@@ -67,6 +68,13 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.NotEmpty(t, c.State.PKI.Path)
 	assert.Equal(t, filepath.Join(filepath.Dir(c.State.Kubeconfig.Path), "etcd"), c.State.EtcdBackup.Dir)
 	assert.Equal(t, DefaultEtcdBackupKeep, c.State.EtcdBackup.Keep)
+	assert.Equal(t, KeyTrueNASHost, c.State.EtcdBackup.Upload.HostRef)
+	assert.Equal(t, DefaultTrueNASSSHUser, c.State.EtcdBackup.Upload.SSHUser)
+	assert.Empty(t, c.State.EtcdBackup.Upload.SSHKey)
+	assert.Equal(t, DefaultEtcdUploadDir, c.State.EtcdBackup.Upload.Dir)
+	assert.Equal(t, DefaultEtcdUploadKeep, c.State.EtcdBackup.Upload.Keep)
+	assert.False(t, c.State.EtcdBackup.Upload.Auto)
+	assert.False(t, c.State.EtcdBackup.Upload.Configured())
 
 	// No default secret reference uses 1Password
 	assert.False(t, c.UsesOpReferences())
@@ -82,16 +90,34 @@ func TestLoadFileAcceptsEtcdBackupConfig(t *testing.T) {
 	path := filepath.Join(dir, "homeops.yaml")
 	// This is the exact shape proposed for the repository-level homeops.yaml.
 	require.NoError(t, os.WriteFile(path, []byte(`
+hypervisors:
+  truenas:
+    ssh_key: ~/.ssh/keys/nas01-ssh
 state:
   etcd_backup:
     dir: ~/.config/homeops/state/etcd
     keep: 14
+    upload:
+      host_ref: truenas_host
+      ssh_user: backup
+      ssh_key: ~/.ssh/keys/nas01-ssh
+      dir: /mnt/tank/dr/etcd
+      keep: 21
+      auto: true
 `), 0o600))
 
 	c, err := LoadFile(path)
 	require.NoError(t, err)
+	assert.Equal(t, "~/.ssh/keys/nas01-ssh", c.Hypervisors.TrueNAS.SSHKey)
 	assert.Equal(t, "~/.config/homeops/state/etcd", c.State.EtcdBackup.Dir)
 	assert.Equal(t, 14, c.State.EtcdBackup.Keep)
+	assert.Equal(t, KeyTrueNASHost, c.State.EtcdBackup.Upload.HostRef)
+	assert.Equal(t, "backup", c.State.EtcdBackup.Upload.SSHUser)
+	assert.Equal(t, "~/.ssh/keys/nas01-ssh", c.State.EtcdBackup.Upload.SSHKey)
+	assert.Equal(t, "/mnt/tank/dr/etcd", c.State.EtcdBackup.Upload.Dir)
+	assert.Equal(t, 21, c.State.EtcdBackup.Upload.Keep)
+	assert.True(t, c.State.EtcdBackup.Upload.Auto)
+	assert.True(t, c.State.EtcdBackup.Upload.Configured())
 }
 
 func TestLoadFileRejectsNegativeEtcdBackupRetention(t *testing.T) {
@@ -102,6 +128,16 @@ func TestLoadFileRejectsNegativeEtcdBackupRetention(t *testing.T) {
 	_, err := LoadFile(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "state.etcd_backup.keep")
+}
+
+func TestLoadFileRejectsNegativeEtcdUploadRetention(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("state:\n  etcd_backup:\n    upload:\n      keep: -1\n"), 0o600))
+
+	_, err := LoadFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "state.etcd_backup.upload.keep")
 }
 
 func TestSecretRefPrecedence(t *testing.T) {

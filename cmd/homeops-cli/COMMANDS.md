@@ -40,6 +40,8 @@ homeops-cli
 │   ├── right-size
 │   ├── flux-tree [kustomization-name]
 │   ├── upgrade-status
+│   ├── upgrade-plan
+│   │   └── set <version>
 │   ├── support-bundle
 │   ├── etcd
 │   │   ├── backup
@@ -575,8 +577,9 @@ defaults; explicit flags take precedence.
 # Create an in-pod etcd snapshot, verify it, download it, and retain 7 by default
 homeops-cli k8s etcd backup
 homeops-cli k8s etcd backup --output /secure/backups/etcd --keep 14
+homeops-cli k8s etcd backup --upload
 
-# Check etcd membership, endpoint health, and local backup freshness
+# Check etcd membership, endpoint health, and local/remote backup freshness
 homeops-cli k8s etcd status
 homeops-cli k8s etcd status --stale-after 24h --output json
 
@@ -600,7 +603,12 @@ homeops-cli k8s certs --renew --restart-control-plane --yes
 
 `state.etcd_backup.dir` controls the default local snapshot directory and
 `state.etcd_backup.keep` controls retention. `--output`/`--keep` override those
-values lazily after the selected `homeops.yaml` has loaded. Restore requires the
+values lazily after the selected `homeops.yaml` has loaded. `--upload` or
+`state.etcd_backup.upload.auto` streams the `.db` and `.sha256` to the configured
+SSH host, compares `sha256sum` remotely, removes a mismatched copy, and prunes
+only CLI-shaped snapshot names beyond `upload.keep`. When an `upload:` block is
+present, `etcd status` adds a remote inventory row and uses the same
+`--stale-after` threshold. Restore requires the
 snapshot's adjacent `.sha256` file and validates it with `etcdutl` locally or in
 a local container. It verifies SSH and reads the etcd image from every configured
 `cluster.nodes` member before mutation. During execution it parks etcd and
@@ -642,6 +650,12 @@ homeops-cli k8s flux-tree radarr --all --output json
 homeops-cli k8s upgrade-status
 homeops-cli k8s upgrade-status --output json
 
+# Preview a surgical Git-only kubeadm Plan change (default: no write)
+homeops-cli k8s upgrade-plan set v1.36.2
+homeops-cli k8s upgrade-plan set v1.36.2 --write
+homeops-cli k8s upgrade-plan set v1.36.2 --write --commit
+homeops-cli k8s upgrade-plan set v1.36.2 --plan-file kubernetes/path/to/plan.yaml
+
 # Find workload containers whose requests are too high or too low
 homeops-cli k8s right-size
 homeops-cli k8s right-size --namespace media --window 14d
@@ -653,7 +667,9 @@ homeops-cli k8s support-bundle --no-ssh
 homeops-cli k8s support-bundle --output ./cluster-diagnostics.tar.gz
 ```
 
-These commands only issue read-only Kubernetes API queries. `net-doctor` also
+The triage commands issue read-only Kubernetes API queries. `upgrade-plan set`
+also reads live upgrade context best-effort, but its only possible mutation is
+the selected file in the local Git checkout. `net-doctor` also
 performs local DNS lookups against a discovered DNS-controller Service address
 when `--resolve` is supplied. With `--probe`, it concurrently sends HTTPS GETs
 for every HTTPRoute hostname directly to the matching Gateway Service address,
@@ -672,6 +688,15 @@ Jobs and their pod-derived reasons, marks nodes `UpToDate`, `Pending`, or
 and warns when apiserver/kubelet skew exceeds one minor. It exits
 nonzero only when an SUC upgrade Job has failed (apart from Kubernetes API or
 input errors that prevent a report).
+
+`upgrade-plan set` discovers `upgrade.cattle.io/v1` `Plan` manifests below the
+repository's `kubernetes/` tree and selects the one whose name contains
+`kubeadm`. Ambiguous discovery lists candidates for `--plan-file`. It requires
+strict `vX.Y.Z`, refuses downgrades unless `--allow-downgrade`, warns on jumps
+over one minor, preserves every byte except `spec.version`, and prints a unified
+diff. The default is a dry run; `--write` changes the Git file and `--commit`
+requires `--write`, commits only that file, and never pushes. It never runs
+`kubectl edit` because Flux owns the live Plan.
 
 `right-size` discovers a `vmsingle*` or `vmselect*` Service in
 `cluster.observability.namespace` (default `observability`), opens a temporary
@@ -856,3 +881,28 @@ homeops-cli volsync restore --namespace default --app paperless --previous 12
 - This file is the single source of truth for command inventory.
 - If a command changes in `cmd/`, update this file in the same change.
 - Prefer documenting stable command shapes and high-signal flags here. Let `--help` carry the full flag surface.
+
+## PROPOSED homeops.yaml ADDITIONS
+
+These additions are documentation only; this change does not modify the
+repository-root `homeops.yaml`.
+
+```yaml
+hypervisors:
+  truenas:
+    ssh_key: ~/.ssh/keys/nas01-ssh
+
+state:
+  etcd_backup:
+    # Existing local workstation copy.
+    dir: ~/.config/homeops/state/etcd
+    keep: 7
+    # New off-workstation copy. host_ref names a key in secrets:.
+    upload:
+      host_ref: truenas_host
+      ssh_user: truenas_admin
+      ssh_key: ~/.ssh/keys/nas01-ssh
+      dir: /mnt/flashstor/etcd-snapshots
+      keep: 14
+      auto: false
+```

@@ -628,10 +628,15 @@ func TestResolveTrueNASISOSelection(t *testing.T) {
 	})
 
 	t.Run("prepared iso verification returns standard path", func(t *testing.T) {
+		restore := versionconfig.SetForTesting(&versionconfig.Config{
+			Hypervisors: versionconfig.HypervisorsConfig{TrueNAS: versionconfig.TrueNASConfig{SSHKey: "~/.ssh/keys/nas01-ssh"}},
+		})
+		defer restore()
 		fakeSSH := &fakeTrueNASSSHClient{exists: true, size: 2048}
 		newTrueNASSSHClientFn = func(config ssh.SSHConfig) trueNASSSHClient {
 			assert.Equal(t, "truenas.local", config.Host)
 			assert.Equal(t, "admin", config.Username)
+			assert.Equal(t, "~/.ssh/keys/nas01-ssh", config.KeyPath)
 			return fakeSSH
 		}
 

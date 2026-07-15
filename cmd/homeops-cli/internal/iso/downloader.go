@@ -21,10 +21,11 @@ var sha512HexRe = regexp.MustCompile(`(?i)\b([0-9a-f]{128})\b`)
 
 // DownloadConfig holds configuration for ISO download
 type DownloadConfig struct {
-	// TrueNAS SSH connection details (auth is the ambient ssh-agent)
+	// TrueNAS SSH connection details.
 	TrueNASHost     string
 	TrueNASUsername string
 	TrueNASPort     string
+	TrueNASKeyPath  string
 
 	// ISO details
 	ISOURL         string
@@ -76,6 +77,7 @@ func (d *Downloader) DownloadCustomISO(config DownloadConfig) error {
 		Host:     config.TrueNASHost,
 		Username: config.TrueNASUsername,
 		Port:     config.TrueNASPort,
+		KeyPath:  config.TrueNASKeyPath,
 	}
 
 	sshClient := newSSHClient(sshConfig)
@@ -255,6 +257,7 @@ func GetDefaultConfig() DownloadConfig {
 		TrueNASHost:     cfg.ResolveSecretSilent(config.KeyTrueNASHost),
 		TrueNASUsername: cfg.ResolveSecretSilent(config.KeyTrueNASUsername),
 		TrueNASPort:     "22",
+		TrueNASKeyPath:  cfg.Hypervisors.TrueNAS.SSHKey,
 		ISOStoragePath:  cfg.Hypervisors.TrueNAS.ISODir,
 		ISOFilename:     cfg.Hypervisors.TrueNAS.ISOFile,
 	}

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	cryptossh "golang.org/x/crypto/ssh"
+
 	"homeops-cli/internal/common"
 )
 
@@ -23,13 +25,15 @@ var connectRetrySleep = time.Sleep
 var runCommand = common.RunCommand
 
 // SSHClient executes commands on a remote host via the system ssh binary.
-// Authentication is delegated entirely to the ambient ssh-agent (a standard
-// agent or the 1Password agent — the client doesn't care which).
+// Authentication uses an explicitly configured private key first when present,
+// then falls back to the ambient ssh-agent.
 type SSHClient struct {
-	host     string
-	username string
-	port     string
-	logger   *common.ColorLogger
+	host         string
+	username     string
+	port         string
+	keyPath      string
+	keyLoadError error
+	logger       *common.ColorLogger
 }
 
 // SSHConfig holds SSH connection configuration
@@ -37,21 +41,34 @@ type SSHConfig struct {
 	Host     string
 	Username string
 	Port     string
+	KeyPath  string
 }
 
 // NewSSHClient creates a new SSH client instance
 func NewSSHClient(config SSHConfig) *SSHClient {
+	var expandedKeyPath string
+	var keyLoadError error
+	if config.KeyPath != "" {
+		_, expandedKeyPath, keyLoadError = loadPrivateKeySigner(config.KeyPath)
+	}
 	return &SSHClient{
-		host:     config.Host,
-		username: config.Username,
-		port:     config.Port,
-		logger:   common.NewColorLogger(),
+		host:         config.Host,
+		username:     config.Username,
+		port:         config.Port,
+		keyPath:      expandedKeyPath,
+		keyLoadError: keyLoadError,
+		logger:       common.NewColorLogger(),
 	}
 }
 
-// Connect validates the SSH connection using the ambient ssh-agent
+// Connect validates the SSH connection using the configured key and/or ambient
+// ssh-agent.
 func (c *SSHClient) Connect() error {
-	c.logger.Debug("Testing SSH connection to %s@%s:%s via ssh-agent", c.username, c.host, c.port)
+	if c.keyPath == "" {
+		c.logger.Debug("Testing SSH connection to %s@%s:%s via ssh-agent", c.username, c.host, c.port)
+	} else {
+		c.logger.Debug("Testing SSH connection to %s@%s:%s via configured key and ssh-agent", c.username, c.host, c.port)
+	}
 
 	// Validate configuration first
 	if c.host == "" {
@@ -59,6 +76,9 @@ func (c *SSHClient) Connect() error {
 	}
 	if c.username == "" {
 		return fmt.Errorf("SSH username is required")
+	}
+	if c.keyLoadError != nil {
+		return c.keyLoadError
 	}
 
 	// Probe with an idempotent command, retrying transient failures: right after a
@@ -120,6 +140,9 @@ func (c *SSHClient) StreamCommand(ctx context.Context, command string, stdout io
 	if stdout == nil {
 		return fmt.Errorf("SSH stream writer is required")
 	}
+	if c.keyLoadError != nil {
+		return c.keyLoadError
+	}
 	c.logger.Debug("Streaming SSH command output (%d command bytes)", len(command))
 	result, err := runCommand(ctx, common.CommandOptions{
 		Name:    "ssh",
@@ -134,6 +157,9 @@ func (c *SSHClient) StreamCommand(ctx context.Context, command string, stdout io
 }
 
 func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, error) {
+	if c.keyLoadError != nil {
+		return common.CommandResult{}, c.keyLoadError
+	}
 	return runCommand(context.Background(), common.CommandOptions{
 		Name:    "ssh",
 		Args:    append(c.sshArgs(), remoteArgs...),
@@ -190,15 +216,66 @@ func (c *SSHClient) UploadFile(ctx context.Context, localPath, remotePath string
 }
 
 func (c *SSHClient) sshArgs() []string {
-	return []string{
+	args := []string{
 		// Trust-on-first-use: record the host key on first connect, then
 		// refuse to connect if it ever changes (MITM protection).
 		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "IdentitiesOnly=yes",
+	}
+	if c.keyPath == "" {
+		// Preserve the historical agent-only invocation byte-for-byte.
+		args = append(args, "-o", "IdentitiesOnly=yes")
+	} else {
+		// Offer the explicitly selected identity first. IdentitiesOnly=no keeps
+		// the ambient agent available as a fallback if the server rejects it.
+		args = append(args, "-i", c.keyPath, "-o", "IdentitiesOnly=no")
+	}
+	return append(args,
 		"-o", "NumberOfPasswordPrompts=0",
 		"-p", c.port,
 		fmt.Sprintf("%s@%s", c.username, c.host),
+	)
+}
+
+// ValidatePrivateKeyFile verifies that keyPath names a readable,
+// passphrase-less SSH private key. It is used by config doctor as well as the
+// SSH client constructor.
+func ValidatePrivateKeyFile(keyPath string) error {
+	_, _, err := loadPrivateKeySigner(keyPath)
+	return err
+}
+
+func loadPrivateKeySigner(keyPath string) (cryptossh.Signer, string, error) {
+	expandedPath, err := expandKeyPath(keyPath)
+	if err != nil {
+		return nil, "", err
 	}
+	privateKey, err := os.ReadFile(expandedPath) // #nosec G304 -- operator-supplied SSH private key path
+	if err != nil {
+		return nil, expandedPath, fmt.Errorf("read SSH private key %s: %w", expandedPath, err)
+	}
+	signer, err := cryptossh.ParsePrivateKey(privateKey)
+	if err != nil {
+		var passphraseError *cryptossh.PassphraseMissingError
+		if errors.As(err, &passphraseError) {
+			return nil, expandedPath, fmt.Errorf("SSH private key %s is encrypted; passphrase-protected keys are not supported", expandedPath)
+		}
+		return nil, expandedPath, fmt.Errorf("parse SSH private key %s: %w", expandedPath, err)
+	}
+	return signer, expandedPath, nil
+}
+
+func expandKeyPath(keyPath string) (string, error) {
+	if keyPath == "~" || strings.HasPrefix(keyPath, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand SSH private key path %q: %w", keyPath, err)
+		}
+		if keyPath == "~" {
+			return home, nil
+		}
+		return filepath.Join(home, strings.TrimPrefix(keyPath, "~/")), nil
+	}
+	return filepath.Clean(keyPath), nil
 }
 
 func combinedCommandOutput(result common.CommandResult) string {

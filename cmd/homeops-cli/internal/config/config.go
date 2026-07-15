@@ -240,6 +240,8 @@ type TrueNASConfig struct {
 	ImageDir string `yaml:"image_dir,omitempty"`
 	// SSHUser is the default user for SSH-based staging to the NAS.
 	SSHUser string `yaml:"ssh_user,omitempty"`
+	// SSHKey is an optional passphrase-less private key for NAS SSH flows.
+	SSHKey string `yaml:"ssh_key,omitempty"`
 	// IgnitionDir is where Flatcar Ignition files are uploaded. Empty keeps
 	// deriving /mnt/<pool>/VM from the selected pool/dataset.
 	IgnitionDir string `yaml:"ignition_dir,omitempty"`
@@ -289,12 +291,48 @@ type StoreConfig struct {
 	Path string `yaml:"path,omitempty"`
 }
 
-// EtcdBackupConfig controls local kubeadm etcd snapshot retention.
+// EtcdBackupUploadConfig controls off-workstation copies of kubeadm etcd
+// snapshots. HostRef names a semantic key in the top-level secrets map; it is
+// resolved only when an upload or remote inventory is requested.
+type EtcdBackupUploadConfig struct {
+	HostRef string `yaml:"host_ref,omitempty"`
+	SSHUser string `yaml:"ssh_user,omitempty"`
+	SSHKey  string `yaml:"ssh_key,omitempty"`
+	Dir     string `yaml:"dir,omitempty"`
+	Keep    int    `yaml:"keep,omitempty"`
+	Auto    bool   `yaml:"auto,omitempty"`
+
+	configured bool
+}
+
+// UnmarshalYAML remembers that the nested upload block was explicitly present,
+// including when every value in it equals the built-in default.
+func (c *EtcdBackupUploadConfig) UnmarshalYAML(value *yaml.Node) error {
+	type rawUpload EtcdBackupUploadConfig
+	var raw rawUpload
+	if err := value.Decode(&raw); err != nil {
+		return err
+	}
+	*c = EtcdBackupUploadConfig(raw)
+	c.configured = true
+	return nil
+}
+
+// Configured reports whether an upload block was present in the loaded
+// configuration. Defaults remain available for an explicit --upload even when
+// the block is absent.
+func (c EtcdBackupUploadConfig) Configured() bool {
+	return c.configured || c.Auto
+}
+
+// EtcdBackupConfig controls local and remote kubeadm etcd snapshot retention.
 type EtcdBackupConfig struct {
 	// Dir is the local directory that receives snapshot and checksum files.
 	Dir string `yaml:"dir,omitempty"`
 	// Keep is the number of newest snapshots retained after a successful backup.
 	Keep int `yaml:"keep,omitempty"`
+	// Upload controls optional off-workstation snapshot copies.
+	Upload EtcdBackupUploadConfig `yaml:"upload,omitempty"`
 }
 
 // StateConfig groups the persisted-state stores.
@@ -576,6 +614,9 @@ func validate(c *Config) error {
 	}
 	if c.State.EtcdBackup.Keep < 0 {
 		problems = append(problems, "state.etcd_backup.keep: must be at least 1 when set")
+	}
+	if c.State.EtcdBackup.Upload.Keep < 0 {
+		problems = append(problems, "state.etcd_backup.upload.keep: must be at least 1 when set")
 	}
 	for key, ref := range c.Secrets {
 		if _, known := defaultSecretRefs[key]; !known {

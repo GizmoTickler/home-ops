@@ -111,11 +111,16 @@ var (
 	// TrueNAS host over SSH (qemu reads the fw_cfg file= path there). Same transport
 	// as the Proxmox path. Swappable for tests.
 	uploadIgnitionToNASFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
-		return uploadIgnitionFile(ssh.SSHConfig{
-			Host: sshHost, Username: sshUser, Port: sshPort,
-		}, remotePath, content)
+		return uploadIgnitionFile(trueNASIgnitionSSHConfig(sshHost, sshUser, sshPort), remotePath, content)
 	}
 )
+
+func trueNASIgnitionSSHConfig(host, username, port string) ssh.SSHConfig {
+	return ssh.SSHConfig{
+		Host: host, Username: username, Port: port,
+		KeyPath: versionconfig.Get().Hypervisors.TrueNAS.SSHKey,
+	}
+}
 
 // uploadIgnitionFile writes content to remotePath on the SSH target described by
 // cfg by streaming it over ssh stdin (sudo tee), so rendered Ignition bytes

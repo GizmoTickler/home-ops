@@ -150,6 +150,15 @@ volsync:
   check_image: docker.io/library/alpine:3.22
 
 state:
+  etcd_backup:
+    # local snapshots default to ~/.config/homeops/state/etcd, keep 7
+    upload:
+      host_ref: truenas_host
+      ssh_user: truenas_admin
+      ssh_key: ~/.ssh/keys/nas01-ssh
+      dir: /mnt/flashstor/etcd-snapshots
+      keep: 14
+      auto: false
   kubeconfig:
     backend: op
     op:

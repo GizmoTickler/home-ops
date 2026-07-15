@@ -59,7 +59,7 @@ var createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error {
 	if err != nil {
 		return err
 	}
-	sshClient := ssh.NewSSHClient(ssh.SSHConfig{Host: host, Username: trueNASSSHUser(), Port: "22"})
+	sshClient := ssh.NewSSHClient(trueNASSSHConfig(host, trueNASSSHUser()))
 	if err := sshClient.Connect(); err != nil {
 		return fmt.Errorf("connect to NAS over SSH (image staging): %w", err)
 	}
@@ -71,6 +71,13 @@ var createTrueNASCloudVMFn = func(cfg truenas.CloudImageVMConfig) error {
 	}
 	defer func() { _ = manager.Close() }()
 	return manager.CreateCloudImageVM(cfg, sshClient)
+}
+
+func trueNASSSHConfig(host, username string) ssh.SSHConfig {
+	return ssh.SSHConfig{
+		Host: host, Username: username, Port: "22",
+		KeyPath: versionconfig.Get().Hypervisors.TrueNAS.SSHKey,
+	}
 }
 
 // createVSphereCloudVMFn deploys a template clone with guestinfo cloud-init

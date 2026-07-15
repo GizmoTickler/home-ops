@@ -511,6 +511,7 @@ func NewCommand() *cobra.Command {
 		newRightSizeCommand(),
 		newFluxTreeCommand(),
 		newUpgradeStatusCommand(),
+		newUpgradePlanCommand(),
 		newSupportBundleCommand(),
 		newEtcdCommand(),
 		newCertsCommand(),

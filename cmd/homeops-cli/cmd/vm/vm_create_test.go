@@ -9,6 +9,7 @@ import (
 
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/proxmox"
+	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/testutil"
 	"homeops-cli/internal/truenas"
 	"homeops-cli/internal/vmlifecycle"
@@ -173,6 +174,17 @@ func TestVMCreateTrueNASDispatch(t *testing.T) {
 	assert.Contains(t, got.ImageRef, "ubuntu")
 	assert.NotEmpty(t, got.SeedISO)
 	assert.True(t, got.PowerOn)
+}
+
+func TestTrueNASSSHConfigThreadsConfiguredKey(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{TrueNAS: versionconfig.TrueNASConfig{SSHKey: "~/.ssh/keys/nas01-ssh"}},
+	})
+	defer restore()
+
+	assert.Equal(t, ssh.SSHConfig{
+		Host: "nas", Username: "admin", Port: "22", KeyPath: "~/.ssh/keys/nas01-ssh",
+	}, trueNASSSHConfig("nas", "admin"))
 }
 
 func TestVMCreateVSphereDispatch(t *testing.T) {

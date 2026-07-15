@@ -82,6 +82,17 @@ func TestUploadIgnitionFileStreamsContentOnlyViaUploadPayload(t *testing.T) {
 	assert.Equal(t, secretContent, fake.uploads[0].content)
 }
 
+func TestTrueNASIgnitionSSHConfigThreadsConfiguredKey(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{TrueNAS: versionconfig.TrueNASConfig{SSHKey: "~/.ssh/keys/nas01-ssh"}},
+	})
+	defer restore()
+
+	assert.Equal(t, ssh.SSHConfig{
+		Host: "nas", Username: "admin", Port: "22", KeyPath: "~/.ssh/keys/nas01-ssh",
+	}, trueNASIgnitionSSHConfig("nas", "admin", "22"))
+}
+
 // stubSecrets makes the config-sourced node identifiers deterministic (no
 // real secret-backend access) so buildNodeEnv is hermetic.
 func stubSecrets(t *testing.T) func() {

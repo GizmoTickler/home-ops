@@ -1737,6 +1737,7 @@ func verifyPreparedTrueNASISO(logger *common.ColorLogger, host string) (*trueNAS
 		Host:     host,
 		Username: vmlifecycle.ResolveSecretKey(versionconfig.KeyTrueNASUsername),
 		Port:     "22",
+		KeyPath:  versionconfig.Get().Hypervisors.TrueNAS.SSHKey,
 	}
 	sshClient := newTrueNASSSHClientFn(sshConfig)
 

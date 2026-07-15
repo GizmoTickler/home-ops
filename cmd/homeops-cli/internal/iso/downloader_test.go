@@ -181,6 +181,7 @@ func TestDownloaderDownloadCustomISO(t *testing.T) {
 		TrueNASHost:     "nas.local",
 		TrueNASUsername: "root",
 		TrueNASPort:     "22",
+		TrueNASKeyPath:  "~/.ssh/keys/nas01-ssh",
 		ISOURL:          "https://example.com/test.iso",
 		ISOStoragePath:  "/mnt/tank/isos",
 		ISOFilename:     "test.iso",
@@ -204,6 +205,7 @@ func TestDownloaderDownloadCustomISO(t *testing.T) {
 			assert.Equal(t, "nas.local", config.Host)
 			assert.Equal(t, "root", config.Username)
 			assert.Equal(t, "22", config.Port)
+			assert.Equal(t, "~/.ssh/keys/nas01-ssh", config.KeyPath)
 			return fake
 		}
 

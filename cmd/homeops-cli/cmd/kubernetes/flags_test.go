@@ -54,6 +54,16 @@ func TestDayTwoCommandsRegistered(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, name, child.Name())
 	}
+	backup, _, err := etcd.Find([]string{"backup"})
+	require.NoError(t, err)
+	assert.NotNil(t, backup.Flags().Lookup("upload"))
+
+	upgradePlan := findK8sSubcommand(t, "upgrade-plan")
+	set, _, err := upgradePlan.Find([]string{"set"})
+	require.NoError(t, err)
+	for _, name := range []string{"repo-root", "plan-file", "write", "commit", "allow-downgrade"} {
+		assert.NotNil(t, set.Flags().Lookup(name), name)
+	}
 
 	certs := findK8sSubcommand(t, "certs")
 	for _, name := range []string{"warn-days", "fail-on-warn", "renew", "restart-control-plane", "output"} {

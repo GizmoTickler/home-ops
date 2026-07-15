@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,7 @@ func TestScaffoldIsValidYAMLForEveryBackend(t *testing.T) {
 			for _, key := range config.KnownSecretKeys() {
 				assert.Contains(t, secretsMap, key, "every known secret key must be scaffolded")
 			}
+			assert.Equal(t, 2, strings.Count(content, "ssh_key: ~/.ssh/keys/nas01-ssh"), "both TrueNAS and etcd upload SSH keys must be scaffolded")
 		})
 	}
 }
@@ -154,10 +156,31 @@ func TestRunDoctorValidatesDeploymentSettings(t *testing.T) {
 // doctorSeams stubs every external touchpoint of runDoctor.
 func doctorSeams(t *testing.T) {
 	t.Helper()
-	origLook, origLocate, origLoad, origCurrent, origResolve := lookPathFn, locateConfigFn, loadConfigFn, currentConfigFn, resolveRefFn
+	origLook, origLocate, origLoad, origCurrent, origResolve, origValidateSSHKey := lookPathFn, locateConfigFn, loadConfigFn, currentConfigFn, resolveRefFn, validateSSHKeyFn
 	t.Cleanup(func() {
 		lookPathFn, locateConfigFn, loadConfigFn, currentConfigFn, resolveRefFn = origLook, origLocate, origLoad, origCurrent, origResolve
+		validateSSHKeyFn = origValidateSSHKey
 	})
+}
+
+func TestRunDoctorValidatesConfiguredSSHKeys(t *testing.T) {
+	doctorSeams(t)
+	restore := config.SetForTesting(&config.Config{
+		Hypervisors: config.HypervisorsConfig{TrueNAS: config.TrueNASConfig{SSHKey: "/missing/nas-key"}},
+		State: config.StateConfig{EtcdBackup: config.EtcdBackupConfig{Upload: config.EtcdBackupUploadConfig{
+			SSHKey: "/missing/backup-key",
+		}}},
+	})
+	defer restore()
+
+	lookPathFn = func(string) error { return nil }
+	locateConfigFn = func() (string, bool) { return "", false }
+	currentConfigFn = config.Get
+	validateSSHKeyFn = func(path string) error { return fmt.Errorf("cannot load %s", path) }
+
+	err := runDoctor(true, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2 problem(s)")
 }
 
 func TestRunDoctorHappyPath(t *testing.T) {

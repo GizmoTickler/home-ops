@@ -65,16 +65,23 @@ type etcdSnapshotStatus struct {
 }
 
 type etcdBackupResult struct {
-	Node       string `json:"node"`
-	Path       string `json:"path"`
-	Size       int64  `json:"size_bytes"`
-	SHA256     string `json:"sha256"`
-	Hash       uint64 `json:"snapshot_hash"`
-	Revision   int64  `json:"revision"`
-	TotalKeys  int64  `json:"total_keys"`
-	TotalSize  int64  `json:"snapshot_size_bytes"`
-	Pruned     int    `json:"pruned"`
-	StatusTool string `json:"status_tool"`
+	Node       string                  `json:"node"`
+	Path       string                  `json:"path"`
+	Size       int64                   `json:"size_bytes"`
+	SHA256     string                  `json:"sha256"`
+	Hash       uint64                  `json:"snapshot_hash"`
+	Revision   int64                   `json:"revision"`
+	TotalKeys  int64                   `json:"total_keys"`
+	TotalSize  int64                   `json:"snapshot_size_bytes"`
+	Pruned     int                     `json:"pruned"`
+	StatusTool string                  `json:"status_tool"`
+	Remote     *etcdRemoteBackupResult `json:"remote,omitempty"`
+}
+
+type etcdRemoteBackupResult struct {
+	Host   string `json:"host"`
+	Path   string `json:"path"`
+	Pruned int    `json:"pruned"`
 }
 
 type etcdMember struct {
@@ -107,12 +114,13 @@ type etcdStatusSummary struct {
 }
 
 type etcdStatusReport struct {
-	Summary   etcdStatusSummary   `json:"summary"`
-	Pod       string              `json:"pod"`
-	Node      string              `json:"node"`
-	Members   []etcdMember        `json:"members"`
-	Endpoints []etcdEndpoint      `json:"endpoints"`
-	Backup    etcdBackupInventory `json:"backup"`
+	Summary   etcdStatusSummary    `json:"summary"`
+	Pod       string               `json:"pod"`
+	Node      string               `json:"node"`
+	Members   []etcdMember         `json:"members"`
+	Endpoints []etcdEndpoint       `json:"endpoints"`
+	Backup    etcdBackupInventory  `json:"backup"`
+	Remote    *etcdBackupInventory `json:"remote_backup,omitempty"`
 }
 
 func newEtcdCommand() *cobra.Command {
@@ -128,12 +136,14 @@ func newEtcdCommand() *cobra.Command {
 func newEtcdBackupCommand() *cobra.Command {
 	var outputDir string
 	var keep int
+	var upload bool
 	cmd := &cobra.Command{
 		Use:          "backup",
 		Short:        "Create, verify, download, and retain an etcd snapshot",
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s etcd backup
-  homeops-cli k8s etcd backup --output /secure/backups/etcd --keep 14`,
+  homeops-cli k8s etcd backup --output /secure/backups/etcd --keep 14
+  homeops-cli k8s etcd backup --upload`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmdutil.ResolveStringFlagDefault(cmd, "output", &outputDir, func() string {
 				return config.Get().State.EtcdBackup.Dir
@@ -144,7 +154,7 @@ func newEtcdBackupCommand() *cobra.Command {
 			if keep < 1 {
 				return fmt.Errorf("--keep must be at least 1")
 			}
-			result, err := runEtcdBackup(cmd.Context(), outputDir, keep)
+			result, err := runEtcdBackupWithUpload(cmd.Context(), outputDir, keep, shouldUploadEtcdBackup(upload, config.Get().State.EtcdBackup.Upload.Auto))
 			if err != nil {
 				return err
 			}
@@ -154,6 +164,7 @@ func newEtcdBackupCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&outputDir, "output", "o", "", "snapshot directory (default: state.etcd_backup.dir)")
 	cmd.Flags().IntVar(&keep, "keep", 0, "number of newest snapshots to retain (default: state.etcd_backup.keep)")
+	cmd.Flags().BoolVar(&upload, "upload", false, "copy and verify the snapshot on the configured remote host")
 	return cmd
 }
 
@@ -162,7 +173,7 @@ func newEtcdStatusCommand() *cobra.Command {
 	var staleAfter time.Duration
 	cmd := &cobra.Command{
 		Use:          "status",
-		Short:        "Show etcd membership, endpoint health, and local backup freshness",
+		Short:        "Show etcd health plus local and configured remote backup freshness",
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s etcd status
   homeops-cli k8s etcd status --stale-after 24h --output json`,
@@ -192,6 +203,10 @@ func newEtcdStatusCommand() *cobra.Command {
 }
 
 func runEtcdBackup(ctx context.Context, outputDir string, keep int) (result etcdBackupResult, err error) {
+	return runEtcdBackupWithUpload(ctx, outputDir, keep, false)
+}
+
+func runEtcdBackupWithUpload(ctx context.Context, outputDir string, keep int, upload bool) (result etcdBackupResult, err error) {
 	pod, err := findHealthyEtcdPod(ctx)
 	if err != nil {
 		return result, err
@@ -250,7 +265,7 @@ func runEtcdBackup(ctx context.Context, outputDir string, keep int) (result etcd
 	if err != nil {
 		return result, err
 	}
-	return etcdBackupResult{
+	result = etcdBackupResult{
 		Node:       pod.Node,
 		Path:       path,
 		Size:       size,
@@ -261,7 +276,15 @@ func runEtcdBackup(ctx context.Context, outputDir string, keep int) (result etcd
 		TotalSize:  status.TotalSize,
 		Pruned:     len(pruned),
 		StatusTool: "etcdutl",
-	}, nil
+	}
+	if upload {
+		remote, uploadErr := uploadEtcdSnapshot(ctx, path, digest)
+		if uploadErr != nil {
+			return result, uploadErr
+		}
+		result.Remote = &remote
+	}
+	return result, nil
 }
 
 func resolveEtcdNodeAccess(pod etcdPod) (config.Node, string, error) {
@@ -580,6 +603,10 @@ func buildEtcdStatus(ctx context.Context, backupDir string, staleAfter time.Dura
 		return etcdStatusReport{}, err
 	}
 	report := etcdStatusReport{Pod: pod.Name, Node: pod.Node, Members: members, Endpoints: endpoints, Backup: inventory}
+	if config.Get().State.EtcdBackup.Upload.Configured() {
+		remote := inspectRemoteEtcdBackups(ctx, staleAfter)
+		report.Remote = &remote
+	}
 	for _, endpoint := range endpoints {
 		if endpoint.Healthy {
 			report.Summary.OK++
@@ -591,6 +618,13 @@ func buildEtcdStatus(ctx context.Context, backupDir string, staleAfter time.Dura
 		report.Summary.Warn++
 	} else {
 		report.Summary.OK++
+	}
+	if report.Remote != nil {
+		if report.Remote.Status == "WARN" {
+			report.Summary.Warn++
+		} else {
+			report.Summary.OK++
+		}
 	}
 	return report, nil
 }
@@ -688,6 +722,13 @@ func renderEtcdBackupResult(result etcdBackupResult) string {
 		{"Verified with", result.StatusTool},
 		{"Pruned", strconv.Itoa(result.Pruned)},
 	}
+	if result.Remote != nil {
+		rows = append(rows,
+			[]string{"Remote host", result.Remote.Host},
+			[]string{"Remote path", result.Remote.Path},
+			[]string{"Remote pruned", strconv.Itoa(result.Remote.Pruned)},
+		)
+	}
 	return ui.Table([]string{"FIELD", "VALUE"}, rows)
 }
 
@@ -709,12 +750,17 @@ func renderEtcdStatus(report etcdStatusReport, output string) (string, error) {
 			endpointRows = append(endpointRows, []string{status, endpoint.Endpoint, endpoint.Took, endpoint.Error})
 		}
 		backupRows := [][]string{{report.Backup.Status, report.Backup.Path, report.Backup.Age, humanBytes(report.Backup.Size), report.Backup.Detail}}
-		return fmt.Sprintf("Summary: OK=%d WARN=%d FAIL=%d\netcd pod: %s (node %s)\n\nMembers\n%s\n\nEndpoint health\n%s\n\nLocal backup\n%s",
+		result := fmt.Sprintf("Summary: OK=%d WARN=%d FAIL=%d\netcd pod: %s (node %s)\n\nMembers\n%s\n\nEndpoint health\n%s\n\nLocal backup\n%s",
 			report.Summary.OK, report.Summary.Warn, report.Summary.Fail,
 			report.Pod, report.Node,
 			ui.Table([]string{"NAME", "ID", "PEER URLS", "CLIENT URLS", "LEARNER"}, memberRows),
 			ui.Table([]string{"STATUS", "ENDPOINT", "TOOK", "ERROR"}, endpointRows),
-			ui.Table([]string{"STATUS", "LATEST", "AGE", "SIZE", "DETAIL"}, backupRows)), nil
+			ui.Table([]string{"STATUS", "LATEST", "AGE", "SIZE", "DETAIL"}, backupRows))
+		if report.Remote != nil {
+			remoteRows := [][]string{{report.Remote.Status, report.Remote.Path, report.Remote.Age, humanBytes(report.Remote.Size), report.Remote.Detail}}
+			result += "\n\nRemote backup\n" + ui.Table([]string{"STATUS", "LATEST", "AGE", "SIZE", "DETAIL"}, remoteRows)
+		}
+		return result, nil
 	case "json":
 		raw, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {

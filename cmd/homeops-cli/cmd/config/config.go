@@ -18,6 +18,7 @@ import (
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
 	"homeops-cli/internal/secrets"
+	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/state"
 
 	"github.com/spf13/cobra"
@@ -29,10 +30,11 @@ var (
 		_, err := exec.LookPath(bin)
 		return err
 	}
-	resolveRefFn    = secrets.Resolve
-	locateConfigFn  = config.Locate
-	loadConfigFn    = config.LoadFile
-	currentConfigFn = config.Get
+	resolveRefFn     = secrets.Resolve
+	locateConfigFn   = config.Locate
+	loadConfigFn     = config.LoadFile
+	currentConfigFn  = config.Get
+	validateSSHKeyFn = ssh.ValidatePrivateKeyFile
 )
 
 // NewCommand builds the `config` command group.
@@ -246,6 +248,7 @@ hypervisors:
     iso_dir: /mnt/tank/ISO
     iso_file: metal-amd64.iso
     ssh_user: truenas_admin
+    #ssh_key: ~/.ssh/keys/nas01-ssh  # optional; passphrase-less private key
     #spice_host: 0.0.0.0
     # Where 'vm create' stages cloud images and NoCloud seed ISOs on the NAS
     # (default: an "images" dir next to iso_dir):
@@ -283,6 +286,16 @@ state:
     path: ~/.config/homeops/state/pki
     #backend: op
     #op: {vault: Infrastructure, item: kubernetes-pki}
+  #etcd_backup:
+  #  dir: ~/.config/homeops/state/etcd
+  #  keep: 7
+  #  upload:
+  #    host_ref: truenas_host
+  #    ssh_user: truenas_admin
+  #    ssh_key: ~/.ssh/keys/nas01-ssh  # optional; passphrase-less private key
+  #    dir: /mnt/flashstor/etcd-snapshots
+  #    keep: 14
+  #    auto: false
 
 # Optional: override/pin the cloud-image catalog used by 'vm create'
 # (ubuntu/rocky/debian/fedora resolve to latest stable automatically; RHEL
@@ -476,6 +489,22 @@ func runDoctor(skipSecrets, network bool) error {
 	// 4. State stores
 	logger.Info("state: kubeconfig -> %s", state.NewKubeconfigStore(cfg.State.Kubeconfig).Describe())
 	logger.Info("state: pki        -> %s", state.NewPKIStore(cfg.State.PKI).Describe())
+	for _, key := range []struct {
+		name string
+		path string
+	}{
+		{"hypervisors.truenas.ssh_key", cfg.Hypervisors.TrueNAS.SSHKey},
+		{"state.etcd_backup.upload.ssh_key", cfg.State.EtcdBackup.Upload.SSHKey},
+	} {
+		if key.path == "" {
+			continue
+		}
+		if err := validateSSHKeyFn(key.path); err != nil {
+			fail("%s: %v", key.name, err)
+		} else {
+			logger.Success("SSH key: %s", key.name)
+		}
+	}
 
 	// 5. Secret references
 	if skipSecrets {
