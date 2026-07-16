@@ -111,6 +111,54 @@ func TestNodeMaintenanceEnterRollsBackInReverseOrder(t *testing.T) {
 	assert.Equal(t, "rollback-unset-ceph-noout", report.Steps[5].Name)
 }
 
+func TestNodeMaintenanceRollbackTimeoutStartsWhenRollbackBegins(t *testing.T) {
+	setupMaintenanceTest(t, false, "", "", true)
+	rollbackStarted := false
+	testutil.Swap(t, &nodeMaintenanceRollbackContextFn, func(ctx context.Context) (context.Context, context.CancelFunc) {
+		rollbackStarted = true
+		return context.WithCancel(context.WithoutCancel(ctx))
+	})
+	baseRun := nodeMaintenanceKubectlRunFn
+	testutil.Swap(t, &nodeMaintenanceKubectlRunFn, func(ctx context.Context, args ...string) error {
+		if len(args) > 0 && args[0] == "drain" {
+			assert.False(t, rollbackStarted, "rollback timeout started before the forward workflow failed")
+		}
+		if len(args) > 0 && (args[0] == "uncordon" || args[0] == "-n") {
+			require.NoError(t, ctx.Err(), "rollback received a context that expired before cleanup began")
+		}
+		return baseRun(ctx, args...)
+	})
+
+	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
+		Action: "enter", Node: "k8s-0", DrainTimeout: 5 * time.Minute, Timeout: time.Minute,
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, "DONE", report.Steps[4].Status)
+	assert.Equal(t, "DONE", report.Steps[5].Status)
+}
+
+func TestNodeMaintenanceRollbackFailureIsReturned(t *testing.T) {
+	setupMaintenanceTest(t, false, "", "", true)
+	baseRun := nodeMaintenanceKubectlRunFn
+	testutil.Swap(t, &nodeMaintenanceKubectlRunFn, func(ctx context.Context, args ...string) error {
+		if len(args) > 0 && args[0] == "uncordon" {
+			return errors.New("apiserver unavailable during rollback")
+		}
+		return baseRun(ctx, args...)
+	})
+
+	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
+		Action: "enter", Node: "k8s-0", DrainTimeout: 5 * time.Minute, Timeout: time.Minute,
+	})
+
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "rollback-uncordon")
+	assert.ErrorContains(t, err, "apiserver unavailable during rollback")
+	assert.Equal(t, "FAILED", report.Steps[4].Status)
+	assert.Equal(t, "DONE", report.Steps[5].Status)
+}
+
 func TestNodeMaintenanceEnterIsIdempotentWhenAlreadyCordoned(t *testing.T) {
 	events := setupMaintenanceTest(t, true, nodeMaintenanceNooutOwned, "noout,sortbitwise", false)
 	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
