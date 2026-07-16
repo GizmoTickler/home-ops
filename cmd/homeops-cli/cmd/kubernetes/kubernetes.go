@@ -450,7 +450,7 @@ func ensureKubectlPlugin(binaryName, pluginName string) error {
 func forceDeletePodsWithPrefix(namespace, prefix string, logger *common.ColorLogger) error {
 	output, err := kubectlOutputFn("get", "pods", "-n", namespace, "-o", "jsonpath={.items[*].metadata.name}")
 	if err != nil {
-		return nil
+		return fmt.Errorf("failed to verify temporary browse pod cleanup in namespace %s: %w", namespace, err)
 	}
 
 	pods := strings.Fields(string(output))
@@ -688,6 +688,7 @@ func newSyncSecretsCommand() *cobra.Command {
 
 func syncSecrets(namespace string, dryRun bool) error {
 	logger := common.NewColorLogger()
+	result := &batchResult{}
 
 	// Get all ExternalSecrets
 	args := []string{"get", "externalsecret"}
@@ -719,6 +720,7 @@ func syncSecrets(namespace string, dryRun bool) error {
 		parts := strings.Split(secret, ",")
 		if len(parts) != 2 {
 			logger.Warn("Invalid secret format: %s", secret)
+			result.addFailure(secret)
 			continue
 		}
 
@@ -727,6 +729,7 @@ func syncSecrets(namespace string, dryRun bool) error {
 
 		if dryRun {
 			logger.Info("[DRY RUN] Would sync ExternalSecret %s/%s", namespace, name)
+			result.addSuccess()
 			continue
 		}
 
@@ -736,12 +739,17 @@ func syncSecrets(namespace string, dryRun bool) error {
 			"annotate", "externalsecret", name,
 			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite"); err != nil {
 			logger.Error("Failed to sync %s/%s: %v", namespace, name, err)
+			result.addFailure(namespace + "/" + name)
 			continue
 		}
 
 		logger.Info("Synced ExternalSecret %s/%s", namespace, name)
+		result.addSuccess()
 	}
 
+	if err := result.err("sync ExternalSecrets"); err != nil {
+		return err
+	}
 	logger.Success("ExternalSecrets sync completed")
 	return nil
 }
@@ -775,6 +783,42 @@ func newCleansePodsCommand() *cobra.Command {
 	return cmd
 }
 
+type podCleanupPhase struct {
+	display string
+	actual  string
+}
+
+func normalizePodCleanupPhases(phases []string) ([]podCleanupPhase, error) {
+	aliases := map[string]podCleanupPhase{
+		"failed":    {display: "Failed", actual: "Failed"},
+		"succeeded": {display: "Succeeded", actual: "Succeeded"},
+		"completed": {display: "Completed", actual: "Succeeded"},
+		"pending":   {display: "Pending", actual: "Pending"},
+	}
+
+	normalized := make([]podCleanupPhase, 0, len(phases))
+	seen := make(map[string]struct{}, len(phases))
+	for _, raw := range phases {
+		phase := strings.ToLower(strings.TrimSpace(raw))
+		if phase == "" {
+			continue
+		}
+		mapped, ok := aliases[phase]
+		if !ok {
+			return nil, fmt.Errorf("unsupported pod phase %q (valid: Failed, Succeeded, Completed, Pending)", strings.TrimSpace(raw))
+		}
+		if _, exists := seen[mapped.actual]; exists {
+			continue
+		}
+		seen[mapped.actual] = struct{}{}
+		normalized = append(normalized, mapped)
+	}
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("at least one pod phase is required")
+	}
+	return normalized, nil
+}
+
 func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) error {
 	logger := common.NewColorLogger()
 
@@ -796,8 +840,10 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 		phaseOptions := []string{"Failed", "Succeeded", "Completed", "Pending"}
 		selectedPhases, err := chooseMultiOptionFn("Select pod phases to prune (use 'x' to toggle, Enter to confirm):", phaseOptions, 0)
 		if err != nil {
-			// User cancelled selection
-			return nil
+			if ui.IsCancellation(err) {
+				return nil
+			}
+			return fmt.Errorf("pod phase selection failed: %w", err)
 		}
 		if len(selectedPhases) == 0 {
 			// User didn't select anything (didn't press 'x' to toggle)
@@ -809,6 +855,14 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 	} else {
 		phases = strings.Split(phasesStr, ",")
 	}
+	normalizedPhases, err := normalizePodCleanupPhases(phases)
+	if err != nil {
+		return err
+	}
+	displayPhases := make([]string, 0, len(normalizedPhases))
+	for _, phase := range normalizedPhases {
+		displayPhases = append(displayPhases, phase.display)
+	}
 
 	// Confirm before a real (non-dry-run) bulk delete. The deletion is scoped to
 	// the selected phases, but to ALL namespaces when none is given, so make the
@@ -818,7 +872,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 		if strings.TrimSpace(namespace) == "" {
 			scope = "ALL namespaces"
 		}
-		ok, err := confirmActionFn(fmt.Sprintf("Delete %s pods in %s? This cannot be undone.", strings.Join(phases, "/"), scope), false)
+		ok, err := confirmActionFn(fmt.Sprintf("Delete %s pods in %s? This cannot be undone.", strings.Join(displayPhases, "/"), scope), false)
 		if err != nil {
 			return err
 		}
@@ -829,25 +883,10 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 	}
 
 	totalDeleted := 0
+	result := &batchResult{}
 
-	for _, phase := range phases {
-		phase = strings.TrimSpace(phase)
-		if phase == "" {
-			continue
-		}
-
-		// Normalize phase to title case (e.g., "succeeded" -> "Succeeded")
-		if len(phase) > 0 {
-			phase = strings.ToUpper(phase[:1]) + strings.ToLower(phase[1:])
-		}
-
-		// Map user-friendly "Completed" to Kubernetes phase "Succeeded"
-		actualPhase := phase
-		if phase == "Completed" {
-			actualPhase = "Succeeded"
-		}
-
-		logger.Info("Cleaning pods in %s phase", phase)
+	for _, phase := range normalizedPhases {
+		logger.Info("Cleaning pods in %s phase", phase.display)
 
 		// Build kubectl command
 		args := []string{"delete", "pods"}
@@ -856,7 +895,7 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 		} else {
 			args = append(args, "--all-namespaces")
 		}
-		args = append(args, "--field-selector", fmt.Sprintf("status.phase=%s", actualPhase))
+		args = append(args, "--field-selector", fmt.Sprintf("status.phase=%s", phase.actual))
 
 		if dryRun {
 			// First get the list of pods that would be deleted
@@ -866,30 +905,33 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 			} else {
 				listArgs = append(listArgs, "--all-namespaces")
 			}
-			listArgs = append(listArgs, "--field-selector", fmt.Sprintf("status.phase=%s", actualPhase), "-o", "name")
+			listArgs = append(listArgs, "--field-selector", fmt.Sprintf("status.phase=%s", phase.actual), "-o", "name")
 
 			output, err := commandOutputFn("kubectl", listArgs...)
 			if err != nil {
-				logger.Warn("Failed to list pods in %s phase: %v", phase, err)
+				logger.Warn("Failed to list pods in %s phase: %v", phase.display, err)
+				result.addFailure(phase.display)
 				continue
 			}
 
 			pods := strings.Split(strings.TrimSpace(string(output)), "\n")
 			if len(pods) > 0 && pods[0] != "" {
-				logger.Info("[DRY RUN] Would delete %d pods in %s phase", len(pods), phase)
+				logger.Info("[DRY RUN] Would delete %d pods in %s phase", len(pods), phase.display)
 				for _, pod := range pods {
 					if pod != "" {
 						logger.Debug("  %s", pod)
 					}
 				}
 			}
+			result.addSuccess()
 		} else {
 			args = append(args, "--ignore-not-found=true")
 
 			logger.Debug("Running: kubectl %s", strings.Join(args, " "))
 			output, err := commandCombinedOutputFn("kubectl", args...)
 			if err != nil {
-				logger.Error("Failed to delete pods in %s phase: %v\nOutput: %s", phase, err, string(output))
+				logger.Error("Failed to delete pods in %s phase: %v\nOutput: %s", phase.display, err, string(output))
+				result.addFailure(phase.display)
 				continue
 			}
 
@@ -907,14 +949,18 @@ func cleansePods(namespace string, phasesStr string, dryRun bool, force bool) er
 			}
 
 			if deleted > 0 {
-				logger.Info("Deleted %d pods in %s phase", deleted, phase)
+				logger.Info("Deleted %d pods in %s phase", deleted, phase.display)
 				totalDeleted += deleted
 			} else if outputStr != "" {
-				logger.Info("No pods found in %s phase to delete", phase)
+				logger.Info("No pods found in %s phase to delete", phase.display)
 			} else {
-				logger.Info("No pods in %s phase", phase)
+				logger.Info("No pods in %s phase", phase.display)
 			}
+			result.addSuccess()
 		}
+	}
+	if err := result.err("prune pods"); err != nil {
+		return err
 	}
 
 	if !dryRun {
@@ -1307,9 +1353,8 @@ func syncFluxResources(resourceType, namespace string, parallel, dryRun bool) er
 		return err
 	}
 
-	successCount, failCount := reconcileFluxSyncResources(logger, fullType, resources, parallel)
-	reportFluxSyncResult(logger, successCount, failCount)
-	return nil
+	result := reconcileFluxSyncResources(logger, fullType, resources, parallel)
+	return reportFluxSyncResult(logger, result)
 }
 
 func resolveFluxSyncResourceType(resourceType string) (string, bool, error) {
@@ -1403,23 +1448,22 @@ func confirmLargeFluxSync(logger *common.ColorLogger, fullType string, count int
 	return true, nil
 }
 
-func reconcileFluxSyncResources(logger *common.ColorLogger, fullType string, resources []string, parallel bool) (int, int) {
+func reconcileFluxSyncResources(logger *common.ColorLogger, fullType string, resources []string, parallel bool) *batchResult {
 	if parallel {
 		return reconcileFluxSyncResourcesParallel(logger, fullType, resources)
 	}
 	return reconcileFluxSyncResourcesSequential(logger, fullType, resources)
 }
 
-func reconcileFluxSyncResourcesParallel(logger *common.ColorLogger, fullType string, resources []string) (int, int) {
-	var mu sync.Mutex
+func reconcileFluxSyncResourcesParallel(logger *common.ColorLogger, fullType string, resources []string) *batchResult {
 	var wg sync.WaitGroup
-	successCount := 0
-	failCount := 0
+	result := &batchResult{}
 
 	for _, resource := range resources {
 		parts, ok := splitFluxSyncResource(resource)
 		if !ok {
 			logger.Warn("Invalid resource format: %s", resource)
+			result.addFailure(resource)
 			continue
 		}
 
@@ -1433,30 +1477,26 @@ func reconcileFluxSyncResourcesParallel(logger *common.ColorLogger, fullType str
 			logger.Info("Syncing %s %s/%s", fullType, ns, name)
 
 			if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
-				mu.Lock()
 				logger.Error("Failed to sync %s/%s: %v", ns, name, err)
-				failCount++
-				mu.Unlock()
+				result.addFailure(ns + "/" + name)
 			} else {
-				mu.Lock()
-				successCount++
-				mu.Unlock()
+				result.addSuccess()
 			}
 		}(ns, name)
 	}
 
 	wg.Wait()
-	return successCount, failCount
+	return result
 }
 
-func reconcileFluxSyncResourcesSequential(logger *common.ColorLogger, fullType string, resources []string) (int, int) {
-	successCount := 0
-	failCount := 0
+func reconcileFluxSyncResourcesSequential(logger *common.ColorLogger, fullType string, resources []string) *batchResult {
+	result := &batchResult{}
 
 	for _, resource := range resources {
 		parts, ok := splitFluxSyncResource(resource)
 		if !ok {
 			logger.Warn("Invalid resource format: %s", resource)
+			result.addFailure(resource)
 			continue
 		}
 
@@ -1467,12 +1507,12 @@ func reconcileFluxSyncResourcesSequential(logger *common.ColorLogger, fullType s
 
 		if err := commandRunFn("flux", "reconcile", fullType, name, "-n", ns); err != nil {
 			logger.Error("Failed to sync %s/%s: %v", ns, name, err)
-			failCount++
+			result.addFailure(ns + "/" + name)
 			continue
 		}
-		successCount++
+		result.addSuccess()
 	}
-	return successCount, failCount
+	return result
 }
 
 func splitFluxSyncResource(resource string) ([]string, bool) {
@@ -1486,12 +1526,14 @@ func splitFluxSyncResource(resource string) ([]string, bool) {
 	return parts, true
 }
 
-func reportFluxSyncResult(logger *common.ColorLogger, successCount, failCount int) {
+func reportFluxSyncResult(logger *common.ColorLogger, result *batchResult) error {
+	successCount, failCount := result.counts()
 	if failCount > 0 {
 		logger.Warn("Sync completed with errors. Success: %d, Failed: %d", successCount, failCount)
-	} else {
-		logger.Success("All %d resources synced successfully", successCount)
+		return result.err("sync Flux resources")
 	}
+	logger.Success("All %d resources synced successfully", successCount)
+	return nil
 }
 
 func newForceSyncExternalSecretCommand() *cobra.Command {
@@ -1529,6 +1571,7 @@ func newForceSyncExternalSecretCommand() *cobra.Command {
 
 func forceSyncExternalSecret(namespace, secretName string, all bool, _timeout int) error {
 	logger := common.NewColorLogger()
+	result := &batchResult{}
 
 	var secrets []string
 
@@ -1550,20 +1593,24 @@ func forceSyncExternalSecret(namespace, secretName string, all bool, _timeout in
 		secrets = []string{secretName}
 	}
 
-	successCount := 0
 	for _, name := range secrets {
 		timestamp := fmt.Sprintf("%d", nowFn().Unix())
 		if err := commandRunFn("kubectl", "--namespace", namespace,
 			"annotate", "externalsecret", name,
 			fmt.Sprintf("force-sync=%s", timestamp), "--overwrite"); err != nil {
 			logger.Error("Failed to annotate %s/%s: %v", namespace, name, err)
+			result.addFailure(namespace + "/" + name)
 			continue
 		}
 
 		logger.Info("Triggered sync for ExternalSecret %s/%s", namespace, name)
-		successCount++
+		result.addSuccess()
 	}
 
+	successCount, _ := result.counts()
+	if err := result.err("force-sync ExternalSecrets"); err != nil {
+		return err
+	}
 	logger.Success("Force-synced %d ExternalSecret(s)", successCount)
 	return nil
 }

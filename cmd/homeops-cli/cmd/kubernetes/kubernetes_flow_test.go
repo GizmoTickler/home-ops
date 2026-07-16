@@ -50,6 +50,19 @@ func TestSyncSecrets(t *testing.T) {
 	calls = nil
 	require.NoError(t, syncSecrets("", true))
 	assert.Empty(t, calls)
+
+	commandRunFn = func(name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if strings.Contains(strings.Join(args, " "), "paperless") {
+			return errors.New("annotation failed")
+		}
+		return nil
+	}
+	calls = nil
+	err := syncSecrets("", false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "media/paperless")
+	assert.Len(t, calls, 2, "best-effort sync should continue after a resource fails")
 }
 
 func TestCleansePods(t *testing.T) {
@@ -84,12 +97,56 @@ func TestCleansePods(t *testing.T) {
 		assert.Contains(t, calls[1], "status.phase=Succeeded")
 	})
 
+	t.Run("surfaces phase selector failures", func(t *testing.T) {
+		selectNamespaceFn = func(prompt string, allowAll bool) (string, error) {
+			return "media", nil
+		}
+		chooseMultiOptionFn = func(prompt string, options []string, limit int) ([]string, error) {
+			return nil, errors.New("selector unavailable")
+		}
+		err := cleansePods("", "", true, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "pod phase selection failed")
+	})
+
 	t.Run("non dry run deletes pods", func(t *testing.T) {
 		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
 			assert.Equal(t, "kubectl", name)
 			return []byte("pod \"paperless\" deleted\npod \"homepage\" deleted\n"), nil
 		}
 		require.NoError(t, cleansePods("media", "failed", false, true))
+	})
+
+	t.Run("rejects unsafe phase before invoking kubectl", func(t *testing.T) {
+		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+			t.Fatalf("unexpected command: %s %s", name, strings.Join(args, " "))
+			return nil, nil
+		}
+		err := cleansePods("media", "Running", false, true)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unsupported pod phase")
+	})
+
+	t.Run("returns aggregate error after partial delete failure", func(t *testing.T) {
+		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+			if strings.Contains(strings.Join(args, " "), "status.phase=Failed") {
+				return []byte("delete failed"), errors.New("kubectl failed")
+			}
+			return []byte("pod \"old-job\" deleted\n"), nil
+		}
+		err := cleansePods("media", "failed,succeeded", false, true)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Failed")
+	})
+
+	t.Run("deduplicates completed and succeeded aliases", func(t *testing.T) {
+		calls := 0
+		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+			calls++
+			return nil, nil
+		}
+		require.NoError(t, cleansePods("media", "Completed,Succeeded", true, true))
+		assert.Equal(t, 1, calls)
 	})
 }
 
@@ -390,6 +447,25 @@ func TestSyncFluxResources(t *testing.T) {
 		}
 	})
 
+	t.Run("partial reconcile returns an error after processing every resource", func(t *testing.T) {
+		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+			return []byte("media,good\nmedia,bad\n"), nil
+		}
+		var calls []string
+		commandRunFn = func(name string, args ...string) error {
+			calls = append(calls, name+" "+strings.Join(args, " "))
+			if strings.Contains(strings.Join(args, " "), " bad ") {
+				return errors.New("reconcile failed")
+			}
+			return nil
+		}
+
+		err := syncFluxResources("kustomization", "media", false, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "media/bad")
+		assert.Len(t, calls, 2)
+	})
+
 	t.Run("invalid type returns validation error", func(t *testing.T) {
 		err := syncFluxResources("invalid-type", "", false, false)
 		require.Error(t, err)
@@ -442,6 +518,19 @@ func TestForceSyncExternalSecret(t *testing.T) {
 		"kubectl --namespace media annotate externalsecret paperless force-sync=77 --overwrite",
 		"kubectl --namespace media annotate externalsecret homepage force-sync=77 --overwrite",
 	}, calls)
+
+	calls = nil
+	commandRunFn = func(name string, args ...string) error {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		if strings.Contains(strings.Join(args, " "), "paperless") {
+			return errors.New("annotation failed")
+		}
+		return nil
+	}
+	err := forceSyncExternalSecret("media", "", true, 60)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "media/paperless")
+	assert.Len(t, calls, 2, "best-effort sync should continue after a resource fails")
 }
 
 func TestUpgradeARC(t *testing.T) {
@@ -572,7 +661,7 @@ func TestBrowsePVCPromptsForNamespaceWhenOmitted(t *testing.T) {
 		switch strings.Join(args, " ") {
 		case "get pvc -n media -o jsonpath={.items[*].metadata.name}":
 			return []byte("paperless"), nil
-		case "get pods --namespace media -o jsonpath={.items[*].metadata.name}":
+		case "get pods -n media -o jsonpath={.items[*].metadata.name}":
 			return []byte(""), nil
 		default:
 			return nil, fmt.Errorf("unexpected kubectl output args: %s", strings.Join(args, " "))
