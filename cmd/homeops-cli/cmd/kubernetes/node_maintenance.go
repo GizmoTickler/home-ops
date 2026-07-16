@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -19,11 +20,12 @@ import (
 )
 
 const (
-	nodeMaintenanceDefaultDrainTimeout = 5 * time.Minute
-	nodeMaintenanceDefaultTimeout      = 10 * time.Minute
-	nodeMaintenancePollInterval        = 5 * time.Second
-	nodeMaintenanceNooutOwned          = "owned"
-	nodeMaintenanceNooutPreexisting    = "preexisting"
+	nodeMaintenanceDefaultDrainTimeout    = 5 * time.Minute
+	nodeMaintenanceDefaultTimeout         = 10 * time.Minute
+	nodeMaintenanceDefaultRollbackTimeout = time.Minute
+	nodeMaintenancePollInterval           = 5 * time.Second
+	nodeMaintenanceNooutOwned             = "owned"
+	nodeMaintenanceNooutPreexisting       = "preexisting"
 )
 
 var (
@@ -47,7 +49,10 @@ var (
 			return nil
 		}
 	}
-	nodeMaintenanceVMPowerFn = powerNodeVM
+	nodeMaintenanceVMPowerFn         = powerNodeVM
+	nodeMaintenanceRollbackContextFn = func(ctx context.Context) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.WithoutCancel(ctx), nodeMaintenanceDefaultRollbackTimeout)
+	}
 )
 
 type nodeMaintenanceOptions struct {
@@ -111,7 +116,7 @@ type cephStatusJSON struct {
 
 type nodeMaintenanceRollback struct {
 	name string
-	run  func() error
+	run  func(context.Context) error
 }
 
 func newNodeMaintenanceCommand() *cobra.Command {
@@ -250,8 +255,6 @@ func runNodeMaintenance(ctx context.Context, opts nodeMaintenanceOptions) (nodeM
 
 func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, report nodeMaintenanceReport) (nodeMaintenanceReport, error) {
 	runtimeState := nodeMaintenanceRuntime{}
-	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
-	defer cancelRollback()
 	var rollbacks []nodeMaintenanceRollback
 	if err := runNodeMaintenanceStep(&report, "validate-node", func() (string, error) {
 		node, state, err := validateMaintenanceNode(ctx, opts.Node, true)
@@ -290,7 +293,7 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 			if err := annotateMaintenanceNoout(ctx, opts.Node, ownership); err != nil {
 				return "", err
 			}
-			rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "remove-ceph-ownership-record", run: func() error {
+			rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "remove-ceph-ownership-record", run: func(rollbackCtx context.Context) error {
 				return removeMaintenanceNooutAnnotation(rollbackCtx, opts.Node)
 			}})
 			return detail, nil
@@ -299,10 +302,12 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 			return "", err
 		}
 		if err := annotateMaintenanceNoout(ctx, opts.Node, nodeMaintenanceNooutOwned); err != nil {
-			_ = runCephCommand(rollbackCtx, "osd", "unset", "noout")
-			return "", err
+			cleanupErr := withNodeMaintenanceRollbackContext(ctx, func(rollbackCtx context.Context) error {
+				return runCephCommand(rollbackCtx, "osd", "unset", "noout")
+			})
+			return "", errors.Join(err, cleanupErr)
 		}
-		rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "unset-ceph-noout", run: func() error {
+		rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "unset-ceph-noout", run: func(rollbackCtx context.Context) error {
 			unsetErr := runCephCommand(rollbackCtx, "osd", "unset", "noout")
 			annotationErr := removeMaintenanceNooutAnnotation(rollbackCtx, opts.Node)
 			if unsetErr != nil {
@@ -321,7 +326,7 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 		if err := nodeMaintenanceKubectlRunFn(ctx, "cordon", opts.Node); err != nil {
 			return "", fmt.Errorf("cordon %s: %w", opts.Node, err)
 		}
-		rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "uncordon", run: func() error {
+		rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "uncordon", run: func(rollbackCtx context.Context) error {
 			return nodeMaintenanceKubectlRunFn(rollbackCtx, "uncordon", opts.Node)
 		}})
 		return "node cordoned", nil
@@ -710,16 +715,28 @@ func appendNodeMaintenanceFailure(report *nodeMaintenanceReport, name string, er
 }
 
 func rollbackNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, rollbacks []nodeMaintenanceRollback, node string, cause error) (nodeMaintenanceReport, error) {
+	rollbackCtx, cancel := nodeMaintenanceRollbackContextFn(ctx)
+	defer cancel()
+	var rollbackErrors []error
 	for i := len(rollbacks) - 1; i >= 0; i-- {
 		name := "rollback-" + rollbacks[i].name
-		_ = runNodeMaintenanceStep(&report, name, func() (string, error) {
-			if err := rollbacks[i].run(); err != nil {
+		if err := runNodeMaintenanceStep(&report, name, func() (string, error) {
+			if err := rollbacks[i].run(rollbackCtx); err != nil {
 				return "", err
 			}
 			return "rollback completed", nil
-		})
+		}); err != nil {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("%s: %w", name, err))
+		}
 	}
-	return finalizeNodeMaintenance(ctx, report, node, "unknown", fmt.Errorf("maintenance enter failed: %w", cause))
+	runErr := errors.Join(fmt.Errorf("maintenance enter failed: %w", cause), errors.Join(rollbackErrors...))
+	return finalizeNodeMaintenance(ctx, report, node, "unknown", runErr)
+}
+
+func withNodeMaintenanceRollbackContext(ctx context.Context, run func(context.Context) error) error {
+	rollbackCtx, cancel := nodeMaintenanceRollbackContextFn(ctx)
+	defer cancel()
+	return run(rollbackCtx)
 }
 
 func finalizeNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, node, ceph string, runErr error) (nodeMaintenanceReport, error) {
