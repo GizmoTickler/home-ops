@@ -133,6 +133,20 @@ func TestForceDeletePodsWithPrefixReturnsAggregateError(t *testing.T) {
 	assert.Contains(t, err.Error(), "browse-b")
 }
 
+func TestForceDeletePodsWithPrefixSurfacesCleanupCheckFailure(t *testing.T) {
+	oldOutput := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = oldOutput })
+
+	kubectlOutputFn = func(args ...string) ([]byte, error) {
+		return nil, fmt.Errorf("api unavailable")
+	}
+
+	err := forceDeletePodsWithPrefix("default", "browse-", common.NewColorLogger())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to verify temporary browse pod cleanup")
+	assert.Contains(t, err.Error(), "api unavailable")
+}
+
 func TestBrowsePVCCleansAllStalePods(t *testing.T) {
 	oldLookPath := lookPathFn
 	oldRun := kubectlRunFn

@@ -321,7 +321,7 @@ func TestListFluxSyncResourcesWrapsKubectlError(t *testing.T) {
 	assert.Contains(t, err.Error(), "kubectl failed")
 }
 
-func TestReconcileFluxSyncResourcesSequentialCountsSuccessFailureAndSkipsInvalid(t *testing.T) {
+func TestReconcileFluxSyncResourcesSequentialCountsFailuresIncludingInvalidResources(t *testing.T) {
 	var calls []string
 	testutil.Swap(t, &commandRunFn, func(name string, args ...string) error {
 		calls = append(calls, name+" "+strings.Join(args, " "))
@@ -331,21 +331,26 @@ func TestReconcileFluxSyncResourcesSequentialCountsSuccessFailureAndSkipsInvalid
 		return nil
 	})
 
-	success, failed := reconcileFluxSyncResourcesSequential(common.NewColorLogger(), "kustomization", []string{
+	result := reconcileFluxSyncResourcesSequential(common.NewColorLogger(), "kustomization", []string{
 		"flux-system,good",
 		"invalid-resource",
 		"flux-system,bad",
 	})
+	success, failed := result.counts()
 
 	assert.Equal(t, 1, success)
-	assert.Equal(t, 1, failed)
+	assert.Equal(t, 2, failed)
+	err := result.err("sync Flux resources")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "flux-system/bad")
+	assert.Contains(t, err.Error(), "invalid-resource")
 	assert.Equal(t, []string{
 		"flux reconcile kustomization good -n flux-system",
 		"flux reconcile kustomization bad -n flux-system",
 	}, calls)
 }
 
-func TestReconcileFluxSyncResourcesParallelCountsSuccessFailureAndSkipsInvalid(t *testing.T) {
+func TestReconcileFluxSyncResourcesParallelCountsFailuresIncludingInvalidResources(t *testing.T) {
 	var (
 		mu    sync.Mutex
 		calls []string
@@ -360,14 +365,19 @@ func TestReconcileFluxSyncResourcesParallelCountsSuccessFailureAndSkipsInvalid(t
 		return nil
 	})
 
-	success, failed := reconcileFluxSyncResourcesParallel(common.NewColorLogger(), "helmrelease", []string{
+	result := reconcileFluxSyncResourcesParallel(common.NewColorLogger(), "helmrelease", []string{
 		"media,good",
 		"invalid-resource",
 		"media,bad",
 	})
+	success, failed := result.counts()
 
 	assert.Equal(t, 1, success)
-	assert.Equal(t, 1, failed)
+	assert.Equal(t, 2, failed)
+	err := result.err("sync Flux resources")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "media/bad")
+	assert.Contains(t, err.Error(), "invalid-resource")
 	assert.ElementsMatch(t, []string{
 		"flux reconcile helmrelease good -n media",
 		"flux reconcile helmrelease bad -n media",
