@@ -147,7 +147,7 @@ bootstrap:
   op_vault: Infrastructure
 
 volsync:
-  check_image: docker.io/library/alpine:3.22
+  check_image: docker.io/library/alpine:3.24
 
 state:
   etcd_backup:
