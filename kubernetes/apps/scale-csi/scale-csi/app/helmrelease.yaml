@@ -1,0 +1,67 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: scale-csi
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: scale-csi
+  interval: 1h
+  values:
+    truenas:
+      host: "192.168.120.10"
+      port: 443
+      secure: true
+      skipTLSVerify: true
+      existingSecret: scale-csi-secret
+    zfs:
+      parentDataset: flashstor/scale-csi
+      enforceQuota: true
+    nfs:
+      enabled: true
+      server: "192.168.120.10"
+      shareAllowedNetworks:
+        - 192.168.120.0/22
+    iscsi:
+      enabled: true
+      portal: "192.168.120.10:3260"
+    nvmeof:
+      enabled: true
+      transport: tcp
+      address: "192.168.120.10"
+      port: 4420
+      # Secure-by-default: only these Kubernetes node NQNs may connect
+      # (nvme show-hostnqn per node; machine-id-derived, stable on Flatcar).
+      subsystemAllowAnyHost: false
+      subsystemHosts:
+        - nqn.2014-08.org.nvmexpress:uuid:cce109e7-813a-4b2b-9314-c35b7064e3dd
+        - nqn.2014-08.org.nvmexpress:uuid:0c2178cc-5aa6-45f3-bafe-718fe518fa62
+        - nqn.2014-08.org.nvmexpress:uuid:2121dcbe-603f-46ec-b21a-b3dbad9d5f04
+    storageClasses:
+      - name: scale-nvmeof
+        protocol: nvmeof
+        isDefault: false
+        reclaimPolicy: Delete
+        allowVolumeExpansion: true
+        volumeBindingMode: Immediate
+      - name: scale-iscsi
+        protocol: iscsi
+        isDefault: false
+        reclaimPolicy: Delete
+        allowVolumeExpansion: true
+        volumeBindingMode: Immediate
+      - name: scale-nfs
+        protocol: nfs
+        isDefault: false
+        reclaimPolicy: Delete
+        allowVolumeExpansion: true
+        volumeBindingMode: Immediate
+        mountOptions:
+          - nfsvers=4
+          - noatime
+    snapshotClass:
+      create: true
+      name: scale-snapshot
+      deletionPolicy: Delete
