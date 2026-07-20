@@ -10,6 +10,11 @@ spec:
     name: scale-csi
   interval: 1h
   values:
+    image:
+      # Chart appVersion renders the tag without the leading "v"; the published
+      # image tag is v-prefixed, so pin it explicitly (kept in sync with the
+      # OCIRepository chart tag by Renovate).
+      tag: v1.2.17
     truenas:
       host: "192.168.120.10"
       port: 443
