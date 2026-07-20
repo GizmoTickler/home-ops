@@ -10,11 +10,6 @@ spec:
     name: scale-csi
   interval: 1h
   values:
-    image:
-      # Chart appVersion renders the tag without the leading "v"; the published
-      # image tag is v-prefixed, so pin it explicitly (kept in sync with the
-      # OCIRepository chart tag by Renovate).
-      tag: v1.2.17
     truenas:
       host: "192.168.120.10"
       port: 443
@@ -24,6 +19,10 @@ spec:
     zfs:
       parentDataset: flashstor/scale-csi
       enforceQuota: true
+      # VolSync restores create the app PVC from a VolumeSnapshot; make it a full
+      # independent copy (zfs send|recv) instead of a dependent clone so the
+      # restore intermediate is deletable and no orphan Released PV is left behind.
+      detachedVolumesFromSnapshots: true
     nfs:
       enabled: true
       server: "192.168.120.10"
