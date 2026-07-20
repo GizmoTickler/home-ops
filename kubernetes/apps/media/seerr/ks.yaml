@@ -19,6 +19,8 @@ spec:
     substitute:
       APP: seerr
       VOLSYNC_CAPACITY: 50Gi
+      VOLSYNC_STORAGECLASS: scale-nvmeof
+      VOLSYNC_SNAPSHOTCLASS: scale-snapshot
   prune: true
   sourceRef:
     kind: GitRepository

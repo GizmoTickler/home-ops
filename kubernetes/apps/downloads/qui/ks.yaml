@@ -19,6 +19,8 @@ spec:
     substitute:
       APP: qui
       VOLSYNC_CAPACITY: 15Gi
+      VOLSYNC_STORAGECLASS: scale-nvmeof
+      VOLSYNC_SNAPSHOTCLASS: scale-snapshot
   prune: true
   sourceRef:
     kind: GitRepository
