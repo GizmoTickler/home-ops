@@ -69,3 +69,9 @@ spec:
       create: true
       name: scale-snapshot
       deletionPolicy: Delete
+    reconcile:
+      delete:
+        # Gated GC: nightly CronJob releases spent VolSync-restore snapshots and
+        # deletes true orphans (>24h old, capped 5/run, guarded delete paths,
+        # fails closed during cluster rebuilds). Detection/alerting is always on.
+        enabled: true
