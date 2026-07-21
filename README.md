@@ -367,7 +367,7 @@ Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single ve
 | [VMAlertManager](https://github.com/VictoriaMetrics/VictoriaMetrics) | Alert routing to Pushover | `alertmanager.${SECRET_DOMAIN}` |
 | [VictoriaLogs](https://github.com/VictoriaMetrics/VictoriaMetrics) | Log storage with native syslog ingestion (500Gi, 14d) | `logs.${SECRET_DOMAIN}` |
 | [vlagent](https://github.com/VictoriaMetrics/VictoriaMetrics) | K8s pod log collection (DaemonSet) | Internal only |
-| [vmbackup](https://github.com/VictoriaMetrics/VictoriaMetrics) | Daily incremental metrics backup to CephFS | Internal only |
+| [vmbackup](https://github.com/VictoriaMetrics/VictoriaMetrics) | Daily incremental metrics backup to NFS | Internal only |
 | [Grafana](https://github.com/grafana/grafana) | Dashboards via grafana-operator | `grafana.${SECRET_DOMAIN}` |
 | [Blackbox Exporter](https://github.com/prometheus/blackbox_exporter) | ICMP/HTTP/TCP probing | Internal only |
 | [Gatus](https://github.com/TwiN/gatus) | Uptime monitoring | `status.${SECRET_DOMAIN}` |
@@ -379,8 +379,8 @@ Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single ve
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [Rook Ceph](https://github.com/rook/rook) | Primary distributed storage (block + filesystem) | Internal only |
-| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner | Internal only |
+| [scale-csi](https://github.com/GizmoTickler/scale-csi) | Primary storage — TrueNAS NVMe-oF/iSCSI/NFS CSI driver | Internal only |
+| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner (ZFS RAID10 scratch) | Internal only |
 
 All applications use kgateway (Gateway API) for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
 
@@ -388,32 +388,27 @@ All applications use kgateway (Gateway API) for ingress with automatic TLS certi
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4be/512.gif" alt="💾" width="20" height="20"> Storage Architecture
 
-The cluster uses a multi-tier storage architecture with Rook Ceph as the primary distributed storage layer:
+The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE) as the primary storage layer:
 
 ### Storage Tiers
 
 | Tier | Provider | StorageClass | Use Case |
 |------|----------|--------------|----------|
-| **Distributed Block** | Rook Ceph | `ceph-block` (default) | Application PVCs with replication |
-| **Distributed Filesystem** | Rook Ceph | `ceph-filesystem` | Shared storage across pods |
-| **Local Storage** | OpenEBS | `openebs-hostpath` | High-performance local workloads |
+| **NVMe-oF Block** | scale-csi | `scale-nvmeof` (default) | Application PVCs — highest IOPS, sub-ms commit latency |
+| **iSCSI Block** | scale-csi | `scale-iscsi` | Block volumes over iSCSI |
+| **NFS Filesystem** | scale-csi | `scale-nfs` | Shared (RWX-capable) storage |
+| **Local Scratch** | OpenEBS | `openebs-hostpath` | Download landing zones + VolSync caches on node-local ZFS RAID10 |
 | **Backup** | VolSync + Kopia | — | Automated PVC backup and restore |
 
-### Rook Ceph Configuration
+### scale-csi Configuration
 
-[Rook Ceph](https://rook.io/) provides the primary distributed storage using dedicated SSDs passed through to each Flatcar VM on Proxmox VE:
+[scale-csi](https://github.com/GizmoTickler/scale-csi) is a purpose-built CSI driver for TrueNAS SCALE, talking exclusively to its WebSocket JSON-RPC API (zero SSH):
 
-- **Ceph Version**: v19.2.3 (Squid)
-- **OSD Configuration**: Dedicated 1TB SSD per node passed through via disk-by-id for direct hardware access
-- **Replication**: 3-way replication across nodes for fault tolerance
-- **Pools**:
-  - `ceph-blockpool`: RBD block storage for application PVCs
-  - `ceph-filesystem`: CephFS for shared filesystem access
-- **Features**:
-  - Automatic PG autoscaling
-  - Disk failure prediction (local mode)
-  - TRIM/discard support enabled
-  - Integrated Prometheus metrics and Grafana dashboards
+- **Backend**: TrueNAS SCALE all-flash ZFS pool with mirrored NVMe SLOG (~1ms fsync commit latency) and NVMe L2ARC
+- **Protocols**: NVMe-oF/TCP (primary), iSCSI, and NFS from a single driver
+- **Security**: NVMe subsystem host-NQN allowlisting (secure-by-default, no `allowAnyHost`), non-root controller, path-traversal-hardened volume IDs
+- **Data safety**: detached (fully independent) volumes from snapshots, foreign-snapshot deletion guards, and a driver-side orphan reconciler (read-only detection with Prometheus gauges + a gated, capped nightly GC)
+- **Features**: snapshots/clones/expansion, VolumeSnapshotClass `scale-snapshot`, online NVMe-oF expansion, integrated metrics + alerts
 
 ### Backup Strategy
 
@@ -435,14 +430,14 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
-| └─ **Storage**              | 2x NVMe SSDs (ZFS RAID1 mirror — VM boot, 30GB/drive over-provisioned) + 3x 1TB SSD (Ceph passthrough) | VM boot mirror + Ceph OSDs |
+| └─ **Storage**              | 2x NVMe SSDs (ZFS RAID1 mirror — VM boot, 30GB/drive over-provisioned) + 4x 1TB SSD (ZFS RAID10 `openebs-ssd`, 50GB/drive over-provisioned) | VM boot mirror + local scratch zvols |
 | **Storage Server**          | TrueNAS Scale                                       | iSCSI, NVMe-oF & NFS storage     |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
 | ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
 | ├─ **L2ARC**                | 2x 1TB NVMe (1.8TB read cache)                     | Extended read cache               |
 | ├─ **SLOG**                 | 2x 60GB NVMe (mirrored)                            | Synchronous write log             |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | Storage network        |
-| └─ **Protocols**            | iSCSI (block) + NVMe-oF (block) + NFS 4.2 (file)  | NAS file/block services (not used by k8s) |
+| └─ **Protocols**            | iSCSI (block) + NVMe-oF (block) + NFS 4.2 (file)  | Primary k8s storage via scale-csi |
 | **Network Switch**          | Cisco C9300                                         | Infrastructure interconnect       |
 | ├─ **LACP Configuration**   | IEEE 802.3ad Link Aggregation (40Gbps total)      | High-bandwidth storage path       |
 | ├─ **BGP Peering**          | AS 64541 (peering with Cilium AS 64550)           | LoadBalancer IP advertisement     |
@@ -452,7 +447,7 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 
 | Storage Tier                | Hardware                                            | Purpose                           |
 |-----------------------------|-----------------------------------------------------|-----------------------------------|
-| **TrueNAS Primary Pool**    | 4x RAIDZ1 vdevs (3 disks each = 28.5TB usable)    | iSCSI volumes + NFS exports       |
+| **TrueNAS Primary Pool**    | 3x RAIDZ1 vdevs (3 disks each = 28.5TB usable)    | scale-csi volumes (NVMe-oF/iSCSI zvols + NFS) + media exports |
 | **SLOG (Intent Log)**       | 2x 60GB NVMe (mirrored)                            | Synchronous write acceleration    |
 | **L2ARC (Read Cache)**      | 2x 1TB NVMe (1.8TB total)                          | Extended ARC read cache           |
 
@@ -460,12 +455,12 @@ The cluster uses a multi-tier storage architecture with Rook Ceph as the primary
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 100GB boot (nvme-mirror RAID1) + 1TB SSD passthrough (Ceph OSD) + 800GB local (OpenEBS) | Flatcar Container Linux + kubeadm (k8s v1.36.1) |
+| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 100GB boot (nvme-mirror RAID1) + 700GB local scratch (openebs-ssd RAID10 zvol) | Flatcar Container Linux + kubeadm (k8s v1.36.1) |
 
 **Storage Details**:
 - **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS
-- **Ceph OSD** (`scsi2`, `/dev/sdc`): Dedicated 1TB SSD passed through via disk-by-id for Rook Ceph distributed storage
-- **Local Storage** (`scsi1`, `/dev/sdb`): 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads
+- **Local Scratch** (`scsi3`, `/dev/sdc`): 700GB VirtIO SCSI zvol from the `openebs-ssd` ZFS RAID10 pool (ext4, `LABEL=openebs-local`), mounted at `/var/mnt/local-hostpath` for OpenEBS hostPath workloads
+- **App Volumes**: attached dynamically by scale-csi as NVMe-oF/TCP (or iSCSI) devices from TrueNAS — no static data disks
 
 **VM Configuration**:
 - **Provisioning**: Ignition via qemu **fw_cfg** (`opt/org.flatcar-linux/config`) — the rendered Ignition is attached at VM create; the disk imports a Flatcar image (no install ISO)
