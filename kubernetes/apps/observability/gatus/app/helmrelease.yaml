@@ -71,7 +71,7 @@ spec:
         statefulset:
           volumeClaimTemplates:
             - name: config
-              storageClass: ceph-block
+              storageClass: scale-nvmeof
               accessMode: ReadWriteOnce
               size: 15Gi
     defaultPodOptions:
