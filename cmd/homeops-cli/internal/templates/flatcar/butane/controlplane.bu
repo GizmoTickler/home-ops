@@ -179,7 +179,7 @@ systemd:
         What=/dev/disk/by-label/openebs-local
         Where=/var/mnt/local-hostpath
         Type=ext4
-        Options=defaults,noatime,discard
+        Options=defaults,noatime
         [Install]
         WantedBy=local-fs.target
     # containerd from the Flatcar base OS, pointed at our /etc/containerd/config.toml
