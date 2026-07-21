@@ -3,12 +3,14 @@ package kubernetes
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"homeops-cli/internal/constants"
 )
 
 func fakeKubectlDoctor(t *testing.T, byKind map[string]string) func(args ...string) ([]byte, error) {
@@ -19,6 +21,35 @@ func fakeKubectlDoctor(t *testing.T, byKind map[string]string) func(args ...stri
 			if a == "get" && i+1 < len(args) {
 				kind = args[i+1]
 				break
+			}
+		}
+		if len(args) > 2 {
+			switch {
+			case kind == deploymentResource && args[2] == scaleCSIControllerName:
+				if body, ok := byKind[kind]; ok {
+					return []byte(body), nil
+				}
+				return []byte(`{"metadata":{"name":"scale-csi-controller","namespace":"scale-csi"},"spec":{"replicas":2},"status":{"readyReplicas":2}}`), nil
+			case kind == daemonSetResource && args[2] == scaleCSINodeName:
+				if body, ok := byKind[kind]; ok {
+					return []byte(body), nil
+				}
+				return []byte(`{"metadata":{"name":"scale-csi-node","namespace":"scale-csi"},"status":{"desiredNumberScheduled":3,"numberReady":3}}`), nil
+			case kind == fluxHelmReleaseResource && args[2] == scaleCSIHelmReleaseName:
+				if body, ok := byKind[kind]; ok {
+					return []byte(body), nil
+				}
+				return []byte(`{"metadata":{"name":"scale-csi","namespace":"scale-csi"},"status":{"conditions":[{"type":"Ready","status":"True","reason":"ReconciliationSucceeded"}]}}`), nil
+			case kind == csiDriverResource && args[2] == constants.ScaleCSIDriver:
+				if body, ok := byKind[kind]; ok {
+					return []byte(body), nil
+				}
+				return []byte(`{"metadata":{"name":"csi.scale.io"}}`), nil
+			case kind == storageClassResource:
+				if body, ok := byKind[kind]; ok {
+					return []byte(body), nil
+				}
+				return []byte(`{"metadata":{"name":` + fmt.Sprintf("%q", args[2]) + `}}`), nil
 			}
 		}
 		if body, ok := byKind[kind]; ok {
@@ -268,23 +299,38 @@ func TestDoctorPendingGraceFlagOverride(t *testing.T) {
 	assert.NotContains(t, buf.String(), "volsync-src-sonarr")
 }
 
-func TestBuildDoctorReportCeph(t *testing.T) {
+func TestBuildDoctorReportScaleCSI(t *testing.T) {
 	old := kubectlOutputFn
 	t.Cleanup(func() { kubectlOutputFn = old })
 
-	cases := map[string]doctorStatus{
-		"HEALTH_OK":   statusPass,
-		"HEALTH_WARN": statusWarn,
-		"HEALTH_ERR":  statusFail,
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{})
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	checks := statusFor(t, r, doctorGroupScaleCSI)
+	require.Len(t, checks, 7)
+	for _, check := range checks {
+		assert.Equal(t, statusPass, check.Status)
+		if check.Kind == "Deployment" || check.Kind == "DaemonSet" || check.Kind == "HelmRelease" {
+			assert.Equal(t, constants.NSScaleCSI, check.Namespace)
+		} else {
+			assert.Empty(t, check.Namespace)
+		}
 	}
-	for health, want := range cases {
-		ceph := `{"items":[{"metadata":{"name":"rook-ceph","namespace":"rook-ceph"},"status":{"ceph":{"health":"` + health + `"}}}]}`
-		kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{cephClusterResource: ceph})
-		r := buildDoctorReport("", doctorDefaultPendingGrace)
-		ck := statusFor(t, r, doctorGroupCeph)
-		require.Len(t, ck, 1, "health=%s", health)
-		assert.Equal(t, want, ck[0].Status, "health=%s", health)
-	}
+}
+
+func TestBuildDoctorReportScaleCSIFailures(t *testing.T) {
+	old := kubectlOutputFn
+	t.Cleanup(func() { kubectlOutputFn = old })
+
+	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
+		deploymentResource:      `{"metadata":{"name":"scale-csi-controller","namespace":"scale-csi"},"spec":{"replicas":2},"status":{"readyReplicas":1}}`,
+		daemonSetResource:       `{"metadata":{"name":"scale-csi-node","namespace":"scale-csi"},"status":{"desiredNumberScheduled":3,"numberReady":2}}`,
+		fluxHelmReleaseResource: `{"metadata":{"name":"scale-csi","namespace":"scale-csi"},"status":{"conditions":[{"type":"Ready","status":"False","reason":"InstallFailed","message":"boom"}]}}`,
+	})
+	r := buildDoctorReport("", doctorDefaultPendingGrace)
+	checks := statusFor(t, r, doctorGroupScaleCSI)
+	require.Len(t, checks, 7)
+	assert.Equal(t, 3, countDoctorStatus(checks, statusFail))
+	assert.Equal(t, 4, countDoctorStatus(checks, statusPass))
 }
 
 func TestBuildDoctorReportCerts(t *testing.T) {
@@ -334,9 +380,28 @@ func TestDoctorNamespaceScoping(t *testing.T) {
 			assert.NotContains(t, joined, "-A")
 			continue
 		}
+		if len(a) > 1 && (a[1] == csiDriverResource || a[1] == storageClassResource) {
+			assert.NotContains(t, joined, "--namespace")
+			assert.NotContains(t, joined, "-A")
+			continue
+		}
+		if strings.Contains(joined, "scale-csi") {
+			assert.Contains(t, joined, "--namespace "+constants.NSScaleCSI)
+			continue
+		}
 		assert.Contains(t, joined, "--namespace media")
 		assert.NotContains(t, joined, "-A")
 	}
+}
+
+func countDoctorStatus(checks []doctorCheck, status doctorStatus) int {
+	count := 0
+	for _, check := range checks {
+		if check.Status == status {
+			count++
+		}
+	}
+	return count
 }
 
 func TestRunDoctorContextThreadsCallerContextToKubectl(t *testing.T) {
@@ -349,6 +414,18 @@ func TestRunDoctorContextThreadsCallerContextToKubectl(t *testing.T) {
 	var sawContext bool
 	kubectlOutputCtxFn = func(ctx context.Context, args ...string) ([]byte, error) {
 		sawContext = sawContext || ctx.Value(key) == "doctor-context"
+		if len(args) > 2 {
+			switch args[1] {
+			case deploymentResource:
+				return []byte(`{"metadata":{"name":"scale-csi-controller","namespace":"scale-csi"},"spec":{"replicas":2},"status":{"readyReplicas":2}}`), nil
+			case daemonSetResource:
+				return []byte(`{"metadata":{"name":"scale-csi-node","namespace":"scale-csi"},"status":{"desiredNumberScheduled":3,"numberReady":3}}`), nil
+			case fluxHelmReleaseResource:
+				if args[2] == scaleCSIHelmReleaseName {
+					return []byte(`{"metadata":{"name":"scale-csi","namespace":"scale-csi"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`), nil
+				}
+			}
+		}
 		return []byte(`{"items":[]}`), nil
 	}
 
@@ -362,7 +439,7 @@ func TestRunDoctorContextThreadsCallerContextToKubectl(t *testing.T) {
 func TestRenderDoctorReportJSON(t *testing.T) {
 	r := doctorReport{
 		Checks: []doctorCheck{
-			{Group: doctorGroupCeph, Name: "rook-ceph/rook-ceph", Status: statusFail, Detail: "HEALTH_ERR"},
+			{Group: doctorGroupScaleCSI, Name: "scale-csi/scale-csi-controller", Status: statusFail, Detail: "ready=0 desired=2"},
 		},
 	}
 	r.finalize()
@@ -380,12 +457,12 @@ func TestRunDoctorExitsNonZeroOnFail(t *testing.T) {
 	old := kubectlOutputFn
 	t.Cleanup(func() { kubectlOutputFn = old })
 	kubectlOutputFn = fakeKubectlDoctor(t, map[string]string{
-		cephClusterResource: `{"items":[{"metadata":{"name":"rook-ceph","namespace":"rook-ceph"},"status":{"ceph":{"health":"HEALTH_ERR"}}}]}`,
+		deploymentResource: `{"metadata":{"name":"scale-csi-controller","namespace":"scale-csi"},"spec":{"replicas":2},"status":{"readyReplicas":0}}`,
 	})
 	var buf strings.Builder
 	err := runDoctor("", "json", doctorDefaultPendingGrace, &buf)
 	require.Error(t, err)
-	assert.Contains(t, buf.String(), "HEALTH_ERR")
+	assert.Contains(t, buf.String(), "ready=0 desired=2")
 }
 
 func TestRunDoctorAllPass(t *testing.T) {

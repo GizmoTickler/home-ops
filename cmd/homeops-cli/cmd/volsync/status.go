@@ -32,6 +32,7 @@ type volsyncSourceStatus struct {
 	App                    string        `json:"app"`
 	Namespace              string        `json:"namespace"`
 	SourcePVC              string        `json:"source_pvc"`
+	StorageClass           string        `json:"storage_class"`
 	LastSuccessfulSyncTime string        `json:"last_successful_sync_time,omitempty"`
 	Age                    string        `json:"age,omitempty"`
 	Result                 string        `json:"result,omitempty"`
@@ -40,10 +41,11 @@ type volsyncSourceStatus struct {
 }
 
 type volsyncMissingBackup struct {
-	PVC       string        `json:"pvc"`
-	Namespace string        `json:"namespace"`
-	Status    volsyncStatus `json:"status"`
-	Detail    string        `json:"detail"`
+	PVC          string        `json:"pvc"`
+	Namespace    string        `json:"namespace"`
+	StorageClass string        `json:"storage_class"`
+	Status       volsyncStatus `json:"status"`
+	Detail       string        `json:"detail"`
 }
 
 type volsyncStatusReport struct {
@@ -133,7 +135,7 @@ func buildVolsyncStatusReportContext(ctx context.Context, namespace string, stal
 	}
 	report.Sources = sources
 
-	missing, err := listPVCsWithoutReplicationSourceContext(ctx, namespace, sources)
+	pvcs, err := listVolsyncPVCsContext(ctx, namespace)
 	if err != nil {
 		report.MissingBackups = append(report.MissingBackups, volsyncMissingBackup{
 			PVC:    "persistentvolumeclaims",
@@ -141,7 +143,8 @@ func buildVolsyncStatusReportContext(ctx context.Context, namespace string, stal
 			Detail: err.Error(),
 		})
 	} else {
-		report.MissingBackups = missing
+		enrichVolsyncSourceStorageClasses(report.Sources, pvcs)
+		report.MissingBackups = listPVCsWithoutReplicationSource(pvcs, sources)
 	}
 
 	report.finalize()
@@ -232,10 +235,31 @@ type pvcList struct {
 			Labels          map[string]string         `json:"labels"`
 			OwnerReferences []kubeutil.OwnerReference `json:"ownerReferences"`
 		} `json:"metadata"`
+		Spec struct {
+			StorageClassName string `json:"storageClassName"`
+		} `json:"spec"`
 	} `json:"items"`
 }
 
-func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace string, sources []volsyncSourceStatus) ([]volsyncMissingBackup, error) {
+func listVolsyncPVCsContext(ctx context.Context, namespace string) (pvcList, error) {
+	var list pvcList
+	if err := kubeutil.GetJSON(ctx, verifyOutputFn, namespace, "pvc", &list); err != nil {
+		return list, err
+	}
+	return list, nil
+}
+
+func enrichVolsyncSourceStorageClasses(sources []volsyncSourceStatus, pvcs pvcList) {
+	classes := make(map[string]string, len(pvcs.Items))
+	for _, pvc := range pvcs.Items {
+		classes[pvc.Metadata.Namespace+"/"+pvc.Metadata.Name] = pvc.Spec.StorageClassName
+	}
+	for index := range sources {
+		sources[index].StorageClass = classes[sources[index].Namespace+"/"+sources[index].SourcePVC]
+	}
+}
+
+func listPVCsWithoutReplicationSource(list pvcList, sources []volsyncSourceStatus) []volsyncMissingBackup {
 	protectedNamespaces := map[string]bool{}
 	protectedPVCs := map[string]bool{}
 	for _, s := range sources {
@@ -248,13 +272,9 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 		}
 	}
 	if len(protectedNamespaces) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	var list pvcList
-	if err := kubeutil.GetJSON(ctx, verifyOutputFn, namespace, "pvc", &list); err != nil {
-		return nil, err
-	}
 	var missing []volsyncMissingBackup
 	for _, pvc := range list.Items {
 		if !protectedNamespaces[pvc.Metadata.Namespace] {
@@ -267,10 +287,11 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 		}
 		if !protectedPVCs[key] {
 			missing = append(missing, volsyncMissingBackup{
-				PVC:       pvc.Metadata.Name,
-				Namespace: pvc.Metadata.Namespace,
-				Status:    volsyncWarn,
-				Detail:    "PVC has no ReplicationSource in a namespace that uses VolSync",
+				PVC:          pvc.Metadata.Name,
+				Namespace:    pvc.Metadata.Namespace,
+				StorageClass: pvc.Spec.StorageClassName,
+				Status:       volsyncWarn,
+				Detail:       "PVC has no ReplicationSource in a namespace that uses VolSync",
 			})
 		}
 	}
@@ -280,7 +301,7 @@ func listPVCsWithoutReplicationSourceContext(ctx context.Context, namespace stri
 		}
 		return missing[i].Namespace < missing[j].Namespace
 	})
-	return missing, nil
+	return missing
 }
 
 func renderVolsyncStatusReport(report volsyncStatusReport, output string) (string, error) {
@@ -291,17 +312,17 @@ func renderVolsyncStatusReport(report volsyncStatusReport, output string) (strin
 		sourceRows := make([][]string, 0, len(report.Sources))
 		for _, s := range report.Sources {
 			sourceRows = append(sourceRows, []string{
-				string(s.Status), s.Namespace, s.App, s.SourcePVC, s.LastSuccessfulSyncTime, s.Age, s.Result, s.Detail,
+				string(s.Status), s.Namespace, s.App, s.SourcePVC, s.StorageClass, s.LastSuccessfulSyncTime, s.Age, s.Result, s.Detail,
 			})
 		}
-		b.WriteString(ui.Table([]string{"STATUS", "NAMESPACE", "APP", "PVC", "LAST SUCCESS", "AGE", "RESULT", "DETAIL"}, sourceRows))
+		b.WriteString(ui.Table([]string{"STATUS", "NAMESPACE", "APP", "PVC", "STORAGECLASS", "LAST SUCCESS", "AGE", "RESULT", "DETAIL"}, sourceRows))
 		if len(report.MissingBackups) > 0 {
 			b.WriteString("\n\nPVCs without ReplicationSource\n")
 			missingRows := make([][]string, 0, len(report.MissingBackups))
 			for _, m := range report.MissingBackups {
-				missingRows = append(missingRows, []string{string(m.Status), m.Namespace, m.PVC, m.Detail})
+				missingRows = append(missingRows, []string{string(m.Status), m.Namespace, m.PVC, m.StorageClass, m.Detail})
 			}
-			b.WriteString(ui.Table([]string{"STATUS", "NAMESPACE", "PVC", "DETAIL"}, missingRows))
+			b.WriteString(ui.Table([]string{"STATUS", "NAMESPACE", "PVC", "STORAGECLASS", "DETAIL"}, missingRows))
 		}
 		return b.String(), nil
 	case "json":

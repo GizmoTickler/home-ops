@@ -481,6 +481,24 @@ func extractDriftRows(collector string, raw []byte) ([]supportBundleDriftRow, ma
 	case "storage-report":
 		rows, err := extractStorageDriftRows(root)
 		return rows, nil, err
+	case "scale-csi-pods":
+		rows, err := extractScaleCSIPodRows(root)
+		return rows, nil, err
+	case "scale-csi-helmrelease":
+		rows, err := extractScaleCSIHelmReleaseRows(root)
+		return rows, nil, err
+	case "scale-csi-driver":
+		rows, err := extractScaleCSISingleObjectRows(root, "CSIDriver")
+		return rows, nil, err
+	case "scale-csi-storageclasses":
+		rows, err := extractScaleCSIStorageClassRows(root)
+		return rows, nil, err
+	case "scale-csi-volumeattachments":
+		rows, err := extractScaleCSIVolumeAttachmentRows(root)
+		return rows, nil, err
+	case "scale-csi-events":
+		rows, err := extractScaleCSIEventRows(root)
+		return rows, nil, err
 	case "etcd-status":
 		rows, err := extractEtcdDriftRows(root)
 		return rows, nil, err
@@ -599,8 +617,6 @@ func extractStorageDriftRows(root map[string]any) ([]supportBundleDriftRow, erro
 	}{
 		{Field: "orphaned_pvcs", Prefix: "orphaned-pvc", Identity: []string{"namespace", "name"}, DefaultStatus: "WARN"},
 		{Field: "pv_issues", Prefix: "pv", Identity: []string{"name"}},
-		{Field: "ceph_capacity", Prefix: "ceph", Identity: []string{"namespace", "name"}},
-		{Field: "provisioned_vs_capacity", Prefix: "provisioning", Identity: []string{"storage_class"}},
 		{Field: "volsync_coverage_gaps", Prefix: "volsync", Identity: []string{"namespace", "pvc"}, DefaultStatus: "WARN"},
 	}
 	var rows []supportBundleDriftRow
@@ -630,8 +646,39 @@ func extractStorageDriftRows(root map[string]any) ([]supportBundleDriftRow, erro
 			rows = append(rows, supportBundleDriftRow{Key: shape.Prefix + "/" + identity, Status: status, Detail: storageDriftDetail(shape.Field, item)})
 		}
 	}
-	if capacity, ok := driftArray(root, "ceph_capacity"); ok && len(capacity) == 0 {
-		rows = append(rows, supportBundleDriftRow{Key: "ceph/no-capacity", Status: "WARN", Detail: "no CephCluster capacity reported"})
+	if healthValue, ok := root["scale_csi_health"]; ok {
+		recognized = true
+		health, valid := driftObject(healthValue)
+		if !valid {
+			return nil, fmt.Errorf("invalid scale_csi_health object")
+		}
+		for _, component := range []string{"controller", "node"} {
+			componentValue, exists := health[component]
+			if !exists {
+				return nil, fmt.Errorf("scale_csi_health lacks %s", component)
+			}
+			item, valid := driftObject(componentValue)
+			if !valid || driftString(item, "status") == "" {
+				return nil, fmt.Errorf("invalid scale_csi_health.%s object", component)
+			}
+			detail := driftString(item, "detail")
+			if detail == "" {
+				detail = "ready=" + driftString(item, "ready") + " desired=" + driftString(item, "desired")
+			}
+			rows = append(rows, supportBundleDriftRow{Key: "scale-csi/" + component, Status: driftString(item, "status"), Detail: detail})
+		}
+	}
+	if metricsValue, ok := root["scale_csi_metrics"]; ok {
+		recognized = true
+		metrics, valid := driftObject(metricsValue)
+		if !valid || driftString(metrics, "status") == "" {
+			return nil, fmt.Errorf("invalid scale_csi_metrics object")
+		}
+		detail := driftString(metrics, "detail")
+		if detail == "" {
+			detail = driftString(metrics, "values")
+		}
+		rows = append(rows, supportBundleDriftRow{Key: "scale-csi/metrics", Status: driftString(metrics, "status"), Detail: detail})
 	}
 	if errorsValue, ok := root["errors"]; ok {
 		recognized = true
@@ -661,11 +708,161 @@ func storageDriftDetail(field string, item map[string]any) string {
 		return strings.TrimSpace(strings.Join([]string{driftString(item, "storage_class"), driftString(item, "size")}, " "))
 	case "pv_issues":
 		return strings.TrimSpace(strings.Join([]string{driftString(item, "phase"), driftString(item, "claim")}, " "))
-	case "ceph_capacity":
-		return strings.TrimSpace(strings.Join([]string{driftString(item, "health"), driftString(item, "used_percent") + "% used"}, " "))
 	default:
-		return "ratio " + driftString(item, "ratio")
+		return ""
 	}
+}
+
+func extractScaleCSIPodRows(root map[string]any) ([]supportBundleDriftRow, error) {
+	items, ok := driftArray(root, "items")
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid items array")
+	}
+	rows := make([]supportBundleDriftRow, 0, len(items))
+	for index, value := range items {
+		item, valid := driftObject(value)
+		if !valid {
+			return nil, fmt.Errorf("items[%d] is not an object", index)
+		}
+		key, err := kubernetesObjectDriftKey(item)
+		if err != nil {
+			return nil, fmt.Errorf("items[%d]: %w", index, err)
+		}
+		statusRoot, _ := driftObject(item["status"])
+		phase := driftString(statusRoot, "phase")
+		status := "WARN"
+		switch phase {
+		case "Running", "Succeeded":
+			status = "PASS"
+		case "Failed":
+			status = "FAIL"
+		}
+		rows = append(rows, supportBundleDriftRow{Key: "pod/" + key, Status: status, Detail: phase})
+	}
+	return uniqueDriftRows(rows)
+}
+
+func extractScaleCSIHelmReleaseRows(root map[string]any) ([]supportBundleDriftRow, error) {
+	key, err := kubernetesObjectDriftKey(root)
+	if err != nil {
+		return nil, err
+	}
+	statusRoot, _ := driftObject(root["status"])
+	conditions, ok := driftArray(statusRoot, "conditions")
+	if !ok {
+		return nil, fmt.Errorf("HelmRelease lacks conditions")
+	}
+	for index, value := range conditions {
+		condition, valid := driftObject(value)
+		if !valid {
+			return nil, fmt.Errorf("conditions[%d] is not an object", index)
+		}
+		if driftString(condition, "type") != "Ready" {
+			continue
+		}
+		status := "FAIL"
+		if driftString(condition, "status") == "True" {
+			status = "PASS"
+		}
+		detail := strings.TrimSpace(strings.Join([]string{driftString(condition, "reason"), driftString(condition, "message")}, " "))
+		return []supportBundleDriftRow{{Key: "helmrelease/" + key, Status: status, Detail: detail}}, nil
+	}
+	return []supportBundleDriftRow{{Key: "helmrelease/" + key, Status: "FAIL", Detail: "Ready condition missing"}}, nil
+}
+
+func extractScaleCSISingleObjectRows(root map[string]any, kind string) ([]supportBundleDriftRow, error) {
+	key, err := kubernetesObjectDriftKey(root)
+	if err != nil {
+		return nil, err
+	}
+	return []supportBundleDriftRow{{Key: strings.ToLower(kind) + "/" + key, Status: "PASS", Detail: "present"}}, nil
+}
+
+func extractScaleCSIStorageClassRows(root map[string]any) ([]supportBundleDriftRow, error) {
+	items, ok := driftArray(root, "items")
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid items array")
+	}
+	rows := make([]supportBundleDriftRow, 0, len(items))
+	for index, value := range items {
+		item, valid := driftObject(value)
+		if !valid {
+			return nil, fmt.Errorf("items[%d] is not an object", index)
+		}
+		key, err := kubernetesObjectDriftKey(item)
+		if err != nil {
+			return nil, fmt.Errorf("items[%d]: %w", index, err)
+		}
+		rows = append(rows, supportBundleDriftRow{Key: "storageclass/" + key, Status: "PASS", Detail: "present"})
+	}
+	return uniqueDriftRows(rows)
+}
+
+func extractScaleCSIVolumeAttachmentRows(root map[string]any) ([]supportBundleDriftRow, error) {
+	items, ok := driftArray(root, "items")
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid items array")
+	}
+	rows := make([]supportBundleDriftRow, 0, len(items))
+	for index, value := range items {
+		item, valid := driftObject(value)
+		if !valid {
+			return nil, fmt.Errorf("items[%d] is not an object", index)
+		}
+		key, err := kubernetesObjectDriftKey(item)
+		if err != nil {
+			return nil, fmt.Errorf("items[%d]: %w", index, err)
+		}
+		statusRoot, _ := driftObject(item["status"])
+		attached, _ := statusRoot["attached"].(bool)
+		status := "WARN"
+		if attached {
+			status = "PASS"
+		}
+		rows = append(rows, supportBundleDriftRow{Key: "volumeattachment/" + key, Status: status, Detail: "attached=" + strconv.FormatBool(attached)})
+	}
+	return uniqueDriftRows(rows)
+}
+
+func extractScaleCSIEventRows(root map[string]any) ([]supportBundleDriftRow, error) {
+	items, ok := driftArray(root, "items")
+	if !ok {
+		return nil, fmt.Errorf("missing or invalid items array")
+	}
+	rows := make([]supportBundleDriftRow, 0, len(items))
+	for index, value := range items {
+		item, valid := driftObject(value)
+		if !valid {
+			return nil, fmt.Errorf("items[%d] is not an object", index)
+		}
+		key, err := kubernetesObjectDriftKey(item)
+		if err != nil {
+			return nil, fmt.Errorf("items[%d]: %w", index, err)
+		}
+		status := "PASS"
+		if driftString(item, "type") == "Warning" {
+			status = "WARN"
+		}
+		detail := strings.TrimSpace(strings.Join([]string{driftString(item, "reason"), driftString(item, "message")}, " "))
+		rows = append(rows, supportBundleDriftRow{Key: "event/" + key, Status: status, Detail: detail})
+	}
+	return uniqueDriftRows(rows)
+}
+
+func kubernetesObjectDriftKey(root map[string]any) (string, error) {
+	metadata, ok := driftObject(root["metadata"])
+	if !ok {
+		return "", fmt.Errorf("metadata is missing")
+	}
+	name := strings.TrimSpace(driftString(metadata, "name"))
+	if name == "" {
+		return "", fmt.Errorf("metadata.name is missing")
+	}
+	namespace := strings.TrimSpace(driftString(metadata, "namespace"))
+	if namespace == "" {
+		return name, nil
+	}
+	return namespace + "/" + name, nil
 }
 
 func extractEtcdDriftRows(root map[string]any) ([]supportBundleDriftRow, error) {

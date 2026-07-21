@@ -240,9 +240,13 @@ homeops-cli k8s delete-ks ./kubernetes/apps/observability/grafana/ks.yaml --name
 
 ### Cluster triage and maintenance windows
 
-`k8s doctor` is read-only and reports Flux, node, pod, Ceph, and certificate
+`k8s doctor` is read-only and reports Flux, node, pod, scale-csi, and certificate
 health in table or JSON form. Pending pods younger than `--pending-grace` are
 ignored so short-lived restore/mover pods do not fail the check.
+
+`k8s storage-report` rolls up PVC/PV capacity by StorageClass and snapshots by
+class, reports scale-csi controller/node readiness and metrics when reachable,
+and retains the orphaned-PVC, unhealthy-PV, and VolSync coverage checks.
 
 ```bash
 homeops-cli k8s doctor
@@ -265,11 +269,19 @@ homeops-cli k8s force-sync-externalsecret my-secret -n default
 ```bash
 homeops-cli volsync snapshot --app paperless --namespace default
 homeops-cli volsync restore --app paperless --namespace default
+homeops-cli volsync migrate paperless --namespace default --yes
 homeops-cli volsync snapshots --app paperless
 homeops-cli volsync status --stale-after 36h --output json
 homeops-cli volsync suspend --all -n default
 homeops-cli volsync resume --all -n default
 ```
+
+`volsync migrate` performs the guarded VolSync storage cutover and defaults to
+the `scale-nvmeof` StorageClass and `scale-snapshot` VolumeSnapshotClass. It
+requires those values to be present in the app namespace's Flux Kustomization
+before it takes a fresh backup. `volsync status` and `volsync state` show PVC
+StorageClasses, while successful restores report the spent snapshot and
+intermediate PVC that scale-csi garbage collection removes after 24 hours.
 
 ## Quality Gates
 

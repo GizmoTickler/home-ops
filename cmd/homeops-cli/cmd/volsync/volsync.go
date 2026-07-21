@@ -3,9 +3,11 @@ package volsync
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -177,6 +179,7 @@ func NewCommand() *cobra.Command {
 		newSnapshotsCommand(),
 		newRestoreCommand(),
 		newRestoreAllCommand(),
+		newMigrateCommand(),
 		newVerifyCommand(),
 		newVerifyAllCommand(),
 	)
@@ -225,7 +228,14 @@ type volsyncStateComponent struct {
 
 type volsyncStateReport struct {
 	Components []volsyncStateComponent `json:"components"`
+	PVCs       []volsyncPVCState       `json:"pvcs"`
 	Suspended  bool                    `json:"suspended"`
+}
+
+type volsyncPVCState struct {
+	Namespace    string `json:"namespace"`
+	PVC          string `json:"pvc"`
+	StorageClass string `json:"storage_class"`
 }
 
 func showVolsyncStateOutput(output string) error {
@@ -288,7 +298,44 @@ func buildVolsyncStateReport() volsyncStateReport {
 		}
 		report.Components = append(report.Components, volsyncStateComponent{Component: c.component, State: state})
 	}
+	report.PVCs = buildVolsyncPVCStates()
 	return report
+}
+
+func buildVolsyncPVCStates() []volsyncPVCState {
+	var sources replicationSourceList
+	output, err := kubectlOutputFn("get", "replicationsources", "--all-namespaces", "-o", "json")
+	if err != nil || json.Unmarshal(output, &sources) != nil {
+		return nil
+	}
+	var pvcs pvcList
+	output, err = kubectlOutputFn("get", "pvc", "--all-namespaces", "-o", "json")
+	if err != nil || json.Unmarshal(output, &pvcs) != nil {
+		return nil
+	}
+	protected := make(map[string]struct{}, len(sources.Items))
+	for _, source := range sources.Items {
+		protected[source.Metadata.Namespace+"/"+source.Spec.SourcePVC] = struct{}{}
+	}
+	states := make([]volsyncPVCState, 0, len(protected))
+	for _, pvc := range pvcs.Items {
+		key := pvc.Metadata.Namespace + "/" + pvc.Metadata.Name
+		if _, ok := protected[key]; !ok {
+			continue
+		}
+		states = append(states, volsyncPVCState{
+			Namespace:    pvc.Metadata.Namespace,
+			PVC:          pvc.Metadata.Name,
+			StorageClass: pvc.Spec.StorageClassName,
+		})
+	}
+	sort.Slice(states, func(i, j int) bool {
+		if states[i].Namespace == states[j].Namespace {
+			return states[i].PVC < states[j].PVC
+		}
+		return states[i].Namespace < states[j].Namespace
+	})
+	return states
 }
 
 func renderVolsyncStateReport(report volsyncStateReport, output string) (string, error) {
@@ -298,7 +345,15 @@ func renderVolsyncStateReport(report volsyncStateReport, output string) (string,
 		for _, component := range report.Components {
 			rows = append(rows, []string{component.Component, component.State})
 		}
-		return ui.Table([]string{"COMPONENT", "STATE"}, rows), nil
+		rendered := ui.Table([]string{"COMPONENT", "STATE"}, rows)
+		if len(report.PVCs) > 0 {
+			pvcRows := make([][]string, 0, len(report.PVCs))
+			for _, pvc := range report.PVCs {
+				pvcRows = append(pvcRows, []string{pvc.Namespace, pvc.PVC, pvc.StorageClass})
+			}
+			rendered += "\n\nVolSync PVCs\n" + ui.Table([]string{"NAMESPACE", "PVC", "STORAGECLASS"}, pvcRows)
+		}
+		return rendered, nil
 	case "json":
 		return ui.RenderJSON(report)
 	default:
@@ -572,7 +627,7 @@ func newSnapshotCommand() *cobra.Command {
 	return cmd
 }
 
-func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error {
+func snapshotApp(namespace, app string, wait bool, timeout time.Duration) (returnErr error) {
 	logger := common.NewColorLogger()
 
 	namespace, cancelled, err := promptForNamespace(namespace)
@@ -606,6 +661,15 @@ func snapshotApp(namespace, app string, wait bool, timeout time.Duration) error 
 		"--type", "merge", "-p", patchJSON); err != nil {
 		return fmt.Errorf("failed to trigger snapshot: %w\n%s", err, output)
 	}
+	defer func() {
+		if err := ensureReplicationSourceSchedule(namespace, app, volsyncHourlySchedule); err != nil {
+			if returnErr == nil {
+				returnErr = fmt.Errorf("restore hourly ReplicationSource schedule: %w", err)
+				return
+			}
+			returnErr = fmt.Errorf("%w; additionally failed to restore hourly ReplicationSource schedule: %v", returnErr, err)
+		}
+	}()
 
 	if !wait {
 		logger.Success("Snapshot triggered for %s/%s", namespace, app)
@@ -1032,7 +1096,12 @@ func restoreApp(namespace, app, previous string, force bool, restoreTimeout time
 	restore.waitForApplicationReady()
 
 	logger.Success("Restore completed successfully for %s/%s", namespace, app)
+	logSpentRestoreSnapshotNote(logger, restore.destName)
 	return nil
+}
+
+func logSpentRestoreSnapshotNote(logger *common.ColorLogger, destination string) {
+	logger.Info("Spent restore VolumeSnapshot and intermediate PVC matching volsync-%s-dest-* are intentionally retained; scale-csi GC removes them after the 24h age gate.", destination)
 }
 
 func resolveRestoreRequest(namespace, app, previous string, logger *common.ColorLogger) (string, string, string, bool, error) {

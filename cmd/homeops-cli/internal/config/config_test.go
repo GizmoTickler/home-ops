@@ -29,8 +29,6 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, []string{"10.123.123.123", "10.123.123.124", "10.123.123.125", "10.123.123.126", "10.123.123.127"}, c.Cluster.NTPServers)
 	assert.Equal(t, []string{"192.168.255.10"}, c.Cluster.ExtraCertSANs)
 	assert.Equal(t, constants.DefaultNodeSSHPort, c.Cluster.NodeSSHPort)
-	assert.Equal(t, constants.NSRookCeph, c.Cluster.Rook.Namespace)
-	assert.Equal(t, constants.DefaultRookToolboxDeployment, c.Cluster.Rook.ToolboxDeployment)
 	assert.Equal(t, constants.NSObservability, c.Cluster.Observability.Namespace)
 	assert.Equal(t, constants.DefaultVolsyncCheckImage, c.Volsync.CheckImage)
 	assert.Equal(t, 250, c.Cluster.Kubelet.MaxPods)
@@ -277,7 +275,7 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		{"bad node subnet", "cluster:\n  node_subnet: not-a-cidr\n", "cluster.node_subnet"},
 		{"bad kubelet max pods", "cluster:\n  kubelet:\n    max_pods: -1\n", "cluster.kubelet.max_pods"},
 		{"bad node ssh port", "cluster:\n  node_ssh_port: 70000\n", "cluster.node_ssh_port"},
-		{"blank rook namespace", "cluster:\n  rook:\n    namespace: ' '\n", "cluster.rook.namespace"},
+		{"removed rook config", "cluster:\n  rook:\n    namespace: rook-ceph\n", "field rook not found"},
 		{"blank volsync check image", "volsync:\n  check_image: ' '\n", "volsync.check_image"},
 		{"unknown field", "clusterz:\n  name: x\n", "field clusterz not found"},
 	}
@@ -300,8 +298,6 @@ func TestProposedHomeopsAdditionsLoad(t *testing.T) {
 	c, err := LoadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, 22, c.Cluster.NodeSSHPort)
-	assert.Equal(t, "rook-ceph", c.Cluster.Rook.Namespace)
-	assert.Equal(t, "rook-ceph-tools", c.Cluster.Rook.ToolboxDeployment)
 	assert.Equal(t, "docker.io/library/alpine:3.22", c.Volsync.CheckImage)
 }
 
@@ -310,9 +306,6 @@ func TestLoadFileOverridesDeploymentSettings(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 cluster:
   node_ssh_port: 2222
-  rook:
-    namespace: ceph-custom
-    toolbox_deployment: ceph-toolbox-custom
 volsync:
   check_image: registry.example/alpine:3.22
 `), 0o600))
@@ -320,17 +313,12 @@ volsync:
 	c, err := LoadFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, 2222, c.Cluster.NodeSSHPort)
-	assert.Equal(t, "ceph-custom", c.Cluster.Rook.Namespace)
-	assert.Equal(t, "ceph-toolbox-custom", c.Cluster.Rook.ToolboxDeployment)
 	assert.Equal(t, "registry.example/alpine:3.22", c.Volsync.CheckImage)
 }
 
 const ProposedHomeopsAdditionsForTest = `
 cluster:
   node_ssh_port: 22
-  rook:
-    namespace: rook-ceph
-    toolbox_deployment: rook-ceph-tools
 volsync:
   check_image: docker.io/library/alpine:3.22
 `

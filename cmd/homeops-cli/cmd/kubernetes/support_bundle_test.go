@@ -18,8 +18,77 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/testutil"
 )
+
+func TestDefaultSupportBundleCollectorsIncludeScaleCSI(t *testing.T) {
+	collectors := defaultSupportBundleCollectors(false)
+	byName := map[string]supportBundleCollector{}
+	for _, collector := range collectors {
+		byName[collector.Name] = collector
+	}
+	for _, name := range []string{
+		"scale-csi-pods",
+		"scale-csi-controller-logs",
+		"scale-csi-node-logs",
+		"scale-csi-helmrelease",
+		"scale-csi-driver",
+		"scale-csi-storageclasses",
+		"scale-csi-volumeattachments",
+		"scale-csi-events",
+	} {
+		assert.Contains(t, byName, name)
+	}
+
+	var calls [][]string
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string(nil), args...))
+		return []byte(`{}`), nil
+	})
+	_, _ = collectSupportScaleCSIPods(context.Background())
+	_, _ = collectSupportScaleCSIControllerLogs(context.Background())
+	_, _ = collectSupportScaleCSINodeLogs(context.Background())
+	_, _ = collectSupportScaleCSIHelmRelease(context.Background())
+	_, _ = collectSupportScaleCSIDriver(context.Background())
+	_, _ = collectSupportScaleCSIStorageClasses(context.Background())
+	_, _ = collectSupportScaleCSIVolumeAttachments(context.Background())
+	_, _ = collectSupportScaleCSIEvents(context.Background())
+
+	joined := make([]string, 0, len(calls))
+	for _, call := range calls {
+		joined = append(joined, strings.Join(call, " "))
+	}
+	all := strings.Join(joined, "\n")
+	assert.Contains(t, all, "--namespace "+constants.NSScaleCSI)
+	assert.Contains(t, all, "deployment/"+constants.ScaleCSIController)
+	assert.Contains(t, all, "daemonset/"+constants.ScaleCSINode)
+	assert.Contains(t, all, csiDriverResource+" "+constants.ScaleCSIDriver)
+	assert.Contains(t, all, constants.ScaleCSIStorageClassNVMeOF)
+	assert.Contains(t, all, "volumeattachments.storage.k8s.io")
+}
+
+func TestCollectSupportScaleCSIVolumeAttachmentsFiltersOtherDrivers(t *testing.T) {
+	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, _ ...string) ([]byte, error) {
+		return []byte(`{"apiVersion":"storage.k8s.io/v1","kind":"VolumeAttachmentList","items":[
+			{"metadata":{"name":"scale"},"spec":{"attacher":"csi.scale.io"},"status":{"attached":true}},
+			{"metadata":{"name":"other"},"spec":{"attacher":"example.csi.io"},"status":{"attached":true}}
+		]}`), nil
+	})
+
+	raw, err := collectSupportScaleCSIVolumeAttachments(context.Background())
+	require.NoError(t, err)
+	var list struct {
+		Items []struct {
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		} `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &list))
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "scale", list.Items[0].Metadata.Name)
+}
 
 func TestSupportBundleCollectorIsolationManifestAndTarStructure(t *testing.T) {
 	fixed := time.Date(2026, 7, 15, 12, 30, 0, 0, time.UTC)
@@ -168,8 +237,8 @@ func TestSupportBundleDriftReportShapes(t *testing.T) {
 		},
 		{
 			name: "storage", collector: "storage-report",
-			oldJSON:   `{"orphaned_pvcs":[],"pv_issues":[],"ceph_capacity":[],"provisioned_vs_capacity":[],"volsync_coverage_gaps":[]}`,
-			newJSON:   `{"orphaned_pvcs":[{"namespace":"media","name":"stale","storage_class":"ceph","size":"1Gi"}],"pv_issues":[],"ceph_capacity":[],"provisioned_vs_capacity":[],"volsync_coverage_gaps":[]}`,
+			oldJSON:   `{"orphaned_pvcs":[],"pv_issues":[],"volsync_coverage_gaps":[]}`,
+			newJSON:   `{"orphaned_pvcs":[{"namespace":"media","name":"stale","storage_class":"scale-csi","size":"1Gi"}],"pv_issues":[],"volsync_coverage_gaps":[]}`,
 			wantClass: "NEW-WARN", wantKey: "orphaned-pvc/media/stale",
 		},
 		{
@@ -216,6 +285,26 @@ func TestSupportBundleDriftReportShapes(t *testing.T) {
 			assert.Equal(t, test.wantChanged, changed)
 		})
 	}
+}
+
+func TestSupportBundleStorageDriftIncludesScaleCSIHealth(t *testing.T) {
+	rows, _, err := extractDriftRows("storage-report", []byte(`{
+		"orphaned_pvcs":[],"pv_issues":[],"volsync_coverage_gaps":[],
+		"scale_csi_health":{
+			"controller":{"ready":1,"desired":2,"status":"FAIL"},
+			"node":{"ready":3,"desired":3,"status":"OK"},
+			"status":"FAIL"
+		},
+		"scale_csi_metrics":{"available":true,"status":"WARN","values":{"scale_csi_orphan_volumes":1}}
+	}`))
+	require.NoError(t, err)
+	byKey := map[string]supportBundleDriftRow{}
+	for _, row := range rows {
+		byKey[row.Key] = row
+	}
+	assert.Equal(t, "FAIL", byKey["scale-csi/controller"].Status)
+	assert.Equal(t, "OK", byKey["scale-csi/node"].Status)
+	assert.Equal(t, "WARN", byKey["scale-csi/metrics"].Status)
 }
 
 func TestSupportBundleVersionChanges(t *testing.T) {

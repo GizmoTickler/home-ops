@@ -26,8 +26,8 @@ func TestEmbeddedTemplateHelpers(t *testing.T) {
 		"PUID":                "1000",
 		"PGID":                "1000",
 		"PREVIOUS":            "latest",
-		"STORAGE_CLASS":       "ceph",
-		"SNAPSHOT_CLASS":      "csi-cephfsplugin-snapclass",
+		"STORAGE_CLASS":       "scale-nvmeof",
+		"SNAPSHOT_CLASS":      "scale-snapshot",
 	})
 	require.NoError(t, err)
 	assert.Contains(t, renderedVolsync, "name: demo-manual")
@@ -104,7 +104,7 @@ func TestTemplateRenderer(t *testing.T) {
 		"PUID":                "1000",
 		"PGID":                "1000",
 		"PREVIOUS":            "latest",
-		"STORAGE_CLASS":       "ceph",
+		"STORAGE_CLASS":       "scale-nvmeof",
 		"SNAPSHOT_CLASS":      "snap",
 	}, nil)
 	require.NoError(t, err)

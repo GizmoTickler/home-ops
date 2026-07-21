@@ -53,8 +53,6 @@ func TestInitCommand(t *testing.T) {
 		assert.Equal(t, config.DefaultServiceCIDR, cfg.Cluster.ServiceCIDR)
 		assert.Equal(t, config.DefaultDNSDomain, cfg.Cluster.DNSDomain)
 		assert.Equal(t, 22, cfg.Cluster.NodeSSHPort)
-		assert.Equal(t, "rook-ceph", cfg.Cluster.Rook.Namespace)
-		assert.Equal(t, "rook-ceph-tools", cfg.Cluster.Rook.ToolboxDeployment)
 		assert.Equal(t, "docker.io/library/alpine:3.22", cfg.Volsync.CheckImage)
 		assert.Equal(t, "Infrastructure", cfg.Bootstrap.OpVault)
 	})
@@ -129,8 +127,6 @@ func TestShowCommandNeverPrintsSecretValues(t *testing.T) {
 	assert.Contains(t, out, config.KeyTrueNASHost)
 	assert.Contains(t, out, "literal://nas.example")
 	assert.Contains(t, out, "node_ssh_port: 22")
-	assert.Contains(t, out, "namespace: rook-ceph")
-	assert.Contains(t, out, "toolbox_deployment: rook-ceph-tools")
 	assert.Contains(t, out, "check_image: docker.io/library/alpine:3.22")
 }
 
@@ -140,8 +136,6 @@ func TestRunDoctorValidatesDeploymentSettings(t *testing.T) {
 	defer restore()
 	cfg := config.Get()
 	cfg.Cluster.NodeSSHPort = 70000
-	cfg.Cluster.Rook.Namespace = " "
-	cfg.Cluster.Rook.ToolboxDeployment = ""
 	cfg.Volsync.CheckImage = ""
 
 	lookPathFn = func(string) error { return nil }
@@ -150,7 +144,7 @@ func TestRunDoctorValidatesDeploymentSettings(t *testing.T) {
 
 	err := runDoctor(true, false)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "4 problem(s)")
+	assert.Contains(t, err.Error(), "2 problem(s)")
 }
 
 // doctorSeams stubs every external touchpoint of runDoctor.

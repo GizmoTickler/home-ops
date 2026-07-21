@@ -25,14 +25,14 @@ type VMConfig struct {
 	// Multi-datastore configuration (for k8s nodes)
 	BootDatastore    string // Datastore for boot/OS disk (e.g., "local-nvme1")
 	OpenEBSDatastore string // Datastore for OpenEBS disk (e.g., "truenas-iscsi")
-	Datastore        string // Legacy: single datastore for all disks (deprecated, use Boot/Ceph datastores)
+	Datastore        string // Legacy: single datastore for all disks (deprecated; use the per-disk datastores)
 	Network          string // Network name (e.g., "vl999") - used only for vmxnet3
 	ISO              string // ISO path on datastore (e.g., "[datastore1] vmware-amd64.iso")
 	ISODatastore     string // Datastore where ISO is stored (e.g., "datastore1")
 	MacAddress       string // Static MAC address for network (SR-IOV or vmxnet3)
 
-	// RDM (Raw Device Mapping) configuration for Rook/Ceph distributed storage
-	// These are physical Intel SSDs passed through as pRDM for Ceph OSD
+	// Legacy OSD-disk RDM configuration retained for nodes[].vm.ceph compatibility.
+	// These physical SSD mappings are not used when the compatibility mode is none.
 	RDMPath string // Path to RDM descriptor (e.g., "[datastore1] rdm/intel-ssd-1.vmdk")
 
 	// SR-IOV PCI Passthrough configuration

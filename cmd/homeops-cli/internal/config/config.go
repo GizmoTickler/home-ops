@@ -46,8 +46,9 @@ type VMProfile struct {
 	NUMANode       *int   `yaml:"numa_node,omitempty"`       // host NUMA node
 	PCIDevice      string `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
 	RDMPath        string `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
-	// Ceph configures this node's Rook-Ceph OSD disk (overrides the provider
-	// default and any built-in node profile).
+	// Ceph retains the legacy OSD-disk passthrough configuration exposed by the
+	// nodes[].vm.ceph compatibility key. It overrides provider and built-in
+	// profiles when present.
 	Ceph CephDisk `yaml:"ceph,omitempty"`
 	// Providers contains per-cluster-provider overlays for fields that differ
 	// while sharing the same node identity (for example Talos vs Flatcar boot
@@ -55,11 +56,12 @@ type VMProfile struct {
 	Providers ProviderVMProfiles `yaml:"providers,omitempty"`
 }
 
-// CephDisk describes how a node gets its Rook-Ceph OSD disk.
+// CephDisk describes the legacy OSD-disk passthrough configuration retained
+// for compatibility with the nodes[].vm.ceph key.
 type CephDisk struct {
 	// Mode: "passthrough" (a physical disk via /dev/disk/by-id), "virtual"
-	// (a plain virtual disk — no dedicated SSD needed), or "none" (no Ceph
-	// disk, e.g. when not running Rook). Empty keeps the built-in default.
+	// (a plain virtual disk), or "none" (do not attach the legacy OSD disk).
+	// Empty keeps the built-in compatibility default.
 	Mode string `yaml:"mode,omitempty"`
 	// DiskByID is the /dev/disk/by-id identifier (passthrough mode).
 	DiskByID string `yaml:"disk_by_id,omitempty"`
@@ -102,8 +104,8 @@ type VMDefaults struct {
 	OpenEBSDiskGB  int    `yaml:"openebs_disk_gb,omitempty"`
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // default pool/datastore for boot disks
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
-	// Ceph sets the default Rook-Ceph OSD disk for every node (per-node
-	// cluster.nodes[].vm.ceph overrides this).
+	// Ceph retains the default legacy OSD-disk passthrough configuration for
+	// the nodes[].vm.ceph compatibility key. Per-node configuration overrides it.
 	Ceph           CephDisk `yaml:"ceph,omitempty"`
 	NetworkBridge  string   `yaml:"network_bridge,omitempty"`
 	NetworkMTU     int      `yaml:"network_mtu,omitempty"`
@@ -144,12 +146,6 @@ type TalosSettings struct {
 	UserVolume              TalosUserVolumeSettings `yaml:"user_volume,omitempty"`
 }
 
-// RookConfig identifies the Rook-Ceph installation used by cluster workflows.
-type RookConfig struct {
-	Namespace         string `yaml:"namespace,omitempty"`
-	ToolboxDeployment string `yaml:"toolbox_deployment,omitempty"`
-}
-
 // ObservabilityConfig identifies the namespace containing cluster metrics
 // services such as VictoriaMetrics. Service names are discovered at runtime.
 type ObservabilityConfig struct {
@@ -175,8 +171,6 @@ type ClusterConfig struct {
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
 	NodeSSHPort int `yaml:"node_ssh_port,omitempty"`
-	// Rook identifies the Rook-Ceph namespace and toolbox deployment.
-	Rook RookConfig `yaml:"rook,omitempty"`
 	// Observability identifies the namespace where metrics backends are
 	// discovered. No service name is configured or assumed.
 	Observability ObservabilityConfig `yaml:"observability,omitempty"`
@@ -605,8 +599,6 @@ func validate(c *Config) error {
 		name  string
 		value string
 	}{
-		{"cluster.rook.namespace", c.Cluster.Rook.Namespace},
-		{"cluster.rook.toolbox_deployment", c.Cluster.Rook.ToolboxDeployment},
 		{"volsync.check_image", c.Volsync.CheckImage},
 	} {
 		if field.value != "" && strings.TrimSpace(field.value) == "" {
@@ -668,31 +660,31 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
-	cephModes := []struct {
+	legacyOSDModes := []struct {
 		name string
 		mode string
 	}{{"hypervisors.proxmox.vm.ceph", c.Hypervisors.Proxmox.VM.Ceph.Mode},
 		{"hypervisors.truenas.vm.ceph", c.Hypervisors.TrueNAS.VM.Ceph.Mode},
 		{"hypervisors.vsphere.vm.ceph", c.Hypervisors.VSphere.VM.Ceph.Mode}}
 	for _, n := range c.Cluster.Nodes {
-		cephModes = append(cephModes, struct {
+		legacyOSDModes = append(legacyOSDModes, struct {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.ceph", n.Name), n.VM.Ceph.Mode})
-		cephModes = append(cephModes, struct {
+		legacyOSDModes = append(legacyOSDModes, struct {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.talos.ceph", n.Name), n.VM.Providers.Talos.Ceph.Mode})
-		cephModes = append(cephModes, struct {
+		legacyOSDModes = append(legacyOSDModes, struct {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.flatcar.ceph", n.Name), n.VM.Providers.Flatcar.Ceph.Mode})
-		cephModes = append(cephModes, struct {
+		legacyOSDModes = append(legacyOSDModes, struct {
 			name string
 			mode string
 		}{fmt.Sprintf("cluster.nodes[%s].vm.providers.vsphere.ceph", n.Name), n.VM.Providers.VSphere.Ceph.Mode})
 	}
-	for _, cm := range cephModes {
+	for _, cm := range legacyOSDModes {
 		switch cm.mode {
 		case "", "passthrough", "virtual", "none":
 		default:

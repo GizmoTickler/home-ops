@@ -8,25 +8,25 @@ import (
 )
 
 type vmOptionsProfile struct {
-	staticCPU       string
-	useConfigCPU    bool
-	useAffinity     bool
-	useNUMA         bool
-	useUEFI         bool
-	staticSCSI      string
-	useConfigSCSI   bool
-	earlyExtras     []proxmox.VirtualMachineOption
-	bootDisk        func(*VMManager, VMConfig) string
-	includeOpenEBS  bool
-	includeCeph     bool
-	includeISO      bool
-	bootOrder       func(VMConfig) string
-	afterBoot       func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
-	network         vmNetworkOptionsProfile
-	includeWatchdog bool
-	useConfigAgent  bool
-	includeOnBoot   bool
-	afterOnBoot     func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
+	staticCPU        string
+	useConfigCPU     bool
+	useAffinity      bool
+	useNUMA          bool
+	useUEFI          bool
+	staticSCSI       string
+	useConfigSCSI    bool
+	earlyExtras      []proxmox.VirtualMachineOption
+	bootDisk         func(*VMManager, VMConfig) string
+	includeOpenEBS   bool
+	includeLegacyOSD bool
+	includeISO       bool
+	bootOrder        func(VMConfig) string
+	afterBoot        func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
+	network          vmNetworkOptionsProfile
+	includeWatchdog  bool
+	useConfigAgent   bool
+	includeOnBoot    bool
+	afterOnBoot      func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
 }
 
 type vmNetworkOptionsProfile struct {
@@ -81,8 +81,8 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 	if profile.includeOpenEBS {
 		options = appendOpenEBSDiskOptions(options, config)
 	}
-	if profile.includeCeph {
-		options = appendCephDiskOptions(options, config)
+	if profile.includeLegacyOSD {
+		options = appendLegacyOSDDiskOptions(options, config)
 	}
 	if profile.includeISO && config.ISOPath != "" {
 		options = append(options, proxmox.VirtualMachineOption{Name: "ide2", Value: config.ISOPath + ",media=cdrom"})
@@ -124,11 +124,20 @@ func appendOpenEBSDiskOptions(options []proxmox.VirtualMachineOption, config VMC
 	if config.OpenEBSSize <= 0 || config.OpenEBSStorage == "" {
 		return options
 	}
+	openebsSlot := config.OpenEBSSlot
+	if openebsSlot == "" {
+		openebsSlot = "scsi1"
+	}
 	openebsDiskOpts := appendDiskPerformanceOptions(fmt.Sprintf("%s:%d", config.OpenEBSStorage, config.OpenEBSSize), config)
-	return append(options, proxmox.VirtualMachineOption{Name: "scsi1", Value: openebsDiskOpts})
+	if config.OpenEBSSSD {
+		openebsDiskOpts += ",ssd=1"
+	}
+	return append(options, proxmox.VirtualMachineOption{Name: openebsSlot, Value: openebsDiskOpts})
 }
 
-func appendCephDiskOptions(options []proxmox.VirtualMachineOption, config VMConfig) []proxmox.VirtualMachineOption {
+// appendLegacyOSDDiskOptions implements the retained nodes[].vm.ceph disk
+// compatibility path. mode=none deliberately leaves scsi2 unattached.
+func appendLegacyOSDDiskOptions(options []proxmox.VirtualMachineOption, config VMConfig) []proxmox.VirtualMachineOption {
 	usePassthrough := config.CephMode == "passthrough" ||
 		(config.CephMode == "" && config.CephDiskByID != "")
 	useVirtual := config.CephMode == "virtual" ||
@@ -137,18 +146,18 @@ func appendCephDiskOptions(options []proxmox.VirtualMachineOption, config VMConf
 		return options
 	}
 
-	var cephDiskOpts string
+	var legacyOSDDiskOpts string
 	if usePassthrough {
-		cephDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
+		legacyOSDDiskOpts = fmt.Sprintf("/dev/disk/by-id/%s", config.CephDiskByID)
 	} else {
-		cephStorage := config.CephStorage
-		if cephStorage == "" {
-			cephStorage = config.BootStorage
+		legacyOSDStorage := config.CephStorage
+		if legacyOSDStorage == "" {
+			legacyOSDStorage = config.BootStorage
 		}
-		cephDiskOpts = fmt.Sprintf("%s:%d", cephStorage, config.CephDiskSize)
+		legacyOSDDiskOpts = fmt.Sprintf("%s:%d", legacyOSDStorage, config.CephDiskSize)
 	}
-	cephDiskOpts = appendDiskPerformanceOptions(cephDiskOpts, config)
-	return append(options, proxmox.VirtualMachineOption{Name: "scsi2", Value: cephDiskOpts})
+	legacyOSDDiskOpts = appendDiskPerformanceOptions(legacyOSDDiskOpts, config)
+	return append(options, proxmox.VirtualMachineOption{Name: "scsi2", Value: legacyOSDDiskOpts})
 }
 
 func appendDiskPerformanceOptions(opts string, config VMConfig) string {

@@ -1,8 +1,8 @@
 package kubernetes
 
 import (
+	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -11,15 +11,19 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
-	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
-	storageDefaultCephWarnPercent = 80.0
-	storageAvailablePVMaxAge      = 24 * time.Hour
+	storageAvailablePVMaxAge = 24 * time.Hour
+
+	scaleCSIOrphanVolumesMetric         = "scale_csi_orphan_volumes"
+	scaleCSIOrphanSnapshotsMetric       = "scale_csi_orphan_snapshots"
+	scaleCSISpentRestoreSnapshotsMetric = "scale_csi_spent_restore_snapshots"
+	scaleCSITrueNASConnectionMetric     = "scale_csi_truenas_connection_status"
 )
 
 type storageFindingStatus string
@@ -153,45 +157,24 @@ type storagePVList struct {
 	Items []storagePV `json:"items"`
 }
 
-type byteCount int64
-
-func (b *byteCount) UnmarshalJSON(raw []byte) error {
-	var number json.Number
-	if err := json.Unmarshal(raw, &number); err == nil {
-		value, err := strconv.ParseInt(number.String(), 10, 64)
-		if err == nil {
-			*b = byteCount(value)
-			return nil
-		}
-	}
-	var text string
-	if err := json.Unmarshal(raw, &text); err != nil {
-		return fmt.Errorf("capacity value must be a number or numeric string")
-	}
-	value, err := strconv.ParseInt(text, 10, 64)
-	if err != nil {
-		return fmt.Errorf("parse capacity %q: %w", text, err)
-	}
-	*b = byteCount(value)
-	return nil
+type storageVolumeSnapshotList struct {
+	Items []struct {
+		Spec struct {
+			VolumeSnapshotClassName string `json:"volumeSnapshotClassName"`
+		} `json:"spec"`
+	} `json:"items"`
 }
 
-type cephCapacityItem struct {
-	Metadata metadataJSON `json:"metadata"`
-	Status   struct {
-		Ceph struct {
-			Health   string `json:"health"`
-			Capacity struct {
-				BytesUsed      byteCount `json:"bytesUsed"`
-				BytesTotal     byteCount `json:"bytesTotal"`
-				BytesAvailable byteCount `json:"bytesAvailable"`
-			} `json:"capacity"`
-		} `json:"ceph"`
-	} `json:"status"`
-}
-
-type cephCapacityList struct {
-	Items []cephCapacityItem `json:"items"`
+type storageServiceList struct {
+	Items []struct {
+		Metadata metadataJSON `json:"metadata"`
+		Spec     struct {
+			Ports []struct {
+				Name string `json:"name"`
+				Port int    `json:"port"`
+			} `json:"ports"`
+		} `json:"spec"`
+	} `json:"items"`
 }
 
 type orphanedPVC struct {
@@ -213,24 +196,6 @@ type pvIssue struct {
 	Status       storageFindingStatus `json:"status"`
 }
 
-type cephCapacity struct {
-	Namespace   string               `json:"namespace"`
-	Name        string               `json:"name"`
-	Health      string               `json:"health"`
-	UsedBytes   int64                `json:"used_bytes"`
-	TotalBytes  int64                `json:"total_bytes"`
-	UsedPercent float64              `json:"used_percent"`
-	Status      storageFindingStatus `json:"status"`
-}
-
-type storageProvisioning struct {
-	StorageClass string               `json:"storage_class"`
-	Requested    int64                `json:"requested_bytes"`
-	CephCapacity int64                `json:"ceph_capacity_bytes"`
-	Ratio        float64              `json:"ratio"`
-	Status       storageFindingStatus `json:"status"`
-}
-
 type volSyncGap struct {
 	Namespace    string `json:"namespace"`
 	PVC          string `json:"pvc"`
@@ -238,42 +203,72 @@ type volSyncGap struct {
 	Size         string `json:"size"`
 }
 
-type storageReport struct {
-	Findings        int                   `json:"findings"`
-	OrphanedPVCs    []orphanedPVC         `json:"orphaned_pvcs"`
-	PVIssues        []pvIssue             `json:"pv_issues"`
-	CephCapacity    []cephCapacity        `json:"ceph_capacity"`
-	Provisioning    []storageProvisioning `json:"provisioned_vs_capacity"`
-	VolSyncCoverage []volSyncGap          `json:"volsync_coverage_gaps"`
-	Errors          []string              `json:"errors,omitempty"`
+type storageClassRollup struct {
+	StorageClass      string `json:"storage_class"`
+	PVCCount          int    `json:"pvc_count"`
+	PVCRequestedBytes int64  `json:"pvc_requested_bytes"`
+	PVCount           int    `json:"pv_count"`
+	PVCapacityBytes   int64  `json:"pv_capacity_bytes"`
 }
 
-var (
-	storageNowFn    = time.Now
-	storageConfigFn = config.Get
-)
+type volumeSnapshotRollup struct {
+	VolumeSnapshotClass string `json:"volume_snapshot_class"`
+	Count               int    `json:"count"`
+}
+
+type scaleCSIComponentHealth struct {
+	Ready   int32                `json:"ready"`
+	Desired int32                `json:"desired"`
+	Status  storageFindingStatus `json:"status"`
+	Detail  string               `json:"detail,omitempty"`
+}
+
+type scaleCSIHealth struct {
+	Controller scaleCSIComponentHealth `json:"controller"`
+	Node       scaleCSIComponentHealth `json:"node"`
+	Status     storageFindingStatus    `json:"status"`
+}
+
+type scaleCSIMetricsReport struct {
+	Available bool                 `json:"available"`
+	Service   string               `json:"service,omitempty"`
+	Status    storageFindingStatus `json:"status"`
+	Values    map[string]float64   `json:"values,omitempty"`
+	Missing   []string             `json:"missing,omitempty"`
+	Detail    string               `json:"detail,omitempty"`
+}
+
+type storageReport struct {
+	Findings        int                    `json:"findings"`
+	StorageClasses  []storageClassRollup   `json:"storage_class_rollup"`
+	VolumeSnapshots []volumeSnapshotRollup `json:"volume_snapshots"`
+	ScaleCSIHealth  scaleCSIHealth         `json:"scale_csi_health"`
+	ScaleCSIMetrics scaleCSIMetricsReport  `json:"scale_csi_metrics"`
+	OrphanedPVCs    []orphanedPVC          `json:"orphaned_pvcs"`
+	PVIssues        []pvIssue              `json:"pv_issues"`
+	VolSyncCoverage []volSyncGap           `json:"volsync_coverage_gaps"`
+	Errors          []string               `json:"errors,omitempty"`
+}
+
+var storageNowFn = time.Now
 
 func newStorageReportCommand() *cobra.Command {
 	var namespace, output string
-	var cephWarnPercent float64
 	var failOnFindings bool
 	cmd := &cobra.Command{
 		Use:          "storage-report",
 		Short:        "Audit Kubernetes storage hygiene and backup coverage",
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s storage-report
-  homeops-cli k8s storage-report --namespace media --ceph-warn-percent 75
+  homeops-cli k8s storage-report --namespace media
   homeops-cli k8s storage-report --output json --fail-on-findings`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := ui.ValidateOutputFormat(output); err != nil {
 				return err
 			}
-			if cephWarnPercent < 0 || cephWarnPercent > 100 {
-				return fmt.Errorf("--ceph-warn-percent must be between 0 and 100")
-			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), kubernetesDefaultCommandTimeout)
 			defer cancel()
-			report := buildStorageReport(ctx, namespace, cephWarnPercent)
+			report := buildStorageReport(ctx, namespace)
 			rendered, err := renderStorageReport(report, output)
 			if err != nil {
 				return err
@@ -287,13 +282,12 @@ func newStorageReportCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&namespace, "namespace", "n", "", "namespace to inspect (default: all namespaces)")
 	cmd.Flags().StringVarP(&output, "output", "o", "table", "output format: table or json")
-	cmd.Flags().Float64Var(&cephWarnPercent, "ceph-warn-percent", storageDefaultCephWarnPercent, "warn when Ceph raw capacity usage reaches this percentage")
 	cmd.Flags().BoolVar(&failOnFindings, "fail-on-findings", false, "return a non-zero exit code when findings are present")
 	_ = cmd.RegisterFlagCompletionFunc("namespace", completion.ValidNamespaces)
 	return cmd
 }
 
-func buildStorageReport(ctx context.Context, namespace string, cephWarnPercent float64) storageReport {
+func buildStorageReport(ctx context.Context, namespace string) storageReport {
 	var report storageReport
 	var pvcs storagePVCList
 	pvcOK := true
@@ -339,39 +333,32 @@ func buildStorageReport(ctx context.Context, namespace string, cephWarnPercent f
 	}
 
 	var pvs storagePVList
+	pvOK := true
 	if err := kubeutil.GetClusterJSON(ctx, kubectlOutputCtxFn, "persistentvolumes", &pvs); err != nil {
 		report.Errors = append(report.Errors, err.Error())
+		pvOK = false
 	} else {
 		report.PVIssues = detectPVIssues(pvs.Items, namespace, storageNowFn(), storageAvailablePVMaxAge)
 	}
 
-	var clusters cephCapacityList
-	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, storageConfigFn().Cluster.Rook.Namespace, cephClusterResource, &clusters); err != nil {
+	if pvcOK && pvOK {
+		var quantityErrors []string
+		report.StorageClasses, quantityErrors = calculateStorageClassRollups(pvcs.Items, pvs.Items, namespace)
+		report.Errors = append(report.Errors, quantityErrors...)
+	}
+
+	var snapshots storageVolumeSnapshotList
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, "volumesnapshots.snapshot.storage.k8s.io", &snapshots); err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	} else {
-		report.CephCapacity = parseCephCapacities(clusters.Items, cephWarnPercent)
+		report.VolumeSnapshots = calculateVolumeSnapshotRollups(snapshots)
 	}
-	totalCeph := int64(0)
-	for _, capacity := range report.CephCapacity {
-		totalCeph += capacity.TotalBytes
-	}
-	if pvcOK {
-		report.Provisioning = calculateProvisioning(pvcs.Items, totalCeph)
-	}
+
+	report.ScaleCSIHealth = collectScaleCSIHealth(ctx)
+	report.ScaleCSIMetrics = collectScaleCSIMetrics(ctx)
 	report.Findings = len(report.OrphanedPVCs) + len(report.PVIssues) + len(report.VolSyncCoverage) + len(report.Errors)
-	if len(report.CephCapacity) == 0 {
-		report.Findings++
-	}
-	for _, capacity := range report.CephCapacity {
-		if capacity.Status != storageOK {
-			report.Findings++
-		}
-	}
-	for _, provisioned := range report.Provisioning {
-		if provisioned.Status != storageOK {
-			report.Findings++
-		}
-	}
+	report.Findings += scaleCSIHealthFindings(report.ScaleCSIHealth)
+	report.Findings += scaleCSIMetricsFindings(report.ScaleCSIMetrics)
 	return report
 }
 
@@ -477,61 +464,6 @@ func detectPVIssues(pvs []storagePV, namespace string, now time.Time, availableA
 	return result
 }
 
-func parseCephCapacities(items []cephCapacityItem, warnPercent float64) []cephCapacity {
-	result := make([]cephCapacity, 0, len(items))
-	for _, item := range items {
-		used, total := int64(item.Status.Ceph.Capacity.BytesUsed), int64(item.Status.Ceph.Capacity.BytesTotal)
-		percent := 0.0
-		if total > 0 {
-			percent = float64(used) / float64(total) * 100
-		}
-		status := storageOK
-		if item.Status.Ceph.Health == "HEALTH_ERR" || total <= 0 {
-			status = storageFail
-		} else if item.Status.Ceph.Health != "HEALTH_OK" || percent >= warnPercent {
-			status = storageWarn
-		}
-		result = append(result, cephCapacity{Namespace: item.Metadata.Namespace, Name: item.Metadata.Name,
-			Health: item.Status.Ceph.Health, UsedBytes: used, TotalBytes: total, UsedPercent: percent, Status: status})
-	}
-	sort.Slice(result, func(i, j int) bool {
-		return namespacedName(result[i].Namespace, result[i].Name) < namespacedName(result[j].Namespace, result[j].Name)
-	})
-	return result
-}
-
-func calculateProvisioning(pvcs []storagePVC, cephCapacity int64) []storageProvisioning {
-	requested := map[string]int64{}
-	for _, pvc := range pvcs {
-		quantity, err := resource.ParseQuantity(pvc.Spec.Resources.Requests["storage"])
-		if err != nil {
-			continue
-		}
-		requested[pvc.Spec.StorageClassName] += quantity.Value()
-	}
-	classes := make([]string, 0, len(requested))
-	for class := range requested {
-		classes = append(classes, class)
-	}
-	sort.Strings(classes)
-	result := make([]storageProvisioning, 0, len(classes))
-	for _, class := range classes {
-		ratio := 0.0
-		status := storageOK
-		if cephCapacity > 0 {
-			ratio = float64(requested[class]) / float64(cephCapacity)
-			if ratio > 1 {
-				status = storageWarn
-			}
-		} else {
-			status = storageWarn
-		}
-		result = append(result, storageProvisioning{StorageClass: class, Requested: requested[class],
-			CephCapacity: cephCapacity, Ratio: ratio, Status: status})
-	}
-	return result
-}
-
 func detectVolSyncGaps(pvcs []storagePVC, sources storageReplicationList) []volSyncGap {
 	covered := map[string]bool{}
 	for _, source := range sources.Items {
@@ -556,6 +488,250 @@ func detectVolSyncGaps(pvcs []storagePVC, sources storageReplicationList) []volS
 	return result
 }
 
+func calculateStorageClassRollups(pvcs []storagePVC, pvs []storagePV, namespace string) ([]storageClassRollup, []string) {
+	byClass := map[string]*storageClassRollup{}
+	for _, name := range []string{
+		constants.ScaleCSIStorageClassNVMeOF,
+		constants.ScaleCSIStorageClassISCSI,
+		constants.ScaleCSIStorageClassNFS,
+	} {
+		byClass[name] = &storageClassRollup{StorageClass: name}
+	}
+	var problems []string
+	for _, pvc := range pvcs {
+		rollup := storageClassRollupFor(byClass, pvc.Spec.StorageClassName)
+		rollup.PVCCount++
+		quantity, err := resource.ParseQuantity(pvc.Spec.Resources.Requests["storage"])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("parse PVC %s requested capacity: %v", namespacedName(pvc.Metadata.Namespace, pvc.Metadata.Name), err))
+			continue
+		}
+		rollup.PVCRequestedBytes += quantity.Value()
+	}
+	for _, pv := range pvs {
+		if namespace != "" && (pv.Spec.ClaimRef == nil || pv.Spec.ClaimRef.Namespace != namespace) {
+			continue
+		}
+		rollup := storageClassRollupFor(byClass, pv.Spec.StorageClassName)
+		rollup.PVCount++
+		quantity, err := resource.ParseQuantity(pv.Spec.Capacity["storage"])
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("parse PV %s capacity: %v", pv.Metadata.Name, err))
+			continue
+		}
+		rollup.PVCapacityBytes += quantity.Value()
+	}
+
+	names := make([]string, 0, len(byClass))
+	for name := range byClass {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]storageClassRollup, 0, len(names))
+	for _, name := range names {
+		result = append(result, *byClass[name])
+	}
+	return result, problems
+}
+
+func storageClassRollupFor(byClass map[string]*storageClassRollup, name string) *storageClassRollup {
+	if existing, ok := byClass[name]; ok {
+		return existing
+	}
+	rollup := &storageClassRollup{StorageClass: name}
+	byClass[name] = rollup
+	return rollup
+}
+
+func calculateVolumeSnapshotRollups(snapshots storageVolumeSnapshotList) []volumeSnapshotRollup {
+	counts := map[string]int{constants.ScaleCSIVolumeSnapshotClass: 0}
+	for _, snapshot := range snapshots.Items {
+		counts[snapshot.Spec.VolumeSnapshotClassName]++
+	}
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]volumeSnapshotRollup, 0, len(names))
+	for _, name := range names {
+		result = append(result, volumeSnapshotRollup{VolumeSnapshotClass: name, Count: counts[name]})
+	}
+	return result
+}
+
+func collectScaleCSIHealth(ctx context.Context) scaleCSIHealth {
+	health := scaleCSIHealth{Status: storageOK}
+	var controller deploymentJSON
+	if err := getScaleCSIObject(ctx, deploymentResource, constants.ScaleCSIController, &controller); err != nil {
+		health.Controller = scaleCSIComponentHealth{Status: storageFail, Detail: err.Error()}
+		health.Status = storageFail
+	} else {
+		health.Controller = scaleCSIComponentHealth{
+			Ready: controller.Status.ReadyReplicas, Desired: controller.Spec.Replicas, Status: storageOK,
+		}
+		if controller.Spec.Replicas <= 0 || controller.Status.ReadyReplicas != controller.Spec.Replicas {
+			health.Controller.Status = storageFail
+			health.Status = storageFail
+		}
+	}
+
+	var node daemonSetJSON
+	if err := getScaleCSIObject(ctx, daemonSetResource, constants.ScaleCSINode, &node); err != nil {
+		health.Node = scaleCSIComponentHealth{Status: storageFail, Detail: err.Error()}
+		health.Status = storageFail
+	} else {
+		health.Node = scaleCSIComponentHealth{
+			Ready: node.Status.NumberReady, Desired: node.Status.DesiredNumberScheduled, Status: storageOK,
+		}
+		if node.Status.DesiredNumberScheduled <= 0 || node.Status.NumberReady != node.Status.DesiredNumberScheduled {
+			health.Node.Status = storageFail
+			health.Status = storageFail
+		}
+	}
+	return health
+}
+
+func collectScaleCSIMetrics(ctx context.Context) scaleCSIMetricsReport {
+	report := scaleCSIMetricsReport{Status: storageWarn}
+	var services storageServiceList
+	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, constants.NSScaleCSI, "services", &services); err != nil {
+		report.Detail = "metrics Service discovery failed: " + err.Error()
+		return report
+	}
+	service, port, err := findScaleCSIMetricsService(services)
+	if err != nil {
+		report.Detail = err.Error()
+		return report
+	}
+	path := fmt.Sprintf("/api/v1/namespaces/%s/services/%s:%d/proxy/metrics", constants.NSScaleCSI, service, port)
+	raw, err := kubectlOutputCtxFn(ctx, "get", "--raw", path)
+	if err != nil {
+		report.Service = service
+		report.Detail = "metrics endpoint unreachable: " + err.Error()
+		return report
+	}
+	values, missing, err := parseScaleCSIMetrics(raw)
+	if err != nil {
+		report.Service = service
+		report.Detail = err.Error()
+		return report
+	}
+	report.Available = true
+	report.Service = service
+	report.Status = storageOK
+	report.Values = values
+	report.Missing = missing
+	if len(missing) > 0 || scaleCSIMetricsFindings(report) > 0 {
+		report.Status = storageWarn
+	}
+	if connection, ok := values[scaleCSITrueNASConnectionMetric]; ok && connection != 1 {
+		report.Status = storageFail
+	}
+	return report
+}
+
+func findScaleCSIMetricsService(services storageServiceList) (string, int, error) {
+	type candidate struct {
+		name string
+		port int
+	}
+	var candidates []candidate
+	for _, service := range services.Items {
+		for _, port := range service.Spec.Ports {
+			if port.Port == constants.ScaleCSIControllerMetricsPort || strings.EqualFold(port.Name, "metrics") {
+				candidates = append(candidates, candidate{name: service.Metadata.Name, port: port.Port})
+			}
+		}
+	}
+	if len(candidates) == 0 {
+		return "", 0, fmt.Errorf("no metrics Service with port %d found in namespace %s", constants.ScaleCSIControllerMetricsPort, constants.NSScaleCSI)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		iController := strings.Contains(candidates[i].name, "controller")
+		jController := strings.Contains(candidates[j].name, "controller")
+		if iController != jController {
+			return iController
+		}
+		return candidates[i].name < candidates[j].name
+	})
+	return candidates[0].name, candidates[0].port, nil
+}
+
+func parseScaleCSIMetrics(raw []byte) (map[string]float64, []string, error) {
+	expected := []string{
+		scaleCSIOrphanVolumesMetric,
+		scaleCSIOrphanSnapshotsMetric,
+		scaleCSISpentRestoreSnapshotsMetric,
+		scaleCSITrueNASConnectionMetric,
+	}
+	wanted := make(map[string]bool, len(expected))
+	for _, name := range expected {
+		wanted[name] = true
+	}
+	values := map[string]float64{}
+	scanner := bufio.NewScanner(strings.NewReader(string(raw)))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		name := strings.SplitN(fields[0], "{", 2)[0]
+		if !wanted[name] {
+			continue
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse metric %s: %w", name, err)
+		}
+		values[name] = value
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, nil, fmt.Errorf("scan scale-csi metrics: %w", err)
+	}
+	var missing []string
+	for _, name := range expected {
+		if _, ok := values[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	return values, missing, nil
+}
+
+func scaleCSIHealthFindings(health scaleCSIHealth) int {
+	findings := 0
+	if health.Controller.Status != storageOK {
+		findings++
+	}
+	if health.Node.Status != storageOK {
+		findings++
+	}
+	return findings
+}
+
+func scaleCSIMetricsFindings(metrics scaleCSIMetricsReport) int {
+	if !metrics.Available {
+		return 0
+	}
+	findings := 0
+	for _, name := range []string{scaleCSIOrphanVolumesMetric, scaleCSIOrphanSnapshotsMetric, scaleCSISpentRestoreSnapshotsMetric} {
+		if value, ok := metrics.Values[name]; ok && value > 0 {
+			findings++
+		}
+	}
+	if value, ok := metrics.Values[scaleCSITrueNASConnectionMetric]; ok && value != 1 {
+		findings++
+	}
+	if len(metrics.Missing) > 0 {
+		findings++
+	}
+	return findings
+}
+
 func renderStorageReport(report storageReport, output string) (string, error) {
 	if output == "json" {
 		return ui.RenderJSON(report)
@@ -566,6 +742,57 @@ func renderStorageReport(report storageReport, output string) (string, error) {
 		}
 	}
 	var rows [][]string
+	for _, rollup := range report.StorageClasses {
+		rows = append(rows, []string{string(storageOK), "STORAGE CLASS", emptyStorageName(rollup.StorageClass),
+			fmt.Sprintf("pvcs=%d requested=%s pvs=%d capacity=%s", rollup.PVCCount, humanBytes(rollup.PVCRequestedBytes), rollup.PVCount, humanBytes(rollup.PVCapacityBytes))})
+	}
+	if len(report.StorageClasses) == 0 {
+		rows = append(rows, []string{string(storageWarn), "STORAGE CLASS", "-", "rollup unavailable"})
+	}
+	for _, snapshots := range report.VolumeSnapshots {
+		rows = append(rows, []string{string(storageOK), "VOLUME SNAPSHOTS", emptyStorageName(snapshots.VolumeSnapshotClass),
+			fmt.Sprintf("count=%d", snapshots.Count)})
+	}
+	if len(report.VolumeSnapshots) == 0 {
+		rows = append(rows, []string{string(storageWarn), "VOLUME SNAPSHOTS", "-", "rollup unavailable"})
+	}
+	for _, component := range []struct {
+		name   string
+		health scaleCSIComponentHealth
+	}{
+		{constants.ScaleCSIController, report.ScaleCSIHealth.Controller},
+		{constants.ScaleCSINode, report.ScaleCSIHealth.Node},
+	} {
+		detail := fmt.Sprintf("ready=%d desired=%d", component.health.Ready, component.health.Desired)
+		if component.health.Detail != "" {
+			detail = component.health.Detail
+		}
+		rows = append(rows, []string{string(component.health.Status), "SCALE-CSI HEALTH", component.name, detail})
+	}
+	if !report.ScaleCSIMetrics.Available {
+		rows = append(rows, []string{string(storageWarn), "SCALE-CSI METRICS", emptyStorageName(report.ScaleCSIMetrics.Service), report.ScaleCSIMetrics.Detail})
+	} else {
+		for _, name := range []string{
+			scaleCSIOrphanVolumesMetric,
+			scaleCSIOrphanSnapshotsMetric,
+			scaleCSISpentRestoreSnapshotsMetric,
+			scaleCSITrueNASConnectionMetric,
+		} {
+			value, ok := report.ScaleCSIMetrics.Values[name]
+			if !ok {
+				rows = append(rows, []string{string(storageWarn), "SCALE-CSI METRICS", name, "missing"})
+				continue
+			}
+			status := storageOK
+			if (name == scaleCSITrueNASConnectionMetric && value != 1) || (name != scaleCSITrueNASConnectionMetric && value > 0) {
+				status = storageWarn
+			}
+			if name == scaleCSITrueNASConnectionMetric && value != 1 {
+				status = storageFail
+			}
+			rows = append(rows, []string{string(status), "SCALE-CSI METRICS", name, strconv.FormatFloat(value, 'g', -1, 64)})
+		}
+	}
 	for _, pvc := range report.OrphanedPVCs {
 		rows = append(rows, []string{string(storageWarn), "ORPHANED PVCs", namespacedName(pvc.Namespace, pvc.Name),
 			fmt.Sprintf("class=%s size=%s phase=%s age=%s", pvc.StorageClass, pvc.Size, pvc.Phase, pvc.Age)})
@@ -579,20 +806,6 @@ func renderStorageReport(report storageReport, output string) (string, error) {
 	}
 	if len(report.PVIssues) == 0 {
 		rows = append(rows, []string{string(storageOK), "PV ISSUES", "-", "none"})
-	}
-	for _, capacity := range report.CephCapacity {
-		rows = append(rows, []string{string(capacity.Status), "CEPH CAPACITY", namespacedName(capacity.Namespace, capacity.Name),
-			fmt.Sprintf("health=%s used=%s/%s (%.1f%%)", capacity.Health, humanBytes(capacity.UsedBytes), humanBytes(capacity.TotalBytes), capacity.UsedPercent)})
-	}
-	if len(report.CephCapacity) == 0 {
-		rows = append(rows, []string{string(storageWarn), "CEPH CAPACITY", "-", "no CephCluster capacity reported"})
-	}
-	for _, item := range report.Provisioning {
-		rows = append(rows, []string{string(item.Status), "PROVISIONED vs CAPACITY", emptyName(item.StorageClass),
-			fmt.Sprintf("requested=%s ceph_raw=%s ratio=%.2fx", humanBytes(item.Requested), humanBytes(item.CephCapacity), item.Ratio)})
-	}
-	if len(report.Provisioning) == 0 {
-		rows = append(rows, []string{string(storageOK), "PROVISIONED vs CAPACITY", "-", "no PVC requests"})
 	}
 	for _, gap := range report.VolSyncCoverage {
 		rows = append(rows, []string{string(storageWarn), "VOLSYNC COVERAGE", namespacedName(gap.Namespace, gap.PVC),
@@ -624,8 +837,8 @@ func displayAge(age time.Duration) string {
 	return age.Round(time.Minute).String()
 }
 
-func emptyName(value string) string {
-	if value == "" {
+func emptyStorageName(value string) string {
+	if strings.TrimSpace(value) == "" {
 		return "<default>"
 	}
 	return value

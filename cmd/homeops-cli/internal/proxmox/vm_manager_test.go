@@ -143,8 +143,8 @@ func TestVMManagerBuildVMOptionsMinimalNetworkFallback(t *testing.T) {
 	assert.Equal(t, "virtio,bridge=vmbr1", optionMap["net0"])
 	_, hasOpenEBS := optionMap["scsi1"]
 	assert.False(t, hasOpenEBS)
-	_, hasCeph := optionMap["scsi2"]
-	assert.False(t, hasCeph)
+	_, hasLegacyOSD := optionMap["scsi2"]
+	assert.False(t, hasLegacyOSD)
 
 	config, exists := GetTalosNodeConfig("k8s-0")
 	require.True(t, exists)
@@ -317,10 +317,10 @@ func TestVMManagerDeleteVMFailsIfStillPresentAfterRetry(t *testing.T) {
 	assert.Equal(t, 1, deleteTask.waits)
 }
 
-func TestBuildVMOptionsVirtualCephDisk(t *testing.T) {
+func TestBuildVMOptionsVirtualLegacyOSDDisk(t *testing.T) {
 	manager := &VMManager{}
 
-	// Virtual Ceph disk on a dedicated pool when no passthrough disk is set.
+	// Virtual legacy OSD disk on a dedicated pool when no passthrough disk is set.
 	options := manager.buildVMOptions(VMConfig{
 		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
 		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
@@ -333,7 +333,7 @@ func TestBuildVMOptionsVirtualCephDisk(t *testing.T) {
 	}
 	assert.Equal(t, "local-zfs:500,discard=on,iothread=1", optionMap["scsi2"])
 
-	// CephStorage falls back to BootStorage.
+	// The legacy disk storage falls back to BootStorage.
 	options = manager.buildVMOptions(VMConfig{
 		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
 		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
@@ -369,7 +369,7 @@ func TestBuildVMOptionsVirtualCephDisk(t *testing.T) {
 	}
 	assert.Equal(t, "tank:500", optionMap["scsi2"])
 
-	// mode=none suppresses the Ceph disk entirely (even with built-in defaults).
+	// mode=none suppresses the legacy OSD disk entirely (even with built-in defaults).
 	options = manager.buildVMOptions(VMConfig{
 		Name: "demo", Memory: 4096, Cores: 2, Sockets: 1,
 		BootDiskSize: 32, BootStorage: "local", NetworkBridge: "vmbr1",
@@ -379,6 +379,6 @@ func TestBuildVMOptionsVirtualCephDisk(t *testing.T) {
 	for _, opt := range options {
 		optionMap[opt.Name] = opt.Value
 	}
-	_, hasCeph := optionMap["scsi2"]
-	assert.False(t, hasCeph)
+	_, hasLegacyOSD := optionMap["scsi2"]
+	assert.False(t, hasLegacyOSD)
 }

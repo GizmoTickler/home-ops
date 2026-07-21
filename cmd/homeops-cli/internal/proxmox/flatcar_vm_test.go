@@ -32,7 +32,7 @@ func TestFlatcarNodeConfigsMatchTalosSlots(t *testing.T) {
 		// Boot storage INTENTIONALLY differs from Talos: Flatcar boots from the
 		// nvme-mirror ZFS RAID1 built during the cutover, not per-node nvme1/nvme2.
 		assert.Equal(t, "nvme-mirror", fc.BootStorage, "flatcar should boot from nvme-mirror for %s", name)
-		assert.Equal(t, tc.CephDiskByID, fc.CephDiskByID, "ceph disk mismatch for %s", name)
+		assert.Equal(t, tc.CephDiskByID, fc.CephDiskByID, "legacy OSD disk mismatch for %s", name)
 	}
 }
 
@@ -49,8 +49,10 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 		NUMANode:       0,
 		BootDiskSize:   200,
 		BootStorage:    "nvme1",
-		OpenEBSSize:    800,
-		OpenEBSStorage: "nvmeof-vmdata",
+		OpenEBSSize:    700,
+		OpenEBSStorage: "openebs-ssd",
+		OpenEBSSlot:    "scsi3",
+		OpenEBSSSD:     true,
 		CephDiskByID:   "ata-INTEL",
 		NetworkBridge:  "vmbr0",
 		NetworkMTU:     9000,
@@ -76,8 +78,8 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 
 	// scsi0 imports the Flatcar image.
 	assert.Equal(t, "nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
-	// OpenEBS + Ceph preserved.
-	assert.Equal(t, "nvmeof-vmdata:800,discard=on,iothread=1", optionMap["scsi1"])
+	// OpenEBS + the legacy OSD compatibility disk are preserved.
+	assert.Equal(t, "openebs-ssd:700,discard=on,iothread=1,ssd=1", optionMap["scsi3"])
 	assert.Equal(t, "/dev/disk/by-id/ata-INTEL,discard=on,iothread=1", optionMap["scsi2"])
 	// Boots from disk, NOT from a CD-ROM. No ide2 set.
 	assert.Equal(t, "order=scsi0", optionMap["boot"])

@@ -38,7 +38,7 @@ Deploy a single Talos VM with default specifications:
   --memory 49152 \
   --vcpus 16 \
   --disk-size 250 \
-  --rook-size 1024
+  --openebs-size 1024
 ```
 
 ### Deploy Multiple VMs in Parallel
@@ -54,7 +54,7 @@ Deploy 3 VMs concurrently with automatic numbering:
   --memory 49152 \
   --vcpus 16 \
   --disk-size 250 \
-  --rook-size 1024
+  --openebs-size 1024
 ```
 
 This will create:
@@ -75,7 +75,7 @@ Deploy the 3 k8s cluster nodes with their predefined MAC addresses:
   --memory 49152 \
   --vcpus 16 \
   --disk-size 250 \
-  --rook-size 1024
+  --openebs-size 1024
 ```
 
 This will create:
@@ -118,7 +118,7 @@ The default VM specifications match your requirements:
 - **Memory**: 48GB (49152 MB)
 - **vCPUs**: 16
 - **Boot Disk**: 250GB (thin provisioned)
-- **Rook Disk**: 1024GB / 1TB (thin provisioned)
+- **OpenEBS scratch disk**: 1024GB / 1TB (thin provisioned)
 - **Datastore**: truenas-iscsi
 - **Network**: vl999
 - **ISO**: [datastore1] vmware-amd64.iso

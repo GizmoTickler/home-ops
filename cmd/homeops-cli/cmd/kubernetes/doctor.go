@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"homeops-cli/cmd/completion"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
@@ -16,14 +17,20 @@ import (
 const (
 	fluxKustomizationResource = "kustomizations.kustomize.toolkit.fluxcd.io"
 	fluxHelmReleaseResource   = "helmreleases.helm.toolkit.fluxcd.io"
-	cephClusterResource       = "cephclusters.ceph.rook.io"
 	certificateResource       = "certificates.cert-manager.io"
+	deploymentResource        = "deployments.apps"
+	daemonSetResource         = "daemonsets.apps"
+	csiDriverResource         = "csidrivers.storage.k8s.io"
+	storageClassResource      = "storageclasses.storage.k8s.io"
+	scaleCSIControllerName    = constants.ScaleCSIController
+	scaleCSINodeName          = constants.ScaleCSINode
+	scaleCSIHelmReleaseName   = constants.ScaleCSIHelmRelease
 
-	doctorGroupFlux  = "flux"
-	doctorGroupPods  = "pods"
-	doctorGroupCeph  = "ceph"
-	doctorGroupCerts = "certificates"
-	doctorGroupNodes = "nodes"
+	doctorGroupFlux     = "flux"
+	doctorGroupPods     = "pods"
+	doctorGroupScaleCSI = "scale-csi"
+	doctorGroupCerts    = "certificates"
+	doctorGroupNodes    = "nodes"
 
 	doctorRecentOOMWindow = 24 * time.Hour
 	doctorCertExpiryWarn  = 14 * 24 * time.Hour
@@ -146,7 +153,7 @@ func buildDoctorReportContext(ctx context.Context, namespace string, pendingGrac
 	report.addFlux(ctx, namespace)
 	report.addNodes(ctx)
 	report.addPods(ctx, namespace, pendingGrace)
-	report.addCeph(ctx, namespace)
+	report.addScaleCSI(ctx)
 	report.addCertificates(ctx, namespace)
 	report.finalize()
 	return report
@@ -407,39 +414,102 @@ func isWithinGrace(raw string, grace time.Duration) bool {
 	return nowFn().Sub(ts) <= grace
 }
 
-type cephClusterList struct {
-	Items []struct {
-		Metadata metadataJSON `json:"metadata"`
-		Status   struct {
-			Ceph struct {
-				Health string `json:"health"`
-			} `json:"ceph"`
-		} `json:"status"`
-	} `json:"items"`
+type deploymentJSON struct {
+	Metadata metadataJSON `json:"metadata"`
+	Spec     struct {
+		Replicas int32 `json:"replicas"`
+	} `json:"spec"`
+	Status struct {
+		ReadyReplicas int32 `json:"readyReplicas"`
+	} `json:"status"`
 }
 
-func (r *doctorReport) addCeph(ctx context.Context, namespace string) {
-	before := len(r.Checks)
-	var list cephClusterList
-	if err := kubeutil.GetJSON(ctx, kubectlOutputCtxFn, namespace, cephClusterResource, &list); err != nil {
-		r.add(doctorGroupCeph, "CephCluster", "", "cephclusters", statusFail, err.Error())
-		return
-	}
-	for _, item := range list.Items {
-		switch item.Status.Ceph.Health {
-		case "HEALTH_OK":
-			r.add(doctorGroupCeph, "CephCluster", item.Metadata.Namespace, item.Metadata.Name, statusPass, "HEALTH_OK")
-		case "HEALTH_WARN":
-			r.add(doctorGroupCeph, "CephCluster", item.Metadata.Namespace, item.Metadata.Name, statusWarn, "HEALTH_WARN")
-		case "HEALTH_ERR":
-			r.add(doctorGroupCeph, "CephCluster", item.Metadata.Namespace, item.Metadata.Name, statusFail, "HEALTH_ERR")
-		default:
-			r.add(doctorGroupCeph, "CephCluster", item.Metadata.Namespace, item.Metadata.Name, statusWarn, "unknown health "+item.Status.Ceph.Health)
+type daemonSetJSON struct {
+	Metadata metadataJSON `json:"metadata"`
+	Status   struct {
+		DesiredNumberScheduled int32 `json:"desiredNumberScheduled"`
+		NumberReady            int32 `json:"numberReady"`
+	} `json:"status"`
+}
+
+type helmReleaseJSON struct {
+	Metadata metadataJSON `json:"metadata"`
+	Status   struct {
+		Conditions []conditionJSON `json:"conditions"`
+	} `json:"status"`
+}
+
+type namedKubernetesObject struct {
+	Metadata metadataJSON `json:"metadata"`
+}
+
+func (r *doctorReport) addScaleCSI(ctx context.Context) {
+	var controller deploymentJSON
+	if err := getScaleCSIObject(ctx, deploymentResource, scaleCSIControllerName, &controller); err != nil {
+		r.add(doctorGroupScaleCSI, "Deployment", constants.NSScaleCSI, scaleCSIControllerName, statusFail, err.Error())
+	} else {
+		status := statusPass
+		if controller.Spec.Replicas <= 0 || controller.Status.ReadyReplicas != controller.Spec.Replicas {
+			status = statusFail
 		}
+		r.add(doctorGroupScaleCSI, "Deployment", constants.NSScaleCSI, scaleCSIControllerName, status,
+			fmt.Sprintf("ready=%d desired=%d", controller.Status.ReadyReplicas, controller.Spec.Replicas))
 	}
-	if len(r.Checks) == before {
-		r.add(doctorGroupCeph, "CephCluster", "", "all", statusPass, "no CephCluster resources found")
+
+	var node daemonSetJSON
+	if err := getScaleCSIObject(ctx, daemonSetResource, scaleCSINodeName, &node); err != nil {
+		r.add(doctorGroupScaleCSI, "DaemonSet", constants.NSScaleCSI, scaleCSINodeName, statusFail, err.Error())
+	} else {
+		status := statusPass
+		if node.Status.DesiredNumberScheduled <= 0 || node.Status.NumberReady != node.Status.DesiredNumberScheduled {
+			status = statusFail
+		}
+		r.add(doctorGroupScaleCSI, "DaemonSet", constants.NSScaleCSI, scaleCSINodeName, status,
+			fmt.Sprintf("ready=%d desired=%d", node.Status.NumberReady, node.Status.DesiredNumberScheduled))
 	}
+
+	var release helmReleaseJSON
+	if err := getScaleCSIObject(ctx, fluxHelmReleaseResource, scaleCSIHelmReleaseName, &release); err != nil {
+		r.add(doctorGroupScaleCSI, "HelmRelease", constants.NSScaleCSI, scaleCSIHelmReleaseName, statusFail, err.Error())
+	} else if ready, ok := readyCondition(release.Status.Conditions); !ok {
+		r.add(doctorGroupScaleCSI, "HelmRelease", constants.NSScaleCSI, scaleCSIHelmReleaseName, statusFail, "Ready condition missing")
+	} else {
+		status := statusPass
+		if ready.Status != "True" {
+			status = statusFail
+		}
+		r.add(doctorGroupScaleCSI, "HelmRelease", constants.NSScaleCSI, scaleCSIHelmReleaseName, status, conditionDetail(ready))
+	}
+
+	var driver namedKubernetesObject
+	if err := getScaleCSIClusterObject(ctx, csiDriverResource, constants.ScaleCSIDriver, &driver); err != nil {
+		r.add(doctorGroupScaleCSI, "CSIDriver", "", constants.ScaleCSIDriver, statusFail, err.Error())
+	} else {
+		r.add(doctorGroupScaleCSI, "CSIDriver", "", constants.ScaleCSIDriver, statusPass, "registered")
+	}
+
+	for _, name := range []string{
+		constants.ScaleCSIStorageClassNVMeOF,
+		constants.ScaleCSIStorageClassISCSI,
+		constants.ScaleCSIStorageClassNFS,
+	} {
+		var storageClass namedKubernetesObject
+		if err := getScaleCSIClusterObject(ctx, storageClassResource, name, &storageClass); err != nil {
+			r.add(doctorGroupScaleCSI, "StorageClass", "", name, statusFail, err.Error())
+			continue
+		}
+		r.add(doctorGroupScaleCSI, "StorageClass", "", name, statusPass, "available")
+	}
+}
+
+func getScaleCSIObject(ctx context.Context, resource, name string, dest any) error {
+	return kubeutil.GetJSONWithArgs(ctx, kubectlOutputCtxFn, resource, dest,
+		"get", resource, name, "--namespace", constants.NSScaleCSI, "-o", "json")
+}
+
+func getScaleCSIClusterObject(ctx context.Context, resource, name string, dest any) error {
+	return kubeutil.GetJSONWithArgs(ctx, kubectlOutputCtxFn, resource, dest,
+		"get", resource, name, "-o", "json")
 }
 
 type certificateList struct {

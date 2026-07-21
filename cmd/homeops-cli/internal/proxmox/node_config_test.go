@@ -108,7 +108,7 @@ func TestNodeConfigAccessorsApplySharedAndProviderSpecificConfig(t *testing.T) {
 						OpenEBSStorage: "shared-openebs",
 						CPUAffinity:    "1-2",
 						NUMANode:       &numa,
-						Ceph:           homeopscfg.CephDisk{Mode: "virtual", SizeGB: 123, Storage: "shared-ceph"},
+						Ceph:           homeopscfg.CephDisk{Mode: "virtual", SizeGB: 123, Storage: "legacy-osd-pool"},
 						Providers: homeopscfg.ProviderVMProfiles{
 							Talos:   homeopscfg.ProviderVMProfile{BootStorage: "talos-boot"},
 							Flatcar: homeopscfg.ProviderVMProfile{BootStorage: "flatcar-boot"},
@@ -138,7 +138,7 @@ func TestNodeConfigAccessorsApplySharedAndProviderSpecificConfig(t *testing.T) {
 	assert.Equal(t, "shared-openebs", talos.OpenEBSStorage)
 	assert.Equal(t, "virtual", talos.CephMode)
 	assert.Equal(t, 123, talos.CephDiskGB)
-	assert.Equal(t, "shared-ceph", talos.CephStorage)
+	assert.Equal(t, "legacy-osd-pool", talos.CephStorage)
 	assert.Equal(t, "02:00:00:00:00:50", talos.MacAddress)
 
 	flatcar, ok := GetFlatcarNodeConfig("k8s-0")

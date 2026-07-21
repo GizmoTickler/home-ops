@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"homeops-cli/internal/config"
-	"homeops-cli/internal/constants"
 	"homeops-cli/internal/testutil"
 )
 
@@ -28,15 +27,14 @@ func maintenanceTestConfig() *config.Config {
 	}
 }
 
-func maintenanceNodeJSON(cordoned bool, annotation string) []byte {
-	annotations := "{}"
-	if annotation != "" {
-		annotations = fmt.Sprintf(`{%q:%q}`, constants.CephNooutAnnotation, annotation)
+func maintenanceNodeJSON(cordoned bool) []byte {
+	if cordoned {
+		return []byte(`{"metadata":{"name":"k8s-0"},"spec":{"unschedulable":true},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
 	}
-	return []byte(fmt.Sprintf(`{"metadata":{"name":"k8s-0","annotations":%s},"spec":{"unschedulable":%t},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`, annotations, cordoned))
+	return []byte(`{"metadata":{"name":"k8s-0"},"spec":{"unschedulable":false},"status":{"conditions":[{"type":"Ready","status":"True"}]}}`)
 }
 
-func setupMaintenanceTest(t *testing.T, cordoned bool, annotation, flags string, failDrain bool) *[]string {
+func setupMaintenanceTest(t *testing.T, cordoned, failDrain bool) *[]string {
 	t.Helper()
 	events := []string{}
 	testutil.Swap(t, &nodeMaintenanceConfigFn, func() *config.Config { return maintenanceTestConfig() })
@@ -45,13 +43,9 @@ func setupMaintenanceTest(t *testing.T, cordoned bool, annotation, flags string,
 		events = append(events, call)
 		switch {
 		case strings.HasPrefix(strings.Join(args, " "), "get node"):
-			return maintenanceNodeJSON(cordoned, annotation), nil
-		case strings.Contains(call, "get namespace rook-ceph"):
-			return []byte("namespace/rook-ceph\n"), nil
-		case strings.Contains(call, "ceph osd dump"):
-			return []byte(fmt.Sprintf(`{"flags":%q}`, flags)), nil
-		case strings.Contains(call, "ceph status"):
-			return []byte(`{"health":{"status":"HEALTH_OK"}}`), nil
+			return maintenanceNodeJSON(cordoned), nil
+		case strings.HasPrefix(strings.Join(args, " "), "get pods --namespace scale-csi"):
+			return []byte(`{"items":[{"metadata":{"name":"scale-csi-node-test","ownerReferences":[{"kind":"DaemonSet","name":"scale-csi-node"}]},"status":{"phase":"Running"}}]}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected output call: %s", call)
 		}
@@ -72,7 +66,7 @@ func setupMaintenanceTest(t *testing.T, cordoned bool, annotation, flags string,
 }
 
 func TestNodeMaintenanceEnterSequencesSafeSteps(t *testing.T) {
-	events := setupMaintenanceTest(t, false, "", "sortbitwise", false)
+	events := setupMaintenanceTest(t, false, false)
 	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
 		Action: "enter", Node: "k8s-0", DrainTimeout: 5 * time.Minute, Timeout: time.Minute,
 	})
@@ -80,19 +74,16 @@ func TestNodeMaintenanceEnterSequencesSafeSteps(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"output get node k8s-0 -o json",
-		"output get namespace rook-ceph --ignore-not-found -o name",
-		"output -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd dump --format json",
-		"run -n rook-ceph exec deploy/rook-ceph-tools -- ceph osd set noout",
-		"run annotate node k8s-0 " + constants.CephNooutAnnotation + "=owned --overwrite",
+		"output get pods --namespace scale-csi --field-selector spec.nodeName=k8s-0 -o json",
 		"run cordon k8s-0",
 		"run drain k8s-0 --ignore-daemonsets --delete-emptydir-data --timeout=5m0s",
 		"output get node k8s-0 -o json",
 	}, *events)
-	assert.Equal(t, []string{"DONE", "DONE", "DONE", "DONE", "SKIPPED"}, maintenanceStepStatuses(report))
+	assert.Equal(t, []string{"DONE", "INFO", "DONE", "DONE", "SKIPPED"}, maintenanceStepStatuses(report))
 }
 
 func TestNodeMaintenanceEnterRollsBackInReverseOrder(t *testing.T) {
-	events := setupMaintenanceTest(t, false, "", "", true)
+	events := setupMaintenanceTest(t, false, true)
 	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
 		Action: "enter", Node: "k8s-0", DrainTimeout: 5 * time.Minute, Timeout: time.Minute,
 	})
@@ -101,18 +92,13 @@ func TestNodeMaintenanceEnterRollsBackInReverseOrder(t *testing.T) {
 	assert.Contains(t, err.Error(), "maintenance enter failed")
 	joined := strings.Join(*events, "\n")
 	uncordon := strings.Index(joined, "run uncordon k8s-0")
-	unset := strings.Index(joined, "ceph osd unset noout")
-	remove := strings.Index(joined, constants.CephNooutAnnotation+"-")
 	assert.Greater(t, uncordon, 0)
-	assert.Greater(t, unset, uncordon)
-	assert.Greater(t, remove, unset)
 	assert.Equal(t, "FAILED", report.Steps[3].Status)
 	assert.Equal(t, "rollback-uncordon", report.Steps[4].Name)
-	assert.Equal(t, "rollback-unset-ceph-noout", report.Steps[5].Name)
 }
 
 func TestNodeMaintenanceRollbackTimeoutStartsWhenRollbackBegins(t *testing.T) {
-	setupMaintenanceTest(t, false, "", "", true)
+	setupMaintenanceTest(t, false, true)
 	rollbackStarted := false
 	testutil.Swap(t, &nodeMaintenanceRollbackContextFn, func(ctx context.Context) (context.Context, context.CancelFunc) {
 		rollbackStarted = true
@@ -123,7 +109,7 @@ func TestNodeMaintenanceRollbackTimeoutStartsWhenRollbackBegins(t *testing.T) {
 		if len(args) > 0 && args[0] == "drain" {
 			assert.False(t, rollbackStarted, "rollback timeout started before the forward workflow failed")
 		}
-		if len(args) > 0 && (args[0] == "uncordon" || args[0] == "-n") {
+		if len(args) > 0 && args[0] == "uncordon" {
 			require.NoError(t, ctx.Err(), "rollback received a context that expired before cleanup began")
 		}
 		return baseRun(ctx, args...)
@@ -135,11 +121,10 @@ func TestNodeMaintenanceRollbackTimeoutStartsWhenRollbackBegins(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, "DONE", report.Steps[4].Status)
-	assert.Equal(t, "DONE", report.Steps[5].Status)
 }
 
 func TestNodeMaintenanceRollbackFailureIsReturned(t *testing.T) {
-	setupMaintenanceTest(t, false, "", "", true)
+	setupMaintenanceTest(t, false, true)
 	baseRun := nodeMaintenanceKubectlRunFn
 	testutil.Swap(t, &nodeMaintenanceKubectlRunFn, func(ctx context.Context, args ...string) error {
 		if len(args) > 0 && args[0] == "uncordon" {
@@ -156,11 +141,10 @@ func TestNodeMaintenanceRollbackFailureIsReturned(t *testing.T) {
 	assert.ErrorContains(t, err, "rollback-uncordon")
 	assert.ErrorContains(t, err, "apiserver unavailable during rollback")
 	assert.Equal(t, "FAILED", report.Steps[4].Status)
-	assert.Equal(t, "DONE", report.Steps[5].Status)
 }
 
 func TestNodeMaintenanceEnterIsIdempotentWhenAlreadyCordoned(t *testing.T) {
-	events := setupMaintenanceTest(t, true, nodeMaintenanceNooutOwned, "noout,sortbitwise", false)
+	events := setupMaintenanceTest(t, true, false)
 	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
 		Action: "enter", Node: "k8s-0", DrainTimeout: time.Minute, Timeout: time.Minute,
 	})
@@ -168,14 +152,12 @@ func TestNodeMaintenanceEnterIsIdempotentWhenAlreadyCordoned(t *testing.T) {
 	require.NoError(t, err)
 	joined := strings.Join(*events, "\n")
 	assert.NotContains(t, joined, "run cordon")
-	assert.NotContains(t, joined, "ceph osd set noout")
-	assert.NotContains(t, joined, constants.CephNooutAnnotation+"=owned")
 	assert.Equal(t, "SKIPPED", report.Steps[2].Status)
 	assert.Contains(t, joined, "run drain k8s-0")
 }
 
-func TestNodeMaintenanceExitIsIdempotentAndPreservesPreexistingNoout(t *testing.T) {
-	events := setupMaintenanceTest(t, false, nodeMaintenanceNooutPreexisting, "noout", false)
+func TestNodeMaintenanceExitIsIdempotentWhenAlreadySchedulable(t *testing.T) {
+	events := setupMaintenanceTest(t, false, false)
 	report, err := runNodeMaintenance(context.Background(), nodeMaintenanceOptions{
 		Action: "exit", Node: "k8s-0", Timeout: time.Minute,
 	})
@@ -183,54 +165,14 @@ func TestNodeMaintenanceExitIsIdempotentAndPreservesPreexistingNoout(t *testing.
 	require.NoError(t, err)
 	joined := strings.Join(*events, "\n")
 	assert.NotContains(t, joined, "run uncordon")
-	assert.NotContains(t, joined, "ceph osd unset noout")
-	assert.Contains(t, joined, constants.CephNooutAnnotation+"-")
-	assert.Contains(t, joined, constants.LegacyCephNooutAnnotation+"-")
-	assert.Equal(t, "HEALTH_OK", report.Final.Ceph)
-}
-
-func TestMaintenanceNooutOwnershipAcceptsLegacyAnnotation(t *testing.T) {
-	assert.Equal(t, nodeMaintenanceNooutOwned, maintenanceNooutOwnership(map[string]string{
-		constants.LegacyCephNooutAnnotation: nodeMaintenanceNooutOwned,
-	}))
-	assert.Equal(t, nodeMaintenanceNooutPreexisting, maintenanceNooutOwnership(map[string]string{
-		constants.CephNooutAnnotation:       nodeMaintenanceNooutPreexisting,
-		constants.LegacyCephNooutAnnotation: nodeMaintenanceNooutOwned,
-	}))
-}
-
-func TestNodeMaintenanceUsesConfiguredRookLocation(t *testing.T) {
-	testutil.Swap(t, &nodeMaintenanceConfigFn, func() *config.Config {
-		return &config.Config{Cluster: config.ClusterConfig{Rook: config.RookConfig{
-			Namespace:         "ceph-custom",
-			ToolboxDeployment: "ceph-toolbox-custom",
-		}}}
-	})
-	var calls []string
-	testutil.Swap(t, &kubectlOutputCtxFn, func(_ context.Context, args ...string) ([]byte, error) {
-		calls = append(calls, strings.Join(args, " "))
-		if args[0] == "get" {
-			return []byte("namespace/ceph-custom\n"), nil
-		}
-		return []byte(`{"flags":""}`), nil
-	})
-
-	present, err := rookCephPresent(context.Background())
-	require.NoError(t, err)
-	assert.True(t, present)
-	_, err = cephCommandOutput(context.Background(), "osd", "dump", "--format", "json")
-	require.NoError(t, err)
-	assert.Equal(t, []string{
-		"get namespace ceph-custom --ignore-not-found -o name",
-		"-n ceph-custom exec deploy/ceph-toolbox-custom -- ceph osd dump --format json",
-	}, calls)
+	assert.False(t, report.Final.Cordoned)
 }
 
 func TestRenderNodeMaintenanceJSON(t *testing.T) {
 	report := nodeMaintenanceReport{Action: "enter", Node: "k8s-0", Steps: []nodeMaintenanceStep{{Name: "cordon", Status: "DONE", Duration: "1s"}}}
 	rendered, err := renderNodeMaintenanceReport(report, "json")
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"action":"enter","node":"k8s-0","steps":[{"name":"cordon","status":"DONE","duration":"1s"}],"final":{"node_ready":false,"cordoned":false,"ceph":""}}`, rendered)
+	assert.JSONEq(t, `{"action":"enter","node":"k8s-0","steps":[{"name":"cordon","status":"DONE","duration":"1s"}],"final":{"node_ready":false,"cordoned":false}}`, rendered)
 }
 
 func TestConfiguredMaintenanceDuration(t *testing.T) {

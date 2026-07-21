@@ -1414,7 +1414,7 @@ func buildVSphereDryRunSummary(baseName string, memory, vcpus, diskSize, openebs
 				"Deployment Mode: SSH-based (production k8s node)",
 				fmt.Sprintf("Boot Datastore: %s", nodeConfig.BootDatastore),
 				"OpenEBS Datastore: truenas-iscsi",
-				fmt.Sprintf("RDM (Ceph): %s", nodeConfig.RDMPath),
+				fmt.Sprintf("Legacy OSD RDM: %s", nodeConfig.RDMPath),
 				fmt.Sprintf("SR-IOV PCI Device: %s", nodeConfig.PCIDevice),
 			)
 			if len(configs) == 1 {
@@ -1470,7 +1470,7 @@ func buildProxmoxDryRunSummary(plan *proxmoxDeploymentPlan, memory, vcpus, diskS
 				fmt.Sprintf("VMID: %d", preset.VMID),
 				fmt.Sprintf("Boot Storage: %s", preset.BootStorage),
 				fmt.Sprintf("OpenEBS Storage: %s", preset.OpenEBSStorage),
-				fmt.Sprintf("Ceph Disk (passthrough): /dev/disk/by-id/%s", preset.CephDiskByID),
+				fmt.Sprintf("Legacy OSD disk (passthrough): /dev/disk/by-id/%s", preset.CephDiskByID),
 				fmt.Sprintf("CPU Affinity: %s", preset.CPUAffinity),
 				fmt.Sprintf("NUMA Node: %d", preset.NUMANode),
 				fmt.Sprintf("MAC Address: %s", preset.MacAddress),
@@ -2527,7 +2527,7 @@ func deployK8sVMViaSSH(baseName string, host string, memory, vcpus, diskSize, op
 		logger.Info("Deploying %s with production configuration:", config.Name)
 		logger.Info("  Boot Datastore: %s", nodeConfig.BootDatastore)
 		logger.Info("  OpenEBS Datastore: truenas-iscsi")
-		logger.Info("  RDM (Ceph): %s", nodeConfig.RDMPath)
+		logger.Info("  Legacy OSD RDM: %s", nodeConfig.RDMPath)
 		logger.Info("  SR-IOV PCI: %s", nodeConfig.PCIDevice)
 		logger.Info("  MAC Address: %s", nodeConfig.MacAddress)
 		logger.Info("  CPU Affinity: %s", nodeConfig.CPUAffinity)

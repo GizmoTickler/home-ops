@@ -41,7 +41,7 @@ func verifyTestKopia() map[string]any {
 		"repository":              map[string]any{"repository": "paperless-volsync-secret", "credentialSecret": "kopia-creds"},
 		"sourceIdentity":          map[string]any{"sourceName": "wrong-source", "sourceNamespace": "self-hosted"},
 		"storageClassName":        "source-value-must-not-win",
-		"volumeSnapshotClassName": "csi-ceph-blockpool",
+		"volumeSnapshotClassName": "scale-snapshot",
 		"futureCredentialField":   map[string]any{"secretName": "future-secret"},
 	}
 }
@@ -50,7 +50,7 @@ func verifyTestPVC() verifyPVC {
 	var pvc verifyPVC
 	pvc.Metadata.Name = "paperless-data"
 	pvc.Spec.AccessModes = []string{"ReadWriteOnce"}
-	pvc.Spec.StorageClassName = "ceph-block"
+	pvc.Spec.StorageClassName = "scale-nvmeof"
 	pvc.Spec.VolumeMode = "Filesystem"
 	pvc.Spec.Resources.Requests = map[string]string{"storage": "20Gi"}
 	return pvc
@@ -89,7 +89,7 @@ func TestBuildVerifyObjectsAreNamedLabeledAndOwnerless(t *testing.T) {
 	assert.Contains(t, podYAML, "registry.example/alpine:3.22")
 
 	pvcSpec := decodeVerifyYAML(t, pvcYAML)["spec"].(map[string]any)
-	assert.Equal(t, "ceph-block", pvcSpec["storageClassName"])
+	assert.Equal(t, "scale-nvmeof", pvcSpec["storageClassName"])
 	requests := pvcSpec["resources"].(map[string]any)["requests"].(map[string]any)
 	assert.Equal(t, "20Gi", requests["storage"])
 
@@ -99,7 +99,7 @@ func TestBuildVerifyObjectsAreNamedLabeledAndOwnerless(t *testing.T) {
 	assert.Equal(t, name, kopia["destinationPVC"])
 	assert.Equal(t, "Direct", kopia["copyMethod"])
 	assert.Equal(t, "20Gi", kopia["capacity"])
-	assert.Equal(t, "ceph-block", kopia["storageClassName"])
+	assert.Equal(t, "scale-nvmeof", kopia["storageClassName"])
 	assert.Equal(t, true, kopia["cleanupCachePVC"])
 	assert.Equal(t, true, kopia["cleanupTempPVC"])
 	assert.EqualValues(t, 0, kopia["previous"])

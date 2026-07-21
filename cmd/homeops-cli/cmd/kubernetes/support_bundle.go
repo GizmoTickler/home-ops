@@ -20,6 +20,7 @@ import (
 	"homeops-cli/cmd/flatcar"
 	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
+	"homeops-cli/internal/constants"
 	"homeops-cli/internal/kubeutil"
 	"homeops-cli/internal/ui"
 )
@@ -265,6 +266,14 @@ func defaultSupportBundleCollectors(_ bool) []supportBundleCollector {
 		{Name: "doctor", Filename: "doctor.json", Collect: collectSupportDoctor},
 		{Name: "net-doctor", Filename: "net-doctor.json", Collect: collectSupportNetDoctor},
 		{Name: "storage-report", Filename: "storage-report.json", Collect: collectSupportStorageReport},
+		{Name: "scale-csi-pods", Filename: "scale-csi-pods.json", Collect: collectSupportScaleCSIPods},
+		{Name: "scale-csi-controller-logs", Filename: "scale-csi-controller.log", Collect: collectSupportScaleCSIControllerLogs},
+		{Name: "scale-csi-node-logs", Filename: "scale-csi-node.log", Collect: collectSupportScaleCSINodeLogs},
+		{Name: "scale-csi-helmrelease", Filename: "scale-csi-helmrelease.json", Collect: collectSupportScaleCSIHelmRelease},
+		{Name: "scale-csi-driver", Filename: "scale-csi-driver.json", Collect: collectSupportScaleCSIDriver},
+		{Name: "scale-csi-storageclasses", Filename: "scale-csi-storageclasses.json", Collect: collectSupportScaleCSIStorageClasses},
+		{Name: "scale-csi-volumeattachments", Filename: "scale-csi-volumeattachments.json", Collect: collectSupportScaleCSIVolumeAttachments},
+		{Name: "scale-csi-events", Filename: "scale-csi-events.json", Collect: collectSupportScaleCSIEvents},
 		{Name: "flux-discovery", Filename: "flux-discovery.json", Collect: collectSupportFluxDiscovery},
 		{Name: "flux-summaries", Filename: "flux-summaries.json", Collect: collectSupportFluxSummaries},
 		{Name: "etcd-status", Filename: "etcd-status.json", Collect: collectSupportEtcdStatus},
@@ -287,7 +296,73 @@ func collectSupportNetDoctor(ctx context.Context) ([]byte, error) {
 }
 
 func collectSupportStorageReport(ctx context.Context) ([]byte, error) {
-	return renderSupportJSON(buildStorageReport(ctx, "", storageDefaultCephWarnPercent))
+	return renderSupportJSON(buildStorageReport(ctx, ""))
+}
+
+func collectSupportScaleCSIPods(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "get", "pods", "--namespace", constants.NSScaleCSI, "-o", "json")
+}
+
+func collectSupportScaleCSIControllerLogs(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "logs", "deployment/"+constants.ScaleCSIController, "--namespace", constants.NSScaleCSI,
+		"--all-pods=true", "--all-containers=true", "--prefix=true", "--timestamps=true", "--tail=1000")
+}
+
+func collectSupportScaleCSINodeLogs(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "logs", "daemonset/"+constants.ScaleCSINode, "--namespace", constants.NSScaleCSI,
+		"--all-pods=true", "--all-containers=true", "--prefix=true", "--timestamps=true", "--tail=1000")
+}
+
+func collectSupportScaleCSIHelmRelease(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "get", fluxHelmReleaseResource, constants.ScaleCSIHelmRelease,
+		"--namespace", constants.NSScaleCSI, "-o", "json")
+}
+
+func collectSupportScaleCSIDriver(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "get", csiDriverResource, constants.ScaleCSIDriver, "-o", "json")
+}
+
+func collectSupportScaleCSIStorageClasses(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "get", storageClassResource,
+		constants.ScaleCSIStorageClassNVMeOF,
+		constants.ScaleCSIStorageClassISCSI,
+		constants.ScaleCSIStorageClassNFS,
+		"-o", "json")
+}
+
+func collectSupportScaleCSIVolumeAttachments(ctx context.Context) ([]byte, error) {
+	raw, err := kubectlOutputCtxFn(ctx, "get", "volumeattachments.storage.k8s.io", "-o", "json")
+	if err != nil {
+		return nil, err
+	}
+	var list struct {
+		APIVersion string            `json:"apiVersion,omitempty"`
+		Kind       string            `json:"kind,omitempty"`
+		Items      []json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("parse VolumeAttachments JSON: %w", err)
+	}
+	filtered := list.Items[:0]
+	for _, item := range list.Items {
+		var identity struct {
+			Spec struct {
+				Attacher string `json:"attacher"`
+			} `json:"spec"`
+		}
+		if err := json.Unmarshal(item, &identity); err != nil {
+			return nil, fmt.Errorf("parse VolumeAttachment item: %w", err)
+		}
+		if identity.Spec.Attacher == constants.ScaleCSIDriver {
+			filtered = append(filtered, item)
+		}
+	}
+	list.Items = filtered
+	return renderSupportJSON(list)
+}
+
+func collectSupportScaleCSIEvents(ctx context.Context) ([]byte, error) {
+	return kubectlOutputCtxFn(ctx, "get", "events", "--namespace", constants.NSScaleCSI, "--sort-by=.lastTimestamp", "-o", "json")
 }
 
 func collectSupportFluxDiscovery(ctx context.Context) ([]byte, error) {
