@@ -241,6 +241,9 @@ func TestSnapshotApp(t *testing.T) {
 		}
 		commandOutputFn = func(name string, args ...string) ([]byte, error) {
 			require.Equal(t, "kubectl", name)
+			if strings.Join(args, " ") == "get replicationsource paperless --namespace media -o json" {
+				return []byte(`{"spec":{"trigger":{"manual":"1234"}}}`), nil
+			}
 			return []byte("paperless"), nil
 		}
 		commandRunFn = func(name string, args ...string) error {
@@ -250,7 +253,12 @@ func TestSnapshotApp(t *testing.T) {
 		}
 		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
 			require.Equal(t, "kubectl", name)
-			assert.Equal(t, "paperless", args[4])
+			if args[0] == "--namespace" {
+				assert.Equal(t, "paperless", args[4])
+			} else {
+				assert.Equal(t, "patch", args[0])
+				assert.Contains(t, args[len(args)-1], `"schedule":"0 * * * *"`)
+			}
 			return []byte("patched"), nil
 		}
 		volsyncNow = func() time.Time { return time.Unix(1234, 0) }
@@ -280,8 +288,14 @@ func TestSnapshotApp(t *testing.T) {
 				return fmt.Errorf("unexpected run args: %v", args)
 			}
 		}
+		var restoredSchedule bool
 		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
-			assert.Equal(t, []string{"--namespace", "media", "patch", "replicationsources", "paperless", "--type", "merge", "-p", `{"spec":{"trigger":{"manual":"42"}}}`}, args)
+			if args[0] == "--namespace" {
+				assert.Equal(t, []string{"--namespace", "media", "patch", "replicationsources", "paperless", "--type", "merge", "-p", `{"spec":{"trigger":{"manual":"42"}}}`}, args)
+			} else {
+				restoredSchedule = true
+				assert.Contains(t, args[len(args)-1], `"schedule":"0 * * * *"`)
+			}
 			return []byte("patched"), nil
 		}
 		volsyncNow = func() time.Time { return time.Unix(42, 0) }
@@ -289,6 +303,33 @@ func TestSnapshotApp(t *testing.T) {
 
 		require.NoError(t, snapshotApp("media", "paperless", true, 30*time.Second))
 		assert.Equal(t, []time.Duration{5 * time.Second}, sleeps)
+		assert.True(t, restoredSchedule)
+	})
+
+	t.Run("restores schedule when snapshot wait fails", func(t *testing.T) {
+		commandRunFn = func(name string, args ...string) error {
+			if len(args) >= 4 && args[2] == "wait" {
+				return errors.New("snapshot failed")
+			}
+			return nil
+		}
+		commandOutputFn = func(name string, args ...string) ([]byte, error) {
+			return []byte(`{"spec":{"trigger":{"manual":"99"}}}`), nil
+		}
+		var restoredSchedule bool
+		commandCombinedOutputFn = func(name string, args ...string) ([]byte, error) {
+			if args[0] == "patch" {
+				restoredSchedule = true
+			}
+			return []byte("patched"), nil
+		}
+		volsyncNow = func() time.Time { return time.Unix(99, 0) }
+
+		err := snapshotApp("media", "paperless", true, 30*time.Second)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "snapshot job failed")
+		assert.True(t, restoredSchedule)
 	})
 
 	t.Run("cancelled app selection exits cleanly", func(t *testing.T) {
@@ -457,7 +498,7 @@ func TestRestoreApp(t *testing.T) {
 			case `--namespace media get pvc paperless --output=jsonpath={.spec.resources.requests.storage}`:
 				return []byte("250Gi"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheStorageClassName}`:
-				return []byte("ceph-block"), nil
+				return []byte("scale-nvmeof"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheCapacity}`:
 				return []byte("10Gi"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsUser}`:
@@ -465,9 +506,9 @@ func TestRestoreApp(t *testing.T) {
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsGroup}`:
 				return []byte("1000"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.storageClassName}`:
-				return []byte("ceph-block"), nil
+				return []byte("scale-nvmeof"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.volumeSnapshotClassName}`:
-				return []byte("csi-ceph-blockpool"), nil
+				return []byte("scale-snapshot"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.accessModes}`:
 				return []byte(`["ReadWriteOnce"]`), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheAccessModes}`:
@@ -535,7 +576,7 @@ func TestRestoreApp(t *testing.T) {
 			case `--namespace media get pvc paperless --output=jsonpath={.spec.resources.requests.storage}`:
 				return []byte("250Gi"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheStorageClassName}`:
-				return []byte("ceph-block"), nil
+				return []byte("scale-nvmeof"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheCapacity}`:
 				return []byte("10Gi"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsUser}`:
@@ -543,9 +584,9 @@ func TestRestoreApp(t *testing.T) {
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.moverSecurityContext.runAsGroup}`:
 				return []byte("1000"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.storageClassName}`:
-				return []byte("ceph-block"), nil
+				return []byte("scale-nvmeof"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.volumeSnapshotClassName}`:
-				return []byte("csi-ceph-blockpool"), nil
+				return []byte("scale-snapshot"), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.accessModes}`:
 				return []byte(`["ReadWriteOnce"]`), nil
 			case `--namespace media get replicationsources/paperless --output=jsonpath={.spec.kopia.cacheAccessModes}`:
@@ -664,6 +705,10 @@ func TestVolsyncStateShowsWithoutArgs(t *testing.T) {
 			return []byte(""), nil
 		case strings.Contains(joined, "deployment"):
 			return []byte("0 "), nil
+		case strings.Contains(joined, "replicationsources"):
+			return []byte(`{"items":[{"metadata":{"name":"seerr","namespace":"media"},"spec":{"sourcePVC":"seerr"}}]}`), nil
+		case strings.Contains(joined, "get pvc"):
+			return []byte(`{"items":[{"metadata":{"name":"seerr","namespace":"media"},"spec":{"storageClassName":"scale-nvmeof"}}]}`), nil
 		}
 		return nil, fmt.Errorf("unexpected kubectl call: %s", joined)
 	}
@@ -672,10 +717,11 @@ func TestVolsyncStateShowsWithoutArgs(t *testing.T) {
 	cmd.SetArgs([]string{})
 	stdout, _, err := testutil.CaptureOutput(func() { require.NoError(t, cmd.Execute()) })
 	require.NoError(t, err)
-	require.Len(t, queried, 3)
+	require.Len(t, queried, 5)
 	assert.Contains(t, stdout, "suspended")
 	assert.Contains(t, stdout, "active")
 	assert.Contains(t, stdout, "scaled to 0")
+	assert.Contains(t, stdout, "scale-nvmeof")
 	assert.Contains(t, stdout, "volsync state resume")
 }
 

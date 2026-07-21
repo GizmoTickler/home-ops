@@ -481,17 +481,23 @@ func TestDeployVMDryRun(t *testing.T) {
 }
 
 type fakeMgr struct {
-	deployed []string
+	deployed []proxmox.VMConfig
 }
 
 func (f *fakeMgr) Close() error { return nil }
 func (f *fakeMgr) DeployVM(c proxmox.VMConfig) error {
-	f.deployed = append(f.deployed, c.Name)
+	f.deployed = append(f.deployed, c)
 	return nil
 }
 
 func TestDeployVMRealPath(t *testing.T) {
 	defer stubVersions(t)()
+	testutil.Swap(t, &proxmoxDefaultVMConfig, func() proxmox.VMConfig {
+		return proxmox.VMConfig{OpenEBSSize: 700, OpenEBSStorage: "openebs-ssd"}
+	})
+	testutil.Swap(t, &getFlatcarNodeConfigFn, func(name string) (proxmox.FlatcarNodeConfig, bool) {
+		return proxmox.FlatcarNodeConfig{Name: name, OpenEBSStorage: "openebs-ssd"}, true
+	})
 	testutil.Swap(t, &renderIgnitionFn, func(env flatcar.NodeEnv) ([]byte, error) {
 		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
 	})
@@ -520,7 +526,11 @@ func TestDeployVMRealPath(t *testing.T) {
 	cmd.SetArgs([]string{"--nodes", "k8s-0", "--image-volume", "nvme1:vm-200-disk-0", "--snippets-dir", snip})
 	require.NoError(t, cmd.Execute())
 	require.Len(t, mgr.deployed, 1)
-	assert.Equal(t, "k8s-0", mgr.deployed[0])
+	assert.Equal(t, "k8s-0", mgr.deployed[0].Name)
+	assert.Equal(t, 700, mgr.deployed[0].OpenEBSSize)
+	assert.Equal(t, "openebs-ssd", mgr.deployed[0].OpenEBSStorage)
+	assert.Equal(t, "scsi3", mgr.deployed[0].OpenEBSSlot)
+	assert.True(t, mgr.deployed[0].OpenEBSSSD)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
 }

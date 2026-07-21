@@ -151,10 +151,6 @@ cluster:
   name: my-cluster
   # Direct SSH connections to configured cluster nodes.
   node_ssh_port: 22
-  # Rook-Ceph installation used by maintenance and storage workflows.
-  rook:
-    namespace: rook-ceph
-    toolbox_deployment: rook-ceph-tools
   # Cluster-level environment rendered into Flatcar/kubeadm and legacy Talos templates.
   # Defaults preserve the historical embedded template literals.
   pod_cidr: 10.42.0.0/16
@@ -198,7 +194,7 @@ cluster:
       #  openebs_storage: nvmeof-vmdata
       #  pci_device: "0000:04:00.0"                  # vSphere SR-IOV
       #  rdm_path: "[datastore1] rdm/intel-ssd-1.vmdk" # vSphere pRDM
-      #  ceph:                               # Rook-Ceph OSD disk for this node
+      #  ceph:                               # legacy OSD-disk compatibility key
       #    mode: passthrough                 # passthrough | virtual | none
       #    disk_by_id: ata-INTEL_SSD...      # passthrough: physical disk id
       #    #size_gb: 500                     # virtual: disk size
@@ -234,7 +230,7 @@ hypervisors:
     #  openebs_disk_gb: 800
     #  boot_storage: nvme1
     #  openebs_storage: nvmeof-vmdata
-    #  ceph:                      # default Rook-Ceph OSD disk for every node
+    #  ceph:                      # default legacy OSD-disk compatibility key
     #    mode: virtual            # passthrough | virtual | none
     #    size_gb: 500             # virtual: disk size
     #    storage: my-pool         # virtual: pool/datastore (defaults to boot storage)
@@ -456,8 +452,6 @@ func runDoctor(skipSecrets, network bool) error {
 		name  string
 		value string
 	}{
-		{"cluster.rook.namespace", cfg.Cluster.Rook.Namespace},
-		{"cluster.rook.toolbox_deployment", cfg.Cluster.Rook.ToolboxDeployment},
 		{"volsync.check_image", cfg.Volsync.CheckImage},
 	} {
 		if strings.TrimSpace(field.value) == "" {

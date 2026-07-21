@@ -238,6 +238,11 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	if nodeConfig.OpenEBSStorage != "" {
 		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
 	}
+	// Flatcar reserves scsi3 for its OpenEBS hostpath disk. Marking it as an
+	// SSD keeps the reprovisioned hardware identical to the live PVE VMs.
+	vmConfig.OpenEBSSlot = "scsi3"
+	vmConfig.OpenEBSSSD = true
+	// Ceph* fields are the retained nodes[].vm.ceph legacy OSD-disk interface.
 	if nodeConfig.CephMode != "" {
 		vmConfig.CephMode = nodeConfig.CephMode
 	}

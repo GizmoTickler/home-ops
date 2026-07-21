@@ -64,10 +64,10 @@ var defaultNodes = []Node{
 	defaultNode("k8s-2", "192.168.122.12", 202, "00:a0:98:3e:6c:22", "8-15,40-47", 0, "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN", "nvme1", "nvme-mirror"),
 }
 
-func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, cephDiskByID, talosBootStorage, flatcarBootStorage string) Node {
-	talosProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, cephDiskByID)
+func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, legacyOSDDiskByID, talosBootStorage, flatcarBootStorage string) Node {
+	talosProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, legacyOSDDiskByID)
 	talosProfile.BootStorage = talosBootStorage
-	flatcarProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, cephDiskByID)
+	flatcarProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, legacyOSDDiskByID)
 	flatcarProfile.BootStorage = flatcarBootStorage
 	vsphereProfile := defaultVSphereProviderVMProfile(name, mac)
 	return Node{
@@ -83,14 +83,14 @@ func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, ceph
 	}
 }
 
-func defaultProviderVMProfile(vmid int, mac, affinity string, numa int, cephDiskByID string) ProviderVMProfile {
+func defaultProviderVMProfile(vmid int, mac, affinity string, numa int, legacyOSDDiskByID string) ProviderVMProfile {
 	return ProviderVMProfile{
 		VMID:           vmid,
 		Mac:            mac,
 		OpenEBSStorage: "nvmeof-vmdata",
 		CPUAffinity:    affinity,
 		NUMANode:       intPtr(numa),
-		Ceph:           CephDisk{DiskByID: cephDiskByID},
+		Ceph:           CephDisk{DiskByID: legacyOSDDiskByID},
 	}
 }
 
@@ -179,12 +179,6 @@ func defaultConfig() *Config {
 func applyDefaults(c *Config) {
 	if c.Cluster.NodeSSHPort == 0 {
 		c.Cluster.NodeSSHPort = constants.DefaultNodeSSHPort
-	}
-	if c.Cluster.Rook.Namespace == "" {
-		c.Cluster.Rook.Namespace = constants.NSRookCeph
-	}
-	if c.Cluster.Rook.ToolboxDeployment == "" {
-		c.Cluster.Rook.ToolboxDeployment = constants.DefaultRookToolboxDeployment
 	}
 	if c.Cluster.Observability.Namespace == "" {
 		c.Cluster.Observability.Namespace = constants.NSObservability

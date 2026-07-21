@@ -24,8 +24,6 @@ const (
 	nodeMaintenanceDefaultTimeout         = 10 * time.Minute
 	nodeMaintenanceDefaultRollbackTimeout = time.Minute
 	nodeMaintenancePollInterval           = 5 * time.Second
-	nodeMaintenanceNooutOwned             = "owned"
-	nodeMaintenanceNooutPreexisting       = "preexisting"
 )
 
 var (
@@ -73,9 +71,8 @@ type nodeMaintenanceStep struct {
 }
 
 type nodeMaintenanceFinal struct {
-	NodeReady bool   `json:"node_ready"`
-	Cordoned  bool   `json:"cordoned"`
-	Ceph      string `json:"ceph"`
+	NodeReady bool `json:"node_ready"`
+	Cordoned  bool `json:"cordoned"`
 }
 
 type nodeMaintenanceReport struct {
@@ -88,13 +85,11 @@ type nodeMaintenanceReport struct {
 type nodeMaintenanceRuntime struct {
 	configNode config.Node
 	node       kubernetesNodeState
-	ceph       bool
 }
 
 type kubernetesNodeState struct {
 	Metadata struct {
-		Name        string            `json:"name"`
-		Annotations map[string]string `json:"annotations"`
+		Name string `json:"name"`
 	} `json:"metadata"`
 	Spec struct {
 		Unschedulable bool `json:"unschedulable"`
@@ -104,14 +99,19 @@ type kubernetesNodeState struct {
 	} `json:"status"`
 }
 
-type cephOSDDump struct {
-	Flags string `json:"flags"`
-}
-
-type cephStatusJSON struct {
-	Health struct {
-		Status string `json:"status"`
-	} `json:"health"`
+type scaleCSINodePodList struct {
+	Items []struct {
+		Metadata struct {
+			Name            string `json:"name"`
+			OwnerReferences []struct {
+				Kind string `json:"kind"`
+				Name string `json:"name"`
+			} `json:"ownerReferences"`
+		} `json:"metadata"`
+		Status struct {
+			Phase string `json:"phase"`
+		} `json:"status"`
+	} `json:"items"`
 }
 
 type nodeMaintenanceRollback struct {
@@ -127,7 +127,7 @@ func newNodeMaintenanceCommand() *cobra.Command {
 	maintenanceCmd := &cobra.Command{
 		Use:   "maintenance",
 		Short: "Safely enter or exit host maintenance",
-		Long:  "Coordinate Kubernetes draining, Ceph noout, and optional hypervisor power operations for a configured cluster node.",
+		Long:  "Coordinate Kubernetes draining and optional hypervisor power operations for a configured cluster node.",
 	}
 	maintenanceCmd.AddCommand(newNodeMaintenanceEnterCommand(), newNodeMaintenanceExitCommand())
 	nodeCmd.AddCommand(maintenanceCmd)
@@ -175,7 +175,7 @@ func newNodeMaintenanceExitCommand() *cobra.Command {
 			return executeNodeMaintenanceCommand(cmd, opts)
 		},
 	}
-	cmd.Flags().DurationVar(&opts.Timeout, "timeout", 0, "maximum time allowed for node and Ceph readiness waits (default: cluster.maintenance.timeout)")
+	cmd.Flags().DurationVar(&opts.Timeout, "timeout", 0, "maximum time allowed for VM and node readiness waits (default: cluster.maintenance.timeout)")
 	cmd.Flags().Lookup("timeout").DefValue = ""
 	cmd.Flags().BoolVar(&opts.StartVM, "start-vm", false, "power on the configured node VM before uncordoning")
 	cmd.Flags().StringVarP(&opts.Output, "output", "o", "table", "output format: table or json")
@@ -229,7 +229,7 @@ func executeNodeMaintenanceCommand(cmd *cobra.Command, opts nodeMaintenanceOptio
 func printNodeMaintenancePlan(out io.Writer, opts nodeMaintenanceOptions) {
 	_, _ = fmt.Fprintf(out, "Maintenance %s plan for %s:\n", opts.Action, opts.Node)
 	if opts.Action == "enter" {
-		_, _ = fmt.Fprintf(out, "  1. Validate the configured node is Ready\n  2. Set Ceph noout when Rook is present\n  3. Cordon the node\n  4. Drain the node (timeout %s)\n", opts.DrainTimeout)
+		_, _ = fmt.Fprintf(out, "  1. Validate the configured node is Ready\n  2. Inspect the scale-csi node pod (informational)\n  3. Cordon the node\n  4. Drain the node (timeout %s)\n", opts.DrainTimeout)
 		if opts.ShutdownVM {
 			_, _ = fmt.Fprintln(out, "  5. Power off the configured VM and wait for poweroff")
 		} else {
@@ -242,11 +242,11 @@ func printNodeMaintenancePlan(out io.Writer, opts nodeMaintenanceOptions) {
 	} else {
 		_, _ = fmt.Fprintln(out, "  1. Leave VM power unchanged (--start-vm not set)")
 	}
-	_, _ = fmt.Fprintf(out, "  2. Uncordon the node\n  3. Restore Ceph noout only when this workflow set it\n  4. Wait for HEALTH_OK or HEALTH_WARN (timeout %s)\n  5. Report final node and Ceph status\n", opts.Timeout)
+	_, _ = fmt.Fprintln(out, "  2. Uncordon the node\n  3. Report final node status")
 }
 
 func runNodeMaintenance(ctx context.Context, opts nodeMaintenanceOptions) (nodeMaintenanceReport, error) {
-	report := nodeMaintenanceReport{Action: opts.Action, Node: opts.Node, Final: nodeMaintenanceFinal{Ceph: "not checked"}}
+	report := nodeMaintenanceReport{Action: opts.Action, Node: opts.Node}
 	if opts.Action == "enter" {
 		return runNodeMaintenanceEnter(ctx, opts, report)
 	}
@@ -264,61 +264,9 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 		}
 		return "configured node is Ready", nil
 	}); err != nil {
-		return finalizeNodeMaintenance(ctx, report, opts.Node, "not checked", err)
+		return finalizeNodeMaintenance(ctx, report, opts.Node, err)
 	}
-
-	cephPresent, err := rookCephPresent(ctx)
-	if err != nil {
-		appendNodeMaintenanceFailure(&report, "ceph-noout", err)
-		return rollbackNodeMaintenance(ctx, report, rollbacks, opts.Node, err)
-	}
-	runtimeState.ceph = cephPresent
-	if !cephPresent {
-		appendNodeMaintenanceSkip(&report, "ceph-noout", nodeMaintenanceRookConfig().Namespace+" namespace absent")
-	} else if err := runNodeMaintenanceStep(&report, "ceph-noout", func() (string, error) {
-		noout, getErr := cephNooutEnabled(ctx)
-		if getErr != nil {
-			return "", getErr
-		}
-		annotation := maintenanceNooutOwnership(runtimeState.node.Metadata.Annotations)
-		if noout {
-			ownership := nodeMaintenanceNooutPreexisting
-			detail := "noout was already set; it will be preserved on exit"
-			if annotation == nodeMaintenanceNooutOwned {
-				return "noout is already owned by this maintenance workflow", nil
-			}
-			if annotation == nodeMaintenanceNooutPreexisting {
-				return "noout was already set; its pre-existing ownership is already recorded", nil
-			}
-			if err := annotateMaintenanceNoout(ctx, opts.Node, ownership); err != nil {
-				return "", err
-			}
-			rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "remove-ceph-ownership-record", run: func(rollbackCtx context.Context) error {
-				return removeMaintenanceNooutAnnotation(rollbackCtx, opts.Node)
-			}})
-			return detail, nil
-		}
-		if err := runCephCommand(ctx, "osd", "set", "noout"); err != nil {
-			return "", err
-		}
-		if err := annotateMaintenanceNoout(ctx, opts.Node, nodeMaintenanceNooutOwned); err != nil {
-			cleanupErr := withNodeMaintenanceRollbackContext(ctx, func(rollbackCtx context.Context) error {
-				return runCephCommand(rollbackCtx, "osd", "unset", "noout")
-			})
-			return "", errors.Join(err, cleanupErr)
-		}
-		rollbacks = append(rollbacks, nodeMaintenanceRollback{name: "unset-ceph-noout", run: func(rollbackCtx context.Context) error {
-			unsetErr := runCephCommand(rollbackCtx, "osd", "unset", "noout")
-			annotationErr := removeMaintenanceNooutAnnotation(rollbackCtx, opts.Node)
-			if unsetErr != nil {
-				return unsetErr
-			}
-			return annotationErr
-		}})
-		return "set noout and recorded ownership on the node", nil
-	}); err != nil {
-		return rollbackNodeMaintenance(ctx, report, rollbacks, opts.Node, err)
-	}
+	appendNodeMaintenanceInfo(&report, "scale-csi-node", inspectScaleCSINodePod(ctx, opts.Node))
 
 	if runtimeState.node.Spec.Unschedulable {
 		appendNodeMaintenanceSkip(&report, "cordon", "node is already cordoned")
@@ -355,11 +303,7 @@ func runNodeMaintenanceEnter(ctx context.Context, opts nodeMaintenanceOptions, r
 		return rollbackNodeMaintenance(ctx, report, rollbacks, opts.Node, err)
 	}
 
-	cephFinal := "absent"
-	if runtimeState.ceph {
-		cephFinal = "noout"
-	}
-	return finalizeNodeMaintenance(ctx, report, opts.Node, cephFinal, nil)
+	return finalizeNodeMaintenance(ctx, report, opts.Node, nil)
 }
 
 func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, report nodeMaintenanceReport) (nodeMaintenanceReport, error) {
@@ -373,7 +317,7 @@ func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, re
 		}
 		return "configured node found", nil
 	}); err != nil {
-		return finalizeNodeMaintenance(ctx, report, opts.Node, "not checked", err)
+		return finalizeNodeMaintenance(ctx, report, opts.Node, err)
 	}
 
 	if !opts.StartVM {
@@ -386,7 +330,7 @@ func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, re
 			}
 			return maintenanceVMDetail(configNode, true), nil
 		}); err != nil {
-			return finalizeNodeMaintenance(ctx, report, opts.Node, "not checked", err)
+			return finalizeNodeMaintenance(ctx, report, opts.Node, err)
 		}
 		if err := runNodeMaintenanceStep(&report, "wait-node-ready", func() (string, error) {
 			if err := waitForMaintenanceNodeReady(ctx, opts.Node, opts.Timeout); err != nil {
@@ -394,7 +338,7 @@ func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, re
 			}
 			return "kubelet reports Ready", nil
 		}); err != nil {
-			return finalizeNodeMaintenance(ctx, report, opts.Node, "not checked", err)
+			return finalizeNodeMaintenance(ctx, report, opts.Node, err)
 		}
 		nodeState, _ = getMaintenanceNode(ctx, opts.Node)
 	}
@@ -407,61 +351,9 @@ func runNodeMaintenanceExit(ctx context.Context, opts nodeMaintenanceOptions, re
 		}
 		return "node uncordoned", nil
 	}); err != nil {
-		return finalizeNodeMaintenance(ctx, report, opts.Node, "not checked", err)
+		return finalizeNodeMaintenance(ctx, report, opts.Node, err)
 	}
-
-	cephPresent, err := rookCephPresent(ctx)
-	if err != nil {
-		appendNodeMaintenanceFailure(&report, "ceph-noout", err)
-		return finalizeNodeMaintenance(ctx, report, opts.Node, "unknown", err)
-	}
-	cephFinal := "absent"
-	if !cephPresent {
-		detail := nodeMaintenanceRookConfig().Namespace + " namespace absent"
-		appendNodeMaintenanceSkip(&report, "ceph-noout", detail)
-		appendNodeMaintenanceSkip(&report, "wait-ceph-health", detail)
-	} else {
-		ownership := maintenanceNooutOwnership(nodeState.Metadata.Annotations)
-		if ownership != nodeMaintenanceNooutOwned {
-			detail := "no ownership record; preserving noout"
-			if ownership == nodeMaintenanceNooutPreexisting {
-				detail = "noout predated maintenance; preserving it"
-				if removeErr := removeMaintenanceNooutAnnotation(ctx, opts.Node); removeErr != nil {
-					appendNodeMaintenanceFailure(&report, "ceph-noout", removeErr)
-					return finalizeNodeMaintenance(ctx, report, opts.Node, "unknown", removeErr)
-				}
-			}
-			appendNodeMaintenanceSkip(&report, "ceph-noout", detail)
-		} else if err := runNodeMaintenanceStep(&report, "ceph-noout", func() (string, error) {
-			noout, getErr := cephNooutEnabled(ctx)
-			if getErr != nil {
-				return "", getErr
-			}
-			if noout {
-				if err := runCephCommand(ctx, "osd", "unset", "noout"); err != nil {
-					return "", err
-				}
-			}
-			if err := removeMaintenanceNooutAnnotation(ctx, opts.Node); err != nil {
-				return "", err
-			}
-			return "removed maintenance-owned noout", nil
-		}); err != nil {
-			return finalizeNodeMaintenance(ctx, report, opts.Node, "unknown", err)
-		}
-
-		if err := runNodeMaintenanceStep(&report, "wait-ceph-health", func() (string, error) {
-			health, waitErr := waitForCephHealth(ctx, opts.Timeout)
-			cephFinal = health
-			if waitErr != nil {
-				return "", waitErr
-			}
-			return health, nil
-		}); err != nil {
-			return finalizeNodeMaintenance(ctx, report, opts.Node, cephFinal, err)
-		}
-	}
-	return finalizeNodeMaintenance(ctx, report, opts.Node, cephFinal, nil)
+	return finalizeNodeMaintenance(ctx, report, opts.Node, nil)
 }
 
 func validateMaintenanceNode(ctx context.Context, name string, requireReady bool) (config.Node, kubernetesNodeState, error) {
@@ -491,83 +383,24 @@ func getMaintenanceNode(ctx context.Context, name string) (kubernetesNodeState, 
 	return state, nil
 }
 
-func rookCephPresent(ctx context.Context) (bool, error) {
-	rook := nodeMaintenanceRookConfig()
-	raw, err := kubectlOutputCtxFn(ctx, "get", "namespace", rook.Namespace, "--ignore-not-found", "-o", "name")
+func inspectScaleCSINodePod(ctx context.Context, node string) string {
+	raw, err := kubectlOutputCtxFn(ctx, "get", "pods", "--namespace", constants.NSScaleCSI,
+		"--field-selector", "spec.nodeName="+node, "-o", "json")
 	if err != nil {
-		return false, fmt.Errorf("detect %s namespace: %w", rook.Namespace, err)
+		return fmt.Sprintf("unable to verify %s on %s; proceeding because storage is external: %v", constants.ScaleCSINode, node, err)
 	}
-	return strings.TrimSpace(string(raw)) != "", nil
-}
-
-func runCephCommand(ctx context.Context, args ...string) error {
-	rook := nodeMaintenanceRookConfig()
-	kubectlArgs := []string{"-n", rook.Namespace, "exec", "deploy/" + rook.ToolboxDeployment, "--", "ceph"}
-	kubectlArgs = append(kubectlArgs, args...)
-	if err := nodeMaintenanceKubectlRunFn(ctx, kubectlArgs...); err != nil {
-		return fmt.Errorf("ceph %s: %w", strings.Join(args, " "), err)
+	var pods scaleCSINodePodList
+	if err := json.Unmarshal(raw, &pods); err != nil {
+		return fmt.Sprintf("unable to parse %s pods on %s; proceeding because storage is external: %v", constants.ScaleCSINode, node, err)
 	}
-	return nil
-}
-
-func cephCommandOutput(ctx context.Context, args ...string) ([]byte, error) {
-	rook := nodeMaintenanceRookConfig()
-	kubectlArgs := []string{"-n", rook.Namespace, "exec", "deploy/" + rook.ToolboxDeployment, "--", "ceph"}
-	kubectlArgs = append(kubectlArgs, args...)
-	raw, err := kubectlOutputCtxFn(ctx, kubectlArgs...)
-	if err != nil {
-		return nil, fmt.Errorf("ceph %s: %w", strings.Join(args, " "), err)
-	}
-	return raw, nil
-}
-
-func cephNooutEnabled(ctx context.Context) (bool, error) {
-	raw, err := cephCommandOutput(ctx, "osd", "dump", "--format", "json")
-	if err != nil {
-		return false, err
-	}
-	var dump cephOSDDump
-	if err := json.Unmarshal(raw, &dump); err != nil {
-		return false, fmt.Errorf("parse ceph osd dump: %w", err)
-	}
-	for _, flag := range strings.FieldsFunc(dump.Flags, func(r rune) bool { return r == ',' || r == ' ' }) {
-		if flag == "noout" {
-			return true, nil
+	for _, pod := range pods.Items {
+		for _, owner := range pod.Metadata.OwnerReferences {
+			if owner.Kind == "DaemonSet" && owner.Name == constants.ScaleCSINode {
+				return fmt.Sprintf("pod %s exists on %s (phase=%s); drain is not gated on external storage health", pod.Metadata.Name, node, pod.Status.Phase)
+			}
 		}
 	}
-	return false, nil
-}
-
-func annotateMaintenanceNoout(ctx context.Context, node, ownership string) error {
-	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, constants.CephNooutAnnotation+"="+ownership, "--overwrite"); err != nil {
-		return fmt.Errorf("record Ceph noout ownership on node %s: %w", node, err)
-	}
-	return nil
-}
-
-func removeMaintenanceNooutAnnotation(ctx context.Context, node string) error {
-	if err := nodeMaintenanceKubectlRunFn(ctx, "annotate", "node", node, constants.CephNooutAnnotation+"-", constants.LegacyCephNooutAnnotation+"-"); err != nil {
-		return fmt.Errorf("remove Ceph noout ownership from node %s: %w", node, err)
-	}
-	return nil
-}
-
-func maintenanceNooutOwnership(annotations map[string]string) string {
-	if ownership := annotations[constants.CephNooutAnnotation]; ownership != "" {
-		return ownership
-	}
-	return annotations[constants.LegacyCephNooutAnnotation]
-}
-
-func nodeMaintenanceRookConfig() config.RookConfig {
-	rook := nodeMaintenanceConfigFn().Cluster.Rook
-	if rook.Namespace == "" {
-		rook.Namespace = constants.NSRookCeph
-	}
-	if rook.ToolboxDeployment == "" {
-		rook.ToolboxDeployment = constants.DefaultRookToolboxDeployment
-	}
-	return rook
+	return fmt.Sprintf("no %s pod found on %s; proceeding because storage is external", constants.ScaleCSINode, node)
 }
 
 func waitForMaintenanceNodeReady(ctx context.Context, node string, timeout time.Duration) error {
@@ -582,30 +415,6 @@ func waitForMaintenanceNodeReady(ctx context.Context, node string, timeout time.
 		}
 		if err := nodeMaintenanceSleepFn(ctx, nodeMaintenancePollInterval); err != nil {
 			return err
-		}
-	}
-}
-
-func waitForCephHealth(ctx context.Context, timeout time.Duration) (string, error) {
-	deadline := nodeMaintenanceNowFn().Add(timeout)
-	last := "unknown"
-	for {
-		raw, err := cephCommandOutput(ctx, "status", "--format", "json")
-		if err == nil {
-			var status cephStatusJSON
-			if jsonErr := json.Unmarshal(raw, &status); jsonErr != nil {
-				return last, fmt.Errorf("parse ceph status: %w", jsonErr)
-			}
-			last = status.Health.Status
-			if last == "HEALTH_OK" || last == "HEALTH_WARN" {
-				return last, nil
-			}
-		}
-		if !nodeMaintenanceNowFn().Before(deadline) {
-			return last, fmt.Errorf("ceph did not reach HEALTH_OK or HEALTH_WARN within %s (last: %s)", timeout, last)
-		}
-		if err := nodeMaintenanceSleepFn(ctx, nodeMaintenancePollInterval); err != nil {
-			return last, err
 		}
 	}
 }
@@ -710,8 +519,8 @@ func appendNodeMaintenanceSkip(report *nodeMaintenanceReport, name, detail strin
 	report.Steps = append(report.Steps, nodeMaintenanceStep{Name: name, Status: "SKIPPED", Duration: "0s", Detail: detail})
 }
 
-func appendNodeMaintenanceFailure(report *nodeMaintenanceReport, name string, err error) {
-	report.Steps = append(report.Steps, nodeMaintenanceStep{Name: name, Status: "FAILED", Duration: "0s", Detail: err.Error()})
+func appendNodeMaintenanceInfo(report *nodeMaintenanceReport, name, detail string) {
+	report.Steps = append(report.Steps, nodeMaintenanceStep{Name: name, Status: "INFO", Duration: "0s", Detail: detail})
 }
 
 func rollbackNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, rollbacks []nodeMaintenanceRollback, node string, cause error) (nodeMaintenanceReport, error) {
@@ -730,17 +539,10 @@ func rollbackNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, 
 		}
 	}
 	runErr := errors.Join(fmt.Errorf("maintenance enter failed: %w", cause), errors.Join(rollbackErrors...))
-	return finalizeNodeMaintenance(ctx, report, node, "unknown", runErr)
+	return finalizeNodeMaintenance(ctx, report, node, runErr)
 }
 
-func withNodeMaintenanceRollbackContext(ctx context.Context, run func(context.Context) error) error {
-	rollbackCtx, cancel := nodeMaintenanceRollbackContextFn(ctx)
-	defer cancel()
-	return run(rollbackCtx)
-}
-
-func finalizeNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, node, ceph string, runErr error) (nodeMaintenanceReport, error) {
-	report.Final.Ceph = ceph
+func finalizeNodeMaintenance(ctx context.Context, report nodeMaintenanceReport, node string, runErr error) (nodeMaintenanceReport, error) {
 	state, err := getMaintenanceNode(ctx, node)
 	if err == nil {
 		report.Final.NodeReady = nodeConditionStatus(state.Status.Conditions, "Ready") == "True"
@@ -764,6 +566,6 @@ func renderNodeMaintenanceReport(report nodeMaintenanceReport, output string) (s
 	for _, step := range report.Steps {
 		rows = append(rows, []string{step.Name, step.Status, step.Duration, step.Detail})
 	}
-	final := fmt.Sprintf("Final: node=%s ready=%t cordoned=%t ceph=%s", report.Node, report.Final.NodeReady, report.Final.Cordoned, report.Final.Ceph)
+	final := fmt.Sprintf("Final: node=%s ready=%t cordoned=%t", report.Node, report.Final.NodeReady, report.Final.Cordoned)
 	return ui.Table([]string{"STEP", "STATUS", "DURATION", "DETAIL"}, rows) + "\n" + final, nil
 }

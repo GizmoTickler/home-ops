@@ -39,7 +39,7 @@ func TestRenderKsUsesOutputFileCanonicalFlag(t *testing.T) {
 
 func TestDayTwoCommandsRegistered(t *testing.T) {
 	storageReport := findK8sSubcommand(t, "storage-report")
-	for _, name := range []string{"namespace", "output", "ceph-warn-percent", "fail-on-findings"} {
+	for _, name := range []string{"namespace", "output", "fail-on-findings"} {
 		assert.NotNil(t, storageReport.Flags().Lookup(name), name)
 	}
 

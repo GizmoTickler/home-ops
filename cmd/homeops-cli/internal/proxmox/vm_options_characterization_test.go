@@ -61,7 +61,7 @@ onboot=1
 `,
 		},
 		{
-			name: "talos-ceph-virtual",
+			name: "talos-legacy-osd-virtual",
 			kind: "talos",
 			config: VMConfig{
 				Name: "k8s-1", Memory: 4096, Cores: 4, Sockets: 1,
@@ -110,9 +110,10 @@ net0=virtio,bridge=vmbr0
 				BootStorage:    "nvme1", BootDiskSize: 200,
 				Discard: true, IOThread: true,
 				ImageDiskPath: "/var/lib/vz/template/flatcar.img",
-				OpenEBSSize:   100, OpenEBSStorage: "nvmeof-vmdata",
+				OpenEBSSize:   100, OpenEBSStorage: "openebs-ssd",
+				OpenEBSSlot: "scsi3", OpenEBSSSD: true,
 				CephMode: "virtual", CephDiskSize: 300,
-				BootMode:      "order=scsi0;scsi1",
+				BootMode:      "order=scsi0;scsi3",
 				NetworkBridge: "vmbr0", NetworkMTU: 9000, NetworkQueues: 8, VLANID: 999,
 				MacAddress:    "00:a0:98:1a:f3:72",
 				WatchdogModel: "i6300esb",
@@ -132,9 +133,9 @@ bios=ovmf
 efidisk0=nvme1:1,efitype=4m,pre-enrolled-keys=0
 scsihw=virtio-scsi-single
 scsi0=nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1
-scsi1=nvmeof-vmdata:100,discard=on,iothread=1
+scsi3=openebs-ssd:100,discard=on,iothread=1,ssd=1
 scsi2=nvme1:300,discard=on,iothread=1
-boot=order=scsi0;scsi1
+boot=order=scsi0;scsi3
 net0=virtio=00:a0:98:1a:f3:72,bridge=vmbr0,mtu=9000,queues=8,tag=999
 watchdog=model=i6300esb
 agent=enabled=1

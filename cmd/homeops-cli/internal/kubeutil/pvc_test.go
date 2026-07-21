@@ -20,7 +20,7 @@ func TestPVCExclusions(t *testing.T) {
 }
 
 func TestSystemNamespaces(t *testing.T) {
-	for _, namespace := range []string{constants.NSKubeSystem, constants.NSFluxSystem, constants.NSRookCeph, constants.NSVolsyncSystem} {
+	for _, namespace := range []string{constants.NSKubeSystem, constants.NSFluxSystem, constants.NSScaleCSI, constants.NSVolsyncSystem} {
 		assert.True(t, IsSystemNamespace(namespace), namespace)
 	}
 	assert.False(t, IsSystemNamespace("volsync"))

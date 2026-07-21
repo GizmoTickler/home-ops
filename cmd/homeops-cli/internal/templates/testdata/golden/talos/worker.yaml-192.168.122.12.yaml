@@ -131,7 +131,7 @@ kind: UserVolumeConfig
 name: local-hostpath
 provisioning:
   diskSelector:
-    # Select /dev/sdc explicitly for local-hostpath storage (leaves sdb for Ceph)
+    # Select the configured device explicitly for local-hostpath storage.
     match: disk.dev_path == "/dev/sdb"
   minSize: 800GB
   maxSize: 900GB

@@ -54,7 +54,7 @@ type bootstrapPlanVM struct {
 	BootStorage    string `json:"boot_storage"`
 	OpenEBSDiskGB  int    `json:"openebs_disk_gb"`
 	OpenEBSStorage string `json:"openebs_storage"`
-	Ceph           string `json:"ceph"`
+	LegacyOSDDisk  string `json:"legacy_osd_disk"`
 	Network        string `json:"network"`
 	CPUAffinity    string `json:"cpu_affinity,omitempty"`
 	NUMANode       string `json:"numa_node,omitempty"`
@@ -329,7 +329,7 @@ func initialBootstrapNamespaces() []string {
 	return []string{
 		constants.NSActionsRunner, constants.NSAuth, constants.NSAutomation, constants.NSCertManager, constants.NSDatabase,
 		constants.NSDownloads, constants.NSExternalSecret, constants.NSFluxSystem, constants.NSKubeSystem, constants.NSMedia,
-		constants.NSNetwork, constants.NSObservability, constants.NSOpenEBSSystem, constants.NSRookCeph, constants.NSSelfHosted,
+		constants.NSNetwork, constants.NSObservability, constants.NSOpenEBSSystem, constants.NSScaleCSI, constants.NSSelfHosted,
 		constants.NSSystem, constants.NSSystemUpgrade, constants.NSVolsyncSystem,
 	}
 }
@@ -356,15 +356,17 @@ func buildBootstrapPlanVM(cfg *versionconfig.Config, node versionconfig.Node, pr
 	profile := node.VM.ForProvider(profileProvider)
 	bootStorage := firstNonEmpty(profile.BootStorage, defaults.BootStorage)
 	openEBSStorage := firstNonEmpty(profile.OpenEBSStorage, defaults.OpenEBSStorage, bootStorage)
-	ceph := profile.Ceph
-	if ceph.Mode == "" {
-		ceph = defaults.Ceph
+	// Ceph is the retained nodes[].vm.ceph compatibility field; bootstrap only
+	// reports the effective legacy disk attachment and does not use it for storage.
+	legacyOSD := profile.Ceph
+	if legacyOSD.Mode == "" {
+		legacyOSD = defaults.Ceph
 	}
-	cephDescription := firstNonEmpty(ceph.Mode, "default")
-	if ceph.DiskByID != "" {
-		cephDescription += " by-id=" + ceph.DiskByID
-	} else if ceph.SizeGB > 0 {
-		cephDescription += fmt.Sprintf(" %dGB on %s", ceph.SizeGB, firstNonEmpty(ceph.Storage, bootStorage))
+	legacyOSDDescription := firstNonEmpty(legacyOSD.Mode, "default")
+	if legacyOSD.DiskByID != "" {
+		legacyOSDDescription += " by-id=" + legacyOSD.DiskByID
+	} else if legacyOSD.SizeGB > 0 {
+		legacyOSDDescription += fmt.Sprintf(" %dGB on %s", legacyOSD.SizeGB, firstNonEmpty(legacyOSD.Storage, bootStorage))
 	}
 	numa := "default"
 	if profile.NUMANode != nil {
@@ -380,7 +382,7 @@ func buildBootstrapPlanVM(cfg *versionconfig.Config, node versionconfig.Node, pr
 	return bootstrapPlanVM{
 		Node: node.Name, Hypervisor: hypervisor, VMID: profile.VMID, MAC: profile.Mac,
 		MemoryMB: defaults.MemoryMB, Cores: defaults.Cores, BootDiskGB: defaults.BootDiskGB, BootStorage: bootStorage,
-		OpenEBSDiskGB: defaults.OpenEBSDiskGB, OpenEBSStorage: openEBSStorage, Ceph: cephDescription,
+		OpenEBSDiskGB: defaults.OpenEBSDiskGB, OpenEBSStorage: openEBSStorage, LegacyOSDDisk: legacyOSDDescription,
 		Network: network, CPUAffinity: profile.CPUAffinity, NUMANode: numa,
 	}
 }
@@ -493,7 +495,7 @@ func renderBootstrapPlan(plan bootstrapPlan, output string) (string, error) {
 	for _, vm := range plan.VMs {
 		vmRows = append(vmRows, []string{vm.Node, vm.Hypervisor, fmt.Sprintf("%d", vm.VMID), vm.MAC,
 			fmt.Sprintf("%d/%d", vm.Cores, vm.MemoryMB), fmt.Sprintf("%dGB@%s", vm.BootDiskGB, vm.BootStorage),
-			fmt.Sprintf("%dGB@%s", vm.OpenEBSDiskGB, vm.OpenEBSStorage), vm.Ceph, vm.Network, vm.CPUAffinity, vm.NUMANode})
+			fmt.Sprintf("%dGB@%s", vm.OpenEBSDiskGB, vm.OpenEBSStorage), vm.LegacyOSDDisk, vm.Network, vm.CPUAffinity, vm.NUMANode})
 	}
 	joinRows := renderBootstrapStepRows(plan.JoinSequence)
 	stepRows := renderBootstrapStepRows(plan.Steps)
@@ -504,7 +506,7 @@ func renderBootstrapPlan(plan bootstrapPlan, output string) (string, error) {
 		ui.Table([]string{"ORDER", "STATUS", "CHECK", "EXACT EFFECT"}, checkRows),
 		ui.Table([]string{"KEY", "BACKEND", "STATUS"}, secretRows),
 		ui.Table([]string{"ACTION", "NAME", "EXACT EFFECT"}, artifactRows),
-		ui.Table([]string{"NODE", "HYPERVISOR", "VMID", "MAC", "CPU/MEM_MB", "BOOT", "OPENEBS", "CEPH", "NETWORK", "AFFINITY", "NUMA"}, vmRows),
+		ui.Table([]string{"NODE", "HYPERVISOR", "VMID", "MAC", "CPU/MEM_MB", "BOOT", "OPENEBS", "LEGACY OSD", "NETWORK", "AFFINITY", "NUMA"}, vmRows),
 		ui.Table([]string{"ORDER", "STATUS", "ACTION", "EXACT EFFECT"}, joinRows),
 		ui.Table([]string{"ORDER", "STATUS", "ACTION", "EXACT EFFECT"}, stepRows)), nil
 }

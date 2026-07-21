@@ -48,7 +48,7 @@ func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
 	  {"metadata":{"name":"bazarr","namespace":"downloads"},"spec":{"sourcePVC":"bazarr"},"status":{"lastSyncTime":"` + fresh + `","latestMoverStatus":{"result":"Failed"}}}
 	]}`
 	pvcs := `{"items":[
-	  {"metadata":{"name":"radarr","namespace":"downloads"}},
+	  {"metadata":{"name":"radarr","namespace":"downloads"},"spec":{"storageClassName":"scale-nvmeof"}},
 	  {"metadata":{"name":"sonarr","namespace":"downloads"}},
 	  {"metadata":{"name":"lidarr","namespace":"downloads"}},
 	  {"metadata":{"name":"bazarr","namespace":"downloads"}}
@@ -60,10 +60,13 @@ func TestBuildVolsyncStatusReportClassifiesFreshnessAndFailures(t *testing.T) {
 
 	r := buildVolsyncStatusReport("", 24*time.Hour)
 	statuses := map[string]volsyncStatus{}
+	classes := map[string]string{}
 	for _, item := range r.Sources {
 		statuses[item.Namespace+"/"+item.App] = item.Status
+		classes[item.Namespace+"/"+item.App] = item.StorageClass
 	}
 	assert.Equal(t, volsyncPass, statuses["downloads/radarr"])
+	assert.Equal(t, "scale-nvmeof", classes["downloads/radarr"])
 	assert.Equal(t, volsyncWarn, statuses["downloads/sonarr"])
 	assert.Equal(t, volsyncFail, statuses["downloads/lidarr"])
 	assert.Equal(t, volsyncFail, statuses["downloads/bazarr"])

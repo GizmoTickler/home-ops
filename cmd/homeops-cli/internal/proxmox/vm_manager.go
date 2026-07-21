@@ -118,16 +118,18 @@ type VMConfig struct {
 	// Storage configuration (multi-pool support)
 	BootDiskSize   int    // Boot disk GB (default: 200)
 	BootStorage    string // Storage pool for boot disk (e.g., "nvme1", "nvme2")
-	OpenEBSSize    int    // OpenEBS disk GB (default: 800)
-	OpenEBSStorage string // Storage pool for OpenEBS (e.g., "nvmeof-vmdata")
+	OpenEBSSize    int    // OpenEBS disk GB
+	OpenEBSStorage string // Storage pool for OpenEBS (e.g., "openebs-ssd")
+	OpenEBSSlot    string // Proxmox SCSI slot (default: scsi1; Flatcar: scsi3)
+	OpenEBSSSD     bool   // Expose the OpenEBS disk as an SSD
 
-	// Rook-Ceph OSD disk: either a physical SSD passthrough (CephDiskByID,
-	// via /dev/disk/by-id/) or a plain virtual disk (CephDiskSize GB on
-	// CephStorage). Passthrough wins when both are set.
+	// Legacy OSD disk retained for nodes[].vm.ceph compatibility: either a
+	// physical SSD passthrough (CephDiskByID) or a virtual disk. mode=none
+	// disables the attachment.
 	CephMode     string // "", "passthrough", "virtual", or "none" (explicit selector)
 	CephDiskByID string // e.g., "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN"
-	CephDiskSize int    // virtual Ceph disk size in GB (used when CephDiskByID is empty)
-	CephStorage  string // storage pool for the virtual Ceph disk (default: BootStorage)
+	CephDiskSize int    // virtual legacy OSD disk size in GB (used when CephDiskByID is empty)
+	CephStorage  string // storage pool for the virtual legacy OSD disk (default: BootStorage)
 
 	// Proxmox-specific configuration
 	Node       string // Proxmox node name (default: "pve")
@@ -186,9 +188,9 @@ type TalosNodeConfig struct {
 	BootStorage    string // Storage pool for boot disk
 	OpenEBSStorage string // Storage pool for OpenEBS disk
 	CephMode       string // "", "passthrough", "virtual", or "none"
-	CephDiskByID   string // Disk passthrough by-id path for Ceph SSD
-	CephDiskGB     int    // virtual Ceph disk size GB (alternative to passthrough)
-	CephStorage    string // storage pool for the virtual Ceph disk
+	CephDiskByID   string // legacy OSD-disk passthrough by-id path
+	CephDiskGB     int    // virtual legacy OSD disk size GB (alternative to passthrough)
+	CephStorage    string // storage pool for the virtual legacy OSD disk
 	CPUAffinity    string // CPU core pinning
 	NUMANode       int    // NUMA node (0 or 1)
 	MacAddress     string // Static MAC address
@@ -209,9 +211,9 @@ type FlatcarNodeConfig struct {
 	BootStorage    string // Storage pool for boot disk
 	OpenEBSStorage string // Storage pool for OpenEBS disk
 	CephMode       string // "", "passthrough", "virtual", or "none"
-	CephDiskByID   string // Disk passthrough by-id path for Ceph SSD
-	CephDiskGB     int    // virtual Ceph disk size GB (alternative to passthrough)
-	CephStorage    string // storage pool for the virtual Ceph disk
+	CephDiskByID   string // legacy OSD-disk passthrough by-id path
+	CephDiskGB     int    // virtual legacy OSD disk size GB (alternative to passthrough)
+	CephStorage    string // storage pool for the virtual legacy OSD disk
 	CPUAffinity    string // CPU core pinning
 	NUMANode       int    // NUMA node (0 or 1)
 	MacAddress     string // Static MAC address
@@ -538,16 +540,16 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 // buildVMOptions builds the VirtualMachineOption slice for Talos
 func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
 	return vm.buildParameterizedVMOptions(config, vmOptionsProfile{
-		useConfigCPU:   true,
-		useAffinity:    true,
-		useNUMA:        true,
-		useUEFI:        true,
-		useConfigSCSI:  true,
-		bootDisk:       talosBootDiskOpts,
-		includeOpenEBS: true,
-		includeCeph:    true,
-		includeISO:     true,
-		bootOrder:      talosBootOrder,
+		useConfigCPU:     true,
+		useAffinity:      true,
+		useNUMA:          true,
+		useUEFI:          true,
+		useConfigSCSI:    true,
+		bootDisk:         talosBootDiskOpts,
+		includeOpenEBS:   true,
+		includeLegacyOSD: true,
+		includeISO:       true,
+		bootOrder:        talosBootOrder,
 		network: vmNetworkOptionsProfile{
 			includeQueues:         true,
 			usePositiveMTUAndVLAN: true,
@@ -562,22 +564,23 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 // node. It mirrors buildVMOptions (CPU/NUMA/UEFI/network/watchdog/agent) but:
 //   - boots scsi0 from a pre-staged Flatcar disk image (import-from=<path>) or an
 //     existing volume (ImageVolume) instead of installing from an ISO,
-//   - keeps scsi1 = OpenEBS and scsi2 = Ceph passthrough,
+//   - keeps the Flatcar OpenEBS disk on its configured slot (scsi3 in the
+//     provisioning path) and the optional legacy OSD disk on scsi2,
 //   - injects the rendered Ignition via fw_cfg:
 //     args = -fw_cfg name=opt/org.flatcar-linux/config,file=<IgnitionPath>
 //
 // This does not alter the Talos buildVMOptions path.
 func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
 	return vm.buildParameterizedVMOptions(config, vmOptionsProfile{
-		useConfigCPU:   true,
-		useAffinity:    true,
-		useNUMA:        true,
-		useUEFI:        true,
-		useConfigSCSI:  true,
-		bootDisk:       (*VMManager).flatcarBootDiskOpts,
-		includeOpenEBS: true,
-		includeCeph:    true,
-		bootOrder:      flatcarBootOrder,
+		useConfigCPU:     true,
+		useAffinity:      true,
+		useNUMA:          true,
+		useUEFI:          true,
+		useConfigSCSI:    true,
+		bootDisk:         (*VMManager).flatcarBootDiskOpts,
+		includeOpenEBS:   true,
+		includeLegacyOSD: true,
+		bootOrder:        flatcarBootOrder,
 		network: vmNetworkOptionsProfile{
 			includeQueues:         true,
 			usePositiveMTUAndVLAN: true,

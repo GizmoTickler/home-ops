@@ -85,7 +85,7 @@ const (
 	NSAutomation     = "automation"
 	NSAuth           = "auth"
 	NSOpenEBSSystem  = "openebs-system"
-	NSRookCeph       = "rook-ceph"
+	NSScaleCSI       = "scale-csi"
 	NSActionsRunner  = "actions-runner-system"
 	NSSystemUpgrade  = "system-upgrade"
 	NSSystem         = "system"
@@ -95,20 +95,26 @@ const (
 // Portable defaults for deployment-specific configuration. These values are
 // used by internal/config when the corresponding homeops.yaml keys are unset.
 const (
-	DefaultNodeSSHPort           = 22
-	DefaultRookToolboxDeployment = "rook-ceph-tools"
-	DefaultVolsyncCheckImage     = "docker.io/library/alpine:3.22"
+	DefaultNodeSSHPort       = 22
+	DefaultVolsyncCheckImage = "docker.io/library/alpine:3.22"
 )
 
-// Node maintenance annotation keys. The legacy key remains read-compatible
-// while nodes can span an upgrade in the middle of maintenance.
+// scale-csi resource names shared by cluster workflows.
 const (
-	CephNooutAnnotation       = "homeops.io/ceph-noout"
-	LegacyCephNooutAnnotation = "homeops.gizmotickler.com/ceph-noout"
-	// RehearseNodeLabel marks the disposable smoke-test pod created by
-	// cluster rehearse-node.
-	RehearseNodeLabel = "homeops.io/rehearse-node"
+	ScaleCSIDriver                = "csi.scale.io"
+	ScaleCSIController            = "scale-csi-controller"
+	ScaleCSINode                  = "scale-csi-node"
+	ScaleCSIHelmRelease           = "scale-csi"
+	ScaleCSIStorageClassNVMeOF    = "scale-nvmeof"
+	ScaleCSIStorageClassISCSI     = "scale-iscsi"
+	ScaleCSIStorageClassNFS       = "scale-nfs"
+	ScaleCSIVolumeSnapshotClass   = "scale-snapshot"
+	ScaleCSIControllerMetricsPort = 9809
 )
+
+// RehearseNodeLabel marks the disposable smoke-test pod created by
+// cluster rehearse-node.
+const RehearseNodeLabel = "homeops.io/rehearse-node"
 
 // Self-update release metadata.
 const (

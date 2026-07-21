@@ -23,9 +23,6 @@ cluster:
   control_plane_vip: 192.168.123.253
   node_interface: eth0
   node_ssh_port: 22
-  rook:
-    namespace: rook-ceph
-    toolbox_deployment: rook-ceph-tools
   # Disposable node identity for `cluster rehearse-node` (join drill).
   test_node:
     name: k8s-test
@@ -34,7 +31,7 @@ cluster:
       vmid: 299
       mac: "02:00:00:00:02:99"
       boot_storage: nvme-mirror
-      openebs_storage: nvmeof-vmdata
+      openebs_storage: openebs-ssd
       ceph:
         mode: none
   pod_cidr: 10.42.0.0/16
@@ -68,36 +65,33 @@ cluster:
         vmid: 200
         mac: "00:a0:98:28:c8:83"
         boot_storage: nvme-mirror
-        openebs_storage: nvmeof-vmdata
+        openebs_storage: openebs-ssd
         cpu_affinity: "0-7,32-39"
         numa_node: 0
         ceph:
-          mode: passthrough
-          disk_by_id: ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN
+          mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN
     - name: k8s-1
       ip: 192.168.122.11
       vm:
         vmid: 201
         mac: "00:a0:98:1a:f3:72"
         boot_storage: nvme-mirror
-        openebs_storage: nvmeof-vmdata
+        openebs_storage: openebs-ssd
         cpu_affinity: "16-23,48-55"
         numa_node: 1
         ceph:
-          mode: passthrough
-          disk_by_id: ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN
+          mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN
     - name: k8s-2
       ip: 192.168.122.12
       vm:
         vmid: 202
         mac: "00:a0:98:3e:6c:22"
         boot_storage: nvme-mirror
-        openebs_storage: nvmeof-vmdata
+        openebs_storage: openebs-ssd
         cpu_affinity: "8-15,40-47"
         numa_node: 0
         ceph:
-          mode: passthrough
-          disk_by_id: ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN
+          mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN
 
 hypervisors:
   default: proxmox
@@ -109,7 +103,7 @@ hypervisors:
       memory_mb: 98304
       cores: 16
       boot_disk_gb: 100
-      openebs_disk_gb: 800
+      openebs_disk_gb: 700
       network_bridge: vmbr0
       network_mtu: 9000
       network_queues: 8

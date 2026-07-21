@@ -29,6 +29,18 @@ storage:
       path: /etc/extensions/kubernetes.raw
       hard: false
       overwrite: true
+  directories:
+    # Mount point for the node-local OpenEBS hostpath filesystem.
+    - path: /var/mnt/local-hostpath
+      mode: 0755
+  filesystems:
+    # Proxmox exposes the OpenEBS data disk on scsi3. The drive-scsi3 by-id
+    # path is stable across boots, and wipe_filesystem:false preserves an
+    # existing filesystem during node reprovisioning.
+    - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi3
+      format: ext4
+      label: openebs-local
+      wipe_filesystem: false
   files:
     # NOTE: the Kubernetes sysext .raw + sysupdate .conf files are intentionally NOT fetched
     # here. Downloading a large sysext during initramfs Ignition fails because networking is
@@ -156,6 +168,20 @@ storage:
 
 systemd:
   units:
+    # Mount the OpenEBS hostpath filesystem by label so the unit is independent
+    # of kernel /dev/sdX enumeration.
+    - name: var-mnt-local\x2dhostpath.mount
+      enabled: true
+      contents: |
+        [Unit]
+        Description=OpenEBS local hostpath storage
+        [Mount]
+        What=/dev/disk/by-label/openebs-local
+        Where=/var/mnt/local-hostpath
+        Type=ext4
+        Options=defaults,noatime,discard
+        [Install]
+        WantedBy=local-fs.target
     # containerd from the Flatcar base OS, pointed at our /etc/containerd/config.toml
     - name: containerd.service
       enabled: true

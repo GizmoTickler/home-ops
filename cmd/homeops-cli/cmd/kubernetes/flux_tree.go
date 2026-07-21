@@ -102,7 +102,7 @@ func newFluxTreeCommand() *cobra.Command {
 		SilenceUsage: true,
 		Example: `  homeops-cli k8s flux-tree
   homeops-cli k8s flux-tree radarr
-  homeops-cli k8s flux-tree rook-ceph-cluster --namespace flux-system --all
+  homeops-cli k8s flux-tree scale-csi --namespace flux-system --all
   homeops-cli k8s flux-tree radarr --output json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := ui.ValidateOutputFormat(output); err != nil {

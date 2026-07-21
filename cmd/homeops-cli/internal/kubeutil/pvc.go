@@ -65,7 +65,7 @@ func IsSystemNamespace(namespace string) bool {
 		return true
 	}
 	switch namespace {
-	case constants.NSKubePublic, constants.NSKubeNodeLease, constants.NSRookCeph, constants.NSVolsyncSystem:
+	case constants.NSKubePublic, constants.NSKubeNodeLease, constants.NSScaleCSI, constants.NSVolsyncSystem:
 		return true
 	default:
 		return false

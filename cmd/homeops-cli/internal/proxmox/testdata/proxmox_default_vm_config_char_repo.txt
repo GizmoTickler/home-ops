@@ -5,8 +5,8 @@ CPUType="host,flags=+pdpe1gb;-spec-ctrl"
 NUMAEnabled=true
 BootDiskSize=100
 BootStorage="nvme1"
-OpenEBSSize=800
-OpenEBSStorage="nvmeof-vmdata"
+OpenEBSSize=700
+OpenEBSStorage="openebs-ssd"
 Node="pve"
 ISOStorage="local"
 NetworkBridge="vmbr0"

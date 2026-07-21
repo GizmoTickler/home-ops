@@ -25,6 +25,7 @@ func TestVolsyncNamespaceFlagsHaveShorthand(t *testing.T) {
 		{"snapshot-all"},
 		{"restore"},
 		{"restore-all"},
+		{"migrate"},
 		{"status"},
 		{"verify"},
 	} {
@@ -33,6 +34,14 @@ func TestVolsyncNamespaceFlagsHaveShorthand(t *testing.T) {
 		require.NotNil(t, flag, args)
 		assert.Equal(t, "n", flag.Shorthand, args)
 	}
+}
+
+func TestVolsyncMigrateDefaults(t *testing.T) {
+	cmd := findVolsyncSubcommand(t, "migrate")
+	assert.Equal(t, "scale-nvmeof", cmd.Flags().Lookup("to-class").DefValue)
+	assert.Equal(t, "scale-snapshot", cmd.Flags().Lookup("to-snapclass").DefValue)
+	assert.Equal(t, "20m0s", cmd.Flags().Lookup("timeout").DefValue)
+	require.NotNil(t, cmd.Flags().Lookup("yes"))
 }
 
 func TestVolsyncStateHasOutputFormatFlag(t *testing.T) {

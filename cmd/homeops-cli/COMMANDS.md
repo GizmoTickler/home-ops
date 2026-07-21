@@ -551,22 +551,20 @@ Notes:
 ### Node Maintenance
 
 ```bash
-# Print the complete plan, confirm, set Ceph noout, cordon, and drain
+# Print the complete plan, confirm, cordon, and drain
 homeops-cli k8s node maintenance enter k8s-0
 
 # Also stop the VM selected by hypervisors.default and the node's configured VMID
 homeops-cli k8s node maintenance enter k8s-1 --shutdown-vm --drain-timeout 10m --yes
 
-# Start the VM, wait for kubelet Ready, uncordon, restore Ceph, and report health
+# Start the VM, wait for kubelet Ready, uncordon, and report node health
 homeops-cli k8s node maintenance exit k8s-1 --start-vm --timeout 15m
 homeops-cli k8s node maintenance exit k8s-1 --output json
 ```
 
 The workflow only accepts nodes listed under `cluster.nodes`. Enter requires a
-Ready node, records whether it owns the Ceph `noout` flag, and rolls back a
-new cordon and maintenance-owned `noout` when a later step fails. A pre-existing
-cordon or `noout` is preserved. If the `rook-ceph` namespace is absent, Ceph
-steps are reported as skipped. Global `--yes` bypasses confirmation.
+Ready node and rolls back a new cordon when a later step fails. A pre-existing
+cordon is preserved. Global `--yes` bypasses confirmation.
 
 `cluster.maintenance.drain_timeout` (default `5m`) and
 `cluster.maintenance.timeout` (default `10m`) provide lazy configuration
@@ -628,7 +626,7 @@ component at a time and requires `--renew`.
 ### Read-only Cluster Triage
 
 ```bash
-# Check Flux, node, pod, Ceph, and certificate health
+# Check Flux, node, pod, scale-csi, and certificate health
 homeops-cli k8s doctor
 homeops-cli k8s doctor --output json
 
@@ -638,9 +636,9 @@ homeops-cli k8s net-doctor --resolve home.example.com --resolve status.example.c
 homeops-cli k8s net-doctor --probe --probe-timeout 5s
 homeops-cli k8s net-doctor --output json
 
-# Audit orphaned claims, unhealthy PVs, Ceph capacity, overcommit, and backup gaps
+# Roll up PVCs/PVs and snapshots, check scale-csi health/metrics, and audit storage hygiene
 homeops-cli k8s storage-report
-homeops-cli k8s storage-report --namespace media --ceph-warn-percent 75
+homeops-cli k8s storage-report --namespace media
 homeops-cli k8s storage-report --output json --fail-on-findings
 
 # Discover Flux Kustomizations, then trace a dependency tree and its root blocker
@@ -688,7 +686,9 @@ Without `--resolve` or `--probe`, it performs no active network probe and its
 output is unchanged. Both `doctor` and `net-doctor` exit 1 when a `FAIL` check
 is present.
 `storage-report`
-returns zero when it finds hygiene issues unless `--fail-on-findings` is set.
+reports PVC/PV capacity by StorageClass, VolumeSnapshot counts by class,
+scale-csi controller/node readiness, optional orphan/spent gauges, and storage
+hygiene. It returns zero when it finds issues unless `--fail-on-findings` is set.
 `flux-tree` defaults to the `flux-system` namespace, includes unhealthy nested
 HelmReleases, and uses `--all` to include ready HelmReleases too.
 `upgrade-status` reads all `plans.upgrade.cattle.io`, reports active/failed SUC
@@ -783,7 +783,7 @@ Notes:
 ### Controller State
 
 ```bash
-homeops-cli volsync state            # show: kustomization / helmrelease / deployment
+homeops-cli volsync state            # show controller state and VolSync PVC StorageClasses
 homeops-cli volsync state suspend
 homeops-cli volsync state resume
 ```
@@ -821,6 +821,7 @@ Notes:
 - `snapshot` prompts for namespace and app when omitted.
 - `snapshot-all` discovers `ReplicationSource` resources and can run in parallel.
 - `snapshots` lists available snapshots for a namespace / application flow.
+- Manual snapshot triggers are always returned to the hourly `0 * * * *` schedule, including after failures.
 
 ### Restore
 
@@ -844,10 +845,36 @@ Notes:
 
 - `restore` prompts for namespace, application, and snapshot when omitted.
 - `restore-all` is the bulk restore workflow for a namespace or broader recovery operation; use `--help` before running it on live workloads.
+- Restore settings, including `storageClassName` and `volumeSnapshotClassName`, are copied from the current ReplicationSource. The scale-csi defaults are `scale-nvmeof` and `scale-snapshot`.
+- Successful restores leave the spent restore VolumeSnapshot and intermediate PVC for scale-csi garbage collection after its 24-hour age gate.
 - `verify` restores the latest snapshot into an ownerless scratch PVC with the app PVC's storage class and capacity. It never modifies the app PVC or ReplicationSource.
 - `verify --check` mounts the scratch PVC read-only in a temporary Alpine pod, lists a sample of regular files, and reports `du -sh` output. An empty filesystem fails verification.
 - Verification always attempts cleanup in pod, ReplicationDestination, PVC order after success, failure, timeout, or interrupt. Existing same-app scratch objects cause refusal unless `--force` is supplied. Resource creation still requires confirmation; global `--yes` bypasses the prompt.
 - `verify-all` discovers ReplicationSources across all namespaces (or one with `--namespace`), applies `--skip` and `--limit`, confirms the complete fleet once, then calls the same verifier serially with a per-app `--timeout`. It continues after failures; apps not started before `--max-duration` are SKIP. The table ends with `Summary: PASS=%d FAIL=%d SKIP=%d`; the JSON report carries the same counts, and the command exits 1 only when at least one app fails.
+
+### StorageClass Migration
+
+```bash
+homeops-cli volsync migrate seerr --namespace media
+homeops-cli volsync migrate paperless --namespace self-hosted --timeout 30m --yes
+homeops-cli volsync migrate app -n default --to-class scale-nvmeof --to-snapclass scale-snapshot
+```
+
+`migrate` defaults to `scale-nvmeof` and `scale-snapshot`. Before taking a fresh
+backup or changing workload state, it verifies that the namespace-local Flux
+Kustomization already has those exact `VOLSYNC_STORAGECLASS` and
+`VOLSYNC_SNAPSHOTCLASS` substitutions. Update and merge the app's `ks.yaml`
+first; editing the live Kustomization is intentionally not a recovery path.
+
+The cutover removes completed app Jobs, scales the detected Deployment or
+StatefulSet to zero, proves no pod still references the PVC, deletes the
+component-managed `<app>-dst` and PVC, and reconciles Flux to restore an
+independent target-class volume. After PVC deletion is issued, failures only
+move forward: the command will never scale the workload onto a Terminating PVC
+and prints exact continuation commands if the timeout expires.
+
+`volsync status` and `volsync state` include each protected PVC's StorageClass
+so incomplete migrations are visible without a separate PVC query.
 
 ## Workstation
 
