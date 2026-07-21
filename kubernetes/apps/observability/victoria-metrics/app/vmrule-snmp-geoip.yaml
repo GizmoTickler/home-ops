@@ -52,16 +52,22 @@ spec:
           labels:
             severity: warning
             component: network
+        # 2026-07-21 threshold 10 -> 50: after the Rook -> scale-csi migration all app
+        # storage IO is NVMe/TCP (nas01:4420) transiting SC01 (pve Po20 <-> nas01 Po10),
+        # so the Po10 members now see genuine-but-harmless microburst tail-drops at a
+        # steady p99 ~22/s, max ~37/s (24h, 2026-07-21) even at light load. 50/s sits
+        # above that noise floor while still catching real congestion (which showed
+        # 100s-1000s/s in every genuine event). TCP absorbs these at <0.01% loss.
         - alert: InterfaceDiscards
           expr: |-
-            rate(ifInDiscards{job=~"snmp.*"}[5m]) + rate(ifOutDiscards{job=~"snmp.*"}[5m]) > 10
+            rate(ifInDiscards{job=~"snmp.*"}[5m]) + rate(ifOutDiscards{job=~"snmp.*"}[5m]) > 50
           for: 15m
           keep_firing_for: 5m
           annotations:
             summary: "Interface discards on {{ $labels.instance }} {{ $labels.ifName }}"
             description: |-
               {{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
-              is discarding packets (>10/s over 5m) — possible congestion or buffer pressure.
+              is discarding packets (>50/s over 5m) — possible congestion or buffer pressure.
           labels:
             severity: warning
             component: network
@@ -75,9 +81,14 @@ spec:
         # originals forward fine) = zero production impact, so alerting on them is noise.
         # Real storage/VM traffic spreads across Te1/0/10-16, so a drop THERE means actual
         # loss worth investigating. Source-side flow spread is the fix, NOT SC01's global hash.
+        # 2026-07-21 threshold 1000 -> 50000 per 15m: post scale-csi migration the Po10
+        # members (Te1/0/12/15 -> nas01) carry all NVMe/TCP app storage and microburst-drop
+        # at up to ~37/s (=~33k/15m worst case) as NEW steady state with hash already
+        # optimal (src-dst-mixed-ip-port). 50k/15m (~55/s sustained on ONE member) still
+        # flags true polarization, where a single member absorbs order-of-magnitude more.
         - alert: SC01PortChannelMemberPolarized
           expr: |-
-            increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/1[0-6]"}[15m]) > 1000
+            increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/1[0-6]"}[15m]) > 50000
           for: 5m
           keep_firing_for: 15m
           annotations:

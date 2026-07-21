@@ -285,6 +285,12 @@ spec:
       spec:
         port: "8080"
         selectAllByDefault: false
+        # 2026-07-21: without ruleNamespaceSelector the operator only selects VMRules
+        # from the vmalert's own namespace — every cross-namespace VMRule (volsync,
+        # cert-manager, flux-system, scale-csi, downloads, network) was silently
+        # never evaluated. Empty selector = all namespaces; vlogs rules stay excluded
+        # via ruleSelector and are picked up by vmalert-logs instead.
+        ruleNamespaceSelector: {}
         ruleSelector:
           matchExpressions:
             - key: rule-type
