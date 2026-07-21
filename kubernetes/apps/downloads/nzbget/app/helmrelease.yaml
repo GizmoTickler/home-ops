@@ -118,7 +118,7 @@ spec:
             DaemonUsername=root
 
             # Performance — Download
-            ArticleCache=4000
+            ArticleCache=12000
             DirectWrite=yes
             DirectRename=yes
             DirectUnpack=yes
