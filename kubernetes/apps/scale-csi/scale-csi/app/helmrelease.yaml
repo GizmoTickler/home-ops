@@ -11,10 +11,10 @@ spec:
   interval: 1h
   values:
     truenas:
-      host: "192.168.120.10"
+      host: "nas01.${SECRET_DOMAIN}"
       port: 443
       secure: true
-      skipTLSVerify: true
+      skipTLSVerify: false
       existingSecret: scale-csi-secret
     zfs:
       parentDataset: flashstor/scale-csi
@@ -27,7 +27,9 @@ spec:
       enabled: true
       server: "192.168.120.10"
       shareAllowedNetworks:
-        - 192.168.120.0/22
+        - 192.168.122.10/32
+        - 192.168.122.11/32
+        - 192.168.122.12/32
     iscsi:
       enabled: true
       portal: "192.168.120.10:3260"
@@ -72,6 +74,7 @@ spec:
     reconcile:
       delete:
         # Gated GC: nightly CronJob releases spent VolSync-restore snapshots and
-        # deletes true orphans (>24h old, capped 5/run, guarded delete paths,
+        # deletes true orphans (>24h old, capped 20/run, guarded delete paths,
         # fails closed during cluster rebuilds). Detection/alerting is always on.
         enabled: true
+        maxPerRun: 20
