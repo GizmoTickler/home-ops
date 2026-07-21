@@ -391,16 +391,23 @@ spec:
             severity: warning
             component: infrastructure
 
+        # 2026-07-21: made ZFS-ARC-aware. nas01's ARC (~75 GiB, c_max ≈ all RAM) is
+        # reclaimable-on-demand cache the kernel does NOT count in MemAvailable, so the
+        # naive expr reads a permanently-healthy TrueNAS box as >90% used and would fire
+        # forever. Adding node_zfs_arc_size back to "available" (or 0 on non-ZFS hosts)
+        # measures real memory pressure on every host.
         - alert: ExternalHostHighMemory
           expr: |-
-            (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 90
+            (1 - ((node_memory_MemAvailable_bytes{job="node-exporter"}
+              + (node_zfs_arc_size{job="node-exporter"} or 0 * node_memory_MemAvailable_bytes{job="node-exporter"}))
+              / node_memory_MemTotal_bytes{job="node-exporter"})) * 100 > 90
           for: 15m
           keep_firing_for: 5m
           annotations:
-            summary: "Host {{ $labels.instance }} memory usage is {{ $value | humanize }}%"
+            summary: "Host {{ $labels.instance }} memory usage is {{ $value | humanize }}% (ARC-adjusted)"
             description: |-
-              Memory on {{ $labels.instance }} has been above 90% for 15 minutes.
-              Risk of OOM kills.
+              Memory on {{ $labels.instance }} has been above 90% for 15 minutes
+              (ZFS ARC counted as reclaimable). Risk of OOM kills.
           labels:
             severity: warning
             component: infrastructure
