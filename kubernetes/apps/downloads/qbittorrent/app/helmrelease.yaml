@@ -283,7 +283,7 @@ spec:
                 storageClassName: openebs-hostpath
                 resources:
                   requests:
-                    storage: 1Mi
+                    storage: 400Gi
         advancedMounts:
           qbittorrent:
             app:
