@@ -9,8 +9,6 @@ spec:
     - ../../../../components/nfs-scaler
     - ../../../../components/volsync
   dependsOn:
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
     - name: keda
       namespace: observability
   interval: 1h
