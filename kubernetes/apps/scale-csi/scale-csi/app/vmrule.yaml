@@ -29,3 +29,46 @@ spec:
               them once aged, or investigate with the driver's reconcile report
           labels:
             severity: warning
+        - alert: ScaleCSIControllerMetricsAbsent
+          expr: |-
+            absent(scale_csi_truenas_connection_status{job="scale-csi-controller-metrics"}) == 1
+          for: 10m
+          annotations:
+            summary: >-
+              scale-csi controller metrics have vanished — the controller is down or
+              its scrape target is broken; no provisioning or GC activity is observable
+          labels:
+            severity: critical
+        - alert: ScaleCSISustainedOperationErrors
+          expr: |-
+            sum by (operation, code) (rate(scale_csi_operations_total{job="scale-csi-controller-metrics",status="error",code!~"FailedPrecondition|AlreadyExists|Aborted"}[10m])) > 0.02
+          for: 15m
+          annotations:
+            summary: >-
+              scale-csi is sustaining unexpected-code operation failures ({{ $value }}/s
+              by operation/code) — expected lifecycle rejections are excluded; investigate
+              the controller logs for the failing operations
+          labels:
+            severity: warning
+        - alert: ScaleCSISpentRestoreBacklog
+          expr: |-
+            max(scale_csi_spent_restore_snapshots{job="scale-csi-controller-metrics"}) > 0
+          for: 48h
+          annotations:
+            summary: >-
+              spent VolSync-restore snapshots have outlived the nightly GC window —
+              the gated delete CronJob may be failing or the snapshots are not ageing
+              out as expected
+          labels:
+            severity: warning
+        - alert: ScaleCSISessionGCDisconnects
+          expr: |-
+            increase(scale_csi_gc_sessions_disconnected_total[1h]) > 0
+          for: 5m
+          annotations:
+            summary: >-
+              session GC disconnected {{ $value }} session(s) in the last hour — verify
+              these were truly orphaned and not active volumes affected by a pod churn
+              or node restart race
+          labels:
+            severity: warning
