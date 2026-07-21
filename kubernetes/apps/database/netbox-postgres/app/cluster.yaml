@@ -27,7 +27,7 @@ spec:
   # Storage configuration
   storage:
     size: 10Gi
-    storageClass: ceph-block
+    storageClass: scale-nvmeof
 
   # Resource limits
   resources:
