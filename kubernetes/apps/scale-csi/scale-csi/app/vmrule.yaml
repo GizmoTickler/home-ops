@@ -10,7 +10,7 @@ spec:
       rules:
         - alert: ScaleCSITrueNASConnectionDown
           expr: |-
-            scale_csi_truenas_connection_status == 0
+            scale_csi_truenas_connection_status{job="scale-csi-controller-metrics"} == 0
           for: 5m
           annotations:
             summary: >-
