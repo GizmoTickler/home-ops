@@ -1,0 +1,31 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: scale-csi-rules
+spec:
+  groups:
+    - name: scale-csi.rules
+      rules:
+        - alert: ScaleCSITrueNASConnectionDown
+          expr: |-
+            scale_csi_truenas_connection_status == 0
+          for: 5m
+          annotations:
+            summary: >-
+              scale-csi controller has lost its TrueNAS API connection — provisioning,
+              attach and delete operations will fail until it reconnects
+          labels:
+            severity: critical
+        - alert: ScaleCSIOrphanedBackendObjects
+          expr: |-
+            (scale_csi_orphan_volumes > 0) or (scale_csi_orphan_snapshots > 0)
+          for: 2h5m
+          annotations:
+            summary: >-
+              scale-csi reconcile detected {{ $value }} orphaned backend object(s) on
+              TrueNAS with no live Kubernetes owner — the nightly gated GC will clean
+              them once aged, or investigate with the driver's reconcile report
+          labels:
+            severity: warning

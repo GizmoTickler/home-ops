@@ -75,6 +75,25 @@ metrics:
       - {color: "red", min: 1, max: 9999}
     title: Alerts
 
+  - name: storage_health
+    query: >-
+      (label_replace(scale_csi_truenas_connection_status, "health", "OK", "", "") and on() (scale_csi_truenas_connection_status == 1))
+      or (label_replace(scale_csi_truenas_connection_status, "health", "DOWN", "", "") and on() (scale_csi_truenas_connection_status == 0))
+    label: health
+    colors:
+      - {color: "green", min: 1, max: 1}
+      - {color: "red", min: 0, max: 0}
+    title: Storage
+
+  - name: storage_used
+    query: round(100 * sum(kubelet_volume_stats_used_bytes) / sum(kubelet_volume_stats_capacity_bytes), 0.1)
+    suffix: "%"
+    colors:
+      - {color: "green", min: 0, max: 60}
+      - {color: "orange", min: 61, max: 85}
+      - {color: "red", min: 86, max: 9999}
+    title: PVC Used
+
   - name: cert_expiry_days
     query: round(min(certmanager_certificate_expiration_timestamp_seconds - time()) / 86400)
     suffix: "d"
