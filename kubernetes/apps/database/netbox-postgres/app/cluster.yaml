@@ -88,6 +88,12 @@ spec:
   bootstrap:
     recovery:
       source: netbox-postgres-backup
+      # Pin the base backup: the 2026-07-21 premigrate backup's checkpoint WAL
+      # (…5A) was never archived before the old cluster was destroyed, so that
+      # backup is unrestorable. 20260721T000301 + WAL replay through …59 covers
+      # everything (NetBox writes stopped before the archive tail).
+      recoveryTarget:
+        backupID: "20260721T000301"
   externalClusters:
     - name: netbox-postgres-backup
       barmanObjectStore:
