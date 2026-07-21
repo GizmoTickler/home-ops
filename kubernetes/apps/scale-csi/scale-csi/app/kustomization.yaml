@@ -8,3 +8,4 @@ resources:
   - ./helmrelease.yaml
   - ./vmservicescrape.yaml
   - ./vmrule.yaml
+  - ./grafanadashboard.yaml
