@@ -4,7 +4,7 @@
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
+_Kubernetes on Flatcar Container Linux + kubeadm &middot; TrueNAS NVMe-oF storage (scale-csi) &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 <br/>
 
@@ -46,7 +46,7 @@ _Kubernetes on Flatcar Container Linux + kubeadm &middot; Rook Ceph storage &mid
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Flatcar Container Linux](https://www.flatcar.org/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.2 with [Rook Ceph](https://rook.io/) providing distributed storage using dedicated SSDs passed through to each Flatcar VM, plus node-local volumes via the OpenEBS hostpath provisioner.
+**Architecture**: The cluster runs on Proxmox VE 9.2 with [scale-csi](https://github.com/GizmoTickler/scale-csi) providing primary storage — NVMe-oF/TCP (plus iSCSI and NFS) volumes served by a TrueNAS SCALE box over its WebSocket API — and node-local scratch volumes via the OpenEBS hostpath provisioner backed by a dedicated ZFS RAID10 SSD pool on the hypervisor.
 
 ---
 
@@ -66,6 +66,7 @@ The built binary and CLI command name are `homeops-cli`.
 | `homeops-cli k8s view-secret` | Decodes secret data with interactive secret and namespace selection |
 | `homeops-cli volsync snapshot` | Triggers Kopia-backed PVC snapshots via VolSync |
 | `homeops-cli volsync restore` | Point-in-time PVC recovery from Kopia repository |
+| `homeops-cli volsync migrate` | Safe storage-class migration of an app's PVC (fresh backup → guarded cutover → restore-on-create) |
 | `homeops-cli workstation` | Developer workstation setup and validation |
 
 **Key internals:**
@@ -88,13 +89,13 @@ cmd/homeops-cli/
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.2 VMs, with distributed storage provided by [Rook Ceph](https://rook.io/) running on dedicated SSDs passed through to each VM. This setup provides a production-like Kubernetes environment with true distributed storage and fault tolerance.
+The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.2 VMs. Primary storage is provided by [scale-csi](https://github.com/GizmoTickler/scale-csi), a purpose-built CSI driver that provisions ZFS-backed NVMe-oF/TCP, iSCSI, and NFS volumes on a TrueNAS SCALE appliance (NVMe SLOG-backed, sub-millisecond commit latency), with VolSync/Kopia handling per-app backup and restore.
 
 ### Infrastructure Details
 
 - **Hypervisor**: Proxmox VE 9.2 with KVM/QEMU virtualization
-- **Primary Storage**: Rook Ceph distributed storage using dedicated 1TB SSDs passed through to each Flatcar VM
-- **Local Storage**: OpenEBS hostpath provisioner for node-local volumes
+- **Primary Storage**: scale-csi (NVMe-oF/TCP, iSCSI, NFS) on TrueNAS SCALE — `scale-nvmeof` is the default StorageClass; secure-by-default NVMe host-NQN allowlisting; driver-side orphan GC
+- **Local Storage**: OpenEBS hostpath provisioner on a dedicated 4-drive ZFS RAID10 SSD pool (`openebs-ssd`) on the Proxmox host — high-throughput scratch for download landing zones and VolSync mover caches
 - **Network Infrastructure**:
   - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP (40Gbps) on the Proxmox host
   - Cisco switch providing high-speed interconnect
@@ -104,8 +105,8 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 96GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
   - **Boot Disk**: 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS (`/dev/sda`)
-  - **Ceph OSD**: Dedicated 1TB SSD passthrough via disk-by-id for Rook Ceph distributed storage (`/dev/sdc`)
-  - **Local Storage**: 800GB VirtIO SCSI disk for OpenEBS hostPath high-performance workloads (`/dev/sdb`)
+  - **Local Scratch**: 700GB VirtIO SCSI zvol from the `openebs-ssd` ZFS RAID10 pool, mounted at `/var/mnt/local-hostpath` for OpenEBS hostPath workloads (`/dev/sdc`)
+  - **App Volumes**: attached on demand by scale-csi as NVMe-oF/TCP (or iSCSI) block devices from TrueNAS — no static data disks
 - **Networking**:
   - Cilium CNI with eBPF datapath
   - kgateway (Gateway API) for ingress with L2/BGP announcements
@@ -125,8 +126,8 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and PowerDNS (RFC2136) integration.
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
-- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath storage.
-- [rook-ceph](https://github.com/rook/rook): Primary distributed storage using Ceph on dedicated 1TB SSDs passed through via disk-by-id.
+- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath scratch storage on the dedicated `openebs-ssd` ZFS RAID10 pool.
+- [scale-csi](https://github.com/GizmoTickler/scale-csi): Primary storage — a purpose-built TrueNAS SCALE CSI driver (WebSocket API, zero SSH) providing NVMe-oF/TCP, iSCSI, and NFS StorageClasses with snapshots, detached clones, expansion, and a driver-side orphan reconciler.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
 - [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator. Minor Kubernetes upgrades are driven via [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) (see `apps/system-upgrade`).
@@ -169,7 +170,7 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 network        # Networking applications
 │   │   ├── 📁 observability  # Monitoring and logging
 │   │   ├── 📁 openebs-system # Local storage provisioner
-│   │   ├── 📁 rook-ceph      # Distributed Ceph storage
+│   │   ├── 📁 scale-csi      # TrueNAS CSI driver (NVMe-oF/iSCSI/NFS)
 │   │   ├── 📁 self-hosted    # Productivity and tools
 │   │   ├── 📁 system-upgrade # Automated upgrades
 │   │   └── 📁 volsync-system # Volume backup and recovery
@@ -188,14 +189,15 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ### Flux Workflow
 
-This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows that applications with persistent storage depend on Rook Ceph being installed and healthy.
+This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows an app whose persistent volume is provisioned by scale-csi and backed up by VolSync — the app's PVC is created with a `dataSourceRef` to a VolSync `ReplicationDestination`, so data restores automatically on (re)creation.
 
 ```mermaid
 graph TD
-    A>Kustomization: rook-ceph-cluster] -->|Creates| B[CephCluster: rook-ceph]
+    A>Kustomization: scale-csi] -->|Creates| B[HelmRelease: scale-csi]
     C>Kustomization: volsync] -->|Creates| D[HelmRelease: volsync]
     E>Kustomization: atuin] -->|Creates| F(HelmRelease: atuin)
-    F>HelmRelease: atuin] -->|Depends on| B>CephCluster: rook-ceph]
+    E>Kustomization: atuin] -->|Creates| G(PVC: atuin on scale-nvmeof)
+    G>PVC: atuin] -->|Provisioned by| B>HelmRelease: scale-csi]
     F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: volsync]
 ```
 
