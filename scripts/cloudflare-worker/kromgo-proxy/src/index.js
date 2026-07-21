@@ -143,8 +143,8 @@ const METRIC_ICON_MAP = {
   container_count: "container",
   cluster_cpu_usage: "cpu",
   cluster_memory_usage: "ram",
-  ceph_storage_used: "storage",
-  ceph_health: "shieldcheck",
+  storage_used: "storage",
+  storage_health: "shieldcheck",
   helmrelease_count: "helm",
   pvc_count: "volume",
   flux_failing_count: "xerror",
@@ -157,8 +157,8 @@ const METRIC_ICON_MAP = {
 // Metrics whose value carries a real state — these render a status dot.
 // Plain counts and facts (nodes, pods, age, versions) stay neutral.
 const METRIC_STATUS = new Set([
-  "cluster_alert_count", "ceph_health", "cluster_cpu_usage",
-  "cluster_memory_usage", "ceph_storage_used", "cert_expiry_days",
+  "cluster_alert_count", "storage_health", "cluster_cpu_usage",
+  "cluster_memory_usage", "storage_used", "cert_expiry_days",
   "flux_failing_count", "renovate", "wan_primary", "wan_cellular1",
   "wan_cellular2",
 ]);
@@ -350,7 +350,7 @@ const ALLOWED_METRICS = new Set([
   "talos_version", "kubernetes_version", "flux_version",
   "cluster_node_count", "cluster_pod_count", "cluster_cpu_usage",
   "cluster_memory_usage", "cluster_age_days", "cluster_uptime_days",
-  "cluster_alert_count", "ceph_storage_used", "ceph_health",
+  "cluster_alert_count", "storage_used", "storage_health",
   "cert_expiry_days", "flux_failing_count", "helmrelease_count",
   "pvc_count", "container_count", "wan_primary", "wan_cellular1", "wan_cellular2",
   "network_status", "renovate", "stack_panel", "health_panel",
@@ -491,7 +491,7 @@ const PANEL_DEFINITIONS = {
       { metric: "cluster_age_days", label: "Age", hue: "violet" },
       { metric: "cluster_uptime_days", label: "Uptime", hue: "cyan" },
       { metric: "cluster_alert_count", label: "Alerts", status: true },
-      { metric: "ceph_health", label: "Ceph", status: true },
+      { metric: "storage_health", label: "Storage", status: true },
     ],
   },
   usage_panel: {
@@ -500,7 +500,7 @@ const PANEL_DEFINITIONS = {
       { metric: "container_count", label: "Containers", hue: "teal" },
       { metric: "cluster_cpu_usage", label: "CPU", status: true },
       { metric: "cluster_memory_usage", label: "Memory", status: true },
-      { metric: "ceph_storage_used", label: "Storage", status: true },
+      { metric: "storage_used", label: "PVC Used", status: true },
     ],
   },
   gitops_panel: {
