@@ -43,7 +43,7 @@ spec:
           dnsPolicy: ClusterFirstWithHostNet
           containers:
             - name: mgr-failover
-              image: quay.io/ceph/ceph:v20.2.2
+              image: quay.io/ceph/ceph:v21.1.0
               imagePullPolicy: IfNotPresent
               securityContext:
                 runAsUser: 2016
