@@ -25,10 +25,16 @@ spec:
     zfs:
       parentDataset: flashstor/scale-csi
       enforceQuota: true
-      # VolSync restores create the app PVC from a VolumeSnapshot; make it a full
-      # independent copy (zfs send|recv) instead of a dependent clone so the
-      # restore intermediate is deletable and no orphan Released PV is left behind.
-      detachedVolumesFromSnapshots: true
+      # 2026-07-22: reverted to dependent clones. detached copies (zfs send|recv via
+      # replication.run_onetime) were only needed for the one-time Rook->scale-csi
+      # migration (now complete). In steady state the dominant snapshot->PVC caller is
+      # VolSync's HOURLY per-app source-backup mount (copyMethod: Snapshot), for which a
+      # full dataset copy every hour is wasteful AND was wedging TrueNAS's replication
+      # subsystem (jobs stuck at 0%, orphaned by the driver's abandon-on-timeout).
+      # Clones are instant and VolSync deletes the temp source PVC before its snapshot,
+      # so the clone dependency always resolves cleanly. Per-StorageClass detached
+      # opt-in for real DR restores is tracked in Batch E.
+      detachedVolumesFromSnapshots: false
     nfs:
       enabled: true
       server: "192.168.120.10"
