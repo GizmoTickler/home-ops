@@ -10,6 +10,19 @@ spec:
     name: scale-csi
   interval: 1h
   values:
+    # 2026-07-22 OOM incident: chart-default 256Mi controller limit is too small —
+    # zfs.resource.snapshot.query returns ~29MB JSON per call at current snapshot
+    # count (inherited tombstone-ledger props amplify every entry), and concurrent
+    # VolSync CreateVolume-from-snapshot + strict-fencing startup reconcile pushed
+    # the heap past the limit (crash loop, 12 restarts). 1Gi is headroom until the
+    # batch-14 driver fix (single-fetch + ledger relocation) lands.
+    controller:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+        limits:
+          memory: 1Gi
     # Backend publication fencing. strict = backend allowlists converge to CSI
     # publications only (static subsystemHosts ignored for fenced volumes);
     # flipped 2026-07-22 after additive verification (27/27 converged,
