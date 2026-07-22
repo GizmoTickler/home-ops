@@ -10,6 +10,12 @@ spec:
     name: scale-csi
   interval: 1h
   values:
+    # Backend publication fencing. additive = per-publish node grants added
+    # alongside the static allowlist; the chart enforces a Recreate controller
+    # strategy in this mode. Flipped 2026-07-22 after the v1.2.23 quad-review.
+    # strict is deferred until the deferred-fencing metric soaks at zero.
+    fencing:
+      mode: "additive"
     truenas:
       host: "nas01.${SECRET_DOMAIN}"
       port: 443
