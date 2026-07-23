@@ -98,7 +98,7 @@ spec:
       deletionPolicy: Delete
     reconcile:
       # 2026-07-23: relocate tombstone ledger + in-flight markers off the
-      # inheritable parent dataset (v1.2.30 batch 14). Root cause of the
+      # inheritable parent dataset (v1.2.31 batch 14). Root cause of the
       # 2026-07-22 controller OOM loop: dependent-clone deferred deletes wrote
       # ledger entries (+16/h) as inheritable parent properties, so every
       # snapshot carried the full ledger -> 35MB snapshot-query payloads.
