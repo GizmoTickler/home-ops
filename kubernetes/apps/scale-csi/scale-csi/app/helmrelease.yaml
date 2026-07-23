@@ -97,6 +97,16 @@ spec:
       name: scale-snapshot
       deletionPolicy: Delete
     reconcile:
+      # 2026-07-23: relocate tombstone ledger + in-flight markers off the
+      # inheritable parent dataset (v1.2.30 batch 14). Root cause of the
+      # 2026-07-22 controller OOM loop: dependent-clone deferred deletes wrote
+      # ledger entries (+16/h) as inheritable parent properties, so every
+      # snapshot carried the full ledger -> 35MB snapshot-query payloads.
+      # Writes go to a non-inheriting .csi-bookkeeping child with lossless
+      # dual-read migration; cleanupParent stays default-off for first soak
+      # (parent entries dual-read until explicitly cleaned).
+      bookkeeping:
+        enabled: true
       delete:
         # Gated GC: nightly CronJob releases spent VolSync-restore snapshots and
         # deletes true orphans (>24h old, capped 20/run, guarded delete paths,
