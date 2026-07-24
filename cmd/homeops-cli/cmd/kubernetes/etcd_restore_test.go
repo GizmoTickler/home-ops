@@ -50,7 +50,7 @@ func (f *fakeEtcdRestoreClient) ExecuteCommand(command string) (string, error) {
 	}
 	switch operation {
 	case "manifest", "parked-manifest":
-		return "apiVersion: v1\nspec:\n  containers:\n    - name: etcd\n      image: registry.k8s.io/etcd:3.6.4-0\n", nil
+		return "apiVersion: v1\nspec:\n  containers:\n    - name: etcd\n      image: registry.k8s.io/etcd:3.7.0-0\n", nil
 	case "health":
 		return `{"members":[{"ID":1,"name":"k8s-0","peerURLs":["https://10.0.0.10:2380"],"clientURLs":["https://10.0.0.10:2379"]}]}`, nil
 	case "revision":
@@ -207,7 +207,7 @@ func TestExecuteEtcdRestoreSequencesAndAbortsAtEveryPhase(t *testing.T) {
 		t.Run(failPhase, func(t *testing.T) {
 			var operations []string
 			client := &fakeEtcdRestoreClient{name: "k8s-0", operations: &operations, failMatch: failPhase}
-			preflight := etcdRestorePreflight{Plan: plan, Nodes: []etcdRestoreConnectedNode{{Node: plan.Nodes[0], Client: client, ImageRef: "registry.k8s.io/etcd:3.6.4-0"}}}
+			preflight := etcdRestorePreflight{Plan: plan, Nodes: []etcdRestoreConnectedNode{{Node: plan.Nodes[0], Client: client, ImageRef: "registry.k8s.io/etcd:3.7.0-0"}}}
 
 			_, err := executeEtcdRestore(context.Background(), preflight, io.Discard)
 			require.Error(t, err)
@@ -225,7 +225,7 @@ func TestExecuteEtcdRestoreSuccessReportsMembersAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	var operations []string
 	client := &fakeEtcdRestoreClient{name: "k8s-0", operations: &operations}
-	preflight := etcdRestorePreflight{Plan: plan, Nodes: []etcdRestoreConnectedNode{{Node: plan.Nodes[0], Client: client, ImageRef: "registry.k8s.io/etcd:3.6.4-0"}}}
+	preflight := etcdRestorePreflight{Plan: plan, Nodes: []etcdRestoreConnectedNode{{Node: plan.Nodes[0], Client: client, ImageRef: "registry.k8s.io/etcd:3.7.0-0"}}}
 
 	result, err := executeEtcdRestore(context.Background(), preflight, io.Discard)
 	require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestExtractEtcdImageRefFromManifestFixture(t *testing.T) {
 	require.NoError(t, err)
 	image, err := extractEtcdImageRef(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "registry.k8s.io/etcd:3.6.4-0", image)
+	assert.Equal(t, "registry.k8s.io/etcd:3.7.0-0", image)
 
 	_, err = extractEtcdImageRef([]byte("spec:\n  containers:\n    - name: sidecar\n      image: example.invalid/sidecar:1\n"))
 	require.Error(t, err)
@@ -310,11 +310,11 @@ func TestVerifyLocalEtcdRestoreSnapshotFallsBackToContainerEntrypoint(t *testing
 	})
 	testutil.Swap(t, &etcdRestoreRunCommandFn, func(_ context.Context, opts common.CommandOptions) (common.CommandResult, error) {
 		assert.Equal(t, "docker", opts.Name)
-		assert.Equal(t, []string{"run", "--rm", "--entrypoint", "etcdutl", "-v", "/tmp/snapshot.db:/snapshot.db:ro", "registry.k8s.io/etcd:3.6.4-0", "snapshot", "status", "/snapshot.db", "-w", "json"}, opts.Args)
+		assert.Equal(t, []string{"run", "--rm", "--entrypoint", "etcdutl", "-v", "/tmp/snapshot.db:/snapshot.db:ro", "registry.k8s.io/etcd:3.7.0-0", "snapshot", "status", "/snapshot.db", "-w", "json"}, opts.Args)
 		return common.CommandResult{Stdout: `{"hash":1,"revision":2,"totalKey":3,"totalSize":4}`}, nil
 	})
 
-	_, err := verifyLocalEtcdRestoreSnapshot(context.Background(), "/tmp/snapshot.db", "registry.k8s.io/etcd:3.6.4-0")
+	_, err := verifyLocalEtcdRestoreSnapshot(context.Background(), "/tmp/snapshot.db", "registry.k8s.io/etcd:3.7.0-0")
 	require.NoError(t, err)
 }
 
@@ -323,7 +323,7 @@ func TestEtcdRestoreCtrCommandContainsRequiredTopology(t *testing.T) {
 		Timestamp: "20260715T010203Z", RemoteSnapshot: "/var/lib/etcd/snapshot.db",
 		InitialCluster: "cp-a=https://10.0.0.1:2380,cp-b=https://10.0.0.2:2380", ClusterToken: "restored-20260715T010203Z",
 	}
-	command := etcdRestoreCtrCommand(plan, config.Node{Name: "cp-a", IP: "10.0.0.1"}, "registry.k8s.io/etcd:3.6.4-0")
+	command := etcdRestoreCtrCommand(plan, config.Node{Name: "cp-a", IP: "10.0.0.1"}, "registry.k8s.io/etcd:3.7.0-0")
 	for _, expected := range []string{"ctr -n k8s.io run --rm", "src=/var/lib/etcd,dst=/var/lib/etcd", "etcdutl snapshot restore", "--name 'cp-a'", "--initial-cluster 'cp-a=https://10.0.0.1:2380,cp-b=https://10.0.0.2:2380'", "--initial-advertise-peer-urls 'https://10.0.0.1:2380'"} {
 		assert.Contains(t, command, expected, fmt.Sprintf("missing %s", expected))
 	}

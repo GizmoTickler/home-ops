@@ -42,7 +42,7 @@ func TestTalosRenderCharacterization(t *testing.T) {
 			env := map[string]string{
 				"SCHEMATIC_ID":       "",
 				"KUBERNETES_VERSION": "v1.36.1",
-				"TALOS_VERSION":      "v1.13.6",
+				"TALOS_VERSION":      "v1.13.7",
 			}
 
 			for _, base := range []string{"talos/controlplane.yaml", "talos/worker.yaml"} {

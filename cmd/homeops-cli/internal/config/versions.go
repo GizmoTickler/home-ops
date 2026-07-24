@@ -40,8 +40,8 @@ const (
 	// defaultTalosVersion is the version used by the LEGACY `--provider talos`
 	// path (bootstrap preflight + Talos ISO generation). Flatcar ignores it.
 	// Tracks the install.image tag in internal/templates/talos/controlplane.yaml.
-	defaultTalosVersion           = "v1.13.6"
-	defaultTalosKubernetesVersion = "v1.36.2"
+	defaultTalosVersion           = "v1.13.7"
+	defaultTalosKubernetesVersion = "v1.36.3"
 )
 
 // LoadVersionsFromSystemUpgrade loads the Kubernetes target version from
