@@ -110,6 +110,18 @@ spec:
       bookkeeping:
         enabled: true
         cleanupParent: true
+      # 2026-07-26: v1.3.0 scan-based reaper fallback. The July-22 OOM window
+      # renamed 293 tombstone snapshots (~2.6GiB) BEFORE the ledger relocation,
+      # so they have no ledger entry and the ledger-driven reaper can never
+      # touch them. The fallback reaps only candidates with surviving
+      # driver-written snapshot identity + exact rename-algorithm match + fresh
+      # dual-ledger absence + dependent-clone preflight; anything less proven
+      # is counted as manualRecoveryTombstones and NEVER deleted. Watch the
+      # first 04:20 delete run: reapedTombstones should include the cohort and
+      # manualRecoveryTombstones must stay 0.
+      tombstoneReaper:
+        scanFallback:
+          enabled: true
       delete:
         # Gated GC: nightly CronJob releases spent VolSync-restore snapshots and
         # deletes true orphans (>24h old, guarded delete paths, fails closed
