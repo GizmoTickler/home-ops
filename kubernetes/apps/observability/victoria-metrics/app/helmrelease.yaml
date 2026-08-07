@@ -216,7 +216,10 @@ spec:
               - send_resolved: true
                 timeout: 10s
                 max_alerts: 5
-                # mTLS via Caddy on varunlnx0 → 127.0.0.1:8644 Hermes webhook.
+                # mTLS via Caddy on friday3 → OpenClaw gateway /hooks/amdiag
+                # (mapped hook; Hermes 127.0.0.1:8644 removed 2026-08-06,
+                # repointed 2026-08-07). Caddy rewrites the path and injects
+                # the dedicated OpenClaw hook token after the cert gate.
                 # Caddy's client_auth { mode require_and_verify } is the AuthN gate;
                 # client cert is minted from the friday3 client CA, sourced from
                 # alertmanager-secret via VMAlertmanagerConfig K8s-native refs
