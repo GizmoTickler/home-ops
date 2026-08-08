@@ -32,6 +32,9 @@
     "**/resources/**",
     "cmd/**/templates/volsync/**",
     "archive/**",
+    // Go test fixtures and golden files pin versions on purpose; bumping them
+    // desyncs the checked-in expectations and breaks the Go test job.
+    "**/testdata/**",
   ],
   packageRules: [
     {

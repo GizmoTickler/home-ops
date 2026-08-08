@@ -240,9 +240,29 @@ func TestExtractEtcdImageRefFromManifestFixture(t *testing.T) {
 	require.NoError(t, err)
 	image, err := extractEtcdImageRef(raw)
 	require.NoError(t, err)
-	assert.Equal(t, "registry.k8s.io/etcd:3.7.0-0", image)
+	// The fixture is a real manifest that Renovate keeps current, so assert on
+	// shape rather than a pinned tag. Container selection is covered below.
+	assert.Regexp(t, `^registry\.k8s\.io/etcd:\S+$`, image)
 
 	_, err = extractEtcdImageRef([]byte("spec:\n  containers:\n    - name: sidecar\n      image: example.invalid/sidecar:1\n"))
+	require.Error(t, err)
+}
+
+func TestExtractEtcdImageRefSelectsEtcdContainer(t *testing.T) {
+	manifest := []byte(`spec:
+  containers:
+    - name: sidecar
+      image: example.invalid/sidecar:1
+    - name: etcd
+      image: registry.k8s.io/etcd:9.9.9-0
+    - name: trailing
+      image: example.invalid/trailing:2
+`)
+	image, err := extractEtcdImageRef(manifest)
+	require.NoError(t, err)
+	assert.Equal(t, "registry.k8s.io/etcd:9.9.9-0", image)
+
+	_, err = extractEtcdImageRef([]byte("spec:\n  containers:\n    - name: etcd\n      image: \"   \"\n"))
 	require.Error(t, err)
 }
 
