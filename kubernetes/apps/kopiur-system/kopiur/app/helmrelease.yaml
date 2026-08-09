@@ -11,6 +11,16 @@ spec:
   interval: 1h
   values:
     # The webhook cert is self-managed by the chart; cert-manager is not needed.
+    features:
+      # Grants the controller cluster-wide secrets create/patch/delete, withheld
+      # by default as a least-privilege opt-in. Required because we use a
+      # ClusterRepository: mover Jobs run in the CONSUMING namespace and read
+      # KOPIA_PASSWORD via envFrom (namespace-local), so the operator must copy
+      # the Secret out of kopiur-system into auth/automation/downloads/media/
+      # self-hosted. Without it every mover fails HTTP 403 on the projected
+      # Secret (verified against the live cluster 2026-08-09).
+      credentialProjection:
+        enabled: true
     podSecurityContext:
       runAsNonRoot: true
       runAsUser: 65534
