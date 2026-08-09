@@ -42,7 +42,13 @@ spec:
   # `spec.ownership.takeoverPolicy: Force` on the projected Maintenance, reverted
   # to Never immediately after.
   maintenance:
-    enabled: false
+    enabled: true
+    # ONE-TIME. Kopiur deliberately will NOT seize a lease held by an owner it
+    # does not recognise, and VolSync's fork owner string is exactly that — so
+    # without Force the first run would no-op forever. REVERT THIS TO Never (or
+    # delete the line) once `kubectl get clusterrepository flashstor` shows
+    # MaintenanceConfigured=True; leaving Force set is unsafe on a shared repo.
+    takeoverPolicy: Force
   # Movers run in the CONSUMING namespace and load the password via envFrom,
   # which is namespace-local — a ClusterRepository's Secret in kopiur-system is
   # unreachable from self-hosted/downloads/etc. This is the owner half of the
