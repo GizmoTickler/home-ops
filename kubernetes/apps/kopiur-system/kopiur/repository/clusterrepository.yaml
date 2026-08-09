@@ -1,0 +1,54 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/kopiur.home-operations.com/clusterrepository_v1alpha1.json
+apiVersion: kopiur.home-operations.com/v1alpha1
+kind: ClusterRepository
+metadata:
+  name: flashstor
+spec:
+  # ADOPTION, NOT CREATION. There is deliberately no `create` block: this
+  # connects to the kopia repository VolSync has been writing since 2025-12-10,
+  # so every existing snapshot is preserved and per-app history continues under
+  # the identities pinned in each SnapshotPolicy (<app>@<namespace>:/data).
+  #
+  # All 16 volsync apps already share ONE physical repository — same NFS export,
+  # same KOPIA_PASSWORD out of the same 1Password item (verified identical
+  # across auth/automation/downloads/media/self-hosted on 2026-08-09). One
+  # ClusterRepository replaces what would otherwise be 16 duplicate Repository
+  # objects and 16 duplicate ExternalSecrets.
+  backend:
+    filesystem:
+      # Matches VolSync's KOPIA_REPOSITORY (filesystem:///mnt/repository) so the
+      # in-pod path is identical to what wrote the repository.
+      path: /mnt/repository
+      volume:
+        nfs:
+          server: 192.168.120.10
+          path: /mnt/flashstor/VolsyncKopia
+  encryption:
+    passwordSecretRef:
+      name: kopiur-repository-secret
+      namespace: kopiur-system
+      key: KOPIA_PASSWORD
+  # PHASE 1 (adoption): OFF. `maintenance.enabled` defaults to TRUE, which would
+  # project a Maintenance CR and run `kopia maintenance` against this repository
+  # while VolSync's KopiaMaintenance (volsync-system, `0 */8 * * *`) is still the
+  # owner. Two maintenance owners on one kopia repository is the exact hazard the
+  # upstream docs warn about ("pick ONE owner"). VolSync stays the sole owner
+  # until cutover.
+  #
+  # PHASE 3 (cutover): delete volsync-system/volsync/maintenance, THEN flip this
+  # to true. Kopiur will not auto-clobber VolSync's unrecognized owner string, so
+  # the first run after the flip needs a ONE-TIME
+  # `spec.ownership.takeoverPolicy: Force` on the projected Maintenance, reverted
+  # to Never immediately after.
+  maintenance:
+    enabled: false
+  allowedNamespaces:
+    list:
+      - auth
+      - automation
+      - downloads
+      - media
+      - self-hosted
+  scheduleDefaults:
+    timezone: America/New_York
