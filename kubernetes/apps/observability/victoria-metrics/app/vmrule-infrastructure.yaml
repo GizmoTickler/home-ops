@@ -493,3 +493,58 @@ spec:
           labels:
             severity: warning
             component: observability
+
+    # nas01 storage-path integrity. Both settings are persisted correctly in
+    # TrueNAS's own config but were found diverged in the running kernel on
+    # 2026-08-09: br0 (which holds 192.168.120.10, the scale-csi NVMe-oF/iSCSI/
+    # NFS target) had been dragged to MTU 1500 by a container veth attaching at
+    # the default, capping every k8s storage session to MSS 1448 while pve's
+    # storage VLANs ran 8948. A POSTINIT script plus a 15m cron on nas01
+    # (net-drift-guard.sh) self-heals both; these alerts catch the guard failing.
+    #
+    # NOTE: the bond0 xmit_hash_policy half is NOT alertable here. nas01's
+    # node_exporter runs inside a docker netns, so its netdev collector sees only
+    # eth0/lo — per-slave TX counters are unavailable. netclass reads /host/sys,
+    # which is why MTU is visible. Giving that exporter host networking would
+    # make bond TX imbalance alertable and is the proper follow-up.
+    - name: nas01-storage-path.rules
+      interval: 60s
+      rules:
+        - alert: Nas01StorageBridgeMtuDegraded
+          expr: |-
+            node_network_mtu_bytes{instance=~"nas01.*", device="br0"} != 9000
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "nas01 br0 MTU is {{ $value }}, expected 9000"
+            description: |-
+              br0 carries 192.168.120.10 — the address scale-csi uses for NVMe-oF,
+              iSCSI and NFS. Below 9000 every Kubernetes storage session negotiates
+              MSS 1448 instead of 8948, roughly 6x the per-byte packet overhead on
+              the cluster's entire storage path.
+
+              Usual cause: a container/VM veth attached to br0 at the default 1500,
+              dragging the bridge below its configured MTU. net-drift-guard.sh on
+              nas01 should self-heal within 15m — if this is firing, the guard is
+              not running. Check `logger -t net-drift-guard` output in syslog and
+              the POSTINIT script (id 8) / cron job (id 22).
+            runbook_url: https://docs.victoriametrics.com/
+          labels:
+            severity: warning
+            component: storage
+
+        - alert: Nas01StorageInterfaceMtuDegraded
+          expr: |-
+            node_network_mtu_bytes{instance=~"nas01.*", device=~"bond0|eno1|eno2|ens802f0|ens802f1"} != 9000
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "nas01 {{ $labels.device }} MTU is {{ $value }}, expected 9000"
+            description: |-
+              A member of nas01's storage fabric has left jumbo. bond0 and its four
+              10G slaves must all sit at 9000 or the NVMe-oF paths to pve
+              (VLANs 1201-1204) and the k8s storage path silently lose jumbo frames.
+            runbook_url: https://docs.victoriametrics.com/
+          labels:
+            severity: warning
+            component: storage
