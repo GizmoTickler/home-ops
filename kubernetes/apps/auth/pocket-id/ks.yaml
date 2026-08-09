@@ -6,7 +6,7 @@ metadata:
   name: pocket-id
 spec:
   components:
-    - ../../../../components/volsync
+    - ../../../../components/kopiur/backup
   dependsOn:
     - name: external-secrets
       namespace: external-secrets
@@ -15,9 +15,10 @@ spec:
   postBuild:
     substitute:
       APP: pocket-id
-      VOLSYNC_CAPACITY: 1Gi
-      VOLSYNC_STORAGECLASS: scale-nvmeof
-      VOLSYNC_SNAPSHOTCLASS: scale-snapshot
+      KOPIUR_CAPACITY: 1Gi
+      KOPIUR_CACHE_CAPACITY: 1Gi
+      KOPIUR_STORAGECLASS: scale-nvmeof
+      KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true
   sourceRef:
     kind: GitRepository

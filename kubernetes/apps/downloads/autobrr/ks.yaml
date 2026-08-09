@@ -7,15 +7,16 @@ metadata:
 spec:
   components:
     - ../../../../components/nfs-scaler
-    - ../../../../components/volsync
+    - ../../../../components/kopiur/backup
   interval: 1h
   path: ./kubernetes/apps/downloads/autobrr/app
   postBuild:
     substitute:
       APP: autobrr
-      VOLSYNC_CAPACITY: 50Gi
-      VOLSYNC_STORAGECLASS: scale-nvmeof
-      VOLSYNC_SNAPSHOTCLASS: scale-snapshot
+      KOPIUR_CAPACITY: 50Gi
+      KOPIUR_CACHE_CAPACITY: 50Gi
+      KOPIUR_STORAGECLASS: scale-nvmeof
+      KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true
   sourceRef:
     kind: GitRepository
