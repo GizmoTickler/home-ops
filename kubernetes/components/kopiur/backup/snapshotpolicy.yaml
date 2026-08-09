@@ -1,0 +1,38 @@
+---
+apiVersion: kopiur.home-operations.com/v1alpha1
+kind: SnapshotPolicy
+metadata:
+  name: ${APP}
+spec:
+  # Identity (<app>@<namespace>:/data) comes from the ClusterRepository's
+  # identityDefaults CEL, reproducing what the VolSync kopia fork wrote so each
+  # app's existing snapshot history continues rather than restarting.
+  repository:
+    kind: ClusterRepository
+    name: flashstor
+  # Movers run here, not in kopiur-system; envFrom is namespace-local.
+  credentialProjection:
+    enabled: true
+  compression:
+    compressor: zstd-fastest
+  copyMethod: ${KOPIUR_COPYMETHOD:=Snapshot}
+  volumeSnapshotClassName: ${KOPIUR_SNAPSHOTCLASS:=scale-snapshot}
+  retention:
+    keepHourly: 24
+    keepDaily: 7
+  upload:
+    maxParallelFileReads: 2
+  mover:
+    cache:
+      capacity: ${KOPIUR_CACHE_CAPACITY:=5Gi}
+      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=openebs-hostpath}
+    podSecurityContext:
+      runAsUser: ${KOPIUR_PUID:=1000}
+      runAsGroup: ${KOPIUR_PGID:=1000}
+      fsGroup: ${KOPIUR_PGID:=1000}
+  sources:
+    - pvc:
+        name: ${APP}
+      # The fork stored data under /data; the verified atuin restore confirmed
+      # this resolves against the existing snapshots.
+      sourcePathOverride: /data

@@ -49,6 +49,15 @@ spec:
   # two-sided gate; each SnapshotPolicy/Restore must also set
   # credentialProjection.enabled: true. Verified 2026-08-09: without it a Restore
   # sits Pending on CredentialsAvailable=False/MissingCredentialsSecret.
+  # Reproduces VolSync's snapshot identity for EVERY consumer, so no policy
+  # needs a per-app identity block. kopia records snapshots as
+  # username@hostname:path; the fork wrote <app>@<namespace>:/data, and our
+  # SnapshotPolicies are named after the app and live in the app's namespace,
+  # so policyName@namespace resolves identically and history continues.
+  # A consumer's explicit spec.identity would still win if ever needed.
+  identityDefaults:
+    usernameExpr: "policyName"
+    hostnameExpr: "namespace"
   credentialProjection:
     allowed: true
   allowedNamespaces:

@@ -1,0 +1,29 @@
+---
+apiVersion: kopiur.home-operations.com/v1alpha1
+kind: Restore
+metadata:
+  name: ${APP}
+  labels:
+    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
+spec:
+  repository:
+    kind: ClusterRepository
+    name: flashstor
+  credentialProjection:
+    enabled: true
+  policy:
+    onMissingSnapshot: Continue
+  source:
+    fromPolicy:
+      name: ${APP}
+      offset: 0
+  mover:
+    cache:
+      capacity: ${KOPIUR_CACHE_CAPACITY:=5Gi}
+      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=openebs-hostpath}
+    podSecurityContext:
+      runAsUser: ${KOPIUR_PUID:=1000}
+      runAsGroup: ${KOPIUR_PGID:=1000}
+      fsGroup: ${KOPIUR_PGID:=1000}
+  target:
+    populator: {}
