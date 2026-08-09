@@ -43,12 +43,11 @@ spec:
   # to Never immediately after.
   maintenance:
     enabled: true
-    # ONE-TIME. Kopiur deliberately will NOT seize a lease held by an owner it
-    # does not recognise, and VolSync's fork owner string is exactly that — so
-    # without Force the first run would no-op forever. REVERT THIS TO Never (or
-    # delete the line) once `kubectl get clusterrepository flashstor` shows
-    # MaintenanceConfigured=True; leaving Force set is unsafe on a shared repo.
-    takeoverPolicy: Force
+    # Force was used ONCE on 2026-08-09 to seize the lease VolSync's fork held
+    # (kopiur will not clobber an owner it does not recognise). The takeover
+    # succeeded — Maintenance reports LeaseOwned=True/LeaseClaimed — so this is
+    # back to the safe default. Do not leave Force set on a shared repository.
+    takeoverPolicy: Never
   # Movers run in the CONSUMING namespace and load the password via envFrom,
   # which is namespace-local — a ClusterRepository's Secret in kopiur-system is
   # unreachable from self-hosted/downloads/etc. This is the owner half of the
@@ -77,5 +76,15 @@ spec:
       - downloads
       - media
       - self-hosted
+  parameters:
+    # The fork's maintenance ran for months without ever compacting: kopiur
+    # flagged IndexBlobHealth=False at 2752 content-index blobs against a
+    # threshold of 1000, and a full maintenance run did not shift it. Cause is
+    # kopia's epoch-advance gate — an epoch cannot close before minDuration
+    # (default 24h) and compaction trails two epochs behind, so at 16 apps x
+    # hourly (384 snapshots/day) indexes accumulate faster than epochs close.
+    # 6h lets epochs turn over ~4x more often so compaction can keep up.
+    epoch:
+      minDuration: 6h
   scheduleDefaults:
     timezone: America/New_York
