@@ -68,6 +68,10 @@ spec:
     allowed: true
   allowedNamespaces:
     list:
+      # kopiur-system is required even though no app lives there: the operator
+      # projects its own managed Maintenance into this namespace, and the
+      # admission webhook rejects it unless the namespace is allowed.
+      - kopiur-system
       - auth
       - automation
       - downloads
