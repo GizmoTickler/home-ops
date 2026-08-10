@@ -16,6 +16,14 @@ spec:
       KOPIUR_CACHE_CAPACITY: 15Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
+      # freshrss stores its data 100:33 with 0770 dirs (PubSubHubbub, cache,
+      # favicons, fever, tokens, extensions-data, Retry-After, users/*), so a
+      # uid-1000 mover is "other" and gets nothing. The default 1000 made the
+      # 00:00 run fail with 8 fatal PermissionDenied errors -- and VolSync's
+      # mover ran as 1000 too, so its freshrss snapshots were silently missing
+      # those directories. Match the data owner instead.
+      KOPIUR_PUID: "100"
+      KOPIUR_PGID: "33"
   prune: true
   sourceRef:
     kind: GitRepository
