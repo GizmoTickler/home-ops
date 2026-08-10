@@ -1,0 +1,75 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: kopiur
+spec:
+  groups:
+    # Replaces the VolSync rules retired with that operator. Every expression
+    # below uses a metric the controller actually exports (verified against
+    # crates/telemetry + crates/controller at 0.10.0), not an assumed name.
+    - name: kopiur.rules
+      interval: 1m
+      rules:
+        - alert: KopiurControllerDown
+          expr: |-
+            absent(kopiur_leader_is_leader) == 1
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "kopiur controller is not reporting metrics"
+            description: |-
+              No kopiur controller metrics for 10m — every PVC backup in the
+              cluster is driven by this operator, so backups are silently not
+              running. Check the kopiur-controller deployment in kopiur-system.
+          labels:
+            severity: critical
+            component: backup
+
+        - alert: KopiurBackupStale
+          expr: |-
+            time() - max by (namespace, policy) (kopiur_policy_last_backup_success_timestamp_seconds) > 14400
+          for: 15m
+          keep_firing_for: 10m
+          annotations:
+            summary: "kopiur policy {{ $labels.namespace }}/{{ $labels.policy }} has no successful backup in 4h"
+            description: |-
+              Policies run hourly, so 4h without a success means roughly four
+              consecutive missed or failed cycles for this app. Check
+              `kubectl kopiur status -A` and the Snapshot objects in
+              {{ $labels.namespace }} — a mover failing on permissions shows up
+              here rather than as a crash.
+          labels:
+            severity: warning
+            component: backup
+
+        - alert: KopiurReconcileErrors
+          expr: |-
+            sum(rate(kopiur_controller_reconcile_errors[15m])) > 0
+          for: 30m
+          keep_firing_for: 10m
+          annotations:
+            summary: "kopiur controller is failing reconciles"
+            description: |-
+              Sustained reconcile errors for 30m. Transient retries are normal
+              (a repository briefly unreachable), so this fires only when they
+              persist. Check the controller log for the failing object kind.
+          labels:
+            severity: warning
+            component: backup
+
+        - alert: KopiurOrphanedSnapshots
+          expr: |-
+            max(kopiur_orphaned_snapshots) > 10
+          for: 1h
+          keep_firing_for: 15m
+          annotations:
+            summary: "{{ $value }} orphaned kopia snapshots in the repository"
+            description: |-
+              Snapshots exist in the repository with no owning Snapshot object.
+              Usually leftovers from a deleted policy; they consume space and are
+              not covered by retention. Inspect with `kubectl kopiur status -A`.
+          labels:
+            severity: warning
+            component: backup
