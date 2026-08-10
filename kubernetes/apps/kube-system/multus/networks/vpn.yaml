@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/k8s.cni.cncf.io/networkattachmentdefinition_v1.json
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: vpn
+spec:
+  # VLAN 90 (192.168.90.0/24) -- egress via the upstream tunnel on gateway0.
+  # master is eth2, a dedicated vNIC tagged 90, held address-less on the host.
+  #
+  # Path: pod -> eth2 -> VLAN 90 -> SC01 (L2 trunk) -> gateway0 eth3.90
+  #       -> policy route VPN90-VIA-TUNNEL -> table 90 -> wg0 -> upstream.
+  # Verified end to end: a pod here egresses via the tunnel while its normal
+  # cluster path still egresses via the default WAN.
+  #
+  # Upstream endpoint, credentials and provider live in the gateway0 config and
+  # 1Password, deliberately not here.
+  #
+  # ADDRESSING IS STATIC. Allocate from 192.168.90.10-99 only (NetBox ip-range,
+  # status reserved). There is no DHCP server on this VLAN, by design.
+  #
+  #   [{"name":"vpn","namespace":"kube-system","ips":["192.168.90.20/24"]}]
+  #
+  # THIS IS NOT A KILL-SWITCH ON ITS OWN. sbr keeps the pod's DEFAULT route on
+  # the cluster CNI, so only traffic *sourced from the VLAN 90 address* uses the
+  # tunnel. Anything that ignores interface binding still egresses over the
+  # default WAN. For torrent-style workloads pair this with a Cilium
+  # NetworkPolicy denying egress outside the cluster, which leaves the macvlan
+  # (invisible to Cilium) as the only internet path.
+  config: |-
+    {
+      "cniVersion": "0.3.1",
+      "name": "vpn",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "eth2",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "routes": [
+              {"dst": "0.0.0.0/0", "gw": "192.168.90.1"}
+            ]
+          }
+        },
+        {
+          "type": "sbr"
+        }
+      ]
+    }

@@ -178,7 +178,7 @@ const (
 const (
 	// VLANIDIoT is VLAN 20 (IoT, 192.168.136.0/22) -- macvlan master eth1.
 	VLANIDIoT = 20
-	// VLANIDVPN is VLAN 90 (VPN-Windscribe, 192.168.90.0/24) -- macvlan master eth2.
+	// VLANIDVPN is VLAN 90 (VPN egress, 192.168.90.0/24) -- macvlan master eth2.
 	VLANIDVPN = 90
 	// SecondaryNICMTU is 1500 deliberately. Both VLANs carry standard-MTU
 	// devices and macvlan children inherit the master's MTU, so the cluster's
