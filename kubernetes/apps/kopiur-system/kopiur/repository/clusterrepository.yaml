@@ -65,17 +65,12 @@ spec:
     hostnameExpr: "namespace"
   credentialProjection:
     allowed: true
+  # Any namespace may consume this repository. kopiur-system is implicitly
+  # covered, which matters because the operator projects its own managed
+  # Maintenance there and the mutating webhook rejects it otherwise -- that
+  # was an explicit list entry before.
   allowedNamespaces:
-    list:
-      # kopiur-system is required even though no app lives there: the operator
-      # projects its own managed Maintenance into this namespace, and the
-      # admission webhook rejects it unless the namespace is allowed.
-      - kopiur-system
-      - auth
-      - automation
-      - downloads
-      - media
-      - self-hosted
+    all: true
   parameters:
     # The fork's maintenance ran for months without ever compacting: kopiur
     # flagged IndexBlobHealth=False at 2752 content-index blobs against a
