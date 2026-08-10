@@ -8,7 +8,7 @@ metadata:
 spec:
   repository:
     kind: ClusterRepository
-    name: flashstor
+    name: nas-s3
   credentialProjection:
     enabled: true
   policy:

@@ -5,11 +5,13 @@ metadata:
   name: ${APP}
 spec:
   # Identity (<app>@<namespace>:/data) comes from the ClusterRepository's
-  # identityDefaults CEL, reproducing what the VolSync kopia fork wrote so each
-  # app's existing snapshot history continues rather than restarting.
+  # identityDefaults CEL. It keeps the naming the VolSync fork used, so an app's
+  # snapshots are named the same in the archived NFS repository as in this one.
+  # History does NOT carry across: nas-s3 was created empty on 2026-08-10 and
+  # each app re-seeds with a full snapshot on its next run.
   repository:
     kind: ClusterRepository
-    name: flashstor
+    name: nas-s3
   # Movers run here, not in kopiur-system; envFrom is namespace-local.
   credentialProjection:
     enabled: true
@@ -25,8 +27,9 @@ spec:
   mover:
     cache:
       # Persistent so kopia's index/metadata cache survives between runs instead
-      # of every hourly mover re-fetching it -- which matters here because the
-      # repository carries ~2.9k content-index blobs.
+      # of every hourly mover re-fetching it. This mattered acutely on the old
+      # repository (~2.8k content-index blobs); on nas-s3 the index is small,
+      # but a warm cache still saves an S3 round trip per hourly run.
       #
       # MUST NOT be node-local. openebs-hostpath is a hostPath class, so a
       # PERSISTENT cache on it would bind each app's mover to whichever node

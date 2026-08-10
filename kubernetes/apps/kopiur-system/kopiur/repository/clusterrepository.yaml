@@ -41,13 +41,27 @@ spec:
   # the first run after the flip needs a ONE-TIME
   # `spec.ownership.takeoverPolicy: Force` on the projected Maintenance, reverted
   # to Never immediately after.
+  # ARCHIVED 2026-08-10. Nothing writes here any more: every SnapshotPolicy and
+  # Restore now targets the `nas-s3` ClusterRepository. This object is kept
+  # ONLY so the 466 existing snapshots stay restorable, and is deleted once a
+  # restore from nas-s3 is proven and a retention window has passed.
+  #
+  # Maintenance is off because it demonstrably does not work on this
+  # repository: full runs take 12+ minutes, report success, reclaim 0 bytes and
+  # leave the content-index blob count climbing. Running it on a read-only
+  # archive would burn 12 minutes a night to achieve nothing.
   maintenance:
-    enabled: true
+    enabled: false
     # Force was used ONCE on 2026-08-09 to seize the lease VolSync's fork held
     # (kopiur will not clobber an owner it does not recognise). The takeover
-    # succeeded — Maintenance reports LeaseOwned=True/LeaseClaimed — so this is
+    # succeeded — Maintenance reported LeaseOwned=True/LeaseClaimed — so this is
     # back to the safe default. Do not leave Force set on a shared repository.
     takeoverPolicy: Never
+  health:
+    # Silence IndexBlobHealth. The ~2.8k blobs are real and are exactly why we
+    # cut over, but on an archive with maintenance disabled the condition is a
+    # permanent false alarm rather than actionable signal.
+    indexBlobWarnThreshold: 0
   # Movers run in the CONSUMING namespace and load the password via envFrom,
   # which is namespace-local — a ClusterRepository's Secret in kopiur-system is
   # unreachable from self-hosted/downloads/etc. This is the owner half of the

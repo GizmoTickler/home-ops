@@ -1,0 +1,64 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/kopiur.home-operations.com/clusterrepository_v1alpha1.json
+apiVersion: kopiur.home-operations.com/v1alpha1
+kind: ClusterRepository
+metadata:
+  name: nas-s3
+spec:
+  # CREATION, NOT ADOPTION -- the opposite of the `flashstor` repository beside
+  # this file, and deliberately so.
+  #
+  # `flashstor` adopted the repository VolSync's abandoned kopia fork had been
+  # writing since 2025-12-10. It inherited that fork's damage: ~2.8k
+  # content-index blobs that will not compact. A full maintenance pass runs for
+  # 12+ minutes, reports success, reclaims 0 bytes, and the count still climbs
+  # (2766 -> 2806 across one run). Lowering the epoch gate 24h -> 6h -> 2h did
+  # not drain it either.
+  #
+  # The whole repository is 22 MB, so re-seeding from zero costs minutes and
+  # buys a repository kopiur has owned since its first blob. `flashstor` stays
+  # defined, inert and readable, until a restore from THIS repository is proven.
+  backend:
+    s3:
+      # SeaweedFS on nas01. Publicly-trusted cert (Google Trust Services), so
+      # no caBundleRef is needed. Bucket is dedicated: sharing cnpg-backups
+      # with the Postgres backups was explicitly not wanted.
+      bucket: kopiur-backups
+      endpoint: s3.${SECRET_DOMAIN}
+      region: us-east-1
+      auth:
+        secretRef:
+          name: kopiur-repository-secret
+          namespace: kopiur-system
+  encryption:
+    passwordSecretRef:
+      name: kopiur-repository-secret
+      namespace: kopiur-system
+      key: KOPIA_PASSWORD
+  create:
+    enabled: true
+  maintenance:
+    enabled: true
+    # No foreign owner to seize on a repository kopiur created itself.
+    takeoverPolicy: Never
+  # Same identity convention the fork wrote and `flashstor` reproduced
+  # (<app>@<namespace>:/data). History does NOT carry over -- this repository
+  # starts empty -- but keeping the convention means an app's snapshots are
+  # named identically in both, so the archived repository stays legible.
+  identityDefaults:
+    usernameExpr: "policyName"
+    hostnameExpr: "namespace"
+  credentialProjection:
+    allowed: true
+  allowedNamespaces:
+    all: true
+  parameters:
+    # Set from blob zero rather than retrofitted. 17 policies at hourly is
+    # ~17 index blobs/hour and the effective advanceOnCount is 20, so a 2h
+    # floor lets the count trigger drive epoch advancement instead of the
+    # clock, keeping compaction (which trails two epochs) ~4h behind rather
+    # than ~12h.
+    epoch:
+      minDuration: 2h
+  scheduleDefaults:
+    timezone: America/New_York
