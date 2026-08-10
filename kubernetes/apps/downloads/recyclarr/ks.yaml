@@ -13,7 +13,6 @@ spec:
     substitute:
       APP: recyclarr
       KOPIUR_CAPACITY: 10Gi
-      KOPIUR_CACHE_CAPACITY: 10Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true

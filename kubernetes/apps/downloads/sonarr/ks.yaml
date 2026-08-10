@@ -17,7 +17,6 @@ spec:
     substitute:
       APP: sonarr
       KOPIUR_CAPACITY: 15Gi
-      KOPIUR_CACHE_CAPACITY: 15Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true

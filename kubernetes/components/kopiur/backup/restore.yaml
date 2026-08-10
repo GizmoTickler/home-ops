@@ -20,7 +20,8 @@ spec:
   mover:
     cache:
       capacity: ${KOPIUR_CACHE_CAPACITY:=5Gi}
-      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=openebs-hostpath}
+      # Ephemeral by design: a restore is a one-off, so no persistent cache.
+      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=scale-nvmeof}
     podSecurityContext:
       runAsUser: ${KOPIUR_PUID:=1000}
       runAsGroup: ${KOPIUR_PGID:=1000}

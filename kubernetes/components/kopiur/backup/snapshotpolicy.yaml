@@ -24,8 +24,17 @@ spec:
     maxParallelFileReads: 2
   mover:
     cache:
+      # Persistent so kopia's index/metadata cache survives between runs instead
+      # of every hourly mover re-fetching it -- which matters here because the
+      # repository carries ~2.9k content-index blobs.
+      #
+      # MUST NOT be node-local. openebs-hostpath is a hostPath class, so a
+      # PERSISTENT cache on it would bind each app's mover to whichever node
+      # first provisioned it. scale-nvmeof is network-attached, so the cache
+      # follows the pod wherever it schedules.
+      mode: Persistent
       capacity: ${KOPIUR_CACHE_CAPACITY:=5Gi}
-      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=openebs-hostpath}
+      storageClassName: ${KOPIUR_CACHE_STORAGECLASS:=scale-nvmeof}
     podSecurityContext:
       runAsUser: ${KOPIUR_PUID:=1000}
       runAsGroup: ${KOPIUR_PGID:=1000}

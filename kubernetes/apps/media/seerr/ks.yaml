@@ -17,7 +17,6 @@ spec:
     substitute:
       APP: seerr
       KOPIUR_CAPACITY: 50Gi
-      KOPIUR_CACHE_CAPACITY: 50Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true

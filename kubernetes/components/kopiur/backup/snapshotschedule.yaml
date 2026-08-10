@@ -7,4 +7,8 @@ spec:
   policyRef:
     name: ${APP}
   schedule:
-    cron: ${KOPIUR_SCHEDULE:=0 * * * *}
+    # H = deterministic per-app hash, not a literal minute: each app gets a stable
+    # offset inside the hour instead of all 16 firing at :00 together (which is
+    # what the 00:00 and 01:00 cycles did -- 16 concurrent movers each staging a
+    # CSI VolumeSnapshot + clone against nas01 in the same instant).
+    cron: ${KOPIUR_SCHEDULE:=H * * * *}

@@ -13,7 +13,6 @@ spec:
     substitute:
       APP: freshrss
       KOPIUR_CAPACITY: 15Gi
-      KOPIUR_CACHE_CAPACITY: 15Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
       # freshrss stores its data 100:33 with 0770 dirs (PubSubHubbub, cache,

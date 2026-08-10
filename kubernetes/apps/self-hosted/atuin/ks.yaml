@@ -13,7 +13,6 @@ spec:
     substitute:
       APP: atuin
       KOPIUR_CAPACITY: 15Gi
-      KOPIUR_CACHE_CAPACITY: 5Gi
       KOPIUR_STORAGECLASS: scale-nvmeof
       KOPIUR_SNAPSHOTCLASS: scale-snapshot
   prune: true
