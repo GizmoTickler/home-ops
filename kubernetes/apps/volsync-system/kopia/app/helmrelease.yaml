@@ -29,6 +29,13 @@ spec:
             args:
               - --refresh-interval=5m
               - --without-password
+              # This UI is a kopia CLIENT on a repository kopiur owns. Without
+              # this it could claim maintenance ownership, and nas-s3's
+              # Maintenance is takeoverPolicy: Never -- kopiur would then
+              # refuse to take it back, which is precisely how the VolSync
+              # fork ended up the unrecognised owner of the old repository.
+              # Read-only also matches what this is for: looking, not writing.
+              - --readonly
             probes:
               liveness: &probes
                 enabled: true
@@ -72,35 +79,15 @@ spec:
           - name: kgateway-internal
             namespace: network
             sectionName: https
-    configMaps:
-      config:
-        data:
-          repository.config: |-
-            {
-              "storage": {
-                "type": "filesystem",
-                "config": {
-                  "path": "/repository"
-                }
-              },
-              "hostname": "volsync.{{ .Release.Namespace }}.svc.cluster.local",
-              "username": "volsync",
-              "description": "volsync",
-              "enableActions": false
-            }
     persistence:
+      # Connection descriptor comes from the Secret, not a ConfigMap: pointing
+      # at S3 puts credentials inside the descriptor itself.
       config-file:
-        type: configMap
-        identifier: config
+        type: secret
+        name: kopia-secret
         globalMounts:
           - path: /config/repository.config
             subPath: repository.config
-      repository:
-        type: nfs
-        server: 192.168.120.10
-        path: /mnt/flashstor/VolsyncKopia
-        globalMounts:
-          - path: /repository
       tmpfs:
         type: emptyDir
         advancedMounts:
