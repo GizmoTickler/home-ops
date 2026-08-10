@@ -36,6 +36,8 @@ func charEnv(name, ip, mac string) NodeEnv {
 		KubeVipVersion:    "v1.2.0",
 		NodeInterface:     "eth0",
 		NodeMAC:           mac,
+		NodeMACIoT:        "bc:24:11:b9:55:83",
+		NodeMACVPN:        "bc:24:11:33:4c:37",
 		K8sEndpoint:       "k8s.example.test",
 		SSHAuthorizedKey:  "ssh-ed25519 AAAATESTKEY",
 		CertificateKey:    "deadbeef",

@@ -40,6 +40,8 @@ const EnvConfigFile = "HOMEOPS_CONFIG"
 type VMProfile struct {
 	VMID           int    `yaml:"vmid,omitempty"`            // hypervisor VM id (Proxmox)
 	Mac            string `yaml:"mac,omitempty"`             // static MAC address
+	MacIoT         string `yaml:"mac_iot,omitempty"`         // net1 MAC, VLAN 20 (Multus macvlan master eth1)
+	MacVPN         string `yaml:"mac_vpn,omitempty"`         // net2 MAC, VLAN 90 (Multus macvlan master eth2)
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
 	CPUAffinity    string `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
@@ -77,6 +79,8 @@ type CephDisk struct {
 type ProviderVMProfile struct {
 	VMID           int      `yaml:"vmid,omitempty"`
 	Mac            string   `yaml:"mac,omitempty"`
+	MacIoT         string   `yaml:"mac_iot,omitempty"`
+	MacVPN         string   `yaml:"mac_vpn,omitempty"`
 	BootStorage    string   `yaml:"boot_storage,omitempty"`
 	OpenEBSStorage string   `yaml:"openebs_storage,omitempty"`
 	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`

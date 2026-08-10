@@ -256,6 +256,14 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.CPUAffinity = nodeConfig.CPUAffinity
 	vmConfig.NUMANode = nodeConfig.NUMANode
 	vmConfig.MacAddress = nodeConfig.MacAddress
+	// Multus macvlan masters (VLAN 20 IoT / VLAN 90 VPN). MTU 1500, not the
+	// cluster's 9000: these VLANs carry ordinary devices and macvlan children
+	// inherit the master's MTU, so jumbo here would black-hole traffic to them.
+	vmConfig.MacAddressIoT = nodeConfig.MacAddressIoT
+	vmConfig.MacAddressVPN = nodeConfig.MacAddressVPN
+	vmConfig.VLANIDIoT = constants.VLANIDIoT
+	vmConfig.VLANIDVPN = constants.VLANIDVPN
+	vmConfig.SecondaryMTU = constants.SecondaryNICMTU
 	vmConfig.IgnitionConfig = string(node.ignition)
 	vmConfig.IgnitionPath = ignitionHandle
 	vmConfig.ImageDiskPath = d.imagePath
@@ -636,6 +644,8 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		KubeVipVersion:    kubeVipVersion,
 		NodeInterface:     nodeInterface,
 		NodeMAC:           nodeConfig.MacAddress,
+		NodeMACIoT:        nodeConfig.MacAddressIoT,
+		NodeMACVPN:        nodeConfig.MacAddressVPN,
 		K8sEndpoint:       k8sEndpoint,
 		SSHAuthorizedKey:  sshKey,
 		ClusterName:       cfg.ClusterNameWithDefault(),

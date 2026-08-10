@@ -95,6 +95,9 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 	}
 
 	options = append(options, proxmox.VirtualMachineOption{Name: "net0", Value: buildNetworkConfig(config, profile.network)})
+	for _, nic := range secondaryNICs(config) {
+		options = append(options, proxmox.VirtualMachineOption{Name: nic.name, Value: nic.value})
+	}
 
 	if profile.includeWatchdog && config.WatchdogModel != "" {
 		watchdogOpts := fmt.Sprintf("model=%s", config.WatchdogModel)
@@ -241,4 +244,37 @@ func addFlatcarIgnitionArgs(options []proxmox.VirtualMachineOption, config VMCon
 	}
 	args := fmt.Sprintf("-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
 	return append(options, proxmox.VirtualMachineOption{Name: "args", Value: args})
+}
+
+// secondaryNIC is one extra vNIC attached purely as a Multus macvlan master.
+type secondaryNIC struct {
+	name  string
+	value string
+}
+
+// secondaryNICs builds net1/net2 for the Multus macvlan masters. A NIC is
+// emitted only when its MAC is set, so nodes that predate these interfaces (or
+// non-Flatcar profiles) are provisioned exactly as before.
+//
+// The MAC is REQUIRED rather than auto-generated: the Butane config pins the
+// interface name by MAC (10-eth1.link / 10-eth2.link) so the NAD's
+// `master: eth1` / `master: eth2` keeps resolving across a machine-type change.
+func secondaryNICs(config VMConfig) []secondaryNIC {
+	mtu := config.SecondaryMTU
+	if mtu == 0 {
+		mtu = 1500
+	}
+	var out []secondaryNIC
+	add := func(name, mac string, vlan int) {
+		if mac == "" || vlan == 0 {
+			return
+		}
+		out = append(out, secondaryNIC{
+			name:  name,
+			value: fmt.Sprintf("virtio=%s,bridge=%s,mtu=%d,tag=%d", mac, config.NetworkBridge, mtu, vlan),
+		})
+	}
+	add("net1", config.MacAddressIoT, config.VLANIDIoT)
+	add("net2", config.MacAddressVPN, config.VLANIDVPN)
+	return out
 }

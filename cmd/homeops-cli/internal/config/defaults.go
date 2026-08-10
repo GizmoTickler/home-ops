@@ -491,6 +491,12 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.Mac != "" {
 		out.Mac = override.Mac
 	}
+	if override.MacIoT != "" {
+		out.MacIoT = override.MacIoT
+	}
+	if override.MacVPN != "" {
+		out.MacVPN = override.MacVPN
+	}
 	if override.BootStorage != "" {
 		out.BootStorage = override.BootStorage
 	}

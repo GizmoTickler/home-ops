@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -31,6 +32,8 @@ func sampleEnv() NodeEnv {
 		KubeVipVersion:    "v0.8.9",
 		NodeInterface:     "eth0",
 		NodeMAC:           "00:a0:98:28:c8:83",
+		NodeMACIoT:        "bc:24:11:b9:55:83",
+		NodeMACVPN:        "bc:24:11:33:4c:37",
 		K8sEndpoint:       "k8s.example.test",
 		SSHAuthorizedKey:  "ssh-ed25519 AAAATESTKEY",
 	}
@@ -266,4 +269,69 @@ func TestRenderKubeadmJoinConfigMissingMaterial(t *testing.T) {
 	_, err := RenderKubeadmJoinConfig(env)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unresolved")
+}
+
+// TestRenderIgnitionPinsMacvlanMasters asserts the secondary NICs land in the
+// rendered Ignition as ADDRESS-LESS, MAC-pinned links.
+//
+// Both properties are load-bearing and were regressions in production:
+//   - the name pin exists because the NetworkAttachmentDefinitions reference
+//     `master: eth1` / `master: eth2`, which a machine-type rename would break;
+//   - DHCP=no exists because Flatcar's catch-all eth* rule DHCP'd eth1 on first
+//     hotplug and installed a SECOND default route via the IoT gateway at the
+//     same metric as eth0's, ECMP-balancing control-plane egress onto VLAN 20.
+func TestRenderIgnitionPinsMacvlanMasters(t *testing.T) {
+	env := sampleEnv()
+	out, err := RenderIgnition(env)
+	if err != nil {
+		t.Fatalf("RenderIgnition: %v", err)
+	}
+	got := string(out)
+
+	// Paths appear literally in the Ignition JSON.
+	for _, want := range []string{
+		"10-eth1.link", "10-eth2.link",
+		"15-eth1-iot.network", "15-eth2-vpn.network",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("rendered ignition missing path %q", want)
+		}
+	}
+
+	// File CONTENTS are data-URL encoded by butane, so decode before asserting.
+	decoded := decodeIgnitionContents(t, got)
+	for _, want := range []string{env.NodeMACIoT, env.NodeMACVPN} {
+		if !strings.Contains(decoded, want) {
+			t.Errorf("decoded ignition contents missing MAC %q", want)
+		}
+	}
+	// Exactly two DHCP=no stanzas: eth1 and eth2. eth0 must stay DHCP=yes, or
+	// the node loses its primary address.
+	if n := strings.Count(decoded, "DHCP=no"); n != 2 {
+		t.Errorf("expected exactly 2 DHCP=no stanzas (eth1, eth2), got %d", n)
+	}
+	if !strings.Contains(decoded, "DHCP=yes") {
+		t.Error("eth0 must still use DHCP")
+	}
+}
+
+// decodeIgnitionContents concatenates every decoded data: URL in an Ignition
+// config so tests can assert on real file bodies rather than base64.
+func decodeIgnitionContents(t *testing.T, ign string) string {
+	t.Helper()
+	var sb strings.Builder
+	for _, m := range regexp.MustCompile(`data:[^"]*`).FindAllString(ign, -1) {
+		if i := strings.Index(m, "base64,"); i >= 0 {
+			if b, err := base64.StdEncoding.DecodeString(m[i+len("base64,"):]); err == nil {
+				sb.Write(b)
+				continue
+			}
+		}
+		if i := strings.Index(m, ","); i >= 0 {
+			if u, err := url.PathUnescape(m[i+1:]); err == nil {
+				sb.WriteString(u)
+			}
+		}
+	}
+	return sb.String()
 }

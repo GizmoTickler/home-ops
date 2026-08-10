@@ -142,6 +142,13 @@ type VMConfig struct {
 	NetworkQueues int    // e.g., 8
 	VLANID        int    // e.g., 999
 	MacAddress    string // Static MAC address
+	// Secondary NICs used ONLY as Multus macvlan masters. Empty MAC = NIC not
+	// created, so a node without them provisions exactly as before.
+	MacAddressIoT string // net1 MAC (VLAN 20, macvlan master eth1)
+	MacAddressVPN string // net2 MAC (VLAN 90, macvlan master eth2)
+	VLANIDIoT     int    // net1 VLAN tag
+	VLANIDVPN     int    // net2 VLAN tag
+	SecondaryMTU  int    // MTU for net1/net2 (1500: these VLANs carry standard-MTU devices)
 
 	// SCSI Configuration
 	SCSIController string // e.g., "virtio-scsi-single"
@@ -217,6 +224,8 @@ type FlatcarNodeConfig struct {
 	CPUAffinity    string // CPU core pinning
 	NUMANode       int    // NUMA node (0 or 1)
 	MacAddress     string // Static MAC address
+	MacAddressIoT  string // net1 MAC, VLAN 20 (Multus macvlan master eth1)
+	MacAddressVPN  string // net2 MAC, VLAN 90 (Multus macvlan master eth2)
 }
 
 // FlatcarNodeConfigs contains the embedded default Flatcar node configurations.
@@ -274,6 +283,8 @@ func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
 		CPUAffinity:    profile.CPUAffinity,
 		NUMANode:       vmProfileNUMANode(profile),
 		MacAddress:     profile.Mac,
+		MacAddressIoT:  profile.MacIoT,
+		MacAddressVPN:  profile.MacVPN,
 	}
 }
 

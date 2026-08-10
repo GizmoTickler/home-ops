@@ -45,6 +45,8 @@ const (
 	EnvKubeVipVersion   = "KUBE_VIP_VERSION"
 	EnvNodeInterface    = "NODE_INTERFACE"
 	EnvNodeMAC          = "NODE_MAC"
+	EnvNodeMACIoT       = "NODE_MAC_IOT"
+	EnvNodeMACVPN       = "NODE_MAC_VPN"
 	EnvNodeName         = "NODE_NAME"
 	EnvNodeIP           = "NODE_IP"
 	EnvNode0IP          = "NODE0_IP"
@@ -170,4 +172,16 @@ const (
 // Talos Factory API
 const (
 	TalosFactoryBaseURL = "https://factory.talos.dev"
+)
+
+// Secondary NIC topology for the Multus macvlan masters.
+const (
+	// VLANIDIoT is VLAN 20 (IoT, 192.168.136.0/22) -- macvlan master eth1.
+	VLANIDIoT = 20
+	// VLANIDVPN is VLAN 90 (VPN-Windscribe, 192.168.90.0/24) -- macvlan master eth2.
+	VLANIDVPN = 90
+	// SecondaryNICMTU is 1500 deliberately. Both VLANs carry standard-MTU
+	// devices and macvlan children inherit the master's MTU, so the cluster's
+	// 9000 would black-hole traffic to real devices on those segments.
+	SecondaryNICMTU = 1500
 )

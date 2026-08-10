@@ -101,6 +101,67 @@ storage:
           UseMTU=false
           UseDomains=yes
 
+    # --- secondary NICs: Multus macvlan masters (VLAN 20 IoT, VLAN 90 VPN).
+    #
+    # These exist ONLY to be macvlan parents. They are pinned by MAC for the same
+    # reason as eth0 (a machine-type change would otherwise rename them and break
+    # the NetworkAttachmentDefinitions, which reference `master: eth1` / `eth2`).
+    #
+    # They MUST stay address-less. Flatcar's catch-all eth* rule will otherwise
+    # DHCP any new NIC: when eth1 was first hotplugged it took a lease on the IoT
+    # VLAN AND installed a second default route via the IoT gateway at the SAME
+    # metric as eth0's, ECMP-balancing control-plane egress onto the IoT VLAN.
+    # DHCP=no + LinkLocalAddressing=no is what prevents that. ---
+    - path: /etc/systemd/network/10-eth1.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC_IOT }}
+          [Link]
+          Name=eth1
+
+    - path: /etc/systemd/network/15-eth1-iot.network
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          Name=eth1
+          [Link]
+          RequiredForOnline=no
+          [Network]
+          DHCP=no
+          LinkLocalAddressing=no
+          IPv6AcceptRA=no
+          ConfigureWithoutCarrier=yes
+
+    - path: /etc/systemd/network/10-eth2.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC_VPN }}
+          [Link]
+          Name=eth2
+
+    - path: /etc/systemd/network/15-eth2-vpn.network
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          Name=eth2
+          [Link]
+          RequiredForOnline=no
+          [Network]
+          DHCP=no
+          LinkLocalAddressing=no
+          IPv6AcceptRA=no
+          ConfigureWithoutCarrier=yes
+
     # --- OS updates: merge-gated, NOT channel-driven. SERVER=disabled stops
     # update_engine polling the public Nebraska server; the flatcar-os SUC Plan
     # (kubernetes/apps/system-upgrade/flatcar-upgrade) stages the git-pinned release
