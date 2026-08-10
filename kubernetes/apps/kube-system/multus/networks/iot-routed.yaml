@@ -20,6 +20,14 @@ spec:
   # table, so they source from the macvlan address and carry the pod's SGT.
   # 0.0.0.0/0 is deliberately NOT set: internet and in-cluster traffic stay on
   # the CNI, which is what should carry them.
+  #
+  # 192.168.140.0/22 is VLAN 700, the GUEST network, and is the one entry here
+  # that is not a trusted-side supernet. It exists because a Chromecast target
+  # sits on that VLAN and Home Assistant could not reach it. Note this is a
+  # route, not a grant: SGACLs still gate the traffic, and 12 -> 31 is scoped
+  # to cast by RBACL_TO_IOT_CAST_V2. Prefer moving a device off GUEST over
+  # widening this further -- anything else that lands on the guest VLAN becomes
+  # reachable from this interface.
   config: |-
     {
       "cniVersion": "0.3.1",
@@ -34,7 +42,8 @@ spec:
             "routes": [
               {"dst": "192.168.116.0/22", "gw": "192.168.139.254"},
               {"dst": "192.168.120.0/22", "gw": "192.168.139.254"},
-              {"dst": "192.168.132.0/22", "gw": "192.168.139.254"}
+              {"dst": "192.168.132.0/22", "gw": "192.168.139.254"},
+              {"dst": "192.168.140.0/22", "gw": "192.168.139.254"}
             ]
           }
         }
