@@ -18,6 +18,20 @@ spec:
   # too: without it the macvlan default route would hijack the pod's egress.
   # With it, only traffic sourced from the macvlan address uses the IoT gateway;
   # everything else stays on the Cilium interface.
+  # ADDRESSING IS STATIC, NOT DHCP. Each consuming pod supplies its own IP in the
+  # k8s.v1.cni.cncf.io/networks annotation:
+  #
+  #   [{"name":"iot","namespace":"kube-system","ips":["192.168.136.20/22"],
+  #     "mac":"BC:24:11:37:84:60"}]
+  #
+  # Allocate from 192.168.136.10-99 ONLY (NetBox ip-range, status reserved).
+  # That block sits outside Kea's pool (192.168.137.1-192.168.138.254), so pods
+  # can never collide with a lease. Record new assignments in NetBox.
+  #
+  # Pin "mac" as well for anything whose identity outlives the pod (Home
+  # Assistant: DHCP reservation, DNS, cert target, SGACLs, HomeKit pairings all
+  # key off it) -- macvlan generates a fresh random MAC on every pod start
+  # otherwise, and the network sees a brand-new device each restart.
   config: |-
     {
       "cniVersion": "0.3.1",
