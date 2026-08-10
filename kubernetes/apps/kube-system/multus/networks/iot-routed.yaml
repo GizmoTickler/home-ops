@@ -1,0 +1,42 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/k8s.cni.cncf.io/networkattachmentdefinition_v1.json
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: iot-routed
+spec:
+  # VLAN 20 attachment for pods that INITIATE to other internal VLANs, as
+  # opposed to the `iot` NAD which is for pods that need to RECEIVE on VLAN 20.
+  #
+  # The difference is the sbr plugin, and it matters more than it looks:
+  # sbr parks every macvlan route in a separate table consulted only for traffic
+  # ALREADY sourced from the macvlan address. An initiating pod picks its source
+  # from the MAIN table, so with sbr it egresses over the cluster CNI and gets
+  # SNATed to the node -- losing the identity its SGACLs are written against.
+  # Observed on Home Assistant: even traffic to its own VLAN 20 subnet left via
+  # the CNI, so no per-device policy applied and nothing worked.
+  #
+  # Here the internal supernets are routed via the VLAN 20 gateway in the MAIN
+  # table, so they source from the macvlan address and carry the pod's SGT.
+  # 0.0.0.0/0 is deliberately NOT set: internet and in-cluster traffic stay on
+  # the CNI, which is what should carry them.
+  config: |-
+    {
+      "cniVersion": "0.3.1",
+      "name": "iot-routed",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "eth1",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "routes": [
+              {"dst": "192.168.116.0/22", "gw": "192.168.139.254"},
+              {"dst": "192.168.120.0/22", "gw": "192.168.139.254"},
+              {"dst": "192.168.132.0/22", "gw": "192.168.139.254"}
+            ]
+          }
+        }
+      ]
+    }

@@ -71,7 +71,7 @@ spec:
         # and governed by SGACLs on SGT 12, which follows HA's IP rather than
         # its VLAN -- so the SGT binding must be re-pinned to this address.
         k8s.v1.cni.cncf.io/networks: |-
-          [{"name":"iot","namespace":"kube-system","ips":["192.168.136.20/22"]}]
+          [{"name":"iot-routed","namespace":"kube-system","ips":["192.168.136.20/22"]}]
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
