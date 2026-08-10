@@ -17,16 +17,55 @@ spec:
         # Single replica with a bound config PVC; a rolling update would have two
         # pods contending for the same SQLite state and the same macvlan address.
         strategy: Recreate
+        initContainers:
+          # configuration.yaml lives in the PVC and is rewritten wholesale by a
+          # backup restore, which silently drops this block and leaves HA
+          # answering 400 to everything through the gateway. Re-assert it on
+          # every start so a restore cannot regress it again.
+          ensure-trusted-proxies:
+            image:
+              repository: ghcr.io/home-operations/busybox
+              tag: 1.38.0@sha256:7e2c04dd50ede647bf4a7a4c8dbd629dd4971cd139b9b88fb22bfc3c7a6c13df
+            command:
+              - sh
+              - -c
+              - |
+                CFG=/config/configuration.yaml
+                [ -f "$CFG" ] || exit 0
+                # Drop a previously managed block so this is idempotent.
+                sed -i '/# BEGIN managed: trusted_proxies/,/# END managed: trusted_proxies/d' "$CFG"
+                # If a restore brought its own top-level http: key, appending
+                # would create a duplicate mapping key and HA would refuse to
+                # start. Losing the setting is recoverable; a boot loop is not.
+                if grep -qE '^http:' "$CFG"; then
+                  echo "existing top-level http: key present -- not managing trusted_proxies"
+                  exit 0
+                fi
+                cat >> "$CFG" <<'EOF'
+                # BEGIN managed: trusted_proxies
+                http:
+                  use_x_forwarded_for: true
+                  trusted_proxies:
+                    - 10.42.0.0/16
+                # END managed: trusted_proxies
+                EOF
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
         containers:
           app:
             image:
               repository: ghcr.io/home-operations/home-assistant
-              # Pinned to the version the VM is running, NOT latest. A backup
-              # restores cleanly into an equal version; restoring into 2026.8.x
-              # would migrate and upgrade three releases in one step, so a
-              # failure could not be attributed to either. Upgrade separately
-              # once the migration is verified.
-              tag: 2026.5.4
+              # The migration landed on 2026.5.4 to match the VM exactly, so a
+              # restore failure could not be confused with an upgrade failure.
+              # That is now verified, and this upgrade is required: ecovacs
+              # ships deebot-client 18.3.0 on 2026.5.x, which the vendor cloud
+              # rejects outright with `code 1013, please update`. 2026.8.1
+              # ships 18.5.1.
+              tag: 2026.8.1
             env:
               TZ: America/New_York
             probes:
