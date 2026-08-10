@@ -1,0 +1,29 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/networking.k8s.io/networkpolicy_v1.json
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vpn-egress-killswitch
+spec:
+  # INERT UNTIL OPTED IN. Selects only pods carrying vpn-egress: macvlan, which
+  # nothing has yet. Adding that label to a pod arms the kill-switch for it;
+  # removing it disarms. This is deliberate: applying it to a pod that still
+  # tunnels through the CNI (e.g. a gluetun sidecar dialling out over eth0)
+  # would sever that tunnel.
+  podSelector:
+    matchLabels:
+      vpn-egress: macvlan
+  policyTypes: [Egress]
+  egress:
+    # Cluster-internal destinations ONLY. Everything else has no route via the
+    # CNI, which leaves the Multus macvlan on VLAN 90 -- invisible to Cilium --
+    # as the sole path off-box. That turns "the app is bound to the VPN
+    # interface" from a setting the app must honour into something the network
+    # enforces.
+    #
+    # Must be expressed as a selector, NOT an ipBlock of the pod/service CIDRs:
+    # Cilium applies ipBlock rules to entities OUTSIDE the cluster, so a
+    # 10.42.0.0/16 + 10.43.0.0/16 ipBlock silently breaks DNS and ClusterIP
+    # traffic (verified against this cluster 2026-08-10).
+    - to:
+        - namespaceSelector: {}
