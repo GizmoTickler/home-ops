@@ -1,0 +1,23 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/helm.toolkit.fluxcd.io/helmrelease_v2.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: multus
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: multus
+  interval: 1h
+  values:
+    # Multus is a meta-plugin: Cilium stays the DEFAULT delegate and every pod
+    # keeps its normal cluster networking. Only pods carrying the
+    # k8s.v1.cni.cncf.io/networks annotation get an extra interface.
+    #
+    # Flatcar already ships macvlan, static and sbr in /opt/cni/bin (verified on
+    # k8s-0), so no plugin sideload is needed.
+    resources:
+      requests:
+        cpu: 10m
+      limits:
+        memory: 256Mi

@@ -1,0 +1,41 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/k8s.cni.cncf.io/networkattachmentdefinition_v1.json
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: iot
+spec:
+  # VLAN 20 (IoT, 192.168.136.0/22, gateway 192.168.139.254 on SC01).
+  #
+  # master is eth1 -- a dedicated vNIC added to VMIDs 200/201/202 tagged 20.
+  # It is deliberately address-less and DHCP-less on the host
+  # (/etc/systemd/network/10-eth1-macvlan-master.network): when it was first
+  # hotplugged, Flatcar's catch-all eth* rule gave it a DHCP lease AND a second
+  # default route via the IoT gateway at the same metric as eth0's, which
+  # load-balanced node egress onto the IoT VLAN.
+  #
+  # The sbr (source-based routing) plugin is what keeps this safe for the POD
+  # too: without it the macvlan default route would hijack the pod's egress.
+  # With it, only traffic sourced from the macvlan address uses the IoT gateway;
+  # everything else stays on the Cilium interface.
+  config: |-
+    {
+      "cniVersion": "0.3.1",
+      "name": "iot",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "eth1",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "routes": [
+              {"dst": "0.0.0.0/0", "gw": "192.168.139.254"}
+            ]
+          }
+        },
+        {
+          "type": "sbr"
+        }
+      ]
+    }
