@@ -1,0 +1,103 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: home-assistant
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: home-assistant
+  interval: 1h
+  values:
+    controllers:
+      home-assistant:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        # Single replica with a bound config PVC; a rolling update would have two
+        # pods contending for the same SQLite state and the same macvlan address.
+        strategy: Recreate
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/home-assistant
+              # Pinned to the version the VM is running, NOT latest. A backup
+              # restores cleanly into an equal version; restoring into 2026.8.x
+              # would migrate and upgrade three releases in one step, so a
+              # failure could not be attributed to either. Upgrade separately
+              # once the migration is verified.
+              tag: 2026.5.4
+            env:
+              TZ: America/New_York
+            probes:
+              liveness: &probe
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: &port 8123
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 10
+                  failureThreshold: 5
+              readiness: *probe
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /
+                    port: *port
+                  # Restoring a large config and rebuilding the recorder DB on
+                  # first start can take a while; fail slow rather than crash-loop.
+                  failureThreshold: 60
+                  periodSeconds: 10
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 4Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities: { drop: ["ALL"] }
+    defaultPodOptions:
+      annotations:
+        # L2 presence on the IoT VLAN. This exists for ONE reason: wiz and lifx
+        # discover by subnet BROADCAST, which cannot cross a VLAN boundary no
+        # matter what is configured. Everything else HA talks to (Apple TV and
+        # Shield on Trusted, MyQ on Security, UniFi/Proxmox on MGMT) is routed
+        # and governed by SGACLs on SGT 12, which follows HA's IP rather than
+        # its VLAN -- so the SGT binding must be re-pinned to this address.
+        k8s.v1.cni.cncf.io/networks: |-
+          [{"name":"iot","namespace":"kube-system","ips":["192.168.136.20/22"]}]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        hostnames:
+          - "home-assistant.${SECRET_DOMAIN}"
+          - "homeassistant.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: kgateway-internal
+            namespace: network
+            sectionName: https
+    persistence:
+      config:
+        existingClaim: home-assistant
+        globalMounts:
+          - path: /config
+      tmp:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp

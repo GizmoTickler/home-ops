@@ -10,4 +10,5 @@ components:
 resources:
   - ./namespace.yaml
   - ./backendconfigpolicy.yaml
+  - ./home-assistant/ks.yaml
   - ./n8n/ks.yaml
