@@ -79,7 +79,19 @@ spec:
     # (default 24h) and compaction trails two epochs behind, so at 16 apps x
     # hourly (384 snapshots/day) indexes accumulate faster than epochs close.
     # 6h lets epochs turn over ~4x more often so compaction can keep up.
+    #
+    # 2026-08-10: 6h was NOT enough. The count went 2956 -> 2489 -> 2766, i.e.
+    # it oscillates around a steady state far above the threshold rather than
+    # draining. 17 schedules x hourly is ~17 index blobs/hour, so a 6h epoch
+    # closes with ~100 blobs in it and compaction (two epochs behind) is always
+    # ~12h stale; 2766 blobs is roughly a week of accumulation.
+    #
+    # The effective epoch.advanceOnCount is 20, which at this write rate is hit
+    # in ~70 minutes -- so minDuration, not blob count, is the binding
+    # constraint. Dropping it to 2h lets the count trigger do the work and cuts
+    # the compaction lag to ~4h. Snapshot frequency is deliberately NOT reduced:
+    # that would trade away RPO to fix a maintenance-tuning problem.
     epoch:
-      minDuration: 6h
+      minDuration: 2h
   scheduleDefaults:
     timezone: America/New_York
