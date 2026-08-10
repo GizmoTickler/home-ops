@@ -5,10 +5,8 @@ kind: Kustomization
 metadata:
   name: kopia
 spec:
-  components:
-    - ../../../../components/nfs-scaler
   interval: 1h
-  path: ./kubernetes/apps/volsync-system/kopia/app
+  path: ./kubernetes/apps/kopiur-system/kopia/app
   postBuild:
     substitute:
       APP: kopia
@@ -17,5 +15,5 @@ spec:
     kind: GitRepository
     name: flux-system
     namespace: flux-system
-  targetNamespace: volsync-system
+  targetNamespace: kopiur-system
   wait: false

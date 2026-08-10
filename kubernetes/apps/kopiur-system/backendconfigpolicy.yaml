@@ -2,7 +2,7 @@
 apiVersion: gateway.kgateway.dev/v1alpha1
 kind: BackendConfigPolicy
 metadata:
-  name: volsync-system-backend
+  name: kopiur-system-backend
 spec:
   targetSelectors:
     - group: ""
