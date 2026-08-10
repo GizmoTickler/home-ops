@@ -58,7 +58,8 @@ spec:
       labels:
         # Arms vpn-egress-killswitch: denies all non-cluster egress over the CNI,
         # leaving the VLAN 90 macvlan (invisible to Cilium) as the only path
-        # off-box. This replaces the enforcement gluetun's firewall used to give.
+        # off-box. This replaces the enforcement the previous in-pod VPN sidecar
+        # provided with its own firewall.
         vpn-egress: macvlan
       securityContext:
         runAsNonRoot: true

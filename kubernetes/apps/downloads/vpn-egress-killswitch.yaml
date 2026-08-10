@@ -8,7 +8,7 @@ spec:
   # INERT UNTIL OPTED IN. Selects only pods carrying vpn-egress: macvlan, which
   # nothing has yet. Adding that label to a pod arms the kill-switch for it;
   # removing it disarms. This is deliberate: applying it to a pod that still
-  # tunnels through the CNI (e.g. a gluetun sidecar dialling out over eth0)
+  # tunnels through the CNI (e.g. an in-pod VPN sidecar dialling out over eth0)
   # would sever that tunnel.
   podSelector:
     matchLabels:
