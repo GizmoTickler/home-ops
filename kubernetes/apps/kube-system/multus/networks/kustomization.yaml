@@ -6,3 +6,4 @@ resources:
   - ./iot.yaml
   - ./iot-routed.yaml
   - ./vpn.yaml
+  - ./vpn-egress.yaml

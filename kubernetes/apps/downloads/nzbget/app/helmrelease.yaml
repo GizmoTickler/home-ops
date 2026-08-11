@@ -15,6 +15,35 @@ spec:
         annotations:
           reloader.stakater.com/auto: "true"
         initContainers:
+          # Runs after init-config (initContainers render in key order).
+          # Sends public destinations out the VLAN 90 tunnel while keeping every
+          # RFC1918 destination on the cluster CNI. Splitting on RFC1918 rather
+          # than on upstream host addresses keeps provider addressing out of
+          # this repo, and keeps the node network (kubelet probes), cluster DNS
+          # and the web UI on the path they came in on -- routing those out the
+          # tunnel makes the pod fail its readiness probe and the Envoy route in
+          # front of it serve "no healthy upstream".
+          # The 192.168.90.0/24 link route the CNI installs on net1 is more
+          # specific than 192.168.0.0/16, so the tunnel gateway stays reachable.
+          vpn-route:
+            image:
+              repository: ghcr.io/home-operations/busybox
+              tag: 1.38.0
+            command:
+              - /bin/sh
+              - -c
+              - |
+                set -e
+                CNI_GW=$(ip route show default | awk '/via/ {print $3; exit}')
+                for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
+                  ip route replace "$net" via "$CNI_GW" dev eth0
+                done
+                ip route replace default via 192.168.90.1 dev net1
+                ip route show
+            securityContext:
+              runAsUser: 0
+              capabilities:
+                add: [NET_ADMIN]
           init-config:
             image:
               repository: ghcr.io/nzbgetcom/nzbget
@@ -87,6 +116,14 @@ spec:
                 memory: 4Gi
               limits:
                 memory: 32Gi
+    defaultPodOptions:
+      annotations:
+        # VLAN 90 macvlan; egress policy is installed by the vpn-route
+        # initContainer, not by the NAD. Pinned IP because gateway0's policy
+        # route matches on the VLAN 90 source address. No MAC pin needed:
+        # outbound-only, so nothing DNATs to this address.
+        k8s.v1.cni.cncf.io/networks: |-
+          [{"name":"vpn-egress","namespace":"kube-system","ips":["192.168.90.22/24"]}]
     configMaps:
       config:
         data:
