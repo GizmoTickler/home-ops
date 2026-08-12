@@ -617,3 +617,167 @@ spec:
           labels:
             severity: warning
             component: gateway
+
+    # VLAN90 WireGuard tunnel health (added 2026-08-12, gateway0 VPN audit follow-up).
+    # Metrics come from the wg-tunnel-health daemon on gateway0, which writes
+    # node-exporter textfile metrics every 10s (instance gateway0.<domain>:9100,
+    # all metric names verified live against Victoria Metrics):
+    #   wg_tunnel_ping_healthy{tunnel="wg0|wg1|wg2"}     1/0 in-tunnel probe state
+    #                                                    (hysteresis applied on-box)
+    #   wg_tunnel_handshake_age_seconds{tunnel}          latest-handshake age (-1 = never)
+    #   wg_tunnel_ecmp_active{tunnel}                    1/0 leg present in ECMP table 92
+    #                                                    (daemon auto-withdraws dead legs)
+    #   vlan90_leak_packets_total / vlan90_leak_packets6_total
+    #     Counters of VLAN90 packets DROPPED by the fail-closed VPN→WAN guard.
+    #     Gauge-read from nft, so they reset on reboot/daemon restart — always
+    #     use increase(), which tolerates resets.
+    - name: wg-tunnel.rules
+      interval: 30s
+      rules:
+        - alert: WGTunnelLegDown
+          # In-tunnel probe failed. The daemon applies hysteresis on-box before
+          # flipping this to 0, so 2m of sustained 0 is a real dead leg. The
+          # daemon should auto-withdraw it from ECMP (see WGTunnelLegWithdrawn).
+          expr: |-
+            wg_tunnel_ping_healthy{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "WireGuard tunnel {{ $labels.tunnel }} in-tunnel probe failing"
+            description: |-
+              The in-tunnel health probe for {{ $labels.tunnel }} on gateway0 has been failing
+              for 2m (hysteresis already applied on-box). The wg-tunnel-health daemon should
+              auto-withdraw this leg from ECMP table 92. VLAN90 egress continues on the
+              surviving legs; check the AirVPN endpoint / handshake for this tunnel.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: WGTunnelLegWithdrawn
+          # Info-level noise guard: the daemon withdraws/restores legs automatically
+          # during endpoint blips, so only alert if a leg stays out for 5m.
+          expr: |-
+            wg_tunnel_ecmp_active{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "WireGuard tunnel {{ $labels.tunnel }} withdrawn from ECMP for 5m+"
+            description: |-
+              {{ $labels.tunnel }} has been absent from ECMP table 92 on gateway0 for over 5m.
+              Short withdrawals are normal self-healing; a persistent one means the leg is not
+              recovering (dead peer, endpoint unreachable, or daemon stuck). VLAN90 capacity
+              and flow-spread are reduced until it returns.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: WGTunnelECMPDegraded
+          expr: |-
+            sum(wg_tunnel_ecmp_active{job="node-exporter",instance=~"gateway0.*"}) < 3
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "VLAN90 ECMP running degraded ({{ $value }}/3 tunnel legs active)"
+            description: |-
+              Only {{ $value }} of 3 WireGuard legs are present in ECMP table 92 on gateway0
+              for 10m+. VLAN90 egress still works but with reduced capacity and redundancy.
+              Check per-leg state via WGTunnelLegDown / WGTunnelLegWithdrawn.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: WGTunnelECMPAllLegsDown
+          # All legs withdrawn = ECMP table 92 empty. The VPN→WAN guard is
+          # fail-closed, so VLAN90 is HARD DOWN (traffic dropped, not leaked).
+          expr: |-
+            sum(wg_tunnel_ecmp_active{job="node-exporter",instance=~"gateway0.*"}) < 1
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "All WireGuard ECMP legs down — VLAN90 egress is hard down (fail-closed)"
+            description: |-
+              Zero WireGuard legs remain in ECMP table 92 on gateway0. The fail-closed
+              VPN→WAN guard is now dropping ALL VLAN90 egress (nothing leaks to the WAN,
+              but VLAN90 has no internet). Check AirVPN reachability, gateway0 WAN health,
+              and the wg-tunnel-health daemon.
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: WGHandshakeStale
+          # WireGuard rekeys roughly every 2 minutes under traffic; a handshake
+          # age >300s means the peer has gone silent — a failure mode the
+          # in-tunnel ping can miss if it rides a cached/stale path. -1 (never
+          # handshaken) intentionally does not match; a never-up leg is caught
+          # by WGTunnelLegDown.
+          expr: |-
+            wg_tunnel_handshake_age_seconds{job="node-exporter",instance=~"gateway0.*"} > 300
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "WireGuard handshake stale on {{ $labels.tunnel }} ({{ $value | humanize }}s old)"
+            description: |-
+              Latest WireGuard handshake on {{ $labels.tunnel }} (gateway0) is {{ $value | humanize }}s
+              old (healthy under traffic: ~120s max). The peer has gone silent — dead AirVPN
+              endpoint or broken UDP path — even if the in-tunnel probe still looks alive.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: VLAN90LeakAttempt
+          # ANY increase means a VLAN90 packet tried to egress the WAN un-tunneled
+          # and was DROPPED by the fail-closed guard. Nothing leaked — but something
+          # is misrouted (policy-routing regression, tunnel-bypass bug, or a host
+          # doing something it shouldn't), so it pages immediately.
+          expr: |-
+            increase(vlan90_leak_packets_total{job="node-exporter",instance=~"gateway0.*"}[5m]) > 0
+          for: 0m
+          keep_firing_for: 15m
+          annotations:
+            summary: "VLAN90 IPv4 leak attempt blocked ({{ $value | humanize }} pkts dropped in 5m)"
+            description: |-
+              The fail-closed VPN→WAN guard on gateway0 dropped {{ $value | humanize }} VLAN90 IPv4
+              packets in 5m that tried to egress the WAN outside the WireGuard tunnels. No traffic
+              leaked — the guard did its job — but VLAN90 traffic should NEVER reach the WAN path
+              un-tunneled. Investigate policy routing / ECMP table 92 on gateway0 and identify the
+              source flows before assuming it is benign.
+          labels:
+            severity: critical
+            component: security
+
+        - alert: VLAN90LeakAttemptIPv6
+          expr: |-
+            increase(vlan90_leak_packets6_total{job="node-exporter",instance=~"gateway0.*"}[5m]) > 0
+          for: 0m
+          keep_firing_for: 15m
+          annotations:
+            summary: "VLAN90 IPv6 leak attempt blocked ({{ $value | humanize }} pkts dropped in 5m)"
+            description: |-
+              The fail-closed VPN→WAN guard on gateway0 dropped {{ $value | humanize }} VLAN90 IPv6
+              packets in 5m that tried to egress the WAN outside the WireGuard tunnels. No traffic
+              leaked, but nothing on VLAN90 should ever hit the WAN path un-tunneled. Investigate
+              IPv6 policy routing on gateway0 and identify the source flows.
+          labels:
+            severity: critical
+            component: security
+
+        - alert: WGTunnelHealthAbsent
+          # The daemon writes the textfile every 10s; if the series disappears for
+          # 10m the daemon died, the textfile collector broke, or the scrape is
+          # gone — either way we are BLIND to tunnel health and every other rule
+          # in this group is silently inert. (Whole-exporter death also raises
+          # GatewayNodeDown.)
+          expr: |-
+            absent(wg_tunnel_ping_healthy{job="node-exporter",instance=~"gateway0.*"})
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "WireGuard tunnel-health metrics missing — tunnel monitoring is blind"
+            description: |-
+              wg_tunnel_ping_healthy has been absent from gateway0's node-exporter scrape for 10m.
+              The wg-tunnel-health daemon or its textfile output has died (or the scrape config
+              regressed). All wg-tunnel.rules alerts are inert until this is fixed — restart the
+              daemon on gateway0 and check /run or the textfile collector directory.
+          labels:
+            severity: warning
+            component: gateway
