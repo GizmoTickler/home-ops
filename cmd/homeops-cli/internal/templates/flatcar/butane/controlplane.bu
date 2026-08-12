@@ -56,6 +56,19 @@ storage:
       contents:
         inline: "{{ ENV.NODE_NAME }}"
 
+    # Disable writeback throttling (WBT) on the local-hostpath scratch disk
+    # (Proxmox scsi3 — always enumerates at SCSI target *:0:0:3 even though
+    # the host adapter number varies per boot). WBT targets 2ms completion
+    # latency and clamped writeback to ~QD15 against the ZFS zvol backend,
+    # capping qbittorrent scratch writes at 279 MB/s with the disk 93% busy;
+    # with WBT off the same workload ran 347+ MB/s at 14% busy (validated
+    # live 2026-08-12). Scratch is bulk-throughput, not latency-sensitive.
+    - path: /etc/udev/rules.d/99-scratch-wbt.rules
+      mode: 0644
+      contents:
+        inline: |
+          ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", KERNELS=="*:0:0:3", ATTR{queue/wbt_lat_usec}="0"
+
     # kube-vip resolves the apiserver via the hostname "kubernetes" for its leader-election
     # client; map it to the LOCAL apiserver so the control-plane VIP comes up during bootstrap
     # (the VIP can't be up yet — chicken/egg). kubeadm puts "kubernetes" in the apiserver cert
