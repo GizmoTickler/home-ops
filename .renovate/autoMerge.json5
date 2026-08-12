@@ -108,5 +108,11 @@
       matchPackageNames: ["/external-dns/", "/gateway-api/", "/prometheus-operator/"],
       ignoreTests: false,
     },
+    {
+      description: "zer0ver: 0.x minors can break at any time, don't automerge them",
+      matchUpdateTypes: ["minor"],
+      matchCurrentVersion: "/^v?0\\./",
+      automerge: false,
+    },
   ],
 }
