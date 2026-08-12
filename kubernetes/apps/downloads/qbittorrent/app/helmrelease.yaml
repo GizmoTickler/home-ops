@@ -56,10 +56,12 @@ spec:
         k8s.v1.cni.cncf.io/networks: |-
           [{"name":"vpn","namespace":"kube-system","ips":["192.168.90.20/24"],"mac":"BC:24:11:90:00:20"}]
       labels:
-        # Arms vpn-egress-killswitch: denies all non-cluster egress over the CNI,
-        # leaving the VLAN 90 macvlan (invisible to Cilium) as the only path
-        # off-box. This replaces the enforcement the previous in-pod VPN sidecar
-        # provided with its own firewall.
+        # Informational marker only (2026-08-12): vpn-egress-killswitch now
+        # selects the stable app.kubernetes.io/name=qbittorrent label directly
+        # (fail-closed — the old opt-in-by-this-label design silently disarmed
+        # the kill-switch if the label was dropped). Kept as a human-readable
+        # flag that this pod's non-cluster egress rides the VLAN 90 macvlan;
+        # removing it changes nothing except restarting the pod.
         vpn-egress: macvlan
       securityContext:
         runAsNonRoot: true

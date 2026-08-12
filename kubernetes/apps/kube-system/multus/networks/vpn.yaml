@@ -5,12 +5,14 @@ kind: NetworkAttachmentDefinition
 metadata:
   name: vpn
 spec:
-  # VLAN 90 (192.168.90.0/24) -- egress via the upstream tunnel on gateway0.
-  # master is eth2, a dedicated vNIC tagged 90, held address-less on the host.
+  # VLAN 90 (192.168.90.0/24) -- egress via the upstream WireGuard tunnels on
+  # gateway0. master is eth2, a dedicated vNIC tagged 90, held address-less on
+  # the host.
   #
   # Path: pod -> eth2 -> VLAN 90 -> SC01 (L2 trunk) -> gateway0 eth3.90
-  #       -> policy route VPN90-VIA-TUNNEL -> table 90 -> wg0 -> upstream.
-  # Verified end to end: a pod here egresses via the tunnel while its normal
+  #       -> policy route VPN90-VIA-TUNNEL -> table 92 -> 3-leg ECMP across
+  #       wg0/wg1/wg2 (AirVPN) -> upstream.
+  # Verified end to end: a pod here egresses via the tunnels while its normal
   # cluster path still egresses via the default WAN.
   #
   # Upstream endpoint, credentials and provider live in the gateway0 config and
@@ -21,7 +23,7 @@ spec:
   #
   #   [{"name":"vpn","namespace":"kube-system","ips":["192.168.90.20/24"]}]
   #
-  # MTU 1420 matches the upstream WireGuard tunnel on gateway0. Without it the
+  # MTU 1420 matches the upstream WireGuard tunnels on gateway0. Without it the
   # macvlan inherits eth2's 1500, and full-size UDP datagrams (uTP, DHT)
   # fragment or blackhole at the tunnel -- MSS clamping only saves TCP.
   #

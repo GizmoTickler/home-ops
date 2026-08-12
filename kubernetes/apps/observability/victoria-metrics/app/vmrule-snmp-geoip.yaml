@@ -270,13 +270,19 @@ spec:
             severity: critical
             component: network
         - alert: WANHealthWithdrawn
+          # SLOW PATH (2026-08-12): this SNMP extend refreshes only every ~15min,
+          # so it misses short withdraw/restore events entirely. The fast path is
+          # WANHealthWithdrawnLive in vmrule-network-infra.yaml (gateway0 textfile
+          # metric wan_health_withdrawn, ~5s refresh). Kept as an independent
+          # cross-check via a different transport (SNMP vs node-exporter textfile)
+          # and because it covers gateways the textfile daemon may not run on.
           expr: |-
             nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="wan_health_state"} == 0
           for: 2m
           keep_firing_for: 10m
           annotations:
-            summary: "wan-health daemon withdrew the default on {{ $labels.instance }}"
-            description: "{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design."
+            summary: "wan-health daemon withdrew the default on {{ $labels.instance }} (slow SNMP path)"
+            description: "{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design. NOTE: this SNMP signal refreshes ~15min; WANHealthWithdrawnLive is the fast (~5s) gateway0 signal."
           labels:
             severity: warning
             component: network

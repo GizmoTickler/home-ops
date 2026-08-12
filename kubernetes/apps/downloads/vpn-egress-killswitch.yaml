@@ -5,25 +5,40 @@ kind: NetworkPolicy
 metadata:
   name: vpn-egress-killswitch
 spec:
-  # INERT UNTIL OPTED IN. Selects only pods carrying vpn-egress: macvlan, which
-  # nothing has yet. Adding that label to a pod arms the kill-switch for it;
-  # removing it disarms. This is deliberate: applying it to a pod that still
-  # tunnels through the CNI (e.g. an in-pod VPN sidecar dialling out over eth0)
-  # would sever that tunnel.
+  # Selects qbittorrent by its STABLE app label (2026-08-12 review fix). The
+  # previous opt-in selector (vpn-egress: macvlan) was fail-open: dropping that
+  # optional label — a chart refactor, a typo — silently disarmed the
+  # kill-switch with zero errors. A kill-switch must fail CLOSED, so it now
+  # keys on the label the pod cannot exist without.
   podSelector:
     matchLabels:
-      vpn-egress: macvlan
+      app.kubernetes.io/name: qbittorrent
   policyTypes: [Egress]
   egress:
-    # Cluster-internal destinations ONLY. Everything else has no route via the
-    # CNI, which leaves the Multus macvlan on VLAN 90 -- invisible to Cilium --
-    # as the sole path off-box. That turns "the app is bound to the VPN
-    # interface" from a setting the app must honour into something the network
-    # enforces.
+    # Cluster-path egress is CoreDNS ONLY (udp+tcp 53). Everything else has no
+    # route via the CNI, which leaves the Multus macvlan on VLAN 90 — invisible
+    # to Cilium — as the sole path off-box. That turns "the app is bound to the
+    # VPN interface" from a setting the app must honour into something the
+    # network enforces. qbittorrent needs nothing else on the cluster path:
+    # radarr/cross-seed/qui traffic is INGRESS to its API (conntrack handles
+    # replies), and all peer/tracker traffic rides the VLAN 90 macvlan.
+    #
+    # The previous allow (namespaceSelector: {}) permitted egress to every pod
+    # in every namespace — far broader than needed for a torrent client.
     #
     # Must be expressed as a selector, NOT an ipBlock of the pod/service CIDRs:
     # Cilium applies ipBlock rules to entities OUTSIDE the cluster, so a
     # 10.42.0.0/16 + 10.43.0.0/16 ipBlock silently breaks DNS and ClusterIP
     # traffic (verified against this cluster 2026-08-10).
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

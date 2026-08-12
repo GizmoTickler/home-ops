@@ -13,13 +13,27 @@ spec:
       type: vlogs
       interval: 1m
       rules:
+        # 2026-08-12 review fix, verified live against VictoriaLogs:
+        # - The old stream selector {app="qbittorrent"} matched ZERO records —
+        #   vlagent does not set an `app` stream field; qbittorrent records carry
+        #   kubernetes.pod_namespace / kubernetes.pod_labels.* fields instead.
+        #   (kubernetes.pod_name:qbittorrent alone also matches kopiur mover jobs
+        #   named qbittorrent-<ts>-*, hence the pod_labels selector.)
+        # - An explicit _time:15m window is REQUIRED: vmalert evaluates vlogs rules
+        #   via /select/logsql/stats_query, and without a _time filter the count
+        #   spans ALL history — one event ever would fire forever (verified live).
+        # - for: 0m because "fast resume rejected" is a ONE-SHOT startup burst
+        #   (e.g. 3 events within 1ms on 2026-08-11); with a 5m window the old
+        #   for:5m required the condition to outlive its own window — it could
+        #   never reliably fire. The 15m window keeps it visible ~15m, then it
+        #   auto-resolves.
         - alert: QbittorrentFastResumeRejected
           expr: |
-            {app="qbittorrent"} ~"(?i)fast resume rejected" | stats count() errors | filter errors:>0
-          for: 5m
+            kubernetes.pod_namespace:=downloads "kubernetes.pod_labels.app.kubernetes.io/name":=qbittorrent _msg:~"(?i)fast resume rejected" _time:15m | stats count() errors | filter errors:>0
+          for: 0m
           annotations:
             summary: Qbittorrent has a torrent with fast resume rejected
-            description: "Qbittorrent has encountered {{ $value }} fast resume rejected errors in the last 5 minutes"
+            description: "Qbittorrent has encountered {{ $value }} fast resume rejected errors in the last 15 minutes"
           labels:
             severity: critical
             app: qbittorrent

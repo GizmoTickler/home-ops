@@ -560,6 +560,78 @@ spec:
             severity: warning
             component: gateway
 
+        # --- wan-health daemon live textfile metrics (added 2026-08-12 review fix).
+        # The daemon on gateway0 refreshes /run/node_exporter/collector/wan_health.prom
+        # every ~5s loop (verified live in VMSingle: wan_health_withdrawn,
+        # wan_health_fail_count, wan_health_suppress_streak_seconds,
+        # wan_health_last_rx_mbps, wan_health_last_run_timestamp_seconds; all on
+        # instance gateway0.<domain>:9100). This is the FAST path — the pre-existing
+        # WANHealthWithdrawn in vmrule-snmp-geoip.yaml rides an SNMP extend that
+        # refreshes ~15min and misses short withdraw/restore events entirely.
+        - alert: WANHealthWithdrawnLive
+          expr: |-
+            wan_health_withdrawn{job="node-exporter",instance=~"gateway0.*"} == 1
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "wan-health has withdrawn the BGP default on gateway0 (live signal)"
+            description: |-
+              The wan-health daemon on gateway0 is reporting wan_health_withdrawn=1: it has
+              withdrawn BGP default-route origination because its WAN checks failed. Traffic is
+              failing over to cellular per design. This live textfile signal refreshes every ~5s
+              and catches short events the 15-min SNMP-based WANHealthWithdrawn (slow path,
+              vmrule-snmp-geoip.yaml) sleeps through. Check wan_health_fail_count and
+              wan_health_last_rx_mbps for why.
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: WANHealthDaemonStale
+          # Same served-stale-file trap as WGTunnelHealthStale: a dead daemon's
+          # last .prom keeps being scraped forever, so absent() never fires and
+          # wan_health_withdrawn freezes at its last value. A dead wan-health
+          # daemon means NOTHING guards BGP default origination against a broken
+          # WAN — failover simply won't happen. Healthy lag is loop (~5s) +
+          # scrape interval (~30s); >60s sustained 2m is a dead/wedged daemon.
+          expr: |-
+            time() - wan_health_last_run_timestamp_seconds{job="node-exporter",instance=~"gateway0.*"} > 60
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "wan-health daemon stale on gateway0 ({{ $value | humanize }}s since last run)"
+            description: |-
+              wan_health_last_run_timestamp_seconds on gateway0 is {{ $value | humanize }}s old
+              (daemon loop runs every ~5s). The wan-health daemon is dead or wedged: the BGP
+              default route is now UNGUARDED — a WAN failure will not trigger withdrawal/failover
+              until this is fixed. Restart the daemon on gateway0 and check
+              /run/node_exporter/collector/wan_health.prom.
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: WANHealthSuppressionActive
+          # Informational: the congestion guard saw probe failures but rx-throughput
+          # (wan_health_last_rx_mbps) proved the link was still delivering, so it
+          # SUPPRESSED withdrawal instead of failing the house to cellular. That is
+          # the guard working as designed — but it is also a congestion near-miss
+          # worth seeing, and long/repeated streaks mean the WAN is regularly
+          # saturated enough to fail probes.
+          expr: |-
+            wan_health_suppress_streak_seconds{job="node-exporter",instance=~"gateway0.*"} > 0
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "wan-health congestion guard active on gateway0 ({{ $value | humanize }}s streak)"
+            description: |-
+              wan-health probes on gateway0 are failing but the congestion guard is suppressing
+              BGP withdrawal because the link is still moving traffic
+              (streak {{ $value | humanize }}s). No failover occurred — working as designed — but
+              this is a congestion near-miss: something is saturating the WAN hard enough to fail
+              probes. Correlate with throughput and identify the flow if streaks recur.
+          labels:
+            severity: warning
+            component: gateway
+
         - alert: BackupGatewayDown
           expr: |-
             probe_success{job="probe/observability/devices",instance=~"gateway1.*"} == 0
@@ -761,23 +833,93 @@ spec:
             severity: critical
             component: security
 
-        - alert: WGTunnelHealthAbsent
-          # The daemon writes the textfile every 10s; if the series disappears for
-          # 10m the daemon died, the textfile collector broke, or the scrape is
-          # gone — either way we are BLIND to tunnel health and every other rule
-          # in this group is silently inert. (Whole-exporter death also raises
-          # GatewayNodeDown.)
+        - alert: WGTunnelHealthStale
+          # 2026-08-12 review fix: the old absent()-based rule could NEVER catch a
+          # dead daemon — node_exporter keeps serving the last-written .prom file
+          # forever, so the series never goes absent while the values silently
+          # freeze. The daemon stamps wg_tunnel_health_last_run_timestamp_seconds
+          # on every loop (~10s); a stale stamp is the real dead-daemon signal.
+          # Healthy observed lag = loop period + scrape interval (~40s max), so
+          # >90s sustained 2m is a genuinely stuck/dead daemon and every other
+          # rule in this group is silently frozen at its last value.
           expr: |-
-            absent(wg_tunnel_ping_healthy{job="node-exporter",instance=~"gateway0.*"})
+            time() - wg_tunnel_health_last_run_timestamp_seconds{job="node-exporter",instance=~"gateway0.*"} > 90
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "wg-tunnel-health daemon stale — tunnel metrics frozen ({{ $value | humanize }}s old)"
+            description: |-
+              wg_tunnel_health_last_run_timestamp_seconds on gateway0 is {{ $value | humanize }}s old
+              (daemon loop writes every ~10s). The wg-tunnel-health daemon has died or wedged, and
+              node-exporter is still serving its LAST textfile snapshot — all wg-tunnel.rules alerts
+              are frozen at stale values, not absent. Restart the daemon on gateway0 and check
+              /run/node_exporter/collector/wg_tunnel_health.prom.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: WGTunnelMetricsAbsent
+          # Scrape-loss catch-all, complementary to WGTunnelHealthStale: if the
+          # .prom file itself is deleted or the textfile collector/scrape config
+          # regresses, the series vanish entirely and time()-based staleness math
+          # returns no result — so a separate absent() check is still required to
+          # avoid going blind. (Whole-exporter death also raises GatewayNodeDown.)
+          expr: |-
+            absent(wg_tunnel_health_last_run_timestamp_seconds{job="node-exporter",instance=~"gateway0.*"})
           for: 10m
           keep_firing_for: 5m
           annotations:
             summary: "WireGuard tunnel-health metrics missing — tunnel monitoring is blind"
             description: |-
-              wg_tunnel_ping_healthy has been absent from gateway0's node-exporter scrape for 10m.
-              The wg-tunnel-health daemon or its textfile output has died (or the scrape config
-              regressed). All wg-tunnel.rules alerts are inert until this is fixed — restart the
-              daemon on gateway0 and check /run or the textfile collector directory.
+              wg_tunnel_health_last_run_timestamp_seconds has been absent from gateway0's
+              node-exporter scrape for 10m. The textfile output was removed or the textfile
+              collector / scrape config regressed (a dead-but-file-still-served daemon is caught
+              earlier by WGTunnelHealthStale). All wg-tunnel.rules alerts are inert until fixed.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: WGSteeringDrift
+          # wg_steering_ok verifies per-tunnel steering wiring (fwmark/RSS-queue
+          # isolation + policy-route plumbing) is exactly as designed. A silent
+          # steering regression — tunnels up, traffic riding the wrong path — is
+          # the exact failure class behind the original single-core UDP-overload
+          # WAN blackouts, so drift pages even though traffic still flows.
+          expr: |-
+            wg_steering_ok{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 5m
+          keep_firing_for: 10m
+          annotations:
+            summary: "WireGuard steering drift on {{ $labels.tunnel }} — tunnel isolation regressed"
+            description: |-
+              wg_steering_ok for {{ $labels.tunnel }} on gateway0 has reported 0 for 5m: the
+              per-tunnel steering (RSS-queue isolation / policy routing) no longer matches the
+              designed layout. Traffic still flows, which is exactly why this class of regression
+              stayed invisible before — it re-concentrates tunnel UDP onto shared paths and
+              re-creates the single-core-overload WAN blackout conditions under load. Fix the
+              steering before the next heavy transfer, do not wait for symptoms.
+          labels:
+            severity: critical
+            component: gateway
+
+        - alert: WGRouteMismatch
+          # The daemon bumps wg_tunnel_route_mismatch_total whenever it observes
+          # a tunnel route diverging from the expected table-92 layout (it also
+          # self-heals). Counter is normally frozen at 0 — any increase means
+          # something is fighting the routing config and deserves a look even
+          # though the daemon repaired it.
+          expr: |-
+            increase(wg_tunnel_route_mismatch_total{job="node-exporter",instance=~"gateway0.*"}[10m]) > 0
+          for: 0m
+          keep_firing_for: 15m
+          annotations:
+            summary: "WireGuard route mismatch detected on {{ $labels.tunnel }} ({{ $value | humanize }} in 10m)"
+            description: |-
+              wg_tunnel_route_mismatch_total for {{ $labels.tunnel }} on gateway0 increased by
+              {{ $value | humanize }} in 10m (normally frozen at 0). The tunnel-health daemon found
+              the live routing state diverging from the expected ECMP/table-92 layout and corrected
+              it. Repeated mismatches mean another actor (commit hook, script, manual change) is
+              fighting the routing config — find it before it wins a race the daemon loses.
           labels:
             severity: warning
             component: gateway

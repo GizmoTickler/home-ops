@@ -131,6 +131,63 @@ spec:
             severity: warning
             component: kubernetes
 
+        # --- openebs-hostpath scratch disk (/var/mnt/local-hostpath, /dev/sdc ext4,
+        # present on all 3 nodes — verified live in VMSingle 2026-08-12, labels
+        # job="node-exporter", instance=192.168.122.1x:9100, kubernetes_node=k8s-N).
+        # The qbittorrent 400Gi scratch PVC on k8s-2 has NO quota: hostpath PVCs
+        # are just directories, so one writer can fill the node's whole 688GiB
+        # disk. At the observed 279MB/s torrent write rate, the generic
+        # 85%-for-15m alerts leave ~6 minutes of runway — useless. These two rules
+        # trade specificity for speed: rate-based prediction plus an absolute
+        # floor, both critical.
+        - alert: NodeScratchFillingFast
+          # Fires when the 10m write trend empties the disk within 10 minutes AND
+          # the disk is already below 15% available (the second condition mutes
+          # burst-writes on a mostly-empty disk, where a fast trend is harmless).
+          expr: |-
+            (
+              predict_linear(node_filesystem_avail_bytes{job="node-exporter",mountpoint="/var/mnt/local-hostpath"}[10m], 600) < 0
+            )
+            and
+            (
+              node_filesystem_avail_bytes{job="node-exporter",mountpoint="/var/mnt/local-hostpath"}
+              /
+              node_filesystem_size_bytes{job="node-exporter",mountpoint="/var/mnt/local-hostpath"}
+              < 0.15
+            )
+          for: 2m
+          keep_firing_for: 10m
+          annotations:
+            summary: "Scratch disk on {{ $labels.kubernetes_node }} predicted full within 10 minutes"
+            description: |-
+              /var/mnt/local-hostpath on {{ $labels.kubernetes_node }} ({{ $labels.instance }}) is
+              under 15% available AND the current write rate empties it within ~10 minutes.
+              This is the openebs-hostpath disk — the qbittorrent scratch PVC has no quota, so a
+              torrent burst can fill the whole node disk. Pause downloads / free space NOW; a full
+              disk here breaks every hostpath PVC on the node and risks node-pressure eviction.
+          labels:
+            severity: critical
+            component: kubernetes
+
+        - alert: NodeScratchLowAbsolute
+          # Percentage alerts scale badly on a 688GiB disk a single unquota'd
+          # writer can fill — 40GiB is ~2.5 minutes at the observed 279MB/s, so
+          # this is the last-line absolute floor regardless of trend.
+          expr: |-
+            node_filesystem_avail_bytes{job="node-exporter",mountpoint="/var/mnt/local-hostpath"} < 42949672960
+          for: 5m
+          keep_firing_for: 10m
+          annotations:
+            summary: "Scratch disk on {{ $labels.kubernetes_node }} below 40GiB available"
+            description: |-
+              /var/mnt/local-hostpath on {{ $labels.kubernetes_node }} ({{ $labels.instance }}) has
+              {{ $value | humanize1024 }}B left (floor: 40GiB). The openebs-hostpath scratch disk is
+              nearly full — at torrent write rates this is minutes from ENOSPC for every hostpath
+              PVC on the node. Free space or stop the writer immediately.
+          labels:
+            severity: critical
+            component: kubernetes
+
     # Pod Eviction Alerts
     - name: kubernetes-pod-evictions.rules
       interval: 30s
