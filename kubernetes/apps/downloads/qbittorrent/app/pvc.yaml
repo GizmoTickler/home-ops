@@ -1,0 +1,17 @@
+---
+# In-flight download scratch. Deliberately a named PVC rather than an
+# ephemeral volumeClaimTemplate: losing /inter on every pod replacement
+# invalidated fastresume data and forced full re-downloads. openebs-hostpath
+# is node-local, so this claim pins qbittorrent to whichever node binds it
+# first -- accepted trade-off.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qbittorrent-inter
+spec:
+  accessModes:
+    - "ReadWriteOnce"
+  resources:
+    requests:
+      storage: 400Gi
+  storageClassName: openebs-hostpath

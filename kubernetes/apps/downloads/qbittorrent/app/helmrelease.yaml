@@ -111,17 +111,7 @@ spec:
           - path: /media/torrents
             subPath: torrents
       inter:
-        type: custom
-        volumeSpec:
-          ephemeral:
-            volumeClaimTemplate:
-              spec:
-                accessModes:
-                  - "ReadWriteOnce"
-                storageClassName: openebs-hostpath
-                resources:
-                  requests:
-                    storage: 400Gi
+        existingClaim: qbittorrent-inter
         advancedMounts:
           qbittorrent:
             app:

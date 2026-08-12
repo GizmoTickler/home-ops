@@ -21,6 +21,10 @@ spec:
   #
   #   [{"name":"vpn","namespace":"kube-system","ips":["192.168.90.20/24"]}]
   #
+  # MTU 1420 matches the upstream WireGuard tunnel on gateway0. Without it the
+  # macvlan inherits eth2's 1500, and full-size UDP datagrams (uTP, DHT)
+  # fragment or blackhole at the tunnel -- MSS clamping only saves TCP.
+  #
   # THIS IS NOT A KILL-SWITCH ON ITS OWN. sbr keeps the pod's DEFAULT route on
   # the cluster CNI, so only traffic *sourced from the VLAN 90 address* uses the
   # tunnel. Anything that ignores interface binding still egresses over the
@@ -36,6 +40,7 @@ spec:
           "type": "macvlan",
           "master": "eth2",
           "mode": "bridge",
+          "mtu": 1420,
           "ipam": {
             "type": "static",
             "routes": [
