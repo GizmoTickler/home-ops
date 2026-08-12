@@ -149,15 +149,22 @@ spec:
       interval: 60s
       rules:
         - alert: BGPPeerNotEstablished
+          # bgpPeerState is an EnumAsStateSet: one series per FSM state, value 1/0.
+          # We must alert on the "established" series being 0 (stable alert identity —
+          # matching the non-established series ==1 would reset `for:` on every FSM
+          # transition of a flapping peer), but drop the bgpPeerState label so the
+          # alert doesn't carry the contradictory bgpPeerState="established".
           expr: |-
-            bgpPeerState{job=~"snmp.*",bgpPeerState="established"} == 0
+            min without (bgpPeerState) (
+              bgpPeerState{job=~"snmp.*",bgpPeerState="established"}
+            ) == 0
           for: 5m
           keep_firing_for: 5m
           annotations:
             summary: "BGP peer {{ $labels.bgpPeerRemoteAddr }} down on {{ $labels.instance }}"
             description: |-
-              BGP session to {{ $labels.bgpPeerRemoteAddr }} (AS {{ $labels.bgpPeerRemoteAs }})
-              on {{ $labels.instance }} is not Established. ECMP/backup path may be degraded.
+              BGP session to {{ $labels.bgpPeerRemoteAddr }} on {{ $labels.instance }}
+              is not Established. ECMP/backup path may be degraded.
           labels:
             severity: critical
             component: network
