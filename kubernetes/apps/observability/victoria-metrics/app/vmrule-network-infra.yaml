@@ -923,3 +923,126 @@ spec:
           labels:
             severity: warning
             component: gateway
+
+    # IPv6 (HE 6in4) tunnel health (added 2026-08-13, gateway0 hardening review).
+    # Metrics come from the v6-tunnel-health daemon on gateway0, which writes
+    # node-exporter textfile metrics on every loop (instance gateway0.<domain>:9100,
+    # all metric names verified live against Victoria Metrics before commit):
+    #   v6tun_healthy                    1/0 tun0 path to the v6 internet reachable
+    #                                    (hysteresis applied on-box)
+    #   v6tun_default_originated         1/0 gateway0 is advertising the v6 ::/0
+    #                                    default to SC01; the daemon WITHDRAWS it when
+    #                                    tun0 is dead so clients fall back to v4
+    #   v6tun_far_handshake_ok           1/0 HE tunnel far side
+    #                                    (2001:470:1f10:176::1) reachable
+    #   v6tun_probe_rtt_ms               probe RTT in ms (-1 when failing) — no alert,
+    #                                    a failing probe already flips v6tun_healthy
+    #   v6tun_last_run_timestamp_seconds daemon heartbeat (staleness signal)
+    - name: v6-tunnel.rules
+      interval: 30s
+      rules:
+        - alert: V6TunnelDown
+          # tun0 v6 path is dead. The daemon applies hysteresis on-box before
+          # flipping this to 0, so 2m of sustained 0 is a real outage. The daemon
+          # withdraws the ::/0 default in response (see V6DefaultWithdrawn), so
+          # clients fall back to IPv4 — no hard outage, hence warning.
+          expr: |-
+            v6tun_healthy{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "IPv6 tunnel down on gateway0 — tun0 v6 path unreachable (clients on v4)"
+            description: |-
+              v6tun_healthy on gateway0 has reported 0 for 2m (hysteresis already applied on-box):
+              the tun0 path to the IPv6 internet is unreachable. The v6-tunnel-health daemon
+              withdraws the ::/0 default to SC01 so clients fall back to IPv4 — no hard outage, but
+              IPv6 is down. Check the HE 6in4 tunnel (see V6TunnelFarSideDown) and tun0 on gateway0.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: V6DefaultWithdrawn
+          # Companion to V6TunnelDown: confirms the daemon actually pulled the v6
+          # ::/0 default from SC01 (the fall-back-to-v4 mechanism). Normally fires
+          # alongside V6TunnelDown; a divergence between the two means the withdraw
+          # logic itself is misbehaving (default still advertised over a dead tun0,
+          # or withdrawn while healthy).
+          expr: |-
+            v6tun_default_originated{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "IPv6 ::/0 default withdrawn on gateway0 — clients falling back to v4"
+            description: |-
+              v6tun_default_originated on gateway0 has been 0 for 2m: gateway0 is no longer
+              advertising the IPv6 ::/0 default to SC01, so clients fall back to IPv4. This is the
+              expected reaction to a dead tun0 (see V6TunnelDown) — informational. If it fires
+              WITHOUT V6TunnelDown, the withdraw logic diverged from the tunnel state; investigate.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: V6TunnelFarSideDown
+          # Narrows a v6 outage to the HE broker/tunnel endpoint specifically: the
+          # far-side handshake (2001:470:1f10:176::1) is unreachable while the rest
+          # of the path may be fine. Slightly longer 3m window than V6TunnelDown to
+          # ride out HE-side blips before pointing the finger at the broker.
+          expr: |-
+            v6tun_far_handshake_ok{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 3m
+          keep_firing_for: 5m
+          annotations:
+            summary: "IPv6 HE tunnel far side unreachable from gateway0"
+            description: |-
+              v6tun_far_handshake_ok on gateway0 has been 0 for 3m: the Hurricane Electric 6in4
+              tunnel far-side endpoint (2001:470:1f10:176::1) is unreachable. This isolates the v6
+              outage to the HE broker / tunnel endpoint rather than local tun0 or routing. Check HE
+              tunnelbroker status and the gateway0 WAN path to the HE PoP.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: V6TunnelHealthStale
+          # Same served-stale-file trap as WGTunnelHealthStale / WANHealthDaemonStale:
+          # node-exporter keeps serving the last-written .prom forever, so absent()
+          # never fires and every v6tun_* gauge silently FREEZES at its last value —
+          # we'd go blind to a tunnel failure while the daemon is dead. The daemon
+          # stamps v6tun_last_run_timestamp_seconds each loop; healthy observed lag is
+          # loop period + scrape interval (~40s), so >90s sustained 2m is a dead daemon.
+          expr: |-
+            time() - v6tun_last_run_timestamp_seconds{job="node-exporter",instance=~"gateway0.*"} > 90
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "v6-tunnel-health daemon stale — v6 tunnel metrics frozen ({{ $value | humanize }}s old)"
+            description: |-
+              v6tun_last_run_timestamp_seconds on gateway0 is {{ $value | humanize }}s old. The
+              v6-tunnel-health daemon has died or wedged and node-exporter is still serving its LAST
+              textfile snapshot — every v6-tunnel.rules alert is frozen at stale values, not absent,
+              so a real tunnel failure would go unseen. Restart the daemon on gateway0 and check
+              /run/node_exporter/collector/v6tun_health.prom.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: V6TunnelMetricsAbsent
+          # Scrape-loss catch-all complementary to V6TunnelHealthStale (matching the
+          # WGTunnelMetricsAbsent pattern): if the .prom file is deleted or the
+          # textfile collector / scrape config regresses, the series vanish entirely
+          # and the time()-based staleness math returns no result — a separate absent()
+          # check is required to avoid going blind. Whole-exporter death is caught by
+          # GatewayNodeDown; this fires for the file-deleted / partial-scrape case.
+          expr: |-
+            absent(v6tun_last_run_timestamp_seconds{job="node-exporter",instance=~"gateway0.*"})
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "IPv6 tunnel-health metrics missing — v6 tunnel monitoring is blind"
+            description: |-
+              v6tun_last_run_timestamp_seconds has been absent from gateway0's node-exporter scrape
+              for 10m. The textfile output was removed or the textfile collector / scrape config
+              regressed (a dead-but-file-still-served daemon is caught earlier by V6TunnelHealthStale).
+              All v6-tunnel.rules alerts are inert until this is fixed.
+          labels:
+            severity: warning
+            component: gateway
