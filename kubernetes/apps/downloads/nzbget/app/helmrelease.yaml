@@ -275,7 +275,7 @@ spec:
           - path: /incomplete
       media:
         type: nfs
-        server: nas01.${SECRET_DOMAIN}
+        server: 192.168.201.10
         path: /mnt/flashstor/data
         globalMounts:
           - path: /media/usenet
