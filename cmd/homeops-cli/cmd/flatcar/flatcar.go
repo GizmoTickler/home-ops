@@ -264,6 +264,7 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.VLANIDIoT = constants.VLANIDIoT
 	vmConfig.VLANIDVPN = constants.VLANIDVPN
 	vmConfig.SecondaryMTU = constants.SecondaryNICMTU
+	vmConfig.StorageNICs = append([]versionconfig.StorageNIC(nil), nodeConfig.StorageNICs...)
 	vmConfig.IgnitionConfig = string(node.ignition)
 	vmConfig.IgnitionPath = ignitionHandle
 	vmConfig.ImageDiskPath = d.imagePath

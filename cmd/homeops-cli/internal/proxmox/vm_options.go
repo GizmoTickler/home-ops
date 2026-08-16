@@ -3,6 +3,9 @@ package proxmox
 import (
 	"fmt"
 	"net/url"
+	"sort"
+
+	homeopscfg "homeops-cli/internal/config"
 
 	"github.com/luthermonson/go-proxmox"
 )
@@ -96,6 +99,9 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 
 	options = append(options, proxmox.VirtualMachineOption{Name: "net0", Value: buildNetworkConfig(config, profile.network)})
 	for _, nic := range secondaryNICs(config) {
+		options = append(options, proxmox.VirtualMachineOption{Name: nic.name, Value: nic.value})
+	}
+	for _, nic := range storageNICs(config) {
 		options = append(options, proxmox.VirtualMachineOption{Name: nic.name, Value: nic.value})
 	}
 
@@ -276,5 +282,32 @@ func secondaryNICs(config VMConfig) []secondaryNIC {
 	}
 	add("net1", config.MacAddressIoT, config.VLANIDIoT)
 	add("net2", config.MacAddressVPN, config.VLANIDVPN)
+	return out
+}
+
+// storageNICs builds the optional NVMe-oF fabric as net3-net6. Sorting a copy
+// makes slot assignment stable regardless of the order used in homeops.yaml:
+// VLAN 1201 -> net3 through VLAN 1204 -> net6.
+func storageNICs(config VMConfig) []secondaryNIC {
+	if len(config.StorageNICs) == 0 {
+		return nil
+	}
+
+	nics := append([]homeopscfg.StorageNIC(nil), config.StorageNICs...)
+	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
+	out := make([]secondaryNIC, 0, len(nics))
+	for index, nic := range nics {
+		out = append(out, secondaryNIC{
+			name: fmt.Sprintf("net%d", index+3),
+			value: fmt.Sprintf(
+				"virtio=%s,bridge=%s,tag=%d,mtu=%d,queues=%d",
+				nic.MAC,
+				config.NetworkBridge,
+				nic.VLAN,
+				config.NetworkMTU,
+				config.NetworkQueues,
+			),
+		})
+	}
 	return out
 }

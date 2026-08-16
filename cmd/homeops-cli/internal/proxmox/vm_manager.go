@@ -144,11 +144,12 @@ type VMConfig struct {
 	MacAddress    string // Static MAC address
 	// Secondary NICs used ONLY as Multus macvlan masters. Empty MAC = NIC not
 	// created, so a node without them provisions exactly as before.
-	MacAddressIoT string // net1 MAC (VLAN 20, macvlan master eth1)
-	MacAddressVPN string // net2 MAC (VLAN 90, macvlan master eth2)
-	VLANIDIoT     int    // net1 VLAN tag
-	VLANIDVPN     int    // net2 VLAN tag
-	SecondaryMTU  int    // MTU for net1/net2 (1500: these VLANs carry standard-MTU devices)
+	MacAddressIoT string                  // net1 MAC (VLAN 20, macvlan master eth1)
+	MacAddressVPN string                  // net2 MAC (VLAN 90, macvlan master eth2)
+	VLANIDIoT     int                     // net1 VLAN tag
+	VLANIDVPN     int                     // net2 VLAN tag
+	SecondaryMTU  int                     // MTU for net1/net2 (1500: these VLANs carry standard-MTU devices)
+	StorageNICs   []homeopscfg.StorageNIC // net3-net6, ordered by storage VLAN during rendering
 
 	// SCSI Configuration
 	SCSIController string // e.g., "virtio-scsi-single"
@@ -213,19 +214,20 @@ var TalosNodeConfigs = talosNodeConfigMap(homeopscfg.DefaultNodes())
 // node IP + NODE_NAME used to render kubeadm/Ignition configs.
 type FlatcarNodeConfig struct {
 	Name           string
-	VMID           int    // Proxmox VMID (same as Talos: 200, 201, 202)
-	NodeIP         string // primary node IP (advertiseAddress / node-ip)
-	BootStorage    string // Storage pool for boot disk
-	OpenEBSStorage string // Storage pool for OpenEBS disk
-	CephMode       string // "", "passthrough", "virtual", or "none"
-	CephDiskByID   string // legacy OSD-disk passthrough by-id path
-	CephDiskGB     int    // virtual legacy OSD disk size GB (alternative to passthrough)
-	CephStorage    string // storage pool for the virtual legacy OSD disk
-	CPUAffinity    string // CPU core pinning
-	NUMANode       int    // NUMA node (0 or 1)
-	MacAddress     string // Static MAC address
-	MacAddressIoT  string // net1 MAC, VLAN 20 (Multus macvlan master eth1)
-	MacAddressVPN  string // net2 MAC, VLAN 90 (Multus macvlan master eth2)
+	VMID           int                     // Proxmox VMID (same as Talos: 200, 201, 202)
+	NodeIP         string                  // primary node IP (advertiseAddress / node-ip)
+	BootStorage    string                  // Storage pool for boot disk
+	OpenEBSStorage string                  // Storage pool for OpenEBS disk
+	CephMode       string                  // "", "passthrough", "virtual", or "none"
+	CephDiskByID   string                  // legacy OSD-disk passthrough by-id path
+	CephDiskGB     int                     // virtual legacy OSD disk size GB (alternative to passthrough)
+	CephStorage    string                  // storage pool for the virtual legacy OSD disk
+	CPUAffinity    string                  // CPU core pinning
+	NUMANode       int                     // NUMA node (0 or 1)
+	MacAddress     string                  // Static MAC address
+	MacAddressIoT  string                  // net1 MAC, VLAN 20 (Multus macvlan master eth1)
+	MacAddressVPN  string                  // net2 MAC, VLAN 90 (Multus macvlan master eth2)
+	StorageNICs    []homeopscfg.StorageNIC // net3-net6 NVMe-oF fabric interfaces
 }
 
 // FlatcarNodeConfigs contains the embedded default Flatcar node configurations.
@@ -285,6 +287,7 @@ func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
 		MacAddress:     profile.Mac,
 		MacAddressIoT:  profile.MacIoT,
 		MacAddressVPN:  profile.MacVPN,
+		StorageNICs:    append([]homeopscfg.StorageNIC(nil), profile.StorageNICs...),
 	}
 }
 

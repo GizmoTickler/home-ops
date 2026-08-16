@@ -496,7 +496,15 @@ func TestDeployVMRealPath(t *testing.T) {
 		return proxmox.VMConfig{OpenEBSSize: 700, OpenEBSStorage: "openebs-ssd"}
 	})
 	testutil.Swap(t, &getFlatcarNodeConfigFn, func(name string) (proxmox.FlatcarNodeConfig, bool) {
-		return proxmox.FlatcarNodeConfig{Name: name, OpenEBSStorage: "openebs-ssd"}, true
+		return proxmox.FlatcarNodeConfig{
+			Name: name, OpenEBSStorage: "openebs-ssd",
+			StorageNICs: []versionconfig.StorageNIC{
+				{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.20/24"},
+				{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.20/24"},
+				{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.20/24"},
+				{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.20/24"},
+			},
+		}, true
 	})
 	testutil.Swap(t, &renderIgnitionFn, func(env flatcar.NodeEnv) ([]byte, error) {
 		return []byte(`{"ignition":{"version":"3.4.0"}}`), nil
@@ -528,6 +536,8 @@ func TestDeployVMRealPath(t *testing.T) {
 	require.Len(t, mgr.deployed, 1)
 	assert.Equal(t, "k8s-0", mgr.deployed[0].Name)
 	assert.Equal(t, 700, mgr.deployed[0].OpenEBSSize)
+	require.Len(t, mgr.deployed[0].StorageNICs, 4)
+	assert.Equal(t, 1201, mgr.deployed[0].StorageNICs[0].VLAN)
 	assert.Equal(t, "openebs-ssd", mgr.deployed[0].OpenEBSStorage)
 	assert.Equal(t, "scsi3", mgr.deployed[0].OpenEBSSlot)
 	assert.True(t, mgr.deployed[0].OpenEBSSSD)
