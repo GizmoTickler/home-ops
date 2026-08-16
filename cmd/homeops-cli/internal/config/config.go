@@ -70,6 +70,14 @@ type StorageNIC struct {
 	IP   string `yaml:"ip"`
 }
 
+// NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
+// Flatcar nodes. Each VLAN is one of the storage_nics VLANs; its NFS server
+// address is derived as 192.168.<vlan-1000>.10.
+type NFSTrunkConfig struct {
+	Export string `yaml:"export,omitempty"`
+	VLANs  []int  `yaml:"vlans,omitempty"`
+}
+
 // NetworkQueueOverrides customizes VirtIO multiqueue per base NIC. Zero keeps
 // the legacy behavior: net0 uses VMDefaults.NetworkQueues and net1/net2 omit
 // the queues key.
@@ -193,6 +201,9 @@ type ClusterConfig struct {
 	// NTPServers are rendered into Flatcar systemd-timesyncd and Talos
 	// machine.time.servers.
 	NTPServers []string `yaml:"ntp_servers,omitempty"`
+	// NFSTrunk optionally renders NFS session anchor mounts on Flatcar nodes
+	// that have storage_nics. The zero value keeps the units absent.
+	NFSTrunk NFSTrunkConfig `yaml:"nfs_trunk,omitempty"`
 	// ExtraCertSANs are appended to the apiserver/Talos cert SAN lists.
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
@@ -690,6 +701,27 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
+	if c.Cluster.NFSTrunk.Export != "" || c.Cluster.NFSTrunk.VLANs != nil {
+		if strings.TrimSpace(c.Cluster.NFSTrunk.Export) == "" {
+			problems = append(problems, "cluster.nfs_trunk.export: must not be blank when nfs_trunk is configured")
+		} else if !strings.HasPrefix(c.Cluster.NFSTrunk.Export, "/") {
+			problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.export: %q must be an absolute NFS export path", c.Cluster.NFSTrunk.Export))
+		}
+		if len(c.Cluster.NFSTrunk.VLANs) == 0 {
+			problems = append(problems, "cluster.nfs_trunk.vlans: must contain at least one storage VLAN when nfs_trunk is configured")
+		}
+		seenVLANs := make(map[int]int, len(c.Cluster.NFSTrunk.VLANs))
+		for index, vlan := range c.Cluster.NFSTrunk.VLANs {
+			if vlan < 1201 || vlan > 1204 {
+				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d is not a supported storage VLAN (use 1201-1204)", index, vlan))
+			}
+			if firstIndex, duplicate := seenVLANs[vlan]; duplicate {
+				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d duplicates cluster.nfs_trunk.vlans[%d]", index, vlan, firstIndex))
+			} else {
+				seenVLANs[vlan] = index
+			}
+		}
+	}
 	problems = append(problems, validateStorageFabric(c.Cluster)...)
 	legacyOSDModes := []struct {
 		name string
@@ -764,10 +796,21 @@ func validate(c *Config) error {
 	return nil
 }
 
-func provisioningNodes(cluster ClusterConfig) []Node {
-	nodes := append([]Node(nil), cluster.Nodes...)
+type provisioningNode struct {
+	node Node
+	path string
+}
+
+func provisioningNodes(cluster ClusterConfig) []provisioningNode {
+	nodes := make([]provisioningNode, 0, len(cluster.Nodes)+1)
+	for _, node := range cluster.Nodes {
+		nodes = append(nodes, provisioningNode{
+			node: node,
+			path: fmt.Sprintf("cluster.nodes[%s]", node.Name),
+		})
+	}
 	if cluster.TestNode != nil {
-		nodes = append(nodes, *cluster.TestNode)
+		nodes = append(nodes, provisioningNode{node: *cluster.TestNode, path: "cluster.test_node"})
 	}
 	return nodes
 }
@@ -776,38 +819,62 @@ var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`
 
 func validateStorageFabric(cluster ClusterConfig) []string {
 	nodes := provisioningNodes(cluster)
-	baseMACs := make(map[string]string)
-	for _, node := range nodes {
-		path := fmt.Sprintf("cluster.nodes[%s].vm", node.Name)
-		candidates := []struct {
+	// baseMACPaths retains every path that can resolve to a base NIC so storage
+	// MAC collisions can name the exact conflicting entry. seenBaseNICs is the
+	// stricter set of simultaneously attached shared NICs: mac/mac_iot/mac_vpn
+	// must be unique across every node, while provider-specific mac entries can
+	// legitimately repeat one node's shared identity as alternate VM profiles.
+	baseMACPaths := make(map[string][]string)
+	seenBaseNICs := make(map[string]string)
+	var problems []string
+	for _, entry := range nodes {
+		node := entry.node
+		path := entry.path + ".vm"
+		baseCandidates := []struct {
 			path string
 			mac  string
 		}{
 			{path + ".mac", node.VM.Mac},
 			{path + ".mac_iot", node.VM.MacIoT},
 			{path + ".mac_vpn", node.VM.MacVPN},
-			{path + ".providers.talos.mac", node.VM.Providers.Talos.Mac},
-			{path + ".providers.flatcar.mac", node.VM.Providers.Flatcar.Mac},
-			{path + ".providers.vsphere.mac", node.VM.Providers.VSphere.Mac},
 		}
-		for _, candidate := range candidates {
+		for _, candidate := range baseCandidates {
 			if candidate.mac == "" {
 				continue
 			}
 			key := canonicalMAC(candidate.mac)
-			if _, exists := baseMACs[key]; !exists {
-				baseMACs[key] = candidate.path
+			if firstPath, duplicate := seenBaseNICs[key]; duplicate {
+				problems = append(problems, fmt.Sprintf("%s: %q duplicates %s", candidate.path, candidate.mac, firstPath))
+			} else {
+				seenBaseNICs[key] = candidate.path
 			}
+			baseMACPaths[key] = append(baseMACPaths[key], candidate.path)
+		}
+
+		providerCandidates := []struct {
+			path string
+			mac  string
+		}{
+			{path + ".providers.talos.mac", node.VM.Providers.Talos.Mac},
+			{path + ".providers.flatcar.mac", node.VM.Providers.Flatcar.Mac},
+			{path + ".providers.vsphere.mac", node.VM.Providers.VSphere.Mac},
+		}
+		for _, candidate := range providerCandidates {
+			if candidate.mac == "" {
+				continue
+			}
+			key := canonicalMAC(candidate.mac)
+			baseMACPaths[key] = append(baseMACPaths[key], candidate.path)
 		}
 	}
 
 	seenStorageMACs := make(map[string]string)
 	seenHostOctets := make(map[byte]string)
-	var problems []string
-	for _, node := range nodes {
-		nodeProblems, hostOctet, hostOctetValid := validateStorageNICs(node)
+	for _, entry := range nodes {
+		node := entry.node
+		nodeProblems, hostOctet, hostOctetValid := validateStorageNICs(node, entry.path)
 		problems = append(problems, nodeProblems...)
-		path := fmt.Sprintf("cluster.nodes[%s].vm.storage_nics", node.Name)
+		path := entry.path + ".vm.storage_nics"
 		for index, nic := range node.VM.StorageNICs {
 			if !strictStorageMAC.MatchString(nic.MAC) {
 				continue
@@ -819,8 +886,8 @@ func validateStorageFabric(cluster ClusterConfig) []string {
 			} else {
 				seenStorageMACs[key] = macPath
 			}
-			if basePath, duplicate := baseMACs[key]; duplicate {
-				problems = append(problems, fmt.Sprintf("%s: %q duplicates base NIC %s", macPath, nic.MAC, basePath))
+			if basePaths := baseMACPaths[key]; len(basePaths) > 0 {
+				problems = append(problems, fmt.Sprintf("%s: %q duplicates base NIC %s", macPath, nic.MAC, basePaths[0]))
 			}
 		}
 		if !hostOctetValid {
@@ -843,13 +910,13 @@ func canonicalMAC(value string) string {
 	return strings.ToLower(value)
 }
 
-func validateStorageNICs(node Node) ([]string, byte, bool) {
+func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 	nics := node.VM.StorageNICs
 	if nics == nil {
 		return nil, 0, false
 	}
 
-	path := fmt.Sprintf("cluster.nodes[%s].vm.storage_nics", node.Name)
+	path := nodePath + ".vm.storage_nics"
 	expectedVLANs := map[int]struct{}{1201: {}, 1202: {}, 1203: {}, 1204: {}}
 	seenVLANs := make(map[int]struct{}, len(nics))
 	validSet := len(nics) == len(expectedVLANs)

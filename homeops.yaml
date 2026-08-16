@@ -44,6 +44,10 @@ cluster:
     - 10.123.123.125
     - 10.123.123.126
     - 10.123.123.127
+  # Establish the production nas01 NFS session across three storage VLANs.
+  nfs_trunk:
+    export: /mnt/flashstor/data
+    vlans: [1202, 1203, 1204]
   extra_cert_sans:
     - 192.168.255.10
   kubelet:

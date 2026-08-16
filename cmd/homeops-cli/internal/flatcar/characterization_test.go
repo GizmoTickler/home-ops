@@ -73,33 +73,31 @@ func goldenCompare(t *testing.T, rel string, got []byte) {
 }
 
 func TestFlatcarRenderCharacterization(t *testing.T) {
-	// Both a repo-mirror config (cluster.name explicit) and the no-config-file
-	// default (cluster.name empty -> ClusterNameWithDefault) must render the
-	// exact pre-refactor bytes.
-	configs := map[string]*config.Config{
-		"repo-mirror": {Cluster: config.ClusterConfig{Name: "home-ops-cluster"}},
-		"no-config":   {},
+	// The repo-mirror fixture includes the live NFS trunk configuration. The
+	// explicit no-config regression lives in ignition_test.go because optional
+	// anchor units intentionally make those two render surfaces diverge.
+	restore := config.SetForTesting(&config.Config{Cluster: config.ClusterConfig{
+		Name: "home-ops-cluster",
+		NFSTrunk: config.NFSTrunkConfig{
+			Export: "/mnt/flashstor/data",
+			VLANs:  []int{1202, 1203, 1204},
+		},
+	}})
+	defer restore()
+
+	for _, n := range charNodes {
+		ign, err := RenderIgnition(charEnv(n.name, n.ip, n.mac))
+		require.NoError(t, err)
+		goldenCompare(t, "ignition/"+n.name+".ign", ign)
 	}
-	for label, cfg := range configs {
-		t.Run(label, func(t *testing.T) {
-			restore := config.SetForTesting(cfg)
-			defer restore()
 
-			for _, n := range charNodes {
-				ign, err := RenderIgnition(charEnv(n.name, n.ip, n.mac))
-				require.NoError(t, err)
-				goldenCompare(t, "ignition/"+n.name+".ign", ign)
-			}
+	initCfg, err := RenderKubeadmInitConfig(charEnv("k8s-0", "192.168.122.10", "00:a0:98:28:c8:83"))
+	require.NoError(t, err)
+	goldenCompare(t, "kubeadm/init-config.yaml", []byte(initCfg))
 
-			initCfg, err := RenderKubeadmInitConfig(charEnv("k8s-0", "192.168.122.10", "00:a0:98:28:c8:83"))
-			require.NoError(t, err)
-			goldenCompare(t, "kubeadm/init-config.yaml", []byte(initCfg))
-
-			for _, n := range charNodes[1:] {
-				joinCfg, err := RenderKubeadmJoinConfig(charEnv(n.name, n.ip, n.mac))
-				require.NoError(t, err)
-				goldenCompare(t, "kubeadm/join-"+n.name+".yaml", []byte(joinCfg))
-			}
-		})
+	for _, n := range charNodes[1:] {
+		joinCfg, err := RenderKubeadmJoinConfig(charEnv(n.name, n.ip, n.mac))
+		require.NoError(t, err)
+		goldenCompare(t, "kubeadm/join-"+n.name+".yaml", []byte(joinCfg))
 	}
 }

@@ -156,6 +156,74 @@ cluster:
 	})
 }
 
+func TestLoadFileRejectsDuplicateBaseNICMACs(t *testing.T) {
+	cases := []struct {
+		name    string
+		nodes   string
+		wantErr string
+	}{
+		{
+			name: "within one VM across bridges case folded",
+			nodes: `
+    - name: k8s-0
+      vm:
+        mac_iot: "02:00:00:00:10:01"
+        mac_vpn: "02:00:00:00:10:01"
+`,
+			wantErr: `cluster.nodes[k8s-0].vm.mac_vpn: "02:00:00:00:10:01" duplicates cluster.nodes[k8s-0].vm.mac_iot`,
+		},
+		{
+			name: "across VMs on one bridge case folded",
+			nodes: `
+    - name: k8s-0
+      vm:
+        mac_iot: "AA:BB:CC:DD:EE:01"
+    - name: k8s-1
+      vm:
+        mac_iot: "aa:bb:cc:dd:ee:01"
+`,
+			wantErr: `cluster.nodes[k8s-1].vm.mac_iot: "aa:bb:cc:dd:ee:01" duplicates cluster.nodes[k8s-0].vm.mac_iot`,
+		},
+		{
+			name: "across VMs and base NIC roles",
+			nodes: `
+    - name: k8s-0
+      vm:
+        mac: "02:00:00:00:10:02"
+    - name: k8s-1
+      vm:
+        mac_vpn: "02:00:00:00:10:02"
+`,
+			wantErr: `cluster.nodes[k8s-1].vm.mac_vpn: "02:00:00:00:10:02" duplicates cluster.nodes[k8s-0].vm.mac`,
+		},
+		{
+			name: "rehearsal node uses its exact config path",
+			nodes: `
+    - name: k8s-0
+      vm:
+        mac_iot: "02:00:00:00:10:03"
+  test_node:
+    name: k8s-test
+    vm:
+      mac_vpn: "02:00:00:00:10:03"
+`,
+			wantErr: `cluster.test_node.vm.mac_vpn: "02:00:00:00:10:03" duplicates cluster.nodes[k8s-0].vm.mac_iot`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "homeops.yaml")
+			content := "cluster:\n  nodes:" + tc.nodes
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+			_, err := LoadFile(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestLoadFileRejectsCrossNodeStorageIdentityCollisions(t *testing.T) {
 	base := `
 cluster:

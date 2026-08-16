@@ -126,6 +126,10 @@ func (e NodeEnv) envMap() map[string]string {
 	// This placeholder is always replaced, including with an empty string, so
 	// nodes without storage NICs retain the pre-existing Ignition file set.
 	m[constants.EnvStorageNetworkFiles] = formatStorageNetworkFiles(e.StorageNICs, e.NetworkMTU)
+	// NFS anchors are opt-in and only belong on nodes attached to the storage
+	// fabric. Replacing the placeholder with an empty string preserves the
+	// pre-existing unit set for portable/default configs and non-storage nodes.
+	m[constants.EnvNFSTrunkUnits] = formatNFSTrunkUnits(e.StorageNICs, config.Get().Cluster.NFSTrunk)
 	add(constants.EnvCertificateKey, e.CertificateKey)
 	add(constants.EnvBootstrapToken, e.BootstrapToken)
 	add(constants.EnvCACertHash, e.CACertHash)
@@ -198,6 +202,38 @@ func formatStorageNetworkFiles(storageNICs []config.StorageNIC, mtu string) stri
           LinkLocalAddressing=no
           LLDP=no
 `, nic.VLAN, nic.MAC, mtu, nic.IP)
+	}
+	return b.String()
+}
+
+func formatNFSTrunkUnits(storageNICs []config.StorageNIC, trunk config.NFSTrunkConfig) string {
+	if len(storageNICs) == 0 || trunk.Export == "" || len(trunk.VLANs) == 0 {
+		return ""
+	}
+
+	vlans := append([]int(nil), trunk.VLANs...)
+	sort.Ints(vlans)
+	var b strings.Builder
+	for index, storageVLAN := range vlans {
+		if index > 0 {
+			b.WriteByte('\n')
+		}
+		vlan := storageVLAN - 1000
+		_, _ = fmt.Fprintf(&b, `    - name: var-mnt-stor\x2dtrunk\x2d%d.mount
+      enabled: true
+      contents: |
+        [Unit]
+        Description=NFS 4.1 trunk anchor via VLAN %d (adds transports to the nas01 session)
+        After=network-online.target
+        Wants=network-online.target
+        [Mount]
+        What=192.168.%d.10:%s
+        Where=/var/mnt/stor-trunk-%d
+        Type=nfs4
+        Options=vers=4.2,ro,noatime,nconnect=4,max_connect=16
+        [Install]
+        WantedBy=multi-user.target
+`, vlan, vlan, vlan, trunk.Export, vlan)
 	}
 	return b.String()
 }

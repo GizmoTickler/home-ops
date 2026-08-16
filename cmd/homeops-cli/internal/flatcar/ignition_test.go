@@ -2,9 +2,11 @@ package flatcar
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -93,6 +95,98 @@ func TestRenderIgnitionUsesNTPServersAndNetworkMTU(t *testing.T) {
 	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/network/10-k8s.network"), "MTUBytes=1400")
 }
 
+func TestRenderIgnitionPersistsNFSTrunking(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  nfs_trunk:
+    export: /mnt/flashstor/data
+    vlans: [1202, 1203, 1204]
+`), 0o600))
+	cfg, err := config.LoadFile(path)
+	require.NoError(t, err)
+	restore := config.SetForTesting(cfg)
+	defer restore()
+
+	env := sampleEnv()
+	env.StorageNICs = []config.StorageNIC{
+		{VLAN: 1201, MAC: "02:00:00:00:10:01", IP: "192.168.201.20/24"},
+		{VLAN: 1202, MAC: "02:00:00:00:10:02", IP: "192.168.202.20/24"},
+		{VLAN: 1203, MAC: "02:00:00:00:10:03", IP: "192.168.203.20/24"},
+		{VLAN: 1204, MAC: "02:00:00:00:10:04", IP: "192.168.204.20/24"},
+	}
+	ign, err := RenderIgnition(env)
+	require.NoError(t, err)
+
+	assert.Equal(t, `# /etc/nfsmount.conf — port of Talos machine.files /etc/nfsmount.conf (overwrite).
+# Tuned NFS defaults for the TrueNAS NFS mounts (VolSync Kopia repo, media, OpenEBS).
+[ NFSMount_Global_Options ]
+nfsvers=4.2
+hard=True
+# 16-transport kernel budget: 4 per address × 4 storage VLANs (NFS_MAX_TRANSPORTS=16).
+nconnect=4
+max_connect=16
+noatime=True
+rsize=1048576
+wsize=1048576
+`, ignitionFileContent(t, ign, "/etc/nfsmount.conf"))
+
+	units := ignitionSystemdUnits(t, ign)
+	want := map[string]string{
+		`var-mnt-stor\x2dtrunk\x2d202.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 202 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.202.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-202\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
+		`var-mnt-stor\x2dtrunk\x2d203.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 203 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.203.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-203\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
+		`var-mnt-stor\x2dtrunk\x2d204.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 204 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.204.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-204\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
+	}
+	for name, contents := range want {
+		unit, ok := units[name]
+		require.True(t, ok, "missing NFS trunk anchor %s", name)
+		assert.True(t, unit.Enabled, name)
+		assert.Equal(t, contents, unit.Contents, name)
+	}
+}
+
+func TestRenderIgnitionWithoutNFSTrunkConfigKeepsAnchorUnitsAbsent(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{})
+	defer restore()
+	env := sampleEnv()
+	env.StorageNICs = []config.StorageNIC{{VLAN: 1202, MAC: "02:00:00:00:10:02", IP: "192.168.202.20/24"}}
+
+	ign, err := RenderIgnition(env)
+	require.NoError(t, err)
+	for name := range ignitionSystemdUnits(t, ign) {
+		assert.NotContains(t, name, `stor\x2dtrunk`)
+	}
+}
+
+func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testing.T) {
+	cfg, err := config.LoadFile(filepath.Join("..", "..", "..", "..", "homeops.yaml"))
+	require.NoError(t, err)
+	restore := config.SetForTesting(cfg)
+	defer restore()
+
+	for _, node := range cfg.Cluster.Nodes {
+		t.Run(node.Name, func(t *testing.T) {
+			env := sampleEnv()
+			env.NodeName = node.Name
+			env.NodeIP = node.IP
+			env.StorageNICs = append([]config.StorageNIC(nil), node.VM.StorageNICs...)
+
+			ign, err := RenderIgnition(env)
+			require.NoError(t, err)
+			var anchors []ignitionSystemdUnit
+			for name, unit := range ignitionSystemdUnits(t, ign) {
+				if strings.Contains(name, `stor\x2dtrunk`) {
+					anchors = append(anchors, unit)
+				}
+			}
+			require.Len(t, anchors, 3)
+			for _, unit := range anchors {
+				assert.True(t, unit.Enabled, unit.Name)
+			}
+		})
+	}
+}
+
 func TestRenderIgnitionIncludesStorageNetworkdUnits(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -154,7 +248,8 @@ func ignitionFileContent(t *testing.T, ign []byte, path string) string {
 			Files []struct {
 				Path     string `json:"path"`
 				Contents struct {
-					Source string `json:"source"`
+					Compression string `json:"compression"`
+					Source      string `json:"source"`
 				} `json:"contents"`
 			} `json:"files"`
 		} `json:"storage"`
@@ -168,6 +263,13 @@ func ignitionFileContent(t *testing.T, ign []byte, path string) string {
 		if strings.HasPrefix(source, "data:;base64,") {
 			decoded, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(source, "data:;base64,"))
 			require.NoError(t, err)
+			if f.Contents.Compression == "gzip" {
+				reader, err := gzip.NewReader(bytes.NewReader(decoded))
+				require.NoError(t, err)
+				decoded, err = io.ReadAll(reader)
+				require.NoError(t, err)
+				require.NoError(t, reader.Close())
+			}
 			return string(decoded)
 		}
 		require.True(t, strings.HasPrefix(source, "data:,"), "unsupported data URL %q", source)
@@ -177,6 +279,27 @@ func ignitionFileContent(t *testing.T, ign []byte, path string) string {
 	}
 	t.Fatalf("Ignition file %s not found", path)
 	return ""
+}
+
+type ignitionSystemdUnit struct {
+	Name     string `json:"name"`
+	Enabled  bool   `json:"enabled"`
+	Contents string `json:"contents"`
+}
+
+func ignitionSystemdUnits(t *testing.T, ign []byte) map[string]ignitionSystemdUnit {
+	t.Helper()
+	var doc struct {
+		Systemd struct {
+			Units []ignitionSystemdUnit `json:"units"`
+		} `json:"systemd"`
+	}
+	require.NoError(t, json.Unmarshal(ign, &doc))
+	units := make(map[string]ignitionSystemdUnit, len(doc.Systemd.Units))
+	for _, unit := range doc.Systemd.Units {
+		units[unit.Name] = unit
+	}
+	return units
 }
 
 func TestRenderIgnitionDeterministicAndNodeSpecific(t *testing.T) {

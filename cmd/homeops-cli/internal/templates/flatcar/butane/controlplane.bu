@@ -257,6 +257,10 @@ systemd:
         Options=defaults,noatime
         [Install]
         WantedBy=local-fs.target
+    # These anchors must establish the nas01 association BEFORE kubelet's NFS
+    # mounts so it forms with max_connect=16. At boot, multi-user.target ordering
+    # achieves this naturally; do not add ordering that delays kubelet.
+{{ ENV.NFS_TRUNK_UNITS }}
     # containerd from the Flatcar base OS, pointed at our /etc/containerd/config.toml
     - name: containerd.service
       enabled: true

@@ -69,6 +69,7 @@ const (
 	EnvNTPServers          = "NTP_SERVERS"
 	EnvNetworkMTU          = "NETWORK_MTU"
 	EnvStorageNetworkFiles = "STORAGE_NETWORK_FILES"
+	EnvNFSTrunkUnits       = "NFS_TRUNK_UNITS"
 )
 
 // Kubernetes namespaces commonly used
