@@ -66,6 +66,11 @@ cluster:
         mac: "00:a0:98:28:c8:83"
         mac_iot: "BC:24:11:B9:55:83"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:33:4C:37"   # net2, VLAN 90 (Multus macvlan master eth2)
+        storage_nics:
+          - { vlan: 1201, mac: "BC:24:11:3B:E0:50", ip: 192.168.201.20/24 } # net3
+          - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24 } # net4
+          - { vlan: 1203, mac: "BC:24:11:FF:50:81", ip: 192.168.203.20/24 } # net5
+          - { vlan: 1204, mac: "BC:24:11:FB:16:76", ip: 192.168.204.20/24 } # net6
         boot_storage: nvme-mirror
         openebs_storage: openebs-ssd
         cpu_affinity: "0-7,32-39"
@@ -79,6 +84,11 @@ cluster:
         mac: "00:a0:98:1a:f3:72"
         mac_iot: "BC:24:11:24:80:8B"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:C6:89:07"   # net2, VLAN 90 (Multus macvlan master eth2)
+        storage_nics:
+          - { vlan: 1201, mac: "BC:24:11:6B:64:25", ip: 192.168.201.21/24 } # net3
+          - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24 } # net4
+          - { vlan: 1203, mac: "BC:24:11:8C:C8:43", ip: 192.168.203.21/24 } # net5
+          - { vlan: 1204, mac: "BC:24:11:D1:C4:BE", ip: 192.168.204.21/24 } # net6
         boot_storage: nvme-mirror
         openebs_storage: openebs-ssd
         cpu_affinity: "16-23,48-55"
@@ -92,6 +102,11 @@ cluster:
         mac: "00:a0:98:3e:6c:22"
         mac_iot: "BC:24:11:60:19:38"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:B1:02:55"   # net2, VLAN 90 (Multus macvlan master eth2)
+        storage_nics:
+          - { vlan: 1201, mac: "BC:24:11:B3:CD:67", ip: 192.168.201.22/24 } # net3
+          - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24 } # net4
+          - { vlan: 1203, mac: "BC:24:11:F6:D9:1D", ip: 192.168.203.22/24 } # net5
+          - { vlan: 1204, mac: "BC:24:11:63:50:11", ip: 192.168.204.22/24 } # net6
         boot_storage: nvme-mirror
         openebs_storage: openebs-ssd
         cpu_affinity: "8-15,40-47"

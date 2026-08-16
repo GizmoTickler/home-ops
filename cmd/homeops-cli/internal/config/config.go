@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -38,16 +39,17 @@ const EnvConfigFile = "HOMEOPS_CONFIG"
 // VMProfile customizes one node's VM hardware on the hypervisor. Unset
 // fields keep the provider's built-in defaults.
 type VMProfile struct {
-	VMID           int    `yaml:"vmid,omitempty"`            // hypervisor VM id (Proxmox)
-	Mac            string `yaml:"mac,omitempty"`             // static MAC address
-	MacIoT         string `yaml:"mac_iot,omitempty"`         // net1 MAC, VLAN 20 (Multus macvlan master eth1)
-	MacVPN         string `yaml:"mac_vpn,omitempty"`         // net2 MAC, VLAN 90 (Multus macvlan master eth2)
-	BootStorage    string `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
-	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
-	CPUAffinity    string `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
-	NUMANode       *int   `yaml:"numa_node,omitempty"`       // host NUMA node
-	PCIDevice      string `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
-	RDMPath        string `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
+	VMID           int          `yaml:"vmid,omitempty"`            // hypervisor VM id (Proxmox)
+	Mac            string       `yaml:"mac,omitempty"`             // static MAC address
+	MacIoT         string       `yaml:"mac_iot,omitempty"`         // net1 MAC, VLAN 20 (Multus macvlan master eth1)
+	MacVPN         string       `yaml:"mac_vpn,omitempty"`         // net2 MAC, VLAN 90 (Multus macvlan master eth2)
+	StorageNICs    []StorageNIC `yaml:"storage_nics,omitempty"`    // optional NVMe-oF storage fabric NICs (net3-net6)
+	BootStorage    string       `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
+	OpenEBSStorage string       `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
+	CPUAffinity    string       `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
+	NUMANode       *int         `yaml:"numa_node,omitempty"`       // host NUMA node
+	PCIDevice      string       `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
+	RDMPath        string       `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
 	// Ceph retains the legacy OSD-disk passthrough configuration exposed by the
 	// nodes[].vm.ceph compatibility key. It overrides provider and built-in
 	// profiles when present.
@@ -56,6 +58,15 @@ type VMProfile struct {
 	// while sharing the same node identity (for example Talos vs Flatcar boot
 	// storage during an OS migration).
 	Providers ProviderVMProfiles `yaml:"providers,omitempty"`
+}
+
+// StorageNIC describes one MAC-pinned, statically addressed storage-fabric
+// interface. The supported fabric is VLANs 1201-1204, assigned to Proxmox
+// net3-net6 in VLAN order.
+type StorageNIC struct {
+	VLAN int    `yaml:"vlan"`
+	MAC  string `yaml:"mac"`
+	IP   string `yaml:"ip"`
 }
 
 // CephDisk describes the legacy OSD-disk passthrough configuration retained
@@ -664,6 +675,9 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
+	for _, node := range provisioningNodes(c.Cluster) {
+		problems = append(problems, validateStorageNICs(node)...)
+	}
 	legacyOSDModes := []struct {
 		name string
 		mode string
@@ -732,6 +746,60 @@ func validate(c *Config) error {
 		return fmt.Errorf("%s", strings.Join(problems, "\n"))
 	}
 	return nil
+}
+
+func provisioningNodes(cluster ClusterConfig) []Node {
+	nodes := append([]Node(nil), cluster.Nodes...)
+	if cluster.TestNode != nil {
+		nodes = append(nodes, *cluster.TestNode)
+	}
+	return nodes
+}
+
+func validateStorageNICs(node Node) []string {
+	nics := node.VM.StorageNICs
+	if nics == nil {
+		return nil
+	}
+
+	path := fmt.Sprintf("cluster.nodes[%s].vm.storage_nics", node.Name)
+	expectedVLANs := map[int]struct{}{1201: {}, 1202: {}, 1203: {}, 1204: {}}
+	seenVLANs := make(map[int]struct{}, len(nics))
+	validSet := len(nics) == len(expectedVLANs)
+	var problems []string
+	for i, nic := range nics {
+		entryPath := fmt.Sprintf("%s[%d]", path, i)
+		if _, ok := expectedVLANs[nic.VLAN]; !ok {
+			validSet = false
+		} else if _, duplicate := seenVLANs[nic.VLAN]; duplicate {
+			validSet = false
+		} else {
+			seenVLANs[nic.VLAN] = struct{}{}
+		}
+
+		if parsed, err := net.ParseMAC(nic.MAC); err != nil || len(parsed) != 6 {
+			problems = append(problems, fmt.Sprintf("%s.mac: %q is not a valid 6-byte MAC address", entryPath, nic.MAC))
+		}
+
+		expectedThirdOctet := nic.VLAN - 1000
+		prefix, err := netip.ParsePrefix(nic.IP)
+		if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 24 {
+			problems = append(problems, fmt.Sprintf("%s.ip: %q is not a valid IPv4 /24 prefix", entryPath, nic.IP))
+			continue
+		}
+		octets := prefix.Addr().As4()
+		if _, supported := expectedVLANs[nic.VLAN]; supported &&
+			(octets[0] != 192 || octets[1] != 168 || int(octets[2]) != expectedThirdOctet) {
+			problems = append(problems, fmt.Sprintf("%s.ip: %q must be within 192.168.%d.0/24 for VLAN %d", entryPath, nic.IP, expectedThirdOctet, nic.VLAN))
+		}
+	}
+	if len(seenVLANs) != len(expectedVLANs) {
+		validSet = false
+	}
+	if !validSet {
+		problems = append(problems, path+": must contain exactly VLANs 1201, 1202, 1203, and 1204")
+	}
+	return problems
 }
 
 // SecretRef returns the reference configured for a semantic secret key,

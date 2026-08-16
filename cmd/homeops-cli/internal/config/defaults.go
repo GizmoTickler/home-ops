@@ -497,6 +497,9 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.MacVPN != "" {
 		out.MacVPN = override.MacVPN
 	}
+	if override.StorageNICs != nil {
+		out.StorageNICs = append([]StorageNIC(nil), override.StorageNICs...)
+	}
 	if override.BootStorage != "" {
 		out.BootStorage = override.BootStorage
 	}
@@ -621,6 +624,9 @@ func copyNode(n Node) Node {
 func copyVMProfile(p VMProfile) VMProfile {
 	if p.NUMANode != nil {
 		p.NUMANode = intPtr(*p.NUMANode)
+	}
+	if p.StorageNICs != nil {
+		p.StorageNICs = append([]StorageNIC(nil), p.StorageNICs...)
 	}
 	p.Providers.Talos = copyProviderVMProfile(p.Providers.Talos)
 	p.Providers.Flatcar = copyProviderVMProfile(p.Providers.Flatcar)
