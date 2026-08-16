@@ -94,6 +94,15 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsPresentButEmptyStorageNICBlock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("cluster:\n  nodes:\n    - name: k8s-0\n      vm:\n        storage_nics: []\n"), 0o600))
+
+	_, err := LoadFile(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must contain exactly VLANs 1201, 1202, 1203, and 1204")
+}
+
 func TestLoadFileWithoutStorageNICsKeepsBlockAbsent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "homeops.yaml")
 	require.NoError(t, os.WriteFile(path, []byte("cluster:\n  nodes:\n    - name: k8s-0\n      ip: 192.168.122.10\n"), 0o600))

@@ -140,6 +140,13 @@ renders a Butane → Ignition config (injecting 1Password secrets), uploads it t
 the Proxmox snippets store over SSH, and creates the VM; kubeadm init/join runs
 on first boot and Cilium is then installed.
 
+For Proxmox nodes, `cluster.nodes[].vm.storage_nics` optionally defines the
+MAC-pinned NVMe-oF fabric. When present it must contain exactly VLANs 1201-1204;
+the CLI assigns them deterministically to `net3`-`net6` on `vmbr0`, using the
+provider's `network_mtu` and `network_queues`, and renders matching
+`/etc/systemd/network/30-stor<vlan>.network` units with each static address.
+Omitting `storage_nics` preserves the previous VM and Ignition NIC layout.
+
 ```bash
 # Deploy the control-plane / all nodes on Proxmox
 homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3
