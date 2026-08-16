@@ -820,16 +820,25 @@ var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`
 func validateStorageFabric(cluster ClusterConfig) []string {
 	nodes := provisioningNodes(cluster)
 	// baseMACPaths retains every path that can resolve to a base NIC so storage
-	// MAC collisions can name the exact conflicting entry. seenBaseNICs is the
-	// stricter set of simultaneously attached shared NICs: mac/mac_iot/mac_vpn
-	// must be unique across every node, while provider-specific mac entries can
-	// legitimately repeat one node's shared identity as alternate VM profiles.
+	// MAC collisions can name the exact conflicting entry. seenNodeMACs enforces
+	// uniqueness across nodes while allowing provider profiles to reuse another
+	// MAC identity belonging to the same node.
 	baseMACPaths := make(map[string][]string)
-	seenBaseNICs := make(map[string]string)
+	type macOwner struct {
+		nodePath string
+		macPath  string
+	}
+	type macIdentity struct {
+		macPath string
+		value   string
+	}
+	seenNodeMACs := make(map[string]macOwner)
 	var problems []string
 	for _, entry := range nodes {
 		node := entry.node
 		path := entry.path + ".vm"
+		nodeMACs := make(map[string]macIdentity)
+		seenSharedBaseNICs := make(map[string]string)
 		baseCandidates := []struct {
 			path string
 			mac  string
@@ -843,12 +852,15 @@ func validateStorageFabric(cluster ClusterConfig) []string {
 				continue
 			}
 			key := canonicalMAC(candidate.mac)
-			if firstPath, duplicate := seenBaseNICs[key]; duplicate {
+			if firstPath, duplicate := seenSharedBaseNICs[key]; duplicate {
 				problems = append(problems, fmt.Sprintf("%s: %q duplicates %s", candidate.path, candidate.mac, firstPath))
 			} else {
-				seenBaseNICs[key] = candidate.path
+				seenSharedBaseNICs[key] = candidate.path
 			}
 			baseMACPaths[key] = append(baseMACPaths[key], candidate.path)
+			if _, exists := nodeMACs[key]; !exists {
+				nodeMACs[key] = macIdentity{macPath: candidate.path, value: candidate.mac}
+			}
 		}
 
 		providerCandidates := []struct {
@@ -865,6 +877,16 @@ func validateStorageFabric(cluster ClusterConfig) []string {
 			}
 			key := canonicalMAC(candidate.mac)
 			baseMACPaths[key] = append(baseMACPaths[key], candidate.path)
+			if _, exists := nodeMACs[key]; !exists {
+				nodeMACs[key] = macIdentity{macPath: candidate.path, value: candidate.mac}
+			}
+		}
+		for key, identity := range nodeMACs {
+			if first, duplicate := seenNodeMACs[key]; duplicate && first.nodePath != entry.path {
+				problems = append(problems, fmt.Sprintf("%s: %q duplicates %s", identity.macPath, identity.value, first.macPath))
+			} else if !duplicate {
+				seenNodeMACs[key] = macOwner{nodePath: entry.path, macPath: identity.macPath}
+			}
 		}
 	}
 

@@ -224,6 +224,76 @@ func TestLoadFileRejectsDuplicateBaseNICMACs(t *testing.T) {
 	}
 }
 
+func TestLoadFileRejectsCrossNodeProviderMACCollisions(t *testing.T) {
+	cases := []struct {
+		name    string
+		nodes   string
+		wantErr string
+	}{
+		{
+			name: "R11 provider MAC versus provider MAC case folded",
+			nodes: `
+    - name: k8s-0
+      vm:
+        providers:
+          talos:
+            mac: "AA:BB:CC:DD:EE:11"
+    - name: k8s-1
+      vm:
+        providers:
+          talos:
+            mac: "aa:bb:cc:dd:ee:11"
+`,
+			wantErr: `cluster.nodes[k8s-1].vm.providers.talos.mac: "aa:bb:cc:dd:ee:11" duplicates cluster.nodes[k8s-0].vm.providers.talos.mac`,
+		},
+		{
+			name: "R12 provider MAC versus another node base MAC case folded",
+			nodes: `
+    - name: k8s-0
+      vm:
+        providers:
+          talos:
+            mac: "AA:BB:CC:DD:EE:12"
+    - name: k8s-1
+      vm:
+        mac: "aa:bb:cc:dd:ee:12"
+`,
+			wantErr: `cluster.nodes[k8s-1].vm.mac: "aa:bb:cc:dd:ee:12" duplicates cluster.nodes[k8s-0].vm.providers.talos.mac`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "homeops.yaml")
+			content := "cluster:\n  nodes:" + tc.nodes
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+			_, err := LoadFile(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
+func TestLoadFileAllowsSameNodeProviderMACReuse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "homeops.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  nodes:
+    - name: k8s-0
+      vm:
+        mac: "AA:BB:CC:DD:EE:13"
+        providers:
+          talos:
+            mac: "aa:bb:cc:dd:ee:13"
+          flatcar:
+            mac: "AA:BB:CC:DD:EE:13"
+`), 0o600))
+
+	_, err := LoadFile(path)
+	require.NoError(t, err)
+}
+
 func TestLoadFileRejectsCrossNodeStorageIdentityCollisions(t *testing.T) {
 	base := `
 cluster:
