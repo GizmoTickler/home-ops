@@ -363,6 +363,24 @@ func TestBuildNodeEnv(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestBuildNodeEnvIncludesStorageNICs(t *testing.T) {
+	defer stubVersions(t)()
+	defer stubSecrets(t)()
+	want := []versionconfig.StorageNIC{
+		{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.20/24"},
+		{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.20/24"},
+		{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.20/24"},
+		{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.20/24"},
+	}
+	testutil.Swap(t, &getFlatcarNodeConfigFn, func(name string) (proxmox.FlatcarNodeConfig, bool) {
+		return proxmox.FlatcarNodeConfig{Name: name, NodeIP: "192.168.122.10", StorageNICs: want}, true
+	})
+
+	env, err := buildNodeEnv("k8s-0", "", "", "", "")
+	require.NoError(t, err)
+	assert.Equal(t, want, env.StorageNICs)
+}
+
 func TestRenderIgnitionCommand(t *testing.T) {
 	defer stubVersions(t)()
 	orig := renderIgnitionFn

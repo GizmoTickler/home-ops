@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -77,6 +78,8 @@ type NodeEnv struct {
 	NTPServers        string // NTP_SERVERS space-separated
 	NetworkMTU        string // NETWORK_MTU
 
+	StorageNICs []config.StorageNIC // optional NVMe-oF storage fabric networkd units
+
 	// Runtime join material (only set for join configs, after `kubeadm init`).
 	CertificateKey string // CERTIFICATE_KEY
 	BootstrapToken string // BOOTSTRAP_TOKEN
@@ -120,6 +123,9 @@ func (e NodeEnv) envMap() map[string]string {
 	add(constants.EnvImageGCLow, e.ImageGCLow)
 	add(constants.EnvNTPServers, e.NTPServers)
 	add(constants.EnvNetworkMTU, e.NetworkMTU)
+	// This placeholder is always replaced, including with an empty string, so
+	// nodes without storage NICs retain the pre-existing Ignition file set.
+	m[constants.EnvStorageNetworkFiles] = formatStorageNetworkFiles(e.StorageNICs, e.NetworkMTU)
 	add(constants.EnvCertificateKey, e.CertificateKey)
 	add(constants.EnvBootstrapToken, e.BootstrapToken)
 	add(constants.EnvCACertHash, e.CACertHash)
@@ -162,6 +168,36 @@ func (e NodeEnv) withClusterDefaults() NodeEnv {
 		e.NetworkMTU = strconv.Itoa(cfg.Hypervisors.Proxmox.VM.NetworkMTU)
 	}
 	return e
+}
+
+func formatStorageNetworkFiles(storageNICs []config.StorageNIC, mtu string) string {
+	if len(storageNICs) == 0 {
+		return ""
+	}
+
+	nics := append([]config.StorageNIC(nil), storageNICs...)
+	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
+	var b strings.Builder
+	for index, nic := range nics {
+		if index > 0 {
+			b.WriteByte('\n')
+		}
+		_, _ = fmt.Fprintf(&b, `    - path: /etc/systemd/network/30-stor%d.network
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress=%s
+          [Link]
+          MTUBytes=%s
+          [Network]
+          Address=%s
+          LinkLocalAddressing=no
+          LLDP=no
+`, nic.VLAN, nic.MAC, mtu, nic.IP)
+	}
+	return b.String()
 }
 
 func formatFlatcarCertSANs(values []string) string {

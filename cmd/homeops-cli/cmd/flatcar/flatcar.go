@@ -647,6 +647,7 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 		NodeMAC:           nodeConfig.MacAddress,
 		NodeMACIoT:        nodeConfig.MacAddressIoT,
 		NodeMACVPN:        nodeConfig.MacAddressVPN,
+		StorageNICs:       append([]versionconfig.StorageNIC(nil), nodeConfig.StorageNICs...),
 		K8sEndpoint:       k8sEndpoint,
 		SSHAuthorizedKey:  sshKey,
 		ClusterName:       cfg.ClusterNameWithDefault(),

@@ -42,6 +42,7 @@ storage:
       label: openebs-local
       wipe_filesystem: false
   files:
+{{ ENV.STORAGE_NETWORK_FILES }}
     # NOTE: the Kubernetes sysext .raw + sysupdate .conf files are intentionally NOT fetched
     # here. Downloading a large sysext during initramfs Ignition fails because networking is
     # not up yet in the initramfs (proven in the P2 lab: DHCP only succeeds in real-root, by

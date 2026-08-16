@@ -70,6 +70,8 @@ const (
 	EnvNetworkMTU       = "NETWORK_MTU"
 )
 
+const EnvStorageNetworkFiles = "STORAGE_NETWORK_FILES"
+
 // Kubernetes namespaces commonly used
 const (
 	NSFluxSystem     = "flux-system"

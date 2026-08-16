@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -90,6 +91,60 @@ func TestRenderIgnitionUsesNTPServersAndNetworkMTU(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/timesyncd.conf"), "NTP=10.0.0.1 10.0.0.2")
 	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/network/10-k8s.network"), "MTUBytes=1400")
+}
+
+func TestRenderIgnitionIncludesStorageNetworkdUnits(t *testing.T) {
+	cases := []struct {
+		name        string
+		hostOctet   string
+		storageNICs []config.StorageNIC
+	}{
+		{name: "k8s-0", hostOctet: "20", storageNICs: []config.StorageNIC{
+			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
+			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
+			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
+			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
+		}},
+		{name: "k8s-1", hostOctet: "21", storageNICs: []config.StorageNIC{
+			{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24"},
+			{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24"},
+			{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24"},
+			{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24"},
+		}},
+		{name: "k8s-2", hostOctet: "22", storageNICs: []config.StorageNIC{
+			{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24"},
+			{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24"},
+			{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24"},
+			{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24"},
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := sampleEnv()
+			env.NodeName = tc.name
+			env.StorageNICs = tc.storageNICs
+
+			first, err := RenderIgnition(env)
+			require.NoError(t, err)
+			second, err := RenderIgnition(env)
+			require.NoError(t, err)
+			assert.Equal(t, first, second, "re-rendering the same node must be byte-stable")
+
+			for _, nic := range env.StorageNICs {
+				path := "/etc/systemd/network/30-stor" + fmt.Sprint(nic.VLAN) + ".network"
+				want := "[Match]\nMACAddress=" + nic.MAC + "\n[Link]\nMTUBytes=9000\n[Network]\nAddress=" + nic.IP + "\nLinkLocalAddressing=no\nLLDP=no\n"
+				assert.Equal(t, want, ignitionFileContent(t, first, path), path)
+				assert.Contains(t, nic.IP, "."+tc.hostOctet+"/24")
+			}
+		})
+	}
+}
+
+func TestRenderIgnitionWithoutStorageNICsKeepsUnitsAbsent(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	assert.NotContains(t, string(ign), "30-stor")
 }
 
 func ignitionFileContent(t *testing.T, ign []byte, path string) string {
