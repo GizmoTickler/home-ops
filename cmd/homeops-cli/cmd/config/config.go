@@ -237,6 +237,9 @@ hypervisors:
     #  network_bridge: vmbr0
     #  network_mtu: 9000
     #  network_queues: 8
+    #  network_queue_overrides: # optional Proxmox VirtIO queues per base NIC
+    #    net0: 16
+    #    net2: 8
     #  vlan_id: 999
     #  scsi_controller: virtio-scsi-single
     #  watchdog_model: i6300esb

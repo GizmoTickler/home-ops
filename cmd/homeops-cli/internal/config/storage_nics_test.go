@@ -72,9 +72,13 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 		wantErr     string
 	}{
 		{name: "malformed MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "not-a-mac", wantErr: "not a valid 6-byte MAC"},
+		{name: "Cisco dot MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "bc24.113b.e050", wantErr: "colon-separated 6-octet MAC"},
+		{name: "dash-separated MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "BC-24-11-3B-E0-50", wantErr: "colon-separated 6-octet MAC"},
 		{name: "wrong VLAN octet", entries: validEntries, old: "192.168.203.20/24", replacement: "192.168.202.20/24", wantErr: "must be within 192.168.203.0/24"},
+		{name: "inconsistent host octet", entries: validEntries, old: "192.168.203.20/24", replacement: "192.168.203.21/24", wantErr: "must use one host octet across all storage VLANs"},
 		{name: "missing VLAN", entries: validEntries[:len(validEntries)-len("          - vlan: 1204\n            mac: \"BC:24:11:FB:16:76\"\n            ip: 192.168.204.20/24\n")], wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
 		{name: "duplicate VLAN", entries: validEntries, old: "vlan: 1204", replacement: "vlan: 1203", wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
+		{name: "duplicate MAC within node", entries: validEntries, old: "BC:24:11:ED:F6:B6", replacement: "bc:24:11:3b:e0:50", wantErr: "duplicates cluster.nodes[k8s-0].vm.storage_nics[0].mac"},
 	}
 
 	for _, tc := range cases {
@@ -92,6 +96,107 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
+}
+
+func TestLoadFileRejectsStorageMACUsedByBaseNIC(t *testing.T) {
+	base := `
+cluster:
+  nodes:
+    - name: k8s-0
+      vm:
+        mac: "02:00:00:00:00:10"
+        mac_iot: "02:00:00:00:00:11"
+        mac_vpn: "02:00:00:00:00:12"
+        storage_nics:
+          - {vlan: 1201, mac: "02:00:00:00:12:01", ip: 192.168.201.20/24}
+          - {vlan: 1202, mac: "02:00:00:00:12:02", ip: 192.168.202.20/24}
+          - {vlan: 1203, mac: "02:00:00:00:12:03", ip: 192.168.203.20/24}
+          - {vlan: 1204, mac: "02:00:00:00:12:04", ip: 192.168.204.20/24}
+`
+	cases := []struct {
+		name        string
+		baseMAC     string
+		storageMAC  string
+		wantBaseKey string
+	}{
+		{name: "net0", baseMAC: "02:00:00:00:00:10", storageMAC: "02:00:00:00:12:01", wantBaseKey: ".mac"},
+		{name: "net1", baseMAC: "02:00:00:00:00:11", storageMAC: "02:00:00:00:12:01", wantBaseKey: ".mac_iot"},
+		{name: "net2", baseMAC: "02:00:00:00:00:12", storageMAC: "02:00:00:00:12:01", wantBaseKey: ".mac_vpn"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			content := replaceOnce(base, tc.storageMAC, tc.baseMAC)
+			path := filepath.Join(t.TempDir(), "homeops.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+			_, err := LoadFile(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "duplicates base NIC")
+			assert.Contains(t, err.Error(), tc.wantBaseKey)
+		})
+	}
+
+	t.Run("inherited cross-node net0", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "homeops.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  nodes:
+    - name: k8s-0
+      vm:
+        storage_nics:
+          - {vlan: 1201, mac: "00:a0:98:1a:f3:72", ip: 192.168.201.20/24}
+          - {vlan: 1202, mac: "02:00:00:00:12:02", ip: 192.168.202.20/24}
+          - {vlan: 1203, mac: "02:00:00:00:12:03", ip: 192.168.203.20/24}
+          - {vlan: 1204, mac: "02:00:00:00:12:04", ip: 192.168.204.20/24}
+`), 0o600))
+
+		_, err := LoadFile(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicates base NIC cluster.nodes[k8s-1]")
+	})
+}
+
+func TestLoadFileRejectsCrossNodeStorageIdentityCollisions(t *testing.T) {
+	base := `
+cluster:
+  nodes:
+    - name: k8s-0
+      vm:
+        storage_nics:
+          - {vlan: 1201, mac: "02:00:00:00:10:01", ip: 192.168.201.20/24}
+          - {vlan: 1202, mac: "02:00:00:00:10:02", ip: 192.168.202.20/24}
+          - {vlan: 1203, mac: "02:00:00:00:10:03", ip: 192.168.203.20/24}
+          - {vlan: 1204, mac: "02:00:00:00:10:04", ip: 192.168.204.20/24}
+    - name: k8s-1
+      vm:
+        storage_nics:
+          - {vlan: 1201, mac: "02:00:00:00:11:01", ip: 192.168.201.21/24}
+          - {vlan: 1202, mac: "02:00:00:00:11:02", ip: 192.168.202.21/24}
+          - {vlan: 1203, mac: "02:00:00:00:11:03", ip: 192.168.203.21/24}
+          - {vlan: 1204, mac: "02:00:00:00:11:04", ip: 192.168.204.21/24}
+`
+	t.Run("duplicate MAC", func(t *testing.T) {
+		content := replaceOnce(base, "02:00:00:00:11:01", "02:00:00:00:10:01")
+		path := filepath.Join(t.TempDir(), "homeops.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		_, err := LoadFile(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duplicates cluster.nodes[k8s-0].vm.storage_nics[0].mac")
+	})
+
+	t.Run("duplicate host octet", func(t *testing.T) {
+		content := replaceOnce(base, ".201.21/24", ".201.20/24")
+		content = replaceOnce(content, ".202.21/24", ".202.20/24")
+		content = replaceOnce(content, ".203.21/24", ".203.20/24")
+		content = replaceOnce(content, ".204.21/24", ".204.20/24")
+		path := filepath.Join(t.TempDir(), "homeops.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		_, err := LoadFile(path)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "host octet 20 is already used by node k8s-0")
+	})
 }
 
 func TestLoadFileRejectsPresentButEmptyStorageNICBlock(t *testing.T) {
@@ -117,6 +222,9 @@ func TestLoadFileWithoutStorageNICsKeepsBlockAbsent(t *testing.T) {
 func TestRepositoryHomeopsStorageNICMatrix(t *testing.T) {
 	cfg, err := LoadFile(filepath.Join("..", "..", "..", "..", "homeops.yaml"))
 	require.NoError(t, err)
+	assert.Equal(t, 16, cfg.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net0)
+	assert.Zero(t, cfg.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net1)
+	assert.Equal(t, 8, cfg.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net2)
 
 	want := map[string][]StorageNIC{
 		"k8s-0": {

@@ -18,12 +18,19 @@ var charNodes = []struct{ name, ip, mac string }{
 	{"k8s-2", "192.168.122.12", "00:a0:98:3e:6c:22"},
 }
 
+var charStorageNICs = []config.StorageNIC{
+	{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
+	{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
+	{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
+	{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
+}
+
 // charEnv builds a fully-populated NodeEnv identical to what the production
 // builders assemble from a repo-mirror config (cluster.name: home-ops-cluster
 // plus built-in defaults). This is the characterization fixture: its rendered
 // output must stay byte-identical across the config-threading refactor.
 func charEnv(name, ip, mac string) NodeEnv {
-	return NodeEnv{
+	env := NodeEnv{
 		NodeName:          name,
 		NodeIP:            ip,
 		Node0IP:           "192.168.122.10",
@@ -44,6 +51,10 @@ func charEnv(name, ip, mac string) NodeEnv {
 		BootstrapToken:    "abcdef.0123456789abcdef",
 		CACertHash:        "sha256:" + strings.Repeat("a", 64),
 	}
+	if name == "k8s-0" {
+		env.StorageNICs = append([]config.StorageNIC(nil), charStorageNICs...)
+	}
+	return env
 }
 
 func goldenCompare(t *testing.T, rel string, got []byte) {

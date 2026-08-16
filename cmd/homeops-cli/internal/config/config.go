@@ -22,6 +22,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -67,6 +68,15 @@ type StorageNIC struct {
 	VLAN int    `yaml:"vlan"`
 	MAC  string `yaml:"mac"`
 	IP   string `yaml:"ip"`
+}
+
+// NetworkQueueOverrides customizes VirtIO multiqueue per base NIC. Zero keeps
+// the legacy behavior: net0 uses VMDefaults.NetworkQueues and net1/net2 omit
+// the queues key.
+type NetworkQueueOverrides struct {
+	Net0 int `yaml:"net0,omitempty"`
+	Net1 int `yaml:"net1,omitempty"`
+	Net2 int `yaml:"net2,omitempty"`
 }
 
 // CephDisk describes the legacy OSD-disk passthrough configuration retained
@@ -121,14 +131,15 @@ type VMDefaults struct {
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
 	// Ceph retains the default legacy OSD-disk passthrough configuration for
 	// the nodes[].vm.ceph compatibility key. Per-node configuration overrides it.
-	Ceph           CephDisk `yaml:"ceph,omitempty"`
-	NetworkBridge  string   `yaml:"network_bridge,omitempty"`
-	NetworkMTU     int      `yaml:"network_mtu,omitempty"`
-	NetworkQueues  int      `yaml:"network_queues,omitempty"`
-	VLANID         int      `yaml:"vlan_id,omitempty"`
-	CPUType        string   `yaml:"cpu_type,omitempty"`
-	SCSIController string   `yaml:"scsi_controller,omitempty"`
-	WatchdogModel  string   `yaml:"watchdog_model,omitempty"`
+	Ceph                  CephDisk              `yaml:"ceph,omitempty"`
+	NetworkBridge         string                `yaml:"network_bridge,omitempty"`
+	NetworkMTU            int                   `yaml:"network_mtu,omitempty"`
+	NetworkQueues         int                   `yaml:"network_queues,omitempty"`
+	NetworkQueueOverrides NetworkQueueOverrides `yaml:"network_queue_overrides,omitempty"`
+	VLANID                int                   `yaml:"vlan_id,omitempty"`
+	CPUType               string                `yaml:"cpu_type,omitempty"`
+	SCSIController        string                `yaml:"scsi_controller,omitempty"`
+	WatchdogModel         string                `yaml:"watchdog_model,omitempty"`
 }
 
 // Node is one control-plane node of the cluster.
@@ -600,6 +611,10 @@ func LoadFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config file %s: %w", expanded, err)
 	}
 	applyDefaults(cfg)
+	if problems := validateStorageFabric(cfg.Cluster); len(problems) > 0 {
+		sort.Strings(problems)
+		return nil, fmt.Errorf("invalid config file %s: %s", expanded, strings.Join(problems, "\n"))
+	}
 	cfg.Source = expanded
 	return cfg, nil
 }
@@ -675,9 +690,7 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
-	for _, node := range provisioningNodes(c.Cluster) {
-		problems = append(problems, validateStorageNICs(node)...)
-	}
+	problems = append(problems, validateStorageFabric(c.Cluster)...)
 	legacyOSDModes := []struct {
 		name string
 		mode string
@@ -724,6 +737,9 @@ func validate(c *Config) error {
 		{"hypervisors.proxmox.vm.openebs_disk_gb", c.Hypervisors.Proxmox.VM.OpenEBSDiskGB},
 		{"hypervisors.proxmox.vm.network_mtu", c.Hypervisors.Proxmox.VM.NetworkMTU},
 		{"hypervisors.proxmox.vm.network_queues", c.Hypervisors.Proxmox.VM.NetworkQueues},
+		{"hypervisors.proxmox.vm.network_queue_overrides.net0", c.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net0},
+		{"hypervisors.proxmox.vm.network_queue_overrides.net1", c.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net1},
+		{"hypervisors.proxmox.vm.network_queue_overrides.net2", c.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net2},
 		{"hypervisors.truenas.vm.memory_mb", c.Hypervisors.TrueNAS.VM.MemoryMB},
 		{"hypervisors.truenas.vm.cores", c.Hypervisors.TrueNAS.VM.Cores},
 		{"hypervisors.truenas.vm.boot_disk_gb", c.Hypervisors.TrueNAS.VM.BootDiskGB},
@@ -756,16 +772,91 @@ func provisioningNodes(cluster ClusterConfig) []Node {
 	return nodes
 }
 
-func validateStorageNICs(node Node) []string {
+var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`)
+
+func validateStorageFabric(cluster ClusterConfig) []string {
+	nodes := provisioningNodes(cluster)
+	baseMACs := make(map[string]string)
+	for _, node := range nodes {
+		path := fmt.Sprintf("cluster.nodes[%s].vm", node.Name)
+		candidates := []struct {
+			path string
+			mac  string
+		}{
+			{path + ".mac", node.VM.Mac},
+			{path + ".mac_iot", node.VM.MacIoT},
+			{path + ".mac_vpn", node.VM.MacVPN},
+			{path + ".providers.talos.mac", node.VM.Providers.Talos.Mac},
+			{path + ".providers.flatcar.mac", node.VM.Providers.Flatcar.Mac},
+			{path + ".providers.vsphere.mac", node.VM.Providers.VSphere.Mac},
+		}
+		for _, candidate := range candidates {
+			if candidate.mac == "" {
+				continue
+			}
+			key := canonicalMAC(candidate.mac)
+			if _, exists := baseMACs[key]; !exists {
+				baseMACs[key] = candidate.path
+			}
+		}
+	}
+
+	seenStorageMACs := make(map[string]string)
+	seenHostOctets := make(map[byte]string)
+	var problems []string
+	for _, node := range nodes {
+		nodeProblems, hostOctet, hostOctetValid := validateStorageNICs(node)
+		problems = append(problems, nodeProblems...)
+		path := fmt.Sprintf("cluster.nodes[%s].vm.storage_nics", node.Name)
+		for index, nic := range node.VM.StorageNICs {
+			if !strictStorageMAC.MatchString(nic.MAC) {
+				continue
+			}
+			macPath := fmt.Sprintf("%s[%d].mac", path, index)
+			key := canonicalMAC(nic.MAC)
+			if firstPath, duplicate := seenStorageMACs[key]; duplicate {
+				problems = append(problems, fmt.Sprintf("%s: %q duplicates %s", macPath, nic.MAC, firstPath))
+			} else {
+				seenStorageMACs[key] = macPath
+			}
+			if basePath, duplicate := baseMACs[key]; duplicate {
+				problems = append(problems, fmt.Sprintf("%s: %q duplicates base NIC %s", macPath, nic.MAC, basePath))
+			}
+		}
+		if !hostOctetValid {
+			continue
+		}
+		if firstNode, duplicate := seenHostOctets[hostOctet]; duplicate {
+			problems = append(problems, fmt.Sprintf("%s: host octet %d is already used by node %s", path, hostOctet, firstNode))
+		} else {
+			seenHostOctets[hostOctet] = node.Name
+		}
+	}
+	return problems
+}
+
+func canonicalMAC(value string) string {
+	parsed, err := net.ParseMAC(value)
+	if err == nil && len(parsed) == 6 {
+		return strings.ToLower(parsed.String())
+	}
+	return strings.ToLower(value)
+}
+
+func validateStorageNICs(node Node) ([]string, byte, bool) {
 	nics := node.VM.StorageNICs
 	if nics == nil {
-		return nil
+		return nil, 0, false
 	}
 
 	path := fmt.Sprintf("cluster.nodes[%s].vm.storage_nics", node.Name)
 	expectedVLANs := map[int]struct{}{1201: {}, 1202: {}, 1203: {}, 1204: {}}
 	seenVLANs := make(map[int]struct{}, len(nics))
 	validSet := len(nics) == len(expectedVLANs)
+	var hostOctet byte
+	hostOctetSet := false
+	hostOctetValid := len(nics) > 0
+	hostOctetMismatch := false
 	var problems []string
 	for i, nic := range nics {
 		entryPath := fmt.Sprintf("%s[%d]", path, i)
@@ -777,17 +868,25 @@ func validateStorageNICs(node Node) []string {
 			seenVLANs[nic.VLAN] = struct{}{}
 		}
 
-		if parsed, err := net.ParseMAC(nic.MAC); err != nil || len(parsed) != 6 {
-			problems = append(problems, fmt.Sprintf("%s.mac: %q is not a valid 6-byte MAC address", entryPath, nic.MAC))
+		if !strictStorageMAC.MatchString(nic.MAC) {
+			problems = append(problems, fmt.Sprintf("%s.mac: %q is not a valid 6-byte MAC address; expected a colon-separated 6-octet MAC", entryPath, nic.MAC))
 		}
 
 		expectedThirdOctet := nic.VLAN - 1000
 		prefix, err := netip.ParsePrefix(nic.IP)
 		if err != nil || !prefix.Addr().Is4() || prefix.Bits() != 24 {
 			problems = append(problems, fmt.Sprintf("%s.ip: %q is not a valid IPv4 /24 prefix", entryPath, nic.IP))
+			hostOctetValid = false
 			continue
 		}
 		octets := prefix.Addr().As4()
+		if !hostOctetSet {
+			hostOctet = octets[3]
+			hostOctetSet = true
+		} else if octets[3] != hostOctet {
+			hostOctetMismatch = true
+			hostOctetValid = false
+		}
 		if _, supported := expectedVLANs[nic.VLAN]; supported &&
 			(octets[0] != 192 || octets[1] != 168 || int(octets[2]) != expectedThirdOctet) {
 			problems = append(problems, fmt.Sprintf("%s.ip: %q must be within 192.168.%d.0/24 for VLAN %d", entryPath, nic.IP, expectedThirdOctet, nic.VLAN))
@@ -799,7 +898,10 @@ func validateStorageNICs(node Node) []string {
 	if !validSet {
 		problems = append(problems, path+": must contain exactly VLANs 1201, 1202, 1203, and 1204")
 	}
-	return problems
+	if hostOctetMismatch {
+		problems = append(problems, path+": must use one host octet across all storage VLANs")
+	}
+	return problems, hostOctet, hostOctetValid && hostOctetSet
 }
 
 // SecretRef returns the reference configured for a semantic secret key,

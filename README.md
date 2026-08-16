@@ -110,7 +110,7 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - **Networking**:
   - Cilium CNI with eBPF datapath
   - kgateway (Gateway API) for ingress with L2/BGP announcements
-  - VirtIO network adapters with multi-queue (8 queues)
+  - VirtIO network adapters: 16 queues on the primary NIC, 8 on VLAN 90 and the storage fabric, and no queues key on VLAN 20
   - Network interface: `eth0` (Flatcar names the Proxmox VirtIO NIC `eth0`, not `ens18`)
 - **Guest Integration**: QEMU Guest Agent for enhanced VM management
 - **Ingress**: kgateway (Gateway API) with Cilium L2/BGP LoadBalancer services
@@ -466,7 +466,7 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 - **Provisioning**: Ignition via qemu **fw_cfg** (`opt/org.flatcar-linux/config`) — the rendered Ignition is attached at VM create; the disk imports a Flatcar image (no install ISO)
 - **BIOS**: OVMF (UEFI)
 - **CPU Type**: `host,flags=+pdpe1gb;-spec-ctrl`
-- **Network**: VirtIO with multi-queue (8 queues), MTU 9000, bridge `vmbr0`, VLAN 999
+- **Network**: VirtIO on `vmbr0`; primary `net0` uses MTU 9000, VLAN 999, and 16 queues; VLAN 20 `net1` uses MTU 1500 with no queues key; VLAN 90 `net2` uses MTU 1500 and 8 queues; storage `net3`-`net6` use MTU 9000 and 8 queues
 - **Guest Agent**: QEMU Guest Agent for enhanced management
 - **Machine Type**: Q35 chipset
 

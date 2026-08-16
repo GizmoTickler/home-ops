@@ -133,7 +133,7 @@ func TestRenderIgnitionIncludesStorageNetworkdUnits(t *testing.T) {
 
 			for _, nic := range env.StorageNICs {
 				path := "/etc/systemd/network/30-stor" + fmt.Sprint(nic.VLAN) + ".network"
-				want := "[Match]\nMACAddress=" + nic.MAC + "\n[Link]\nMTUBytes=9000\n[Network]\nAddress=" + nic.IP + "\nLinkLocalAddressing=no\nLLDP=no\n"
+				want := "[Match]\nMACAddress=" + nic.MAC + "\n\n[Link]\nMTUBytes=9000\n\n[Network]\nAddress=" + nic.IP + "\nLinkLocalAddressing=no\nLLDP=no\n"
 				assert.Equal(t, want, ignitionFileContent(t, first, path), path)
 				assert.Contains(t, nic.IP, "."+tc.hostOctet+"/24")
 			}

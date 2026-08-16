@@ -191,8 +191,12 @@ func buildNetworkConfig(config VMConfig, profile vmNetworkOptionsProfile) string
 	} else if config.NetworkMTU != 0 {
 		netConfig += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
 	}
-	if profile.includeQueues && config.NetworkQueues > 0 {
-		netConfig += fmt.Sprintf(",queues=%d", config.NetworkQueues)
+	queues := config.NetworkQueues
+	if config.NetworkQueueOverrides.Net0 > 0 {
+		queues = config.NetworkQueueOverrides.Net0
+	}
+	if profile.includeQueues && queues > 0 {
+		netConfig += fmt.Sprintf(",queues=%d", queues)
 	}
 	if profile.usePositiveMTUAndVLAN {
 		if config.VLANID > 0 {
@@ -271,17 +275,22 @@ func secondaryNICs(config VMConfig) []secondaryNIC {
 		mtu = 1500
 	}
 	var out []secondaryNIC
-	add := func(name, mac string, vlan int) {
+	add := func(name, mac string, vlan, queues int) {
 		if mac == "" || vlan == 0 {
 			return
 		}
+		value := fmt.Sprintf("virtio=%s,bridge=%s,mtu=%d", mac, config.NetworkBridge, mtu)
+		if queues > 0 {
+			value += fmt.Sprintf(",queues=%d", queues)
+		}
+		value += fmt.Sprintf(",tag=%d", vlan)
 		out = append(out, secondaryNIC{
 			name:  name,
-			value: fmt.Sprintf("virtio=%s,bridge=%s,mtu=%d,tag=%d", mac, config.NetworkBridge, mtu, vlan),
+			value: value,
 		})
 	}
-	add("net1", config.MacAddressIoT, config.VLANIDIoT)
-	add("net2", config.MacAddressVPN, config.VLANIDVPN)
+	add("net1", config.MacAddressIoT, config.VLANIDIoT, config.NetworkQueueOverrides.Net1)
+	add("net2", config.MacAddressVPN, config.VLANIDVPN, config.NetworkQueueOverrides.Net2)
 	return out
 }
 
@@ -297,16 +306,16 @@ func storageNICs(config VMConfig) []secondaryNIC {
 	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
 	out := make([]secondaryNIC, 0, len(nics))
 	for index, nic := range nics {
+		value := fmt.Sprintf("virtio=%s,bridge=%s,tag=%d", nic.MAC, config.NetworkBridge, nic.VLAN)
+		if config.NetworkMTU > 0 {
+			value += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
+		}
+		if config.NetworkQueues > 0 {
+			value += fmt.Sprintf(",queues=%d", config.NetworkQueues)
+		}
 		out = append(out, secondaryNIC{
-			name: fmt.Sprintf("net%d", index+3),
-			value: fmt.Sprintf(
-				"virtio=%s,bridge=%s,tag=%d,mtu=%d,queues=%d",
-				nic.MAC,
-				config.NetworkBridge,
-				nic.VLAN,
-				config.NetworkMTU,
-				config.NetworkQueues,
-			),
+			name:  fmt.Sprintf("net%d", index+3),
+			value: value,
 		})
 	}
 	return out

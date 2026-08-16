@@ -137,11 +137,12 @@ type VMConfig struct {
 	ISOPath    string // Full ISO path (e.g., "local:iso/talos-1.12.2-no-multipath.iso")
 
 	// Network Configuration
-	NetworkBridge string // e.g., "vmbr0"
-	NetworkMTU    int    // e.g., 9000 for jumbo frames
-	NetworkQueues int    // e.g., 8
-	VLANID        int    // e.g., 999
-	MacAddress    string // Static MAC address
+	NetworkBridge         string                           // e.g., "vmbr0"
+	NetworkMTU            int                              // e.g., 9000 for jumbo frames
+	NetworkQueues         int                              // e.g., 8
+	NetworkQueueOverrides homeopscfg.NetworkQueueOverrides // optional net0/net1/net2 queue overrides
+	VLANID                int                              // e.g., 999
+	MacAddress            string                           // Static MAC address
 	// Secondary NICs used ONLY as Multus macvlan masters. Empty MAC = NIC not
 	// created, so a node without them provisions exactly as before.
 	MacAddressIoT string                  // net1 MAC (VLAN 20, macvlan master eth1)
@@ -324,6 +325,7 @@ func GetDefaultVMConfig() VMConfig {
 	cfg.NetworkBridge = vm.NetworkBridge
 	cfg.NetworkMTU = vm.NetworkMTU
 	cfg.NetworkQueues = vm.NetworkQueues
+	cfg.NetworkQueueOverrides = vm.NetworkQueueOverrides
 	cfg.VLANID = vm.VLANID
 	cfg.CPUType = vm.CPUType
 	cfg.SCSIController = vm.SCSIController

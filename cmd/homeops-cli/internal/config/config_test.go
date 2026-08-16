@@ -270,6 +270,7 @@ func TestLoadFileRejectsBadConfig(t *testing.T) {
 		{"bad store backend", "state:\n  pki:\n    backend: s3\n", "not supported"},
 		{"bad hypervisor", "hypervisors:\n  default: xen\n", "not supported"},
 		{"negative numeric vm knob", "hypervisors:\n  proxmox:\n    vm:\n      network_queues: -1\n", "must not be negative"},
+		{"negative per-NIC queue override", "hypervisors:\n  proxmox:\n    vm:\n      network_queue_overrides:\n        net0: -1\n", "must not be negative"},
 		{"bad pod cidr", "cluster:\n  pod_cidr: not-a-cidr\n", "cluster.pod_cidr"},
 		{"bad service cidr", "cluster:\n  service_cidr: not-a-cidr\n", "cluster.service_cidr"},
 		{"bad node subnet", "cluster:\n  node_subnet: not-a-cidr\n", "cluster.node_subnet"},

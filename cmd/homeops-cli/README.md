@@ -142,10 +142,30 @@ on first boot and Cilium is then installed.
 
 For Proxmox nodes, `cluster.nodes[].vm.storage_nics` optionally defines the
 MAC-pinned NVMe-oF fabric. When present it must contain exactly VLANs 1201-1204;
-the CLI assigns them deterministically to `net3`-`net6` on `vmbr0`, using the
-provider's `network_mtu` and `network_queues`, and renders matching
+all storage MACs must use the six-octet colon form and be unique across the
+fabric and every node's base NICs. Each node uses one storage host octet across
+all four VLANs, and that octet must be unique per node. The CLI assigns the NICs
+deterministically to `net3`-`net6` on `vmbr0`, using the provider's
+`network_mtu` and `network_queues`, and renders matching
 `/etc/systemd/network/30-stor<vlan>.network` units with each static address.
 Omitting `storage_nics` preserves the previous VM and Ignition NIC layout.
+
+Proxmox base-NIC multiqueue can be overridden without changing legacy configs:
+
+```yaml
+hypervisors:
+  proxmox:
+    vm:
+      network_queues: 8
+      network_queue_overrides:
+        net0: 16
+        net2: 8
+```
+
+An omitted override preserves the former behavior: `net0` uses
+`network_queues`, while `net1` and `net2` omit the `queues` key. In this repo,
+the live VM parity settings are 16 queues on `net0`, no queues key on the VLAN
+20 `net1`, and 8 queues on the VLAN 90 `net2`; storage NICs retain 8 queues.
 
 ```bash
 # Deploy the control-plane / all nodes on Proxmox

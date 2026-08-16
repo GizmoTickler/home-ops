@@ -189,8 +189,10 @@ func formatStorageNetworkFiles(storageNICs []config.StorageNIC, mtu string) stri
         inline: |
           [Match]
           MACAddress=%s
+
           [Link]
           MTUBytes=%s
+
           [Network]
           Address=%s
           LinkLocalAddressing=no
