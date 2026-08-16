@@ -123,7 +123,7 @@ cluster:
 [ NFSMount_Global_Options ]
 nfsvers=4.2
 hard=True
-# 16-transport kernel budget: 4 per address × 4 storage VLANs (NFS_MAX_TRANSPORTS=16).
+# Worst-case budget: 16 is the NFS_MAX_TRANSPORTS ceiling; nconnect=4 leaves room for up to 4 server addresses.
 nconnect=4
 max_connect=16
 noatime=True
@@ -173,15 +173,21 @@ func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testin
 
 			ign, err := RenderIgnition(env)
 			require.NoError(t, err)
-			var anchors []ignitionSystemdUnit
+			anchors := make(map[string]ignitionSystemdUnit)
 			for name, unit := range ignitionSystemdUnits(t, ign) {
 				if strings.Contains(name, `stor\x2dtrunk`) {
-					anchors = append(anchors, unit)
+					anchors[name] = unit
 				}
 			}
 			require.Len(t, anchors, 3)
-			for _, unit := range anchors {
+			for _, storageVLAN := range cfg.Cluster.NFSTrunk.VLANs {
+				vlan := storageVLAN - 1000
+				name := fmt.Sprintf(`var-mnt-stor\x2dtrunk\x2d%d.mount`, vlan)
+				unit, ok := anchors[name]
+				require.True(t, ok, "missing NFS trunk anchor %s", name)
 				assert.True(t, unit.Enabled, unit.Name)
+				assert.Contains(t, unit.Contents, fmt.Sprintf("What=192.168.%d.10:%s\n", vlan, cfg.Cluster.NFSTrunk.Export), unit.Name)
+				assert.Contains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n", unit.Name)
 			}
 		})
 	}
