@@ -63,6 +63,19 @@ spec:
       transport: tcp
       address: "192.168.120.10"
       port: 4420
+      # GF-5 node-half multipath (v1.7.0): each address below gets an nvmet port
+      # association; NodeStage connects every advertised path and native NVMe
+      # multipath aggregates them (queue-depth iopolicy). VLANs 1201-1204 are
+      # L2-direct storage links on the k8s VMs (net3-net6, mtu 9000), verified
+      # 12/12 jumbo + TCP/4420 from all nodes 2026-08-16. `address` stays on
+      # 192.168.120.10 for this first rollout so live volumes keep their current
+      # port association; flipping primary to a storage VLAN is a follow-up.
+      multipath: true
+      addresses:
+        - "192.168.201.10"
+        - "192.168.202.10"
+        - "192.168.203.10"
+        - "192.168.204.10"
       # Secure-by-default: only these Kubernetes node NQNs may connect
       # (nvme show-hostnqn per node; machine-id-derived, stable on Flatcar).
       subsystemAllowAnyHost: false
