@@ -1,0 +1,18 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/storage.k8s.io/storageclass_v1.json
+# Second hostpath tier on the pve nvme-mirror pool (250G thin zvol per k8s VM,
+# scsi4, mounted at /var/mnt/nvme-hostpath). Fast scratch for download intake.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: openebs-hostpath-nvme
+  annotations:
+    openebs.io/cas-type: local
+    cas.openebs.io/config: |
+      - name: StorageType
+        value: hostpath
+      - name: BasePath
+        value: /var/mnt/nvme-hostpath
+provisioner: openebs.io/local
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer

@@ -267,7 +267,7 @@ spec:
               spec:
                 accessModes:
                   - "ReadWriteOnce"
-                storageClassName: openebs-hostpath
+                storageClassName: openebs-hostpath-nvme
                 resources:
                   requests:
                     storage: 250Gi
