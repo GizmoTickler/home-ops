@@ -155,7 +155,7 @@ spec:
 
             # Unpack
             Unpack=yes
-            UnpackPauseQueue=no
+            UnpackPauseQueue=yes
             UnpackCleanupDisk=yes
 
             # Logging (minimal for performance)
