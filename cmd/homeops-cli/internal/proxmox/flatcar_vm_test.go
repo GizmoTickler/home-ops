@@ -30,8 +30,10 @@ func TestFlatcarNodeConfigsMatchTalosSlots(t *testing.T) {
 		assert.Equal(t, tc.CPUAffinity, fc.CPUAffinity, "affinity mismatch for %s", name)
 		assert.Equal(t, tc.NUMANode, fc.NUMANode, "NUMA mismatch for %s", name)
 		// Boot storage INTENTIONALLY differs from Talos: Flatcar boots from the
-		// nvme-mirror ZFS RAID1 built during the cutover, not per-node nvme1/nvme2.
-		assert.Equal(t, "nvme-mirror", fc.BootStorage, "flatcar should boot from nvme-mirror for %s", name)
+		// vm-ssd SAS mirror (moved off the NVMe pool 2026-08-19 to isolate etcd
+		// from download-scratch I/O; the NVMe pool is now the scratch stripe).
+		assert.Equal(t, "vm-ssd", fc.BootStorage, "flatcar should boot from vm-ssd for %s", name)
+		assert.Equal(t, "nvme-scratch", fc.ScratchStorage, "flatcar scratch pool mismatch for %s", name)
 		assert.Equal(t, tc.CephDiskByID, fc.CephDiskByID, "legacy OSD disk mismatch for %s", name)
 	}
 }
@@ -53,6 +55,10 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 		OpenEBSStorage: "openebs-ssd",
 		OpenEBSSlot:    "scsi3",
 		OpenEBSSSD:     true,
+		ScratchSize:    400,
+		ScratchStorage: "nvme-scratch",
+		ScratchSlot:    "scsi4",
+		ScratchSSD:     true,
 		CephDiskByID:   "ata-INTEL",
 		NetworkBridge:  "vmbr0",
 		NetworkMTU:     9000,
@@ -80,6 +86,8 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 	assert.Equal(t, "nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
 	// OpenEBS + the legacy OSD compatibility disk are preserved.
 	assert.Equal(t, "openebs-ssd:700,discard=on,iothread=1,ssd=1", optionMap["scsi3"])
+	// NVMe download-scratch disk rides scsi4.
+	assert.Equal(t, "nvme-scratch:400,discard=on,iothread=1,ssd=1", optionMap["scsi4"])
 	assert.Equal(t, "/dev/disk/by-id/ata-INTEL,discard=on,iothread=1", optionMap["scsi2"])
 	// Boots from disk, NOT from a CD-ROM. No ide2 set.
 	assert.Equal(t, "order=scsi0", optionMap["boot"])
@@ -114,4 +122,22 @@ func TestBuildFlatcarVMOptionsExistingVolume(t *testing.T) {
 		optionMap[opt.Name] = opt.Value
 	}
 	assert.Equal(t, "nvme1:vm-202-disk-0,discard=on,iothread=1", optionMap["scsi0"])
+}
+
+func TestBuildFlatcarVMOptionsScratchDiskIsOptIn(t *testing.T) {
+	manager := &VMManager{}
+	options := manager.buildFlatcarVMOptions(VMConfig{
+		Name:           "k8s-0",
+		BootDiskSize:   100,
+		BootStorage:    "vm-ssd",
+		OpenEBSSize:    700,
+		OpenEBSStorage: "openebs-ssd",
+		OpenEBSSlot:    "scsi3",
+		// ScratchSize set but no pool configured: the scratch disk must be
+		// skipped entirely rather than falling back to the boot pool.
+		ScratchSize: 400,
+	})
+	for _, opt := range options {
+		assert.NotEqual(t, "scsi4", opt.Name, "scratch disk must not attach without a configured pool")
+	}
 }

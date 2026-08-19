@@ -242,6 +242,13 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	// SSD keeps the reprovisioned hardware identical to the live PVE VMs.
 	vmConfig.OpenEBSSlot = "scsi3"
 	vmConfig.OpenEBSSSD = true
+	// scsi4 carries the node-local NVMe download-scratch disk (thin zvol on
+	// the pve nvme-scratch stripe); Ignition formats and mounts it by label.
+	if nodeConfig.ScratchStorage != "" {
+		vmConfig.ScratchStorage = nodeConfig.ScratchStorage
+	}
+	vmConfig.ScratchSlot = "scsi4"
+	vmConfig.ScratchSSD = true
 	// Ceph* fields are the retained nodes[].vm.ceph legacy OSD-disk interface.
 	if nodeConfig.CephMode != "" {
 		vmConfig.CephMode = nodeConfig.CephMode

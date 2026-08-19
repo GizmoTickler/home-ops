@@ -122,6 +122,10 @@ type VMConfig struct {
 	OpenEBSStorage string // Storage pool for OpenEBS (e.g., "openebs-ssd")
 	OpenEBSSlot    string // Proxmox SCSI slot (default: scsi1; Flatcar: scsi3)
 	OpenEBSSSD     bool   // Expose the OpenEBS disk as an SSD
+	ScratchSize    int    // NVMe download-scratch disk GB (0 disables)
+	ScratchStorage string // Storage pool for the scratch disk (e.g., "nvme-scratch")
+	ScratchSlot    string // Proxmox SCSI slot (default: scsi4)
+	ScratchSSD     bool   // Expose the scratch disk as an SSD
 
 	// Legacy OSD disk retained for nodes[].vm.ceph compatibility: either a
 	// physical SSD passthrough (CephDiskByID) or a virtual disk. mode=none
@@ -219,6 +223,7 @@ type FlatcarNodeConfig struct {
 	NodeIP         string                  // primary node IP (advertiseAddress / node-ip)
 	BootStorage    string                  // Storage pool for boot disk
 	OpenEBSStorage string                  // Storage pool for OpenEBS disk
+	ScratchStorage string                  // Storage pool for the NVMe download-scratch disk (scsi4)
 	CephMode       string                  // "", "passthrough", "virtual", or "none"
 	CephDiskByID   string                  // legacy OSD-disk passthrough by-id path
 	CephDiskGB     int                     // virtual legacy OSD disk size GB (alternative to passthrough)
@@ -279,6 +284,7 @@ func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
 		NodeIP:         node.IP,
 		BootStorage:    profile.BootStorage,
 		OpenEBSStorage: profile.OpenEBSStorage,
+		ScratchStorage: profile.ScratchStorage,
 		CephMode:       profile.Ceph.Mode,
 		CephDiskByID:   profile.Ceph.DiskByID,
 		CephDiskGB:     profile.Ceph.SizeGB,
@@ -319,8 +325,10 @@ func GetDefaultVMConfig() VMConfig {
 	cfg.Cores = vm.Cores
 	cfg.BootDiskSize = vm.BootDiskGB
 	cfg.OpenEBSSize = vm.OpenEBSDiskGB
+	cfg.ScratchSize = vm.ScratchDiskGB
 	cfg.BootStorage = vm.BootStorage
 	cfg.OpenEBSStorage = vm.OpenEBSStorage
+	cfg.ScratchStorage = vm.ScratchStorage
 	cfg.Node = homeCfg.ProxmoxNodeName()
 	cfg.NetworkBridge = vm.NetworkBridge
 	cfg.NetworkMTU = vm.NetworkMTU
@@ -374,6 +382,10 @@ func normalizeStorageConfig(config VMConfig) (VMConfig, error) {
 	if config.OpenEBSSize > 0 && config.OpenEBSStorage == "" {
 		config.OpenEBSStorage = config.BootStorage
 	}
+
+	// The scratch disk is opt-in: it attaches only when a pool is configured,
+	// so a zero ScratchStorage silently skips it (unlike OpenEBS, it never
+	// falls back to BootStorage — scratch on the boot pool defeats its purpose).
 
 	if config.BootDiskSize > 0 && config.BootStorage == "" {
 		return config, fmt.Errorf("boot storage is required when boot disk size is set")

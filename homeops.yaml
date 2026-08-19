@@ -30,8 +30,9 @@ cluster:
     vm:
       vmid: 299
       mac: "02:00:00:00:02:99"
-      boot_storage: nvme-mirror
+      boot_storage: vm-ssd
       openebs_storage: openebs-ssd
+      scratch_storage: nvme-scratch
       ceph:
         mode: none
   pod_cidr: 10.42.0.0/16
@@ -75,8 +76,9 @@ cluster:
           - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24 } # net4
           - { vlan: 1203, mac: "BC:24:11:FF:50:81", ip: 192.168.203.20/24 } # net5
           - { vlan: 1204, mac: "BC:24:11:FB:16:76", ip: 192.168.204.20/24 } # net6
-        boot_storage: nvme-mirror
+        boot_storage: vm-ssd
         openebs_storage: openebs-ssd
+        scratch_storage: nvme-scratch
         cpu_affinity: "0-7,32-39"
         numa_node: 0
         ceph:
@@ -93,8 +95,9 @@ cluster:
           - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24 } # net4
           - { vlan: 1203, mac: "BC:24:11:8C:C8:43", ip: 192.168.203.21/24 } # net5
           - { vlan: 1204, mac: "BC:24:11:D1:C4:BE", ip: 192.168.204.21/24 } # net6
-        boot_storage: nvme-mirror
+        boot_storage: vm-ssd
         openebs_storage: openebs-ssd
+        scratch_storage: nvme-scratch
         cpu_affinity: "16-23,48-55"
         numa_node: 1
         ceph:
@@ -111,8 +114,9 @@ cluster:
           - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24 } # net4
           - { vlan: 1203, mac: "BC:24:11:F6:D9:1D", ip: 192.168.203.22/24 } # net5
           - { vlan: 1204, mac: "BC:24:11:63:50:11", ip: 192.168.204.22/24 } # net6
-        boot_storage: nvme-mirror
+        boot_storage: vm-ssd
         openebs_storage: openebs-ssd
+        scratch_storage: nvme-scratch
         cpu_affinity: "8-15,40-47"
         numa_node: 0
         ceph:
@@ -129,6 +133,7 @@ hypervisors:
       cores: 16
       boot_disk_gb: 100
       openebs_disk_gb: 700
+      scratch_disk_gb: 400  # NVMe download-scratch disk (scsi4, nvme-scratch stripe)
       network_bridge: vmbr0
       network_mtu: 9000
       network_queues: 8  # storage fabric NICs and legacy net0 default

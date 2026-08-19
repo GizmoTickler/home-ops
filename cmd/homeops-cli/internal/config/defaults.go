@@ -59,9 +59,9 @@ const (
 // VM identity. It preserves the historical Proxmox accessors when homeops.yaml
 // has no cluster.nodes entries.
 var defaultNodes = []Node{
-	defaultNode("k8s-0", "192.168.122.10", 200, "00:a0:98:28:c8:83", "0-7,32-39", 0, "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN", "nvme1", "nvme-mirror"),
-	defaultNode("k8s-1", "192.168.122.11", 201, "00:a0:98:1a:f3:72", "16-23,48-55", 1, "ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN", "nvme2", "nvme-mirror"),
-	defaultNode("k8s-2", "192.168.122.12", 202, "00:a0:98:3e:6c:22", "8-15,40-47", 0, "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN", "nvme1", "nvme-mirror"),
+	defaultNode("k8s-0", "192.168.122.10", 200, "00:a0:98:28:c8:83", "0-7,32-39", 0, "ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN", "nvme1", "vm-ssd"),
+	defaultNode("k8s-1", "192.168.122.11", 201, "00:a0:98:1a:f3:72", "16-23,48-55", 1, "ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN", "nvme2", "vm-ssd"),
+	defaultNode("k8s-2", "192.168.122.12", 202, "00:a0:98:3e:6c:22", "8-15,40-47", 0, "ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN", "nvme1", "vm-ssd"),
 }
 
 func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, legacyOSDDiskByID, talosBootStorage, flatcarBootStorage string) Node {
@@ -69,6 +69,8 @@ func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, lega
 	talosProfile.BootStorage = talosBootStorage
 	flatcarProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, legacyOSDDiskByID)
 	flatcarProfile.BootStorage = flatcarBootStorage
+	// Local NVMe download-scratch stripe (pve nvme-scratch pool, scsi4).
+	flatcarProfile.ScratchStorage = "nvme-scratch"
 	vsphereProfile := defaultVSphereProviderVMProfile(name, mac)
 	return Node{
 		Name: name,
@@ -355,6 +357,9 @@ func applyProxmoxVMDefaults(vm *VMDefaults) {
 	if vm.OpenEBSDiskGB == 0 {
 		vm.OpenEBSDiskGB = 800
 	}
+	if vm.ScratchDiskGB == 0 {
+		vm.ScratchDiskGB = 400
+	}
 	if vm.BootStorage == "" {
 		vm.BootStorage = "nvme1"
 	}
@@ -506,6 +511,9 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
 	}
+	if override.ScratchStorage != "" {
+		out.ScratchStorage = override.ScratchStorage
+	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity
 	}
@@ -533,6 +541,9 @@ func applyProviderProfile(out *ProviderVMProfile, override ProviderVMProfile) {
 	}
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
+	}
+	if override.ScratchStorage != "" {
+		out.ScratchStorage = override.ScratchStorage
 	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity
@@ -575,6 +586,9 @@ func applyProviderVMProfile(out *VMProfile, override ProviderVMProfile) {
 	}
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
+	}
+	if override.ScratchStorage != "" {
+		out.ScratchStorage = override.ScratchStorage
 	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity

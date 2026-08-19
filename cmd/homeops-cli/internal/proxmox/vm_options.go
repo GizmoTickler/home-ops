@@ -83,6 +83,7 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 	}
 	if profile.includeOpenEBS {
 		options = appendOpenEBSDiskOptions(options, config)
+		options = appendScratchDiskOptions(options, config)
 	}
 	if profile.includeLegacyOSD {
 		options = appendLegacyOSDDiskOptions(options, config)
@@ -142,6 +143,23 @@ func appendOpenEBSDiskOptions(options []proxmox.VirtualMachineOption, config VMC
 		openebsDiskOpts += ",ssd=1"
 	}
 	return append(options, proxmox.VirtualMachineOption{Name: openebsSlot, Value: openebsDiskOpts})
+}
+
+// appendScratchDiskOptions attaches the node-local NVMe download-scratch disk.
+// Opt-in: skipped entirely unless both a size and a pool are configured.
+func appendScratchDiskOptions(options []proxmox.VirtualMachineOption, config VMConfig) []proxmox.VirtualMachineOption {
+	if config.ScratchSize <= 0 || config.ScratchStorage == "" {
+		return options
+	}
+	scratchSlot := config.ScratchSlot
+	if scratchSlot == "" {
+		scratchSlot = "scsi4"
+	}
+	scratchDiskOpts := appendDiskPerformanceOptions(fmt.Sprintf("%s:%d", config.ScratchStorage, config.ScratchSize), config)
+	if config.ScratchSSD {
+		scratchDiskOpts += ",ssd=1"
+	}
+	return append(options, proxmox.VirtualMachineOption{Name: scratchSlot, Value: scratchDiskOpts})
 }
 
 // appendLegacyOSDDiskOptions implements the retained nodes[].vm.ceph disk

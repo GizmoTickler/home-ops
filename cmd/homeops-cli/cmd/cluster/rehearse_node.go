@@ -133,7 +133,7 @@ workflow refuses production identities and existing node/VM collisions. Unless
   homeops-cli cluster rehearse-node --plan
 
   # Proxmox rehearsal from a pre-staged Flatcar image volume
-  homeops-cli cluster rehearse-node --image-volume nvme-mirror:vm-900-disk-0 --yes
+  homeops-cli cluster rehearse-node --image-volume vm-ssd:vm-900-disk-0 --yes
 
   # Keep a failed/successful drill node for inspection and emit JSON
   homeops-cli cluster rehearse-node --image-path /var/lib/vz/template/iso/flatcar.raw --keep --output json --yes`,

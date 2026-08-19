@@ -33,6 +33,10 @@ storage:
     # Mount point for the node-local OpenEBS hostpath filesystem.
     - path: /var/mnt/local-hostpath
       mode: 0755
+    # Mount point for the NVMe download-scratch hostpath filesystem
+    # (openebs-hostpath-nvme StorageClass; nzbget /incomplete).
+    - path: /var/mnt/nvme-hostpath
+      mode: 0755
   filesystems:
     # Proxmox exposes the OpenEBS data disk on scsi3. The drive-scsi3 by-id
     # path is stable across boots, and wipe_filesystem:false preserves an
@@ -40,6 +44,13 @@ storage:
     - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi3
       format: ext4
       label: openebs-local
+      wipe_filesystem: false
+    # scsi4 is the node-local NVMe download-scratch disk (thin zvol on the pve
+    # nvme-scratch stripe). Contents are disposable, but preserving the
+    # filesystem keeps reprovisioning from racing an in-flight PVC cleanup.
+    - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi4
+      format: ext4
+      label: openebs-nvme
       wipe_filesystem: false
   files:
 {{ ENV.STORAGE_NETWORK_FILES }}
@@ -69,6 +80,7 @@ storage:
       contents:
         inline: |
           ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", KERNELS=="*:0:0:3", ATTR{queue/wbt_lat_usec}="0"
+          ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", KERNELS=="*:0:0:4", ATTR{queue/wbt_lat_usec}="0"
 
     # kube-vip resolves the apiserver via the hostname "kubernetes" for its leader-election
     # client; map it to the LOCAL apiserver so the control-plane VIP comes up during bootstrap
@@ -253,6 +265,18 @@ systemd:
         [Mount]
         What=/dev/disk/by-label/openebs-local
         Where=/var/mnt/local-hostpath
+        Type=ext4
+        Options=defaults,noatime
+        [Install]
+        WantedBy=local-fs.target
+    - name: var-mnt-nvme\x2dhostpath.mount
+      enabled: true
+      contents: |
+        [Unit]
+        Description=OpenEBS nvme-hostpath download scratch
+        [Mount]
+        What=/dev/disk/by-label/openebs-nvme
+        Where=/var/mnt/nvme-hostpath
         Type=ext4
         Options=defaults,noatime
         [Install]

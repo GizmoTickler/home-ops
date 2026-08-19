@@ -190,7 +190,7 @@ cluster:
       #vm:
       #  vmid: 200
       #  mac: "00:a0:98:00:00:01"
-      #  boot_storage: nvme-mirror
+      #  boot_storage: vm-ssd
       #  openebs_storage: nvmeof-vmdata
       #  pci_device: "0000:04:00.0"                  # vSphere SR-IOV
       #  rdm_path: "[datastore1] rdm/intel-ssd-1.vmdk" # vSphere pRDM
@@ -205,7 +205,7 @@ cluster:
       #    talos:
       #      boot_storage: nvme1
       #    flatcar:
-      #      boot_storage: nvme-mirror
+      #      boot_storage: vm-ssd
     - name: k8s-1
       ip: 192.168.122.11
     - name: k8s-2
