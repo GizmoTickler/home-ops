@@ -26,7 +26,7 @@ spec:
 
   # Storage configuration
   storage:
-    size: 10Gi
+    size: 20Gi
     storageClass: scale-nvmeof
 
   # Resource limits
@@ -51,6 +51,9 @@ spec:
       log_lock_waits: "on"
       # NetBox recommended settings
       max_connections: "100"
+      # Bound WAL retained for an inactive replication slot; unbounded
+      # retention lets one wedged replica fill the primary's volume.
+      max_slot_wal_keep_size: "6GB"
 
   # Backup configuration to TrueNAS S3
   backup:
@@ -144,7 +147,8 @@ kind: ScheduledBackup
 metadata:
   name: netbox-postgres-daily
 spec:
-  schedule: "0 3 * * *"
+  # CNPG cron is 6-field (leading seconds): this is 03:00 daily, not hourly.
+  schedule: "0 0 3 * * *"
   backupOwnerReference: self
   immediate: true
   cluster:

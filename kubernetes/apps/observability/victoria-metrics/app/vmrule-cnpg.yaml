@@ -1,0 +1,53 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cnpg-alerts
+spec:
+  groups:
+    # CloudNativePG replication health.
+    # Every instance exports a row for every slot in the catalog, but only the
+    # primary's rows reflect real replication state -- hence the
+    # `in_recovery == 0` join on each expr. Without it these fire on replicas.
+    - name: cnpg-replication.rules
+      interval: 30s
+      rules:
+        - alert: CNPGReplicationSlotInactive
+          expr: |-
+            cnpg_pg_replication_slots_active == 0
+              and on(namespace, pod) cnpg_pg_replication_in_recovery == 0
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "CNPG slot {{ $labels.slot_name }} inactive on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: |-
+              Replication slot {{ $labels.slot_name }} has been inactive on primary
+              {{ $labels.pod }} for 15m, so its replica is not streaming.
+              The primary retains WAL for the slot until max_slot_wal_keep_size, then
+              invalidates it and the replica needs a rebuild. CNPG reports such a
+              replica as Ready, so this alert is the only early signal.
+            runbook_url: https://cloudnative-pg.io/docs/1.30/troubleshooting
+          labels:
+            severity: warning
+            component: postgres
+
+        - alert: CNPGReplicationSlotWALRetentionHigh
+          expr: |-
+            (
+              cnpg_pg_replication_slots_pg_wal_lsn_diff
+                and on(namespace, pod) cnpg_pg_replication_in_recovery == 0
+            ) > 4294967296
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "CNPG slot {{ $labels.slot_name }} retaining >4GiB WAL on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: |-
+              Slot {{ $labels.slot_name }} is pinning more than 4GiB of WAL on primary
+              {{ $labels.pod }}. WAL shares the data volume, so continued growth fills
+              it and PostgreSQL stops accepting writes. The slot is invalidated at
+              max_slot_wal_keep_size (6GB), after which the replica must be rebuilt.
+            runbook_url: https://cloudnative-pg.io/docs/1.30/troubleshooting
+          labels:
+            severity: critical
+            component: postgres
