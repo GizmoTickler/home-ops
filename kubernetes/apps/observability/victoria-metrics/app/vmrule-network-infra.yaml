@@ -182,6 +182,42 @@ spec:
             severity: critical
             component: dns
 
+        # DNS stack backup freshness — added 2026-08-20 with the dns-stack-backup
+        # timers (nightly pg_dump of pdns/kea/stork + /etc tarball on each node,
+        # 03:15 dns0 / 03:35 dns1). The backup script writes this textfile metric
+        # only on a fully successful run, so staleness = failed or stuck backups.
+        # Spock replication is HA, not backup — these dumps are the only
+        # point-in-time recovery layer for zones/DNSSEC keys/leases.
+        - alert: DNSStackBackupStale
+          expr: |-
+            (time() - dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 93600
+          for: 30m
+          keep_firing_for: 1h
+          annotations:
+            summary: "DNS stack backup stale on {{ $labels.instance }} ({{ $value | humanizeDuration }} old)"
+            description: |-
+              dns-stack-backup.service has not completed successfully in >26h on this node.
+              Check: systemctl status dns-stack-backup.{service,timer} and /var/backups/dns-stack/.
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: DNSStackBackupMetricMissing
+          # Both nodes must report the freshness metric; fewer than 2 series means
+          # a node-exporter textfile problem or the backup unit was removed.
+          expr: |-
+            (count(dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) or vector(0)) < 2
+          for: 1h
+          keep_firing_for: 1h
+          annotations:
+            summary: "DNS stack backup metric missing (series count {{ $value }}, expected 2)"
+            description: |-
+              dns_stack_backup_last_success_timestamp_seconds is absent for one or both DNS nodes.
+              Verify the dns-stack-backup timer exists and /var/lib/node_exporter/textfile/dns_backup.prom is written.
+          labels:
+            severity: warning
+            component: dns
+
     # DNS Resolver Health Alerts
     # Added 2026-06-10 after a DNSSEC trust-anchor gap made the recursors return
     # SERVFAIL (EDE 12) for all guest/IoT reverse-PTR lookups, undetected until
