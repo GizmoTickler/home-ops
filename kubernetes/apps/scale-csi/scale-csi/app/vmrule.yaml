@@ -64,9 +64,9 @@ spec:
             summary: >-
               scale-csi PersistentVolume {{ $labels.persistentvolume }} has been
               Released for over 8h — that is tombstoneMinAge (1h) plus the
-              worst-case wait for the next delete-capable reap (6h at
-              04:20/10:20/16:20/22:20) plus slack, so this is not a normal
-              deferred-delete waiting for the next pass; inspect the PV and
+              worst-case wait for the next delete-capable reap (6h on the
+              `20 4,10,16,22 * * *` schedule) plus slack, so this is not a
+              normal deferred-delete waiting for the next pass; inspect the PV and
               the scale-csi-reconcile CronJob log for why the backend object
               was not deleted
           labels:
@@ -93,35 +93,121 @@ spec:
               or node restart race
           labels:
             severity: warning
-        - alert: ScaleCSITombstoneBacklogNearCap
+        - alert: ScaleCSITombstoneReapCapped
           expr: |-
-            max(scale_csi_tombstone_snapshots{job="scale-csi-controller-metrics"}) > 900
-          for: 30m
+            max(scale_csi_tombstone_reap_last_skipped_on_cap{job="scale-csi-controller-metrics"}) > 0
+          for: 15m
           annotations:
             summary: >-
-              {{ $value }} deferred-delete tombstones are awaiting reap —
-              within striking distance of the 1000 per-pass cap (90%), so the
-              next 6-hourly pass may start deferring work (skippedOnCap);
-              check kopiur *-src clone churn against reconcile.delete.maxPerRun
-              and the scale-csi-reconcile CronJob's last run
+              the last delete-capable reap deferred {{ $value }} tombstone(s) on
+              reconcile.delete.maxPerRun, which is a budget SHARED across orphan
+              volumes, orphan snapshots, spent-restore and remnants as well as
+              tombstones — the pass could not drain its candidates,
+              so the leftover waits for the next 6-hourly run and grows if inflow
+              keeps up; raise reconcile.delete.maxPerRun or add reap passes.
+              This is the driver's own skippedOnCap counter, not a guess from the
+              backlog gauge against a hardcoded fraction of the cap
+          labels:
+            severity: warning
+        - alert: ScaleCSITombstoneOldestStuck
+          expr: |-
+            max(scale_csi_tombstone_oldest_age_seconds{job="scale-csi-controller-metrics"}) > 43200
+          for: 1h
+          annotations:
+            summary: >-
+              the oldest deferred-delete tombstone is {{ $value | humanizeDuration }}
+              old — a healthy reap on the `20 4,10,16,22 * * *` schedule against
+              tombstoneMinAge=1h peaks near 6h, so something is not clearing. This is the signal that was missing when
+              pvc-d1d92818 sat 51h and blocked its volume's DeleteVolume ~16x/hour
+              with nothing firing; inspect nas01 for a tombstone the reaper keeps
+              skipping and check scale_csi_manual_recovery_tombstones. Note this
+              gauge EXCLUDES tombstones whose creation time is unreadable —
+              ScaleCSITombstoneUnknownAge covers those
           labels:
             severity: warning
         - alert: ScaleCSITombstoneReapStalled
           expr: |-
-            (
-              time() - max(kube_cronjob_status_last_successful_time{namespace="scale-csi",cronjob="scale-csi-reconcile"}) > 25200
-            )
-            or
-            absent(kube_cronjob_status_last_successful_time{namespace="scale-csi",cronjob="scale-csi-reconcile"}) == 1
+            time() - max(scale_csi_tombstone_reap_last_success_timestamp_seconds{job="scale-csi-controller-metrics"}) > 25200
           for: 15m
           annotations:
             summary: >-
-              scale-csi-reconcile last-success is stale or unobservable —
-              the CronJob object may be missing, it may never have succeeded,
-              kube-state-metrics may be unavailable, or the last success
-              exceeded the 6-hourly delete-capable schedule
-              (04:20/10:20/16:20/22:20) plus slack; check the CronJob,
-              kube-state-metrics, and the last Job log
+              no delete-capable reap has been durably observable for
+              {{ $value | humanizeDuration }} — longer than the
+              `20 4,10,16,22 * * *` schedule plus slack. The CronJob may be
+              failing or not running, OR a pass succeeded but its durable
+              record could not be written or read; check the last
+              scale-csi-reconcile Job log AND the controller log for
+              reap_record read/write warnings
+          labels:
+            severity: warning
+        - alert: ScaleCSITombstoneReapNeverRan
+          expr: |-
+            max(scale_csi_reconcile_delete_enabled{job="scale-csi-controller-metrics"}) == 1
+            and
+            absent(max(scale_csi_tombstone_reap_last_success_timestamp_seconds{job="scale-csi-controller-metrics"}))
+          for: 12h
+          annotations:
+            summary: >-
+              gated GC is enabled but no delete-capable reap result is durably
+              observable — distinct from a fresh install with GC off, which
+              reports reconcile_delete_enabled=0. The 12h hold absorbs the gap
+              between a deploy and the first scheduled reap. Past that, either
+              the CronJob has never completed, or its record could never be
+              written or read; check it exists, its last Job log, AND the
+              controller log for reap_record warnings
+          labels:
+            severity: warning
+        - alert: ScaleCSITombstoneUnknownAge
+          expr: |-
+            max(scale_csi_tombstone_unknown_age{job="scale-csi-controller-metrics"}) > 0
+          for: 1h
+          annotations:
+            summary: >-
+              {{ $value }} tombstone(s) have an unreadable creation time, so they
+              are EXCLUDED from scale_csi_tombstone_oldest_age_seconds —
+              ScaleCSITombstoneOldestStuck cannot see them and a stuck one would
+              stay invisible. Inspect these on nas01; this is the same blind spot
+              that let pvc-d1d92818 sit unnoticed
+          labels:
+            severity: warning
+        - alert: ScaleCSIReconcileDeleteDisabled
+          expr: |-
+            max(scale_csi_reconcile_delete_enabled{job="scale-csi-controller-metrics"}) == 0
+          for: 1h
+          annotations:
+            summary: >-
+              gated GC is DISABLED on this controller — tombstones and orphans
+              will accumulate with no reap, and every reap alert
+              (ReapStalled/ReapNeverRan/ReapCapped) goes silent by design, so
+              this looks healthy when it is not. Expected on for this cluster;
+              re-enable reconcile.delete.enabled or silence this deliberately
+          labels:
+            severity: warning
+        - alert: ScaleCSITombstoneReapRefusing
+          expr: |-
+            max(scale_csi_tombstone_reap_last_skipped_refused{job="scale-csi-controller-metrics"}) > 0
+          for: 7h
+          annotations:
+            summary: >-
+              the last delete-capable reap refused {{ $value }} tombstone(s) on a
+              safety guard rather than the per-run cap — the 7h hold means this
+              survived two consecutive passes, so it is not a transient. Unlike
+              ReapCapped, raising reconcile.delete.maxPerRun will NOT help:
+              inspect the guard and scale_csi_manual_recovery_tombstones
+          labels:
+            severity: warning
+        - alert: ScaleCSITombstoneBacklogHigh
+          expr: |-
+            max(scale_csi_tombstone_snapshots{job="scale-csi-controller-metrics"}) > 500
+          for: 30m
+          annotations:
+            summary: >-
+              {{ $value }} tombstones are awaiting reap — roughly 6x the normal
+              pre-reap peak (~85 at the measured ~17/h inflow over a 6h window).
+              This is the LEADING indicator ReapCapped cannot be: it warns before
+              a pass actually defers work. Deliberately not pinned to a fraction
+              of reconcile.delete.maxPerRun so it does not silently rot when the
+              cap changes; check kopiur *-src clone churn
           labels:
             severity: warning
         - alert: ScaleCSIReconcileStale
