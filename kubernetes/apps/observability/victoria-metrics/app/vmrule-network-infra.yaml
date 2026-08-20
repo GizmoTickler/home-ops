@@ -218,6 +218,41 @@ spec:
             severity: warning
             component: dns
 
+        # Upstream watchdog — added 2026-08-20. dns-upstream-watchdog probes CF
+        # Gateway DoH every 30s and swaps dnscrypt-proxy to UNFILTERED Google DoH
+        # after 3 consecutive failures (auto-restores after 5 successes). While
+        # the fallback is active there is NO Zero Trust DNS filtering — this must
+        # never be a silent state.
+        - alert: DNSUpstreamFallbackActive
+          expr: |-
+            max by (instance) (dns_upstream_fallback_active{job="node-exporter",instance=~"dns[01].*"}) == 1
+          for: 1m
+          keep_firing_for: 10m
+          annotations:
+            summary: "UNFILTERED Google DoH fallback active on {{ $labels.instance }}"
+            description: |-
+              dnscrypt-proxy on this node is using the Google public DoH fallback — CF Gateway
+              filtering is BYPASSED. Auto-restore happens when Gateway probes recover; if this
+              persists, CF Gateway is down or a manual break-glass was left active
+              (dns-upstream-breakglass status / restore).
+          labels:
+            severity: warning
+            component: dns
+
+        - alert: DNSUpstreamWatchdogStale
+          expr: |-
+            (time() - dns_upstream_watchdog_last_run_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 600
+          for: 5m
+          keep_firing_for: 15m
+          annotations:
+            summary: "DNS upstream watchdog not running on {{ $labels.instance }}"
+            description: |-
+              dns-upstream-watchdog.timer has not ticked in >10m — automatic Google-DoH failover
+              for CF Gateway outages is not armed on this node.
+          labels:
+            severity: warning
+            component: dns
+
     # DNS Resolver Health Alerts
     # Added 2026-06-10 after a DNSSEC trust-anchor gap made the recursors return
     # SERVFAIL (EDE 12) for all guest/IoT reverse-PTR lookups, undetected until
