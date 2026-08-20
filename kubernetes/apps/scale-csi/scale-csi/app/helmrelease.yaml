@@ -136,14 +136,42 @@ spec:
         scanFallback:
           enabled: true
       delete:
-        # Gated GC: nightly CronJob releases spent VolSync-restore snapshots and
-        # deletes true orphans (>24h old, guarded delete paths, fails closed
-        # during cluster rebuilds). Detection/alerting is always on.
-        # maxPerRun sized above steady-state tombstone churn (~16 PVCs with
-        # hourly dependent-clone deferred deletes ≈ 384/day); 20 let the
-        # backlog grow ~360/day. Schedule offset to :20 so the run does not
-        # race VolSync's hourly snapshot creation at :00 (in-flight VSCs
-        # without status.snapshotHandle fail-close the orphan-snapshot pass).
+        # Gated GC: this CronJob is the ONLY delete-capable reconcile. The
+        # in-controller loop (reconcile.interval=1h) is detection-only
+        # (Delete:false).
+        #
+        # maxPerRun is NOT a single pass-wide mutation ceiling. In v1.10.4:
+        #   deleteDetectedOrphans shares ONE counter across orphan volumes,
+        #   orphan snapshots, tombstones, spent-restore snapshots, and
+        #   remnants (no per-type split inside that group).
+        #   deleteOrphanedShares has its own independent allowance of up
+        #   to maxPerRun (counts DeletedShares separately).
+        #   adoptLegacyOwnershipStamps and migrateLegacyPropertyNamespace
+        #   each independently receive the full maxPerRun as their own
+        #   write cap.
+        #   sweepStrandedSnapshotTasks is uncapped.
+        # There is no upper-bound validation on the value.
+        #
+        # kopiur SnapshotSchedules (H * * * *) leave a deferred-delete
+        # tombstone when the mover's *-src clone PVC is deleted while its
+        # VolumeSnapshot still has a live clone. Measured inflow:
+        #   17/h = 408/day
+        # v1.10.4 tombstoneMinAge=1h (was minOrphanAge=24h) made the
+        # waiting cohort age-eligible in one shot (776 at review). One
+        # 04:20 pass of 500 cannot drain 776 + 408/day of new inflow.
+        #
+        # 4x daily at :20 (kept off the top of the hour so in-flight VSCs
+        # without status.snapshotHandle do not fail-close the orphan
+        # pass). Worst wait between delete-capable passes is 6h.
+        # Steady-state eligible peak after the 776 spike drains:
+        #   17/h * (6h window - 1h tombstoneMinAge) = 85
+        # Tombstone worst-case after a full 6h wait:
+        #   776 already-eligible + 85 newly aged = 861
+        # Cap 1000 leaves 139 (~16%) over that 861 for the other shared
+        # categories (orphans and spent-restore have been 0 since the
+        # 2026-07-24 soak, so the extra is buffer, not measured load)
+        # without a large migration blast radius.
+        # Daily capacity 4*1000 = 4000 vs 408 inflow (~9.8x).
         enabled: true
-        schedule: "20 4 * * *"
-        maxPerRun: 500
+        schedule: "20 4,10,16,22 * * *"
+        maxPerRun: 1000

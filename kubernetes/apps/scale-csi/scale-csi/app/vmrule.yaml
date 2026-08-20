@@ -25,7 +25,7 @@ spec:
           annotations:
             summary: >-
               scale-csi reconcile detected {{ $value }} orphaned backend object(s) on
-              TrueNAS with no live Kubernetes owner — the nightly gated GC will clean
+              TrueNAS with no live Kubernetes owner — the 6-hourly gated GC will clean
               them once aged, or investigate with the driver's reconcile report
           labels:
             severity: warning
@@ -50,13 +50,34 @@ spec:
               the controller logs for the failing operations
           labels:
             severity: warning
+        - alert: ScaleCSIVolumeStuckReleased
+          expr: |-
+            max by (persistentvolume) (
+              kube_persistentvolume_status_phase{phase="Released"} == 1
+            )
+            and on(persistentvolume)
+            max by (persistentvolume) (
+              kube_persistentvolume_info{reclaim_policy="Delete",csi_driver="csi.scale.io"}
+            )
+          for: 8h
+          annotations:
+            summary: >-
+              scale-csi PersistentVolume {{ $labels.persistentvolume }} has been
+              Released for over 8h — that is tombstoneMinAge (1h) plus the
+              worst-case wait for the next delete-capable reap (6h at
+              04:20/10:20/16:20/22:20) plus slack, so this is not a normal
+              deferred-delete waiting for the next pass; inspect the PV and
+              the scale-csi-reconcile CronJob log for why the backend object
+              was not deleted
+          labels:
+            severity: warning
         - alert: ScaleCSISpentRestoreBacklog
           expr: |-
             max(scale_csi_spent_restore_snapshots{job="scale-csi-controller-metrics"}) > 0
           for: 48h
           annotations:
             summary: >-
-              spent VolSync-restore snapshots have outlived the nightly GC window —
+              spent VolSync-restore snapshots have outlived the 6-hourly GC window —
               the gated delete CronJob may be failing or the snapshots are not ageing
               out as expected
           labels:
@@ -74,26 +95,45 @@ spec:
             severity: warning
         - alert: ScaleCSITombstoneBacklogNearCap
           expr: |-
-            max(scale_csi_tombstone_snapshots{job="scale-csi-controller-metrics"}) > 450
+            max(scale_csi_tombstone_snapshots{job="scale-csi-controller-metrics"}) > 900
           for: 30m
           annotations:
             summary: >-
-              {{ $value }} deferred-delete tombstones are awaiting the nightly reap —
-              within striking distance of the 500 per-pass cap, so the 04:20 pass may
-              start deferring work (skippedOnCap); consider a second daily reap run or
-              raising reconcile.tombstoneReaper cap if VolSync churn has grown
+              {{ $value }} deferred-delete tombstones are awaiting reap —
+              within striking distance of the 1000 per-pass cap (90%), so the
+              next 6-hourly pass may start deferring work (skippedOnCap);
+              check kopiur *-src clone churn against reconcile.delete.maxPerRun
+              and the scale-csi-reconcile CronJob's last run
           labels:
             severity: warning
         - alert: ScaleCSITombstoneReapStalled
           expr: |-
-            min_over_time(max(scale_csi_tombstone_snapshots{job="scale-csi-controller-metrics"})[26h:5m]) > 100
-          for: 2h
+            (
+              time() - max(kube_cronjob_status_last_successful_time{namespace="scale-csi",cronjob="scale-csi-reconcile"}) > 25200
+            )
+            or
+            absent(kube_cronjob_status_last_successful_time{namespace="scale-csi",cronjob="scale-csi-reconcile"}) == 1
+          for: 15m
           annotations:
             summary: >-
-              the tombstone backlog has not dipped below 100 in over a day — the nightly
-              04:20 reconcile reap is failing or not running (a healthy day sawtooths
-              from ~0 after the reap up to a few hundred); check the scale-csi-reconcile
-              CronJob's last run
+              scale-csi-reconcile last-success is stale or unobservable —
+              the CronJob object may be missing, it may never have succeeded,
+              kube-state-metrics may be unavailable, or the last success
+              exceeded the 6-hourly delete-capable schedule
+              (04:20/10:20/16:20/22:20) plus slack; check the CronJob,
+              kube-state-metrics, and the last Job log
+          labels:
+            severity: warning
+        - alert: ScaleCSIReconcileStale
+          expr: |-
+            time() - max(scale_csi_reconcile_last_success_timestamp_seconds{job="scale-csi-controller-metrics"}) > 7200
+          for: 15m
+          annotations:
+            summary: >-
+              scale-csi reconcile has not recorded a success in over 2h —
+              the periodic detection loop should update this timestamp even
+              when there is nothing to delete; check the controller is
+              running and its log is not wedged on a reconcile
           labels:
             severity: warning
         - alert: ScaleCSIManualRecoveryTombstones
