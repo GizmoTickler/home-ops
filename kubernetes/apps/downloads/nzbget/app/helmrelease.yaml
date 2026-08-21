@@ -122,7 +122,7 @@ spec:
             DirectWrite=yes
             DirectRename=yes
             DirectUnpack=yes
-            WriteBuffer=1024
+            WriteBuffer=4096
             CrcCheck=no
             FlushQueue=no
             ContinuePartial=no
