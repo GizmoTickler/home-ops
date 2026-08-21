@@ -1,0 +1,183 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: sabnzbd
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: sabnzbd
+  interval: 1h
+  values:
+    controllers:
+      sabnzbd:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        initContainers:
+          init-config:
+            image:
+              repository: ghcr.io/home-operations/sabnzbd
+              tag: 5.1.1@sha256:8f90c25c7ee2773112c76b209ba0c32f089ced996f0dd0683cdfeaf07df365f8
+            command:
+              - /bin/sh
+              - -c
+              - |
+                if [ ! -f /config/sabnzbd.ini ]; then
+                  cp /tmp/sabnzbd-config/sabnzbd.ini /config/sabnzbd.ini
+                  sed -i "s|__SERVER1_NAME__|$SERVER1_NAME|g; s|__SERVER1_HOST__|$SERVER1_HOST|g; s|__SERVER1_USER__|$SERVER1_USER|g; s|__SERVER1_PASS__|$SERVER1_PASS|g" /config/sabnzbd.ini
+                  sed -i "s|__SERVER2_NAME__|$SERVER2_NAME|g; s|__SERVER2_HOST__|$SERVER2_HOST|g; s|__SERVER2_USER__|$SERVER2_USER|g; s|__SERVER2_PASS__|$SERVER2_PASS|g" /config/sabnzbd.ini
+                  sed -i "s|__SERVER3_NAME__|$SERVER3_NAME|g; s|__SERVER3_HOST__|$SERVER3_HOST|g; s|__SERVER3_USER__|$SERVER3_USER|g; s|__SERVER3_PASS__|$SERVER3_PASS|g" /config/sabnzbd.ini
+                  sed -i "s|__SERVER4_NAME__|$SERVER4_NAME|g; s|__SERVER4_HOST__|$SERVER4_HOST|g; s|__SERVER4_USER__|$SERVER4_USER|g; s|__SERVER4_PASS__|$SERVER4_PASS|g" /config/sabnzbd.ini
+                  echo "Config initialized from template"
+                else
+                  echo "Config already exists, skipping initialization"
+                fi
+            envFrom:
+              - secretRef:
+                  name: sabnzbd-secret
+        containers:
+          app:
+            image:
+              repository: ghcr.io/home-operations/sabnzbd
+              tag: 5.1.1@sha256:8f90c25c7ee2773112c76b209ba0c32f089ced996f0dd0683cdfeaf07df365f8
+            env:
+              TZ: America/New_York
+              SABNZBD__PORT: &port 8080
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  initialDelaySeconds: 0
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+              readiness: *probes
+              startup:
+                enabled: true
+                custom: true
+                spec:
+                  tcpSocket:
+                    port: *port
+                  periodSeconds: 10
+                  failureThreshold: 30
+            resources:
+              requests:
+                cpu: 500m
+                memory: 4Gi
+              limits:
+                memory: 16Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        controller: sabnzbd
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: kgateway-internal
+            namespace: network
+            sectionName: https
+    configMaps:
+      config:
+        data:
+          sabnzbd.ini: |
+            # SABnzbd trial — deployed via Flux/GitOps
+            # Copied to /config/sabnzbd.ini on first run only; SABnzbd
+            # rewrites this file at runtime (UI changes are preserved).
+            __version__ = 19
+            [misc]
+            host = ::
+            port = 8080
+            host_whitelist = sabnzbd.${SECRET_DOMAIN},
+            auto_browser = 0
+            check_new_rel = 0
+            # incomplete and complete on the SAME NFS filesystem -> final
+            # "move" is a rename(), no data copy. Direct-to-NFS like nzbget,
+            # but partials never appear in the *arr-scanned directories.
+            download_dir = /media/usenet/sab-incomplete
+            complete_dir = /media/usenet/complete
+            permissions = 775
+            direct_unpack = 1
+            cache_limit = 4G
+            fsys_type = 2
+            par_option = ""
+            pre_check = 0
+            [servers]
+            [[__SERVER1_NAME__]]
+            host = __SERVER1_HOST__
+            port = 563
+            username = __SERVER1_USER__
+            password = __SERVER1_PASS__
+            connections = 30
+            ssl = 1
+            priority = 0
+            enable = 1
+            [[__SERVER2_NAME__]]
+            host = __SERVER2_HOST__
+            port = 563
+            username = __SERVER2_USER__
+            password = __SERVER2_PASS__
+            connections = 30
+            ssl = 1
+            priority = 0
+            enable = 1
+            [[__SERVER3_NAME__]]
+            host = __SERVER3_HOST__
+            port = 563
+            username = __SERVER3_USER__
+            password = __SERVER3_PASS__
+            connections = 30
+            ssl = 1
+            priority = 0
+            enable = 1
+            [[__SERVER4_NAME__]]
+            host = __SERVER4_HOST__
+            port = 563
+            username = __SERVER4_USER__
+            password = __SERVER4_PASS__
+            connections = 10
+            ssl = 1
+            priority = 1
+            enable = 1
+    persistence:
+      config:
+        type: persistentVolumeClaim
+        accessModes:
+          - ReadWriteOnce
+        size: 2Gi
+        storageClass: scale-nvmeof
+        globalMounts:
+          - path: /config
+      config-template:
+        type: configMap
+        name: "{{ .Release.Name }}"
+        advancedMounts:
+          sabnzbd:
+            init-config:
+              - path: /tmp/sabnzbd-config
+                readOnly: true
+      media:
+        type: nfs
+        server: 192.168.201.10
+        path: /mnt/flashstor/data
+        globalMounts:
+          - path: /media/usenet
+            subPath: usenet
+      tmpfs:
+        type: emptyDir
+        globalMounts:
+          - path: /tmp
