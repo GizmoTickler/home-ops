@@ -112,7 +112,9 @@ spec:
             complete_dir = /media/usenet/complete
             permissions = 775
             direct_unpack = 1
-            cache_limit = 4G
+            cache_limit = 8G
+            downloader_sleep_time = 3
+            sfv_check = 0
             receive_threads = 8
             fsys_type = 2
             par_option = ""
