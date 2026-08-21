@@ -98,7 +98,7 @@ spec:
             # Paths
             MainDir=/downloads
             TempDir=/tmp/nzbget
-            InterDir=/incomplete
+            InterDir=
             DestDir=/media/usenet
             QueueDir=/config/queue
             NzbDir=/config/nzb
@@ -259,20 +259,6 @@ spec:
             init-config:
               - path: /tmp/nzbget-config
                 readOnly: true
-      incomplete:
-        type: custom
-        volumeSpec:
-          ephemeral:
-            volumeClaimTemplate:
-              spec:
-                accessModes:
-                  - "ReadWriteOnce"
-                storageClassName: openebs-hostpath-nvme
-                resources:
-                  requests:
-                    storage: 250Gi
-        globalMounts:
-          - path: /incomplete
       media:
         type: nfs
         server: 192.168.201.10
