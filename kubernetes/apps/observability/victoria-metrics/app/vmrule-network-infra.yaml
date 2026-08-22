@@ -26,13 +26,15 @@ spec:
 
         - alert: DNSAllServersDown
           expr: |-
-            count(probe_success{job="probe/observability/dns"} == 0) == 2
+            count(probe_success{job="probe/observability/dns"} == 0)
+              == count(probe_success{job="probe/observability/dns"})
           for: 2m
           keep_firing_for: 5m
           annotations:
             summary: "All DNS servers are down"
             description: |-
-              Both dns0 (192.168.123.250) and dns1 (192.168.123.251) are unreachable on port 53.
+              Every probed DNS target (dns0, dns1 and the 10.53.53.53 anycast address)
+              is unreachable on port 53.
               All DNS resolution for the network is offline. Immediate action required.
           labels:
             severity: critical
@@ -68,6 +70,24 @@ spec:
             severity: critical
             component: dhcp
 
+        # Escalation: 30m of dead replication means the multi-master nodes are
+        # silently DIVERGING (writes land on one node only). The 2026-08-22
+        # PG-18.6/output_plugin_libraries incident ran 11h at severity=warning
+        # before anyone acted — this tier makes the divergence page as critical.
+        - alert: ReplicationSlotInactiveLong
+          expr: |-
+            pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
+          for: 30m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Spock slot {{ $labels.slot_name }} inactive >30m — nodes are diverging"
+            description: |-
+              Multi-master replication has been down for 30+ minutes; DNS/DHCP
+              writes are landing on one node only and the datasets are diverging.
+              Runbook: check output_plugin_libraries first (PG minor upgrades can
+              break Spock BY POLICY — see claude-config runbooks/proposals/dns-anycast §23.1).
+          labels:
+            severity: critical
         - alert: ReplicationSlotInactive
           expr: |-
             pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
@@ -261,6 +281,53 @@ spec:
     #   pdns_recursor_*  (job="pdns-recursor", instance dns[01]:8092)
     #   dnsdist_*        (job="dnsdist",        instance dns[01]:8083)
     #   dnscrypt_proxy_* (job="dnscrypt-proxy", instance dns[01]:49312)
+    # Anycast DNS data plane (10.53.53.53, prepend-gate design — see
+    # claude-config runbooks/dns-anycast-incident.md)
+    - name: dns-anycast.rules
+      interval: 30s
+      rules:
+        - alert: DNSAnycastBothDemoted
+          expr: |-
+            sum(dns_anycast_demoted) >= 2
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Both DNS nodes report dnsdist unhealthy — anycast degraded on both"
+            description: |-
+              Both gates have applied ANYCAST_OUT_DEGRADED. Traffic still flows
+              (equal-length paths ECMP), but the gate believes neither dnsdist is
+              answering — either both are broken, or the shared probe is lying.
+              Verify with dig against each node's PHYSICAL address first.
+            runbook_url: "https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastbothdemoted--critical"
+          labels:
+            severity: critical
+        - alert: DNSAnycastNodeDemoted
+          expr: |-
+            dns_anycast_demoted == 1
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "{{ $labels.instance }} demoted from anycast ECMP for >10m"
+            description: |-
+              Service is fine on the peer; redundancy is reduced. Likely dnsdist
+              down/hung on the node, gate stopped for maintenance, or a node that
+              booted and never promoted.
+            runbook_url: "https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastnodedemoted--warning-10m"
+          labels:
+            severity: warning
+        - alert: DNSAnycastMetricMissing
+          expr: |-
+            absent(dns_anycast_healthy) or count(dns_anycast_healthy) < 2
+          for: 15m
+          keep_firing_for: 5m
+          annotations:
+            summary: "Anycast gate metrics missing for one or both DNS nodes"
+            description: |-
+              dns_anycast_* gauges absent — the gate daemon or its textfile
+              publication may not be running on one or both nodes.
+            runbook_url: "https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#first-commands-always"
+          labels:
+            severity: warning
     - name: dns-resolver.rules
       interval: 30s
       rules:
@@ -307,14 +374,16 @@ spec:
 
         # --- The exact silent signal from the 2026-06-10 incident ---
         - alert: RecursorDNSSECBogusIncreasing
-          # Sum of all pdns_recursor_dnssec_result_bogus* counters. A non-zero
-          # sustained rate means validation is FAILING (bogus), which returns
-          # SERVFAIL + EDE 12 — exactly the trust-anchor gap that went unnoticed.
-          # Baseline is 0/s, so any sustained >0 is actionable.
+          # Sum of all pdns_recursor_dnssec_result_bogus* counters.
+          # Baseline drifted to a sustained ~0.17/s (<1% of queries, internet
+          # background bogus via the CF-Gateway forwarding path), so the old
+          # 0.05/s threshold fired continuously for weeks and became wallpaper
+          # (retuned 2026-08-22). 1/s is ~5x baseline and still catches the
+          # trust-anchor-breakage class, which is orders of magnitude larger.
           expr: |-
             sum by (instance) (
               rate({__name__=~"pdns_recursor_dnssec_result_bogus.*",job="pdns-recursor"}[5m])
-            ) > 0.05
+            ) > 1
           for: 5m
           keep_firing_for: 10m
           annotations:

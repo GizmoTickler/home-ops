@@ -58,3 +58,6 @@ spec:
       static:
         - 192.168.123.250:53
         - 192.168.123.251:53
+        # Anycast data plane — the ONLY resolver clients receive via DHCP option 6
+        # since the 2026-08-22 cutover. Served by both nodes via BGP ECMP.
+        - 10.53.53.53:53

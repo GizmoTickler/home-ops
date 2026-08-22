@@ -162,6 +162,15 @@ spec:
               repeat_interval: 5m
               matchers:
                 - alertname=Watchdog
+            # Info-level alerts: visible to friday3, never paged. Without this
+            # route they fall through to the ROOT receiver (pushover) — info
+            # alerts were paging phones until 2026-08-22.
+            - receiver: friday3-diagnostics
+              group_wait: 0s
+              group_interval: 5m
+              repeat_interval: 24h
+              matchers:
+                - severity=info
             # Friday3 diagnostics - parallel path; Pushover still receives below
             - receiver: friday3-diagnostics
               continue: true
