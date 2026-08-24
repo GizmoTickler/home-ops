@@ -4,6 +4,11 @@
 # invalidated fastresume data and forced full re-downloads. openebs-hostpath
 # is node-local, so this claim pins qbittorrent to whichever node binds it
 # first -- accepted trade-off.
+#
+# 2026-08-24: openebs-hostpath now resolves to /var/mnt/nvme-hostpath (443G per
+# node on the nvme-scratch stripe), not the old SATA local-hostpath. nzbget
+# carries a podAntiAffinity against qbittorrent so the two scratch volumes never
+# land on the same node.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

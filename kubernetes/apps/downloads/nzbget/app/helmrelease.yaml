@@ -98,7 +98,7 @@ spec:
             # Paths
             MainDir=/downloads
             TempDir=/tmp/nzbget
-            InterDir=
+            InterDir=/incomplete
             DestDir=/media/usenet
             QueueDir=/config/queue
             NzbDir=/config/nzb
@@ -235,6 +235,18 @@ spec:
             Category4.Name=software
             Category4.DestDir=
             Category4.Aliases=software*
+    defaultPodOptions:
+      affinity:
+        podAntiAffinity:
+          # nzbget's /incomplete and qbittorrent's /inter are both node-local on
+          # the 443G NVMe scratch tier. qbittorrent is already pinned by its named
+          # PVC, so this keeps nzbget on a different node rather than having the
+          # two compete for one node's scratch.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: qbittorrent
+              topologyKey: kubernetes.io/hostname
     service:
       app:
         ports:
@@ -259,6 +271,20 @@ spec:
             init-config:
               - path: /tmp/nzbget-config
                 readOnly: true
+      incomplete:
+        type: custom
+        volumeSpec:
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes:
+                  - "ReadWriteOnce"
+                storageClassName: openebs-hostpath
+                resources:
+                  requests:
+                    storage: 250Gi
+        globalMounts:
+          - path: /incomplete
       media:
         type: nfs
         server: 192.168.201.10
