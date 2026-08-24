@@ -173,7 +173,7 @@ spec:
             Server1.Host=__SERVER1_HOST__
             Server1.Port=563
             Server1.Encryption=yes
-            Server1.Connections=30
+            Server1.Connections=50
             Server1.Username=__SERVER1_USER__
             Server1.Password=__SERVER1_PASS__
             Server1.Level=0
@@ -186,7 +186,7 @@ spec:
             Server2.Host=__SERVER2_HOST__
             Server2.Port=563
             Server2.Encryption=yes
-            Server2.Connections=30
+            Server2.Connections=50
             Server2.Username=__SERVER2_USER__
             Server2.Password=__SERVER2_PASS__
             Server2.Level=0
@@ -199,7 +199,7 @@ spec:
             Server3.Host=__SERVER3_HOST__
             Server3.Port=563
             Server3.Encryption=yes
-            Server3.Connections=30
+            Server3.Connections=50
             Server3.Username=__SERVER3_USER__
             Server3.Password=__SERVER3_PASS__
             Server3.Level=0
