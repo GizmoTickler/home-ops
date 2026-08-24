@@ -14,6 +14,12 @@ spec:
       nzbget:
         annotations:
           reloader.stakater.com/auto: "true"
+          # auto mode only inspects envFrom on regular containers. nzbget-secret
+          # is consumed exclusively by the init-config initContainer, so auto
+          # never sees it -- on 2026-08-24 a rotated EasyNews password sat in the
+          # secret while the running pod kept using the old one until a manual
+          # restart. This explicit reference makes Reloader watch it regardless.
+          secret.reloader.stakater.com/reload: "nzbget-secret"
         initContainers:
           init-config:
             image:
