@@ -24,31 +24,41 @@ spec:
               - -c
               - |
                 mkdir -p /config/queue /config/nzb /config/scripts
-                if [ ! -f /config/nzbget.conf ]; then
-                  cp /tmp/nzbget-config/nzbget.conf /config/nzbget.conf
-                  # Inject Usenet server config from env vars
-                  sed -i "s|__SERVER1_NAME__|$SERVER1_NAME|g" /config/nzbget.conf
-                  sed -i "s|__SERVER1_HOST__|$SERVER1_HOST|g" /config/nzbget.conf
-                  sed -i "s|__SERVER1_USER__|$SERVER1_USER|g" /config/nzbget.conf
-                  sed -i "s|__SERVER1_PASS__|$SERVER1_PASS|g" /config/nzbget.conf
-                  sed -i "s|__SERVER2_NAME__|$SERVER2_NAME|g" /config/nzbget.conf
-                  sed -i "s|__SERVER2_HOST__|$SERVER2_HOST|g" /config/nzbget.conf
-                  sed -i "s|__SERVER2_USER__|$SERVER2_USER|g" /config/nzbget.conf
-                  sed -i "s|__SERVER2_PASS__|$SERVER2_PASS|g" /config/nzbget.conf
-                  sed -i "s|__SERVER3_NAME__|$SERVER3_NAME|g" /config/nzbget.conf
-                  sed -i "s|__SERVER3_HOST__|$SERVER3_HOST|g" /config/nzbget.conf
-                  sed -i "s|__SERVER3_USER__|$SERVER3_USER|g" /config/nzbget.conf
-                  sed -i "s|__SERVER3_PASS__|$SERVER3_PASS|g" /config/nzbget.conf
-                  sed -i "s|__SERVER4_NAME__|$SERVER4_NAME|g" /config/nzbget.conf
-                  sed -i "s|__SERVER4_HOST__|$SERVER4_HOST|g" /config/nzbget.conf
-                  sed -i "s|__SERVER4_USER__|$SERVER4_USER|g" /config/nzbget.conf
-                  sed -i "s|__SERVER4_PASS__|$SERVER4_PASS|g" /config/nzbget.conf
-                  sed -i "s|__RESTRICTED_USER__|$RESTRICTED_USER|g" /config/nzbget.conf
-                  sed -i "s|__RESTRICTED_PASS__|$RESTRICTED_PASS|g" /config/nzbget.conf
-                  echo "Config initialized from template"
-                else
-                  echo "Config already exists, skipping initialization"
+                # Regenerate from the ConfigMap template on EVERY start so git is the
+                # source of truth. This was previously guarded by
+                # [ ! -f /config/nzbget.conf ], which silently made every committed
+                # setting inert once the config PVC existed -- on 2026-08-23 git said
+                # Connections=30 while live ran 50, and InterDir edits never reached
+                # the running service at all.
+                # TRADE-OFF: settings changed in the nzbget web UI do NOT survive a pod
+                # restart. Change settings in git. The previous file is kept for one
+                # generation at /config/nzbget.conf.prev.
+                if [ -f /config/nzbget.conf ]; then
+                  cp /config/nzbget.conf /config/nzbget.conf.prev
                 fi
+                cp /tmp/nzbget-config/nzbget.conf /config/nzbget.conf
+                # Inject Usenet server config from env vars.
+                # Keep these unrolled and brace-free: a shell loop using braced
+                # variable references collides with Flux envsubst (see 5d5637b0).
+                sed -i "s|__SERVER1_NAME__|$SERVER1_NAME|g" /config/nzbget.conf
+                sed -i "s|__SERVER1_HOST__|$SERVER1_HOST|g" /config/nzbget.conf
+                sed -i "s|__SERVER1_USER__|$SERVER1_USER|g" /config/nzbget.conf
+                sed -i "s|__SERVER1_PASS__|$SERVER1_PASS|g" /config/nzbget.conf
+                sed -i "s|__SERVER2_NAME__|$SERVER2_NAME|g" /config/nzbget.conf
+                sed -i "s|__SERVER2_HOST__|$SERVER2_HOST|g" /config/nzbget.conf
+                sed -i "s|__SERVER2_USER__|$SERVER2_USER|g" /config/nzbget.conf
+                sed -i "s|__SERVER2_PASS__|$SERVER2_PASS|g" /config/nzbget.conf
+                sed -i "s|__SERVER3_NAME__|$SERVER3_NAME|g" /config/nzbget.conf
+                sed -i "s|__SERVER3_HOST__|$SERVER3_HOST|g" /config/nzbget.conf
+                sed -i "s|__SERVER3_USER__|$SERVER3_USER|g" /config/nzbget.conf
+                sed -i "s|__SERVER3_PASS__|$SERVER3_PASS|g" /config/nzbget.conf
+                sed -i "s|__SERVER4_NAME__|$SERVER4_NAME|g" /config/nzbget.conf
+                sed -i "s|__SERVER4_HOST__|$SERVER4_HOST|g" /config/nzbget.conf
+                sed -i "s|__SERVER4_USER__|$SERVER4_USER|g" /config/nzbget.conf
+                sed -i "s|__SERVER4_PASS__|$SERVER4_PASS|g" /config/nzbget.conf
+                sed -i "s|__RESTRICTED_USER__|$RESTRICTED_USER|g" /config/nzbget.conf
+                sed -i "s|__RESTRICTED_PASS__|$RESTRICTED_PASS|g" /config/nzbget.conf
+                echo "Config regenerated from template"
             envFrom:
               - secretRef:
                   name: nzbget-secret
