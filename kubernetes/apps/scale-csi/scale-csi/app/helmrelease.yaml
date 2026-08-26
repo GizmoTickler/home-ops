@@ -62,19 +62,36 @@ spec:
       # path, so keeping them costs no MGMT traffic, and it keeps a `server`
       # rollback and any non-fabric mount working.
       #
-      # 2026-08-26 STEP 2 of 2: `server` moved off MGMT onto the fabric, to the
-      # same primary address NVMe-oF already uses. This is the address the node
-      # mounts, so every NEW NFS volume now takes VLAN 1201 instead of crossing
-      # SC01 on the MGMT VLAN. nfs.config bindip is [] on nas01, so the NFS
-      # service already answers on all four fabric IPs -- no appliance-side
-      # change was needed.
+      # 2026-08-26: `server` STAYS ON MGMT. Moving it to 192.168.201.10 was
+      # tried, deployed and reverted the same day -- it provisions but does not
+      # mount. Live evidence from k8s-0 against one driver-created export:
       #
-      # SINGLE PATH BY CHOICE: unlike NVMe-oF this is one address on one
-      # L2-direct link, not a bonded one. nfs.trunking + nfs.addresses would
-      # give the four-way equivalent, but trunking needs a negotiated NFSv4.1+
-      # and the scale-nfs class below pins `nfsvers=4`; making that safe means
-      # recreating the StorageClass, which is a separate change.
-      server: "192.168.201.10"
+      #   CSI export via 192.168.120.10  vers=4.1  OK
+      #   CSI export via 192.168.201.10  vers=4.1  FAIL (ENOENT from server)
+      #   media export via 192.168.201.10 (hosts: []) vers=4.2  OK
+      #
+      # Cause is fencing.mode=strict, not the fabric. applyNFSFence stamps the
+      # export's `hosts` with the publishing node's identity IPs, and the node
+      # plugin's identity is whatever NODE_IP/NODE_IPS holds; the chart sets
+      # NODE_IP from status.hostIP, so a node only ever reports its MGMT
+      # address. The export is built as hosts: ["192.168.122.10"] while the
+      # mount would arrive from 192.168.201.20 -- denied. shareAllowedNetworks
+      # cannot fix this: under strict fencing it is only a FILTER over the IPs
+      # the node reported, and the fabric IPs are never reported at all.
+      #
+      # Unblocking it needs a driver/chart change (have the node union its
+      # interface addresses into its identity), NOT a value here. Note that
+      # changing node identity encoding changes the CSI node_id, which is
+      # embedded in every existing VolumeAttachment -- so it is not a free
+      # change with 46 live NVMe-oF volumes attached.
+      #
+      # Independent second blocker, pre-existing and unrelated to MGMT vs
+      # fabric: driver-created exports refuse NFSv4.2 (ENOENT) even over MGMT,
+      # while /mnt/flashstor/data accepts 4.2 fine. The scale-nfs class below
+      # pins `nfsvers=4`, which negotiates 4.2, so NFS PVCs do not mount today
+      # on either path. There are zero NFS PVs, so nothing is currently broken
+      # by this.
+      server: "192.168.120.10"
       shareAllowedNetworks:
         # Node MGMT addresses (VLAN 999 / 192.168.122.0/24)
         - 192.168.122.10/32
