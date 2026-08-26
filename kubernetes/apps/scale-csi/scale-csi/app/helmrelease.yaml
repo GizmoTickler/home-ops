@@ -61,7 +61,20 @@ spec:
       # The MGMT /32s are deliberately RETAINED: an export ACL is not a data
       # path, so keeping them costs no MGMT traffic, and it keeps a `server`
       # rollback and any non-fabric mount working.
-      server: "192.168.120.10"
+      #
+      # 2026-08-26 STEP 2 of 2: `server` moved off MGMT onto the fabric, to the
+      # same primary address NVMe-oF already uses. This is the address the node
+      # mounts, so every NEW NFS volume now takes VLAN 1201 instead of crossing
+      # SC01 on the MGMT VLAN. nfs.config bindip is [] on nas01, so the NFS
+      # service already answers on all four fabric IPs -- no appliance-side
+      # change was needed.
+      #
+      # SINGLE PATH BY CHOICE: unlike NVMe-oF this is one address on one
+      # L2-direct link, not a bonded one. nfs.trunking + nfs.addresses would
+      # give the four-way equivalent, but trunking needs a negotiated NFSv4.1+
+      # and the scale-nfs class below pins `nfsvers=4`; making that safe means
+      # recreating the StorageClass, which is a separate change.
+      server: "192.168.201.10"
       shareAllowedNetworks:
         # Node MGMT addresses (VLAN 999 / 192.168.122.0/24)
         - 192.168.122.10/32
@@ -83,7 +96,18 @@ spec:
         - 192.168.204.22/32
     iscsi:
       enabled: true
-      portal: "192.168.120.10:3260"
+      # 2026-08-26: portal moved off MGMT onto the fabric. The driver resolves
+      # this to a TrueNAS portal by exact ip:port match against portal.listen
+      # (resolveISCSIPortalIDsForEndpoints); nas01 portal id=3 already listens
+      # on all four of 192.168.20{1,2,3,4}.10:3260, so no portal had to be
+      # created. Portal id=2 (MGMT-only, 192.168.120.10:3260) is now unused by
+      # this driver.
+      #
+      # NOTE: there are zero iSCSI PVs, zero targets and zero extents on the
+      # appliance, and zero sessions on every node. This protocol is enabled
+      # but carrying nothing; the change makes it fabric-correct rather than
+      # useful. Disabling it outright is under review.
+      portal: "192.168.201.10:3260"
     nvmeof:
       enabled: true
       transport: tcp
