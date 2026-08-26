@@ -50,11 +50,37 @@ spec:
       detachedVolumesFromSnapshots: false
     nfs:
       enabled: true
+      # 2026-08-26 STEP 1 of 2 (ordering is load-bearing): widen the export ACL
+      # to the storage-fabric source addresses BEFORE `server` leaves MGMT.
+      # shareAllowedNetworks is stamped onto every NEWLY created sharing.nfs
+      # export; an export created while this list held only the MGMT /32s would
+      # deny a mount whose source address is a fabric IP. Widening first is
+      # always safe (it only adds permitted sources); widening after the move
+      # would leave a window of unmountable exports.
+      #
+      # The MGMT /32s are deliberately RETAINED: an export ACL is not a data
+      # path, so keeping them costs no MGMT traffic, and it keeps a `server`
+      # rollback and any non-fabric mount working.
       server: "192.168.120.10"
       shareAllowedNetworks:
+        # Node MGMT addresses (VLAN 999 / 192.168.122.0/24)
         - 192.168.122.10/32
         - 192.168.122.11/32
         - 192.168.122.12/32
+        # Node storage-fabric addresses, VLAN 1201-1204 (eth3-eth6 on the k8s
+        # VMs). Host octet: k8s-0=.20, k8s-1=.21, k8s-2=.22.
+        - 192.168.201.20/32
+        - 192.168.201.21/32
+        - 192.168.201.22/32
+        - 192.168.202.20/32
+        - 192.168.202.21/32
+        - 192.168.202.22/32
+        - 192.168.203.20/32
+        - 192.168.203.21/32
+        - 192.168.203.22/32
+        - 192.168.204.20/32
+        - 192.168.204.21/32
+        - 192.168.204.22/32
     iscsi:
       enabled: true
       portal: "192.168.120.10:3260"
