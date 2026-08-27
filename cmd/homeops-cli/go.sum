@@ -248,6 +248,8 @@ github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWD
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe h1:eVdK527PmarEkWPNlgVOCHUkydU8r80kKc6UpN+wyUI=
 github.com/truenas/api_client_golang v0.0.0-20250820184128-fc6edc0b6ebe/go.mod h1:yUs81XDC8fr5XGxjT3QZXee2kDWb7uJrk5+Fx6EIzeM=
+github.com/truenas/api_client_golang v0.0.0-20260827000124-508624041bb3 h1:0asCG33JYC1YK/WR/SdSlLqfpKdo6d5k07zo/0+tPeQ=
+github.com/truenas/api_client_golang v0.0.0-20260827000124-508624041bb3/go.mod h1:yUs81XDC8fr5XGxjT3QZXee2kDWb7uJrk5+Fx6EIzeM=
 github.com/ulikunitz/xz v0.5.15 h1:9DNdB5s+SgV3bQ2ApL10xRc35ck0DuIX/isZvIk+ubY=
 github.com/ulikunitz/xz v0.5.15/go.mod h1:nbz6k7qbPmH4IRqmfOplQw/tblSgqTqBwxkY0oWt/14=
 github.com/vincent-petithory/dataurl v1.0.0 h1:cXw+kPto8NLuJtlMsI152irrVw9fRDX8AbShPRpg2CI=
