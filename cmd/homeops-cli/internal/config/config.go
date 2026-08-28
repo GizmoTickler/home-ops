@@ -71,11 +71,11 @@ type StorageNIC struct {
 	IP   string `yaml:"ip"`
 }
 
-// NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
-// Flatcar nodes. Each VLAN is one of the storage_nics VLANs; its NFS server
-// address is derived as 192.168.<vlan-1000>.10.
-type NFSTrunkConfig struct {
-	Export string `yaml:"export,omitempty"`
+// NFSEcmpConfig routes one NFS service address over the storage-fabric NICs
+// on Flatcar nodes. Each VLAN is one of the storage_nics VLANs; the TrueNAS
+// nexthop address is derived as 192.168.<vlan-1000>.10.
+type NFSEcmpConfig struct {
+	Server string `yaml:"server,omitempty"`
 	VLANs  []int  `yaml:"vlans,omitempty"`
 }
 
@@ -205,9 +205,9 @@ type ClusterConfig struct {
 	// NTPServers are rendered into Flatcar systemd-timesyncd and Talos
 	// machine.time.servers.
 	NTPServers []string `yaml:"ntp_servers,omitempty"`
-	// NFSTrunk optionally renders NFS session anchor mounts on Flatcar nodes
-	// that have storage_nics. The zero value keeps the units absent.
-	NFSTrunk NFSTrunkConfig `yaml:"nfs_trunk,omitempty"`
+	// NFSEcmp optionally renders an NFS-only layer-4 ECMP route on Flatcar
+	// nodes that have storage_nics. The zero value keeps the unit absent.
+	NFSEcmp NFSEcmpConfig `yaml:"nfs_ecmp,omitempty"`
 	// ExtraCertSANs are appended to the apiserver/Talos cert SAN lists.
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
@@ -705,22 +705,21 @@ func validate(c *Config) error {
 			problems = append(problems, fmt.Sprintf("%s: %q is not a positive duration", duration.name, duration.value))
 		}
 	}
-	if c.Cluster.NFSTrunk.Export != "" || c.Cluster.NFSTrunk.VLANs != nil {
-		if strings.TrimSpace(c.Cluster.NFSTrunk.Export) == "" {
-			problems = append(problems, "cluster.nfs_trunk.export: must not be blank when nfs_trunk is configured")
-		} else if !strings.HasPrefix(c.Cluster.NFSTrunk.Export, "/") {
-			problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.export: %q must be an absolute NFS export path", c.Cluster.NFSTrunk.Export))
+	if c.Cluster.NFSEcmp.Server != "" || c.Cluster.NFSEcmp.VLANs != nil {
+		server, err := netip.ParseAddr(strings.TrimSpace(c.Cluster.NFSEcmp.Server))
+		if err != nil || !server.Is4() {
+			problems = append(problems, fmt.Sprintf("cluster.nfs_ecmp.server: %q must be an IPv4 address", c.Cluster.NFSEcmp.Server))
 		}
-		if len(c.Cluster.NFSTrunk.VLANs) == 0 {
-			problems = append(problems, "cluster.nfs_trunk.vlans: must contain at least one storage VLAN when nfs_trunk is configured")
+		if len(c.Cluster.NFSEcmp.VLANs) == 0 {
+			problems = append(problems, "cluster.nfs_ecmp.vlans: must contain at least one storage VLAN when nfs_ecmp is configured")
 		}
-		seenVLANs := make(map[int]int, len(c.Cluster.NFSTrunk.VLANs))
-		for index, vlan := range c.Cluster.NFSTrunk.VLANs {
+		seenVLANs := make(map[int]int, len(c.Cluster.NFSEcmp.VLANs))
+		for index, vlan := range c.Cluster.NFSEcmp.VLANs {
 			if vlan < 1201 || vlan > 1204 {
-				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d is not a supported storage VLAN (use 1201-1204)", index, vlan))
+				problems = append(problems, fmt.Sprintf("cluster.nfs_ecmp.vlans[%d]: %d is not a supported storage VLAN (use 1201-1204)", index, vlan))
 			}
 			if firstIndex, duplicate := seenVLANs[vlan]; duplicate {
-				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d duplicates cluster.nfs_trunk.vlans[%d]", index, vlan, firstIndex))
+				problems = append(problems, fmt.Sprintf("cluster.nfs_ecmp.vlans[%d]: %d duplicates cluster.nfs_ecmp.vlans[%d]", index, vlan, firstIndex))
 			} else {
 				seenVLANs[vlan] = index
 			}

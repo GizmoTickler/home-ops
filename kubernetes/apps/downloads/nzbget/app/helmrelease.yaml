@@ -108,8 +108,9 @@ spec:
         data:
           nzbget.conf: |
             # NZBGet configuration — deployed via Flux/GitOps
-            # This template is copied to /config/nzbget.conf on first run only.
-            # Runtime changes via the web UI are preserved.
+            # The init container regenerates /config/nzbget.conf from this
+            # template on every pod start. Change settings in Git; web-UI
+            # changes are intentionally discarded by the next restart.
 
             # Paths
             MainDir=/downloads
@@ -303,7 +304,7 @@ spec:
           - path: /incomplete
       media:
         type: nfs
-        server: 192.168.201.10
+        server: 192.168.120.10
         path: /mnt/flashstor/data
         globalMounts:
           - path: /media/usenet

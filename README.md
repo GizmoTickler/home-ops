@@ -294,7 +294,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
   - TCP Congestion Control: BBR
   - TCP Buffer Sizes: 64MB max
   - Socket Buffers: 128MB (rcvbuf/sndbuf)
-  - NFS nconnect: 16 parallel connections
+  - NFS nconnect: 16 parallel connections, L4-hashed across four storage paths
 
 ---
 

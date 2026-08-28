@@ -107,7 +107,7 @@ spec:
             subPath: .qbt.toml
       media:
         type: nfs
-        server: 192.168.201.10
+        server: 192.168.120.10
         path: /mnt/flashstor/data
         globalMounts:
           - path: /media/torrents

@@ -126,10 +126,10 @@ func (e NodeEnv) envMap() map[string]string {
 	// This placeholder is always replaced, including with an empty string, so
 	// nodes without storage NICs retain the pre-existing Ignition file set.
 	m[constants.EnvStorageNetworkFiles] = formatStorageNetworkFiles(e.StorageNICs, e.NetworkMTU)
-	// NFS anchors are opt-in and only belong on nodes attached to the storage
+	// NFS ECMP is opt-in and only belongs on nodes attached to the storage
 	// fabric. Replacing the placeholder with an empty string preserves the
 	// pre-existing unit set for portable/default configs and non-storage nodes.
-	m[constants.EnvNFSTrunkUnits] = formatNFSTrunkUnits(e.StorageNICs, config.Get().Cluster.NFSTrunk)
+	m[constants.EnvNFSECMPUnit] = formatNFSECMPUnit(e.StorageNICs, config.Get().Cluster.NFSEcmp)
 	add(constants.EnvCertificateKey, e.CertificateKey)
 	add(constants.EnvBootstrapToken, e.BootstrapToken)
 	add(constants.EnvCACertHash, e.CACertHash)
@@ -206,36 +206,49 @@ func formatStorageNetworkFiles(storageNICs []config.StorageNIC, mtu string) stri
 	return b.String()
 }
 
-func formatNFSTrunkUnits(storageNICs []config.StorageNIC, trunk config.NFSTrunkConfig) string {
-	if len(storageNICs) == 0 || trunk.Export == "" || len(trunk.VLANs) == 0 {
+func formatNFSECMPUnit(storageNICs []config.StorageNIC, ecmp config.NFSEcmpConfig) string {
+	if len(storageNICs) == 0 || ecmp.Server == "" || len(ecmp.VLANs) == 0 {
 		return ""
 	}
 
-	vlans := append([]int(nil), trunk.VLANs...)
+	nics := append([]config.StorageNIC(nil), storageNICs...)
+	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
+	devices := make(map[int]string, len(nics))
+	for index, nic := range nics {
+		devices[nic.VLAN] = fmt.Sprintf("eth%d", index+3)
+	}
+
+	vlans := append([]int(nil), ecmp.VLANs...)
 	sort.Ints(vlans)
-	var b strings.Builder
-	for index, storageVLAN := range vlans {
-		if index > 0 {
-			b.WriteByte('\n')
+	var nexthops strings.Builder
+	for _, storageVLAN := range vlans {
+		device, ok := devices[storageVLAN]
+		if !ok {
+			return ""
 		}
 		vlan := storageVLAN - 1000
-		_, _ = fmt.Fprintf(&b, `    - name: var-mnt-stor\x2dtrunk\x2d%d.mount
+		_, _ = fmt.Fprintf(&nexthops, " nexthop via 192.168.%d.10 dev %s weight 1", vlan, device)
+	}
+
+	return fmt.Sprintf(`    - name: nfs-ecmp.service
       enabled: true
       contents: |
         [Unit]
-        Description=NFS 4.1 trunk anchor via VLAN %d (adds transports to the nas01 session)
+        Description=Route NFS service traffic over all storage paths
         After=network-online.target
         Wants=network-online.target
-        [Mount]
-        What=192.168.%d.10:%s
-        Where=/var/mnt/stor-trunk-%d
-        Type=nfs4
-        Options=vers=4.2,ro,noatime,nconnect=4,max_connect=16
+        Before=kubelet.service
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStartPre=-/usr/bin/ip rule del pref 2049 to %s/32 ipproto tcp dport 2049 lookup 2049
+        ExecStart=/usr/bin/ip route replace table 2049 %s/32%s
+        ExecStart=/usr/bin/ip rule add pref 2049 to %s/32 ipproto tcp dport 2049 lookup 2049
+        ExecStop=-/usr/bin/ip rule del pref 2049 to %s/32 ipproto tcp dport 2049 lookup 2049
+        ExecStop=-/usr/bin/ip route flush table 2049
         [Install]
         WantedBy=multi-user.target
-`, vlan, vlan, vlan, trunk.Export, vlan)
-	}
-	return b.String()
+`, ecmp.Server, ecmp.Server, nexthops.String(), ecmp.Server, ecmp.Server)
 }
 
 func formatFlatcarCertSANs(values []string) string {

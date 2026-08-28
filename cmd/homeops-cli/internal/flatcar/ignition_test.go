@@ -95,13 +95,13 @@ func TestRenderIgnitionUsesNTPServersAndNetworkMTU(t *testing.T) {
 	assert.Contains(t, ignitionFileContent(t, ign, "/etc/systemd/network/10-k8s.network"), "MTUBytes=1400")
 }
 
-func TestRenderIgnitionPersistsNFSTrunking(t *testing.T) {
+func TestRenderIgnitionPersistsNFSECMP(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "homeops.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 cluster:
-  nfs_trunk:
-    export: /mnt/flashstor/data
-    vlans: [1202, 1203, 1204]
+  nfs_ecmp:
+    server: 192.168.120.10
+    vlans: [1201, 1202, 1203, 1204]
 `), 0o600))
 	cfg, err := config.LoadFile(path)
 	require.NoError(t, err)
@@ -123,9 +123,10 @@ cluster:
 [ NFSMount_Global_Options ]
 nfsvers=4.2
 hard=True
-# Worst-case budget: 16 is the NFS_MAX_TRANSPORTS ceiling; nconnect=4 leaves room for up to 4 server addresses.
-nconnect=4
-max_connect=16
+# nconnect creates 16 parallel TCP transports to the single NFS service IP.
+# nfs-ecmp.service spreads those flows over all four storage paths by L4 hash.
+nconnect=16
+max_connect=1
 noatime=True
 rsize=1048576
 wsize=1048576
@@ -133,19 +134,17 @@ wsize=1048576
 
 	units := ignitionSystemdUnits(t, ign)
 	want := map[string]string{
-		`var-mnt-stor\x2dtrunk\x2d202.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 202 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.202.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-202\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
-		`var-mnt-stor\x2dtrunk\x2d203.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 203 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.203.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-203\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
-		`var-mnt-stor\x2dtrunk\x2d204.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 204 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.204.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-204\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
+		"nfs-ecmp.service": "[Unit]\nDescription=Route NFS service traffic over all storage paths\nAfter=network-online.target\nWants=network-online.target\nBefore=kubelet.service\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStartPre=-/usr/bin/ip rule del pref 2049 to 192.168.120.10/32 ipproto tcp dport 2049 lookup 2049\nExecStart=/usr/bin/ip route replace table 2049 192.168.120.10/32 nexthop via 192.168.201.10 dev eth3 weight 1 nexthop via 192.168.202.10 dev eth4 weight 1 nexthop via 192.168.203.10 dev eth5 weight 1 nexthop via 192.168.204.10 dev eth6 weight 1\nExecStart=/usr/bin/ip rule add pref 2049 to 192.168.120.10/32 ipproto tcp dport 2049 lookup 2049\nExecStop=-/usr/bin/ip rule del pref 2049 to 192.168.120.10/32 ipproto tcp dport 2049 lookup 2049\nExecStop=-/usr/bin/ip route flush table 2049\n[Install]\nWantedBy=multi-user.target\n",
 	}
 	for name, contents := range want {
 		unit, ok := units[name]
-		require.True(t, ok, "missing NFS trunk anchor %s", name)
+		require.True(t, ok, "missing NFS ECMP unit %s", name)
 		assert.True(t, unit.Enabled, name)
 		assert.Equal(t, contents, unit.Contents, name)
 	}
 }
 
-func TestRenderIgnitionWithoutNFSTrunkConfigKeepsAnchorUnitsAbsent(t *testing.T) {
+func TestRenderIgnitionWithoutNFSECMPConfigKeepsUnitAbsent(t *testing.T) {
 	restore := config.SetForTesting(&config.Config{})
 	defer restore()
 	env := sampleEnv()
@@ -153,12 +152,11 @@ func TestRenderIgnitionWithoutNFSTrunkConfigKeepsAnchorUnitsAbsent(t *testing.T)
 
 	ign, err := RenderIgnition(env)
 	require.NoError(t, err)
-	for name := range ignitionSystemdUnits(t, ign) {
-		assert.NotContains(t, name, `stor\x2dtrunk`)
-	}
+	_, ok := ignitionSystemdUnits(t, ign)["nfs-ecmp.service"]
+	assert.False(t, ok)
 }
 
-func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testing.T) {
+func TestRepositoryConfigRendersNFSECMPOnEveryStorageNode(t *testing.T) {
 	cfg, err := config.LoadFile(filepath.Join("..", "..", "..", "..", "homeops.yaml"))
 	require.NoError(t, err)
 	restore := config.SetForTesting(cfg)
@@ -173,21 +171,13 @@ func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testin
 
 			ign, err := RenderIgnition(env)
 			require.NoError(t, err)
-			anchors := make(map[string]ignitionSystemdUnit)
-			for name, unit := range ignitionSystemdUnits(t, ign) {
-				if strings.Contains(name, `stor\x2dtrunk`) {
-					anchors[name] = unit
-				}
-			}
-			require.Len(t, anchors, 3)
-			for _, storageVLAN := range cfg.Cluster.NFSTrunk.VLANs {
+			unit, ok := ignitionSystemdUnits(t, ign)["nfs-ecmp.service"]
+			require.True(t, ok)
+			assert.True(t, unit.Enabled)
+			assert.Contains(t, unit.Contents, "to "+cfg.Cluster.NFSEcmp.Server+"/32 ipproto tcp dport 2049 lookup 2049")
+			for _, storageVLAN := range cfg.Cluster.NFSEcmp.VLANs {
 				vlan := storageVLAN - 1000
-				name := fmt.Sprintf(`var-mnt-stor\x2dtrunk\x2d%d.mount`, vlan)
-				unit, ok := anchors[name]
-				require.True(t, ok, "missing NFS trunk anchor %s", name)
-				assert.True(t, unit.Enabled, unit.Name)
-				assert.Contains(t, unit.Contents, fmt.Sprintf("What=192.168.%d.10:%s\n", vlan, cfg.Cluster.NFSTrunk.Export), unit.Name)
-				assert.Contains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n", unit.Name)
+				assert.Contains(t, unit.Contents, fmt.Sprintf("nexthop via 192.168.%d.10", vlan))
 			}
 		})
 	}

@@ -45,10 +45,12 @@ cluster:
     - 10.123.123.125
     - 10.123.123.126
     - 10.123.123.127
-  # Establish the production nas01 NFS session across three storage VLANs.
-  nfs_trunk:
-    export: /mnt/flashstor/data
-    vlans: [1202, 1203, 1204]
+  # Route the single nas01 NFS service IP over all four storage paths. Linux
+  # then hashes nconnect=16 TCP transports by layer 4 instead of concentrating
+  # them on whichever NFSv4 trunk address wins the first-mount race.
+  nfs_ecmp:
+    server: 192.168.120.10
+    vlans: [1201, 1202, 1203, 1204]
   extra_cert_sans:
     - 192.168.255.10
   kubelet:

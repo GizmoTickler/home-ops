@@ -86,7 +86,7 @@ func goldenCompare(t *testing.T, rel string, got []byte) {
 	}
 }
 
-func goldenWithoutNFSTrunkAnchors(t *testing.T, rel string) []byte {
+func goldenWithoutNFSECMP(t *testing.T, rel string) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", "golden", rel)
 	want, err := os.ReadFile(path) // #nosec G304 -- fixed testdata path
@@ -106,7 +106,7 @@ func goldenWithoutNFSTrunkAnchors(t *testing.T, rel string) []byte {
 		}
 		require.NoError(t, json.Unmarshal(raw, &unit))
 		name := unit.Name
-		if strings.Contains(name, `stor\x2dtrunk`) {
+		if name == "nfs-ecmp.service" {
 			start := bytes.Index(stripped, raw)
 			require.NotEqual(t, -1, start, "golden %s is missing raw unit %s", rel, name)
 			end := start + len(raw)
@@ -122,16 +122,16 @@ func goldenWithoutNFSTrunkAnchors(t *testing.T, rel string) []byte {
 			removed++
 		}
 	}
-	require.Equal(t, 3, removed, "golden %s must contain exactly three NFS trunk anchors", rel)
+	require.Equal(t, 1, removed, "golden %s must contain exactly one NFS ECMP unit", rel)
 	return stripped
 }
 
 func TestFlatcarRenderCharacterization(t *testing.T) {
 	restore := config.SetForTesting(&config.Config{Cluster: config.ClusterConfig{
 		Name: "home-ops-cluster",
-		NFSTrunk: config.NFSTrunkConfig{
-			Export: "/mnt/flashstor/data",
-			VLANs:  []int{1202, 1203, 1204},
+		NFSEcmp: config.NFSEcmpConfig{
+			Server: "192.168.120.10",
+			VLANs:  []int{1201, 1202, 1203, 1204},
 		},
 	}})
 	defer restore()
@@ -160,7 +160,7 @@ func TestFlatcarRenderCharacterizationWithoutConfig(t *testing.T) {
 	for _, n := range charNodes {
 		ign, err := RenderIgnition(charEnv(n.name, n.ip, n.mac))
 		require.NoError(t, err)
-		require.Equal(t, goldenWithoutNFSTrunkAnchors(t, "ignition/"+n.name+".ign"), ign)
+		require.Equal(t, goldenWithoutNFSECMP(t, "ignition/"+n.name+".ign"), ign)
 	}
 
 	initCfg, err := RenderKubeadmInitConfig(charEnv("k8s-0", "192.168.122.10", "00:a0:98:28:c8:83"))

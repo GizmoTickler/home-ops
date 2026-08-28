@@ -49,6 +49,67 @@ func TestLoadFileParsesAndRoundTripsStorageNICs(t *testing.T) {
 	assert.Equal(t, node.VM.StorageNICs, roundTripped.StorageNICs)
 }
 
+func TestLoadFileValidatesNFSECMP(t *testing.T) {
+	t.Run("valid", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "homeops.yaml")
+		require.NoError(t, os.WriteFile(path, []byte(`
+cluster:
+  nfs_ecmp:
+    server: 192.168.120.10
+    vlans: [1201, 1202, 1203, 1204]
+`), 0o600))
+
+		cfg, err := LoadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, "192.168.120.10", cfg.Cluster.NFSEcmp.Server)
+		assert.Equal(t, []int{1201, 1202, 1203, 1204}, cfg.Cluster.NFSEcmp.VLANs)
+	})
+
+	cases := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name:    "missing server",
+			config:  "    vlans: [1201, 1202, 1203, 1204]",
+			wantErr: "cluster.nfs_ecmp.server",
+		},
+		{
+			name:    "IPv6 server",
+			config:  "    server: 2001:db8::10\n    vlans: [1201, 1202, 1203, 1204]",
+			wantErr: "must be an IPv4 address",
+		},
+		{
+			name:    "missing VLANs",
+			config:  "    server: 192.168.120.10",
+			wantErr: "must contain at least one storage VLAN",
+		},
+		{
+			name:    "unsupported VLAN",
+			config:  "    server: 192.168.120.10\n    vlans: [1205]",
+			wantErr: "is not a supported storage VLAN",
+		},
+		{
+			name:    "duplicate VLAN",
+			config:  "    server: 192.168.120.10\n    vlans: [1201, 1201]",
+			wantErr: "duplicates cluster.nfs_ecmp.vlans[0]",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "homeops.yaml")
+			content := "cluster:\n  nfs_ecmp:\n" + tc.config + "\n"
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+			_, err := LoadFile(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 	validEntries := `
           - vlan: 1201
