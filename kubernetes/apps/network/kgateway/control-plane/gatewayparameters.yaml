@@ -6,6 +6,14 @@ metadata:
 spec:
   kube:
     envoyContainer:
+      # Pull the proxy image from ghcr.io rather than the chart default
+      # cr.kgateway.dev, which is a Scarf gateway (CNAME -> gateway.scarf.sh).
+      # scarf.sh is both DNSSEC-broken upstream and blocked by Cloudflare
+      # Gateway, so cr.kgateway.dev fails to resolve on this network.
+      # ghcr.io serves the identical manifest (same digest).
+      image:
+        registry: ghcr.io
+        repository: kgateway-dev/envoy-wrapper
       bootstrap:
         logLevel: info
       resources:
