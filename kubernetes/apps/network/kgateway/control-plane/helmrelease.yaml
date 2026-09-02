@@ -12,6 +12,12 @@ spec:
     - name: kgateway-crds
   interval: 1h
   values:
+    # Chart default is cr.kgateway.dev/kgateway-dev, a Scarf gateway
+    # (CNAME -> gateway.scarf.sh). scarf.sh currently fails DNSSEC validation
+    # upstream, so that hostname does not resolve and image pulls fail with
+    # "no such host". ghcr.io/kgateway-dev serves identical manifests.
+    image:
+      registry: ghcr.io/kgateway-dev
     controller:
       replicaCount: 1
     resources:
