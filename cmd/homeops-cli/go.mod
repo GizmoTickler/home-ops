@@ -20,7 +20,7 @@ require (
 	github.com/truenas/api_client_golang v0.0.0-20260827000124-508624041bb3
 	github.com/vmware/govmomi v0.56.0
 	go.uber.org/zap v1.28.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.37.0
 	k8s.io/apimachinery v0.37.0
