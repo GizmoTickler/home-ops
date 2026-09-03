@@ -1,0 +1,510 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: apprec-alerts
+spec:
+  # gateway0 application-recognition datapath (apprec-riga: apprec-bpf loader,
+  # nDPId/nDPIsrvd classifier, vyos-apprec verdict daemon).
+  #
+  # Metric source: node_exporter textfile collector on gateway0, fed every
+  # minute by /config/scripts/apprec-textfile.sh (VyOS task-scheduler), which
+  # mirrors /run/apprec/bpf.prom -> apprec_bpf.prom (loader, authoritative)
+  # and /run/apprec/metrics.prom -> apprec_daemon.prom (daemon, minus the 40
+  # samples it duplicates from the loader). All series therefore carry
+  # job="node-exporter", instance=~"gateway0.*" and are up to ~2 minutes old.
+  #
+  # Every rule here was fired against synthetic series with
+  # `promtool test rules` (scripts/alert-tests/apprec/) before commit; the
+  # ones that can only be shown by a real fault on the production datapath are
+  # marked "requires a maintenance window" in their description and were NOT
+  # induced live. Design notes in apprec-riga docs/p0p1p2-hardware-closeout.md.
+  groups:
+    # ── telemetry plumbing: everything below is blind while these fire ──────
+    - name: apprec-telemetry.rules
+      interval: 30s
+      rules:
+        - alert: ApprecTelemetryAbsent
+          expr: |-
+            absent(apprec_bpf_probe_ok{job="node-exporter",instance=~"gateway0.*"})
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "No apprec_* series from gateway0 — every apprec alert is blind"
+            description: |-
+              apprec_bpf_probe_ok has been absent from gateway0's node-exporter scrape for 10m.
+              Either /run/node_exporter/collector/apprec_bpf.prom is gone (the apprec-textfile
+              task-scheduler entry was removed, or the cron line failed) or the scrape regressed.
+              Whole-exporter death is GatewayNodeDown. Check `sudo cat /etc/cron.d/vyos-crontab`
+              and `ls -la /run/node_exporter/collector/` on gateway0.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecLoaderTelemetryStale
+          # The mirror keeps serving the LAST bpf.prom the loader wrote. If the
+          # loader stops writing (hung, or exited 0 without a restart -- the
+          # 2026-09-03 probe-failure defect), probe_ok stays 1 forever; the
+          # source mtime is what moves.
+          expr: |-
+            time() - apprec_textfile_source_mtime_seconds{job="node-exporter",instance=~"gateway0.*",file="bpf.prom"} > 300
+            or apprec_textfile_source_present{job="node-exporter",instance=~"gateway0.*",file="bpf.prom"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "apprec-bpf has not written bpf.prom for 5 minutes ({{ $value | humanize }}s)"
+            description: |-
+              /run/apprec/bpf.prom on gateway0 is stale or missing while the textfile mirror still
+              serves its last snapshot. The loader writes it on every metrics pass (~60 s); a
+              stale file means apprec-bpf is hung or not running. `systemctl status apprec-bpf`
+              on gateway0 -- if it shows "Deactivated successfully" the probe failed and exited 0
+              (fixed upstream); `systemctl restart apprec-bpf` warm-restarts the datapath.
+          labels:
+            severity: critical
+            component: apprec
+
+        - alert: ApprecDaemonTelemetryStale
+          expr: |-
+            time() - apprec_textfile_source_mtime_seconds{job="node-exporter",instance=~"gateway0.*",file="metrics.prom"} > 300
+            or apprec_textfile_source_present{job="node-exporter",instance=~"gateway0.*",file="metrics.prom"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "vyos-apprec verdict daemon has not written metrics.prom for 5 minutes"
+            description: |-
+              The classifier's verdict daemon on gateway0 stopped writing its stats (10 s cadence).
+              No new conntrack verdicts are being stamped; firewall `match application` rules and
+              the XFP policy fence see no new classifications. `systemctl status vyos-apprec ndpisrvd
+              'ndpid@*'` on gateway0.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecProbeFailed
+          expr: |-
+            apprec_bpf_probe_ok{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 2m
+          keep_firing_for: 5m
+          annotations:
+            summary: "apprec-bpf feature probe failed on gateway0 — datapath detached"
+            description: |-
+              The loader could not load its BPF objects (probe_ok=0): kernel BTF, kfunc resolution
+              (bpf_xdp_ct_lookup needs CAP_SYS_ADMIN for the nf_conntrack module BTF), TCX or
+              ringbuf. Forwarding continues on the kernel path; XDP redirect, prefilter feeds and
+              the SIT shadow are off. `sudo apprec-bpf probe --json` and `journalctl -u apprec-bpf`.
+          labels:
+            severity: critical
+            component: apprec
+
+    # ── datapath health ─────────────────────────────────────────────────────
+    - name: apprec-datapath.rules
+      interval: 30s
+      rules:
+        - alert: ApprecHeartbeatPunts
+          # The in-kernel heartbeat lease is 2 s (APPREC_FASTPATH_HEARTBEAT_TIMEOUT_NS);
+          # the writer ticks every 500 ms. A frame counted here was punted to the
+          # slow path because the lease had lapsed: the writer stalled > 2 s, or a
+          # restart did not hand the heartbeat over. This is the real event; the
+          # lag gauge below is the early warning. gateway0 2026-09-03: 23,142 punts
+          # during a 40 s loader outage, none otherwise.
+          expr: |-
+            increase(apprec_flowfwd_datapath_total{job="node-exporter",instance=~"gateway0.*",outcome="punted_heartbeat"}[5m]) > 0
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "XDP heartbeat lease lapsed on gateway0: {{ $value | humanize }} frames punted in 5m"
+            description: |-
+              apprec-bpf's heartbeat went stale and XDP fell back to the slow path for those frames
+              (no loss, but every one of them cost a full netfilter traversal). Causes: the loader
+              was stopped/restarted without warm handover, was SIGSTOPped or starved, or exited.
+              Correlate with ApprecBGPCorrelatedDatapathEvent. Requires a maintenance window to
+              drill for real (SIGSTOP the loader > 2 s); proven against synthetic series only.
+          labels:
+            severity: critical
+            component: apprec
+
+        - alert: ApprecHeartbeatWriterLag
+          # apprec_bpf_heartbeat_writer_lag_ns is the MAX inter-tick period since
+          # process start (nominal = the 500 ms interval; gateway0 reads 500.00x ms
+          # in steady state). It is a high-water mark: it only resets on restart.
+          # > 1 s = the writer once consumed half of the 2 s kernel lease.
+          expr: |-
+            apprec_bpf_heartbeat_writer_lag_ns{job="node-exporter",instance=~"gateway0.*"} > 1000000000
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "apprec-bpf heartbeat writer stalled once for {{ $value | humanizeDuration }} (lease is 2 s)"
+            description: |-
+              The heartbeat writer's worst tick-to-tick gap since start exceeded 1 s. It has not
+              lapsed the lease yet (that is ApprecHeartbeatPunts) but the margin against the 2 s
+              kernel lease -- and against BFD's 900 ms detection window on the same CPU -- is
+              gone. Check apprec-bpf CPU (`systemctl status apprec-bpf`, ~28 % of a core is
+              normal), node load and any coincident BGP/BFD flap. Clears only on restart.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecRestartHeartbeatGap
+          expr: |-
+            apprec_bpf_restart_heartbeat_gap_ns{job="node-exporter",instance=~"gateway0.*"} > 1000000000
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "apprec-bpf warm restart adopted a heartbeat {{ $value | humanizeDuration }} old"
+            description: |-
+              The pre-load heartbeat writer of the new process found the pinned heartbeat more than
+              1 s old, i.e. more than half the 2 s lease was consumed by the stop/start tail.
+              gateway0 2026-09-03 baseline: 197-222 ms. Investigate stop latency of the old process
+              or process-start latency (e.g. a new mount namespace from a hardening drop-in).
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecRedirectErrors
+          # xdp_redirect_err / xdp_exception / devmap_xmit tracepoints on the
+          # apprec programs. gateway0 steady state is 0/0/0; any increase is a
+          # frame the fast path tried to transmit and could not.
+          expr: |-
+            increase(apprec_bpf_redirect_health_total{job="node-exporter",instance=~"gateway0.*"}[5m]) > 0
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "XDP redirect errors on gateway0: {{ $labels.outcome }} +{{ $value | humanize }} in 5m"
+            description: |-
+              apprec_bpf_redirect_health_total{outcome="{{ $labels.outcome }}"} increased. A
+              redirect_error / exception / devmap_xmit_error is a frame XFP dropped on transmit
+              (egress device down, devmap slot stale, driver refused the frame). This is the HARD
+              STOP condition of every apprec change: `sudo apprec-bpf mode observe` withdraws XFP
+              from the datapath immediately. Requires a maintenance window to drill for real
+              (bench flow to a downed devmap slot); proven against synthetic series only.
+          labels:
+            severity: critical
+            component: apprec
+
+        - alert: ApprecRedirectStoppedWhileFlowsInstalled
+          # Slow-path share regression: flow_fwd holds entries but nothing is
+          # being redirected. In shadow admission most traffic is a "miss" by
+          # design; what must never happen is installed flows that stop moving.
+          expr: |-
+            rate(apprec_flowfwd_datapath_total{job="node-exporter",instance=~"gateway0.*",outcome="redirected"}[10m]) == 0
+            and on(instance) apprec_flowfwd_active_flows{job="node-exporter",instance=~"gateway0.*"} > 10
+          for: 10m
+          keep_firing_for: 5m
+          annotations:
+            summary: "gateway0 has {{ $value | humanize }} flows installed in XFP but redirected nothing for 10m"
+            description: |-
+              apprec_flowfwd_active_flows is above 10 while the redirected counter is flat: the fast
+              path holds flows it is not forwarding -- every frame of them takes the slow path
+              (punted or missed). Check `show app-recognition fast-path` (mode must be redirect),
+              apprec_bpf_mode and the punted_* outcomes for which gate is refusing them.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecSlowPathShareHigh
+          # Mature forwarded flows owned by neither XFP nor the flowtable. gateway0
+          # 2026-09-03 (shadow): 223 of 421 -- pending/undecided flows the
+          # flowtable has not taken yet. 80 % sustained is a regression, not shadow.
+          expr: |-
+            sum by (instance) (apprec_admission_flows{job="node-exporter",instance=~"gateway0.*",owner="slow"})
+              / sum by (instance) (apprec_admission_flows{job="node-exporter",instance=~"gateway0.*"}) > 0.8
+          for: 30m
+          keep_firing_for: 10m
+          annotations:
+            summary: "{{ $value | humanizePercentage }} of gateway0's mature flows are on the slow path"
+            description: |-
+              Neither XFP nor the software flowtable owns most established flows for 30 minutes:
+              every packet of them traverses the full netfilter chain. Break down by reason with
+              apprec_admission_flows{owner="slow"} -- fence_window means the classifier is not
+              finishing flows (ApprecFenceWindowStuck), route_unsupported/tunnel_egress are
+              structural, pending/undecided means the flowtable rule 9 stopped offloading.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecFenceWindowStuck
+          # Under `admission terminal-verdict` (next build) a flow waits for the
+          # daemon's terminal bit; a dead daemon = every flow held here. Under
+          # the packet budget the same shape means flows are not reaching 32
+          # packets, i.e. the fast tick is not re-reading them.
+          expr: |-
+            sum by (instance) (apprec_admission_flows{job="node-exporter",instance=~"gateway0.*",owner="slow",reason="fence_window"})
+              / sum by (instance) (apprec_admission_flows{job="node-exporter",instance=~"gateway0.*"}) > 0.5
+          for: 15m
+          keep_firing_for: 10m
+          annotations:
+            summary: "{{ $value | humanizePercentage }} of gateway0's flows are held in the verdict window"
+            description: |-
+              More than half of the mature flows have been waiting for the classifier's verdict for
+              15 minutes. The owner admits nothing under a verdict consumer until nDPId is done
+              with a flow (packet budget today, terminal bit under `admission terminal-verdict`).
+              Check the classifier: apprec_connected, apprec_events_total rate,
+              apprec_terminal_writes_total, `systemctl status vyos-apprec 'ndpid@*'`.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecCTRefreshFailures
+          expr: |-
+            increase(apprec_flowoffload_ct_refresh_total{job="node-exporter",instance=~"gateway0.*",result="error"}[10m]) > 0
+          for: 0m
+          keep_firing_for: 10m
+          annotations:
+            summary: "conntrack timeout refresh failed {{ $value | humanize }} times in 10m for XFP-owned flows"
+            description: |-
+              apprec-bpf refreshes the conntrack timeout of every XFP-owned flow (the kernel never
+              sees their packets). A refresh error means an owned flow's conntrack may expire under
+              it: the next packet arrives with no state and is dropped as invalid, or re-created
+              as NEW and re-evaluated by the firewall. Check ctnetlink capability (CAP_NET_ADMIN in
+              the apprec-bpf bounding set) and `journalctl -u apprec-bpf`.
+          labels:
+            severity: warning
+            component: apprec
+
+    # ── capacity ────────────────────────────────────────────────────────────
+    - name: apprec-capacity.rules
+      interval: 60s
+      rules:
+        - alert: ApprecFlowFwdNearCapacity
+          # APPREC_FLOWFWD_MAX_ENTRIES = 65536 (apprec_common.h); the running
+          # image does not export map capacities yet, so the constant is here.
+          expr: |-
+            apprec_flowfwd_active_flows{job="node-exporter",instance=~"gateway0.*"} / 65536 > 0.8
+          for: 5m
+          keep_firing_for: 10m
+          annotations:
+            summary: "flow_fwd is {{ $value | humanizePercentage }} full on gateway0"
+            description: |-
+              The XFP flow map is above 80 % of its 65,536 entries. New admissions fail with
+              map_full and fall to the flowtable (apprec_admission_decisions_total{reason="map_full"}).
+              gateway0 baseline is < 200 entries; this is a leak or a flood.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecLedgerEvicting
+          # The flow ledger holds 16,384 records; gateway0 sits at the cap and
+          # evicts continuously (294,492 by 13:24 on 2026-09-03), so per-flow
+          # history is lossy today. info until `flow-ledger capacity` lands.
+          expr: |-
+            rate(apprec_flow_ledger_evictions_total{job="node-exporter",instance=~"gateway0.*"}[30m]) > 1
+          for: 30m
+          keep_firing_for: 30m
+          annotations:
+            summary: "apprec flow ledger evicting {{ $value | humanize }} live records/s on gateway0"
+            description: |-
+              The ledger (capacity 16,384) has been evicting live flow records for 30 minutes:
+              per-flow ownership history and the disjointness check are lossy. Known on gateway0
+              since the audit; the fix is the `flow-ledger capacity` leaf (spec: 65,536, ~12 MB).
+          labels:
+            severity: info
+            component: apprec
+
+    # ── feeds ───────────────────────────────────────────────────────────────
+    - name: apprec-feeds.rules
+      interval: 60s
+      rules:
+        - alert: ApprecFeedStale
+          # bitwire refreshes hourly (firewall remote-group interval 1h), geoip
+          # daily. 48 h covers a missed daily run plus a weekend of fetch failures.
+          expr: |-
+            apprec_feed_age_seconds{job="node-exporter",instance=~"gateway0.*"} > 172800
+          for: 10m
+          keep_firing_for: 30m
+          annotations:
+            summary: "apprec XDP feed {{ $labels.feed }} is {{ $value | humanizeDuration }} old on gateway0"
+            description: |-
+              The prefilter feed has not been refreshed for two days. Its LPM entries are still
+              enforced (last-known-good) but reputation data is aging. Check the refresh_url fetch
+              (apprec_feed_refresh_failures_total), `update app-recognition geoip-feeds`, and the
+              remote-group resolver for bitwire.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecFeedRefreshFailing
+          expr: |-
+            increase(apprec_feed_refresh_failures_total{job="node-exporter",instance=~"gateway0.*"}[6h]) > 0
+            or apprec_feed_reload_ok{job="node-exporter",instance=~"gateway0.*"} == 0
+            or increase(apprec_feeds_apply_failures_total{job="node-exporter",instance=~"gateway0.*"}[6h]) > 0
+          for: 0m
+          keep_firing_for: 1h
+          annotations:
+            summary: "apprec feed refresh/reload/apply failed on gateway0 in the last 6h"
+            description: |-
+              A refresh_url download, a manifest reload or `feeds apply` failed. The maps keep their
+              previous entries (the running image deletes a source that fails to PARSE -- the
+              last-known-good retention is next-build), so a persistent failure means a shrinking
+              or frozen blocklist. `sudo apprec-bpf feeds status --json` and
+              `journalctl -u apprec-bpf | grep -i feed`.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecFeedPlaneHashMismatch
+          # The same feed is rendered into two planes (nft remote-group set and
+          # the XDP LPM); apprec_feed_content_hash carries the sha256 of each.
+          # Two different hashes for one feed = the planes enforce different
+          # prefix sets (the "firewall-mirror" invariant is broken).
+          expr: |-
+            count by (instance, feed) (
+              count by (instance, feed, sha256) (apprec_feed_content_hash{job="node-exporter",instance=~"gateway0.*"} == 1)
+            ) > 1
+          for: 30m
+          keep_firing_for: 30m
+          annotations:
+            summary: "feed {{ $labels.feed }} differs between the nft and XDP planes on gateway0"
+            description: |-
+              apprec_feed_content_hash reports more than one sha256 for {{ $labels.feed }} for 30
+              minutes: the nftables set and the XDP prefilter trie were built from different bytes.
+              Transient after a refresh (one plane lags the other by a minute); sustained means one
+              plane's update failed. `sudo apprec-bpf feeds status --json`; compare with
+              `show firewall group remote-group {{ $labels.feed }}`.
+          labels:
+            severity: warning
+            component: apprec
+
+    # ── classifier / placement ──────────────────────────────────────────────
+    - name: apprec-classifier.rules
+      interval: 60s
+      rules:
+        - alert: ApprecPlacementMissRateRegressed
+          # apprec_conntrack_misses_total: the daemon's conntrack -U selected a
+          # tuple that does not exist (the ECMP identity split, audit P1.2).
+          # gateway0 baseline 2026-09-03: 61.6 %. This alert is for a
+          # REGRESSION from that baseline; the promotion gate is the info rule.
+          expr: |-
+            increase(apprec_conntrack_misses_total{job="node-exporter",instance=~"gateway0.*"}[15m])
+              / (increase(apprec_conntrack_updates_total{job="node-exporter",instance=~"gateway0.*"}[15m])
+                 + increase(apprec_conntrack_misses_total{job="node-exporter",instance=~"gateway0.*"}[15m])) > 0.85
+          for: 15m
+          keep_firing_for: 10m
+          annotations:
+            summary: "{{ $value | humanizePercentage }} of apprec verdict writes miss their conntrack entry"
+            description: |-
+              The verdict daemon's conntrack writes are missing far above the ~62 % ECMP-split
+              baseline. Either nDPId sees only one ECMP member (an instance died: `systemctl status
+              'ndpid@*'`), or conntrack tuples changed shape (NAT/zone change). Verdicts that miss
+              are never enforced by `match application` rules.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecPlacementMissRateAboveGate
+          # Promotion gate 1 (audit closeout §12): < 1 % misses before XFP may
+          # enforce policy. EXPECTED to fire on gateway0 until the canonical
+          # identity work (P1.2) lands; it exists so the gate is measured, not
+          # remembered. info severity, no page.
+          expr: |-
+            increase(apprec_conntrack_misses_total{job="node-exporter",instance=~"gateway0.*"}[1h])
+              / (increase(apprec_conntrack_updates_total{job="node-exporter",instance=~"gateway0.*"}[1h])
+                 + increase(apprec_conntrack_misses_total{job="node-exporter",instance=~"gateway0.*"}[1h])) > 0.01
+          for: 1h
+          keep_firing_for: 1h
+          annotations:
+            summary: "apprec placement miss rate {{ $value | humanizePercentage }} is above the 1 % promotion gate"
+            description: |-
+              Gate 1 of the XFP promotion ladder is not met (expected until P1.2 canonical flow
+              identity ships). Do not move `admission mode` past shadow while this fires.
+          labels:
+            severity: info
+            component: apprec
+
+        - alert: ApprecClassifierDisconnected
+          expr: |-
+            apprec_connected{job="node-exporter",instance=~"gateway0.*"} == 0
+          for: 5m
+          keep_firing_for: 5m
+          annotations:
+            summary: "vyos-apprec is not connected to nDPIsrvd on gateway0"
+            description: |-
+              The verdict daemon has had no nDPIsrvd connection for 5 minutes: no classifications,
+              no verdict marks, no terminal bits. `systemctl status ndpisrvd 'ndpid@*'` on
+              gateway0; check /run/apprec/distributor.sock.
+          labels:
+            severity: warning
+            component: apprec
+
+    # ── correlation with routing ────────────────────────────────────────────
+    - name: apprec-bgp-correlation.rules
+      interval: 30s
+      rules:
+        - alert: ApprecBGPCorrelatedDatapathEvent
+          # The CPU-budget risk made concrete: apprec-bpf and BFD share gateway0's
+          # cores; BFD detects a dead peer in 900 ms. If the loader punted on a
+          # lapsed heartbeat or restarted in the same window in which SC01 (the
+          # core switch, BGP4-MIB via snmp-exporter) saw a peer leave established,
+          # treat the datapath work as the suspect until proven otherwise.
+          expr: |-
+            (
+              increase(apprec_flowfwd_datapath_total{job="node-exporter",instance=~"gateway0.*",outcome="punted_heartbeat"}[10m]) > 0
+              or changes(apprec_flowoffload_manager_start_ts{job="node-exporter",instance=~"gateway0.*"}[10m]) > 0
+            )
+            and on()
+            (
+              sum(increase(bgpPeerFsmEstablishedTransitions{job=~"snmp.*"}[10m])) > 0
+              or min(min without (bgpPeerState) (bgpPeerState{job=~"snmp.*",bgpPeerState="established"})) == 0
+            )
+          for: 0m
+          keep_firing_for: 30m
+          annotations:
+            summary: "apprec datapath event on gateway0 coincided with a BGP peer transition"
+            description: |-
+              Within the same 10 minutes gateway0's apprec-bpf punted on a lapsed heartbeat or
+              restarted, AND a BGP peer on the core switch left/re-entered established. BFD's 900 ms
+              detection window and the loader compete for the same CPUs; this is the correlation
+              the CPU budget exists to prevent. Read `show bgp summary` / `show bfd peers` on
+              gateway0, apprec_bpf_heartbeat_writer_lag_ns, and node CPU for the window. A pure
+              maintenance restart (warm handover, adopted > 0, punted_heartbeat flat) does not
+              trip this; a restart that punted does.
+          labels:
+            severity: critical
+            component: apprec
+
+    # ── the P0.3 structural leak guard (firewall counters via the loader) ───
+    - name: apprec-leak-guard.rules
+      interval: 30s
+      rules:
+        - alert: VLAN90LeakGuardHit
+          # forward filter rule 1 (2026-09-03): VLAN90-sourced traffic that would
+          # egress anything but wg0/wg1/wg2 is dropped and logged. Any hit is a
+          # tunnel-bound host reaching for the plain WAN -- misrouted, spoofed,
+          # or the PBR/tunnel path failed. Proven live with a scoped veth probe.
+          expr: |-
+            increase(apprec_nft_rule_packets_total{job="node-exporter",instance=~"gateway0.*",family="ipv4",rule="1"}[5m]) > 0
+          for: 0m
+          keep_firing_for: 30m
+          annotations:
+            summary: "VLAN90 leak guard dropped {{ $value | humanize }} packets in 5m on gateway0"
+            description: |-
+              Forward-filter rule 1 (P0.3 structural VPN-leak guard) matched: traffic sourced from
+              192.168.90.0/24 tried to leave gateway0 via a non-WireGuard interface. The zone
+              policy (VPN-WAN-DROP) is the second layer for eth3.90 ingress; this rule also covers
+              other ingress interfaces. `sudo journalctl -k | grep FWD-filter-1-D` shows
+              IN/OUT/SRC/DST of every hit.
+          labels:
+            severity: warning
+            component: gateway
+
+        - alert: CleartextBitTorrentToWAN
+          # forward filter rule 16: count-only visibility (action continue) for
+          # BitTorrent-classified packets leaving via eth0. App-ID is detection,
+          # not enforcement (the classifier sees a flow only after its first
+          # packets). Sustained hits = a household host torrenting outside the
+          # tunnel; the pod kill-switch is the Cilium egress policy, not gateway0.
+          expr: |-
+            increase(apprec_nft_rule_packets_total{job="node-exporter",instance=~"gateway0.*",family="ipv4",rule="16"}[15m]) > 100
+          for: 0m
+          keep_firing_for: 1h
+          annotations:
+            summary: "{{ $value | humanize }} BitTorrent-classified packets left gateway0 via the plain WAN in 15m"
+            description: |-
+              Forward-filter rule 16 counted BitTorrent-classified packets egressing eth0 (not the
+              AirVPN tunnels). This is visibility, not a block: find the source with
+              `show app-recognition flows | grep -i bittorrent` on gateway0. If it is the qbittorrent
+              pod, its VLAN90 leg (192.168.90.20) is not being used for that traffic -- check the
+              multus attachment and the Cilium egress NetworkPolicy.
+          labels:
+            severity: warning
+            component: gateway

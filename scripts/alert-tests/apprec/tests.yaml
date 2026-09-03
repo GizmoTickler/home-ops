@@ -1,0 +1,333 @@
+# promtool unit tests for vmrule-apprec.yaml (run.sh extracts the groups).
+# Every alert is fired on a synthetic condition; the negative cases pin that
+# the healthy gateway0 shape (2026-09-03 values) stays silent. Series names
+# and label sets are the real ones from gateway0's node-exporter scrape.
+rule_files:
+  - apprec.rules.yaml
+evaluation_interval: 30s
+
+tests:
+  # ── telemetry plumbing ────────────────────────────────────────────────────
+  - interval: 30s
+    name: telemetry absent fires, present loader does not
+    input_series: []
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ApprecTelemetryAbsent
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ApprecTelemetryAbsent
+        exp_alerts:
+          - exp_labels: {job: node-exporter, severity: warning, component: apprec}
+
+  - interval: 30s
+    name: stale bpf.prom (loader stopped writing) fires, fresh one does not
+    input_series:
+      - series: 'apprec_bpf_probe_ok{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '1x40'
+      # frozen mtime: the loader wrote once at t=0 and never again
+      - series: 'apprec_textfile_source_mtime_seconds{job="node-exporter",instance="gateway0.example:9100",file="bpf.prom"}'
+        values: '0x40'
+      - series: 'apprec_textfile_source_present{job="node-exporter",instance="gateway0.example:9100",file="bpf.prom"}'
+        values: '1x40'
+      # daemon mtime tracks wall clock (fresh every sample)
+      - series: 'apprec_textfile_source_mtime_seconds{job="node-exporter",instance="gateway0.example:9100",file="metrics.prom"}'
+        values: '0+30x40'
+      - series: 'apprec_textfile_source_present{job="node-exporter",instance="gateway0.example:9100",file="metrics.prom"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApprecLoaderTelemetryStale
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: ApprecLoaderTelemetryStale
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", file: bpf.prom, severity: critical, component: apprec}
+      - eval_time: 10m
+        alertname: ApprecDaemonTelemetryStale
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ApprecTelemetryAbsent
+        exp_alerts: []
+
+  - interval: 30s
+    name: source file missing (present=0) fires the stale alert
+    input_series:
+      - series: 'apprec_textfile_source_mtime_seconds{job="node-exporter",instance="gateway0.example:9100",file="metrics.prom"}'
+        values: '0+30x40'
+      - series: 'apprec_textfile_source_present{job="node-exporter",instance="gateway0.example:9100",file="metrics.prom"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ApprecDaemonTelemetryStale
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", file: metrics.prom, severity: warning, component: apprec}
+
+  - interval: 30s
+    name: probe failed
+    input_series:
+      - series: 'apprec_bpf_probe_ok{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ApprecProbeFailed
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: critical, component: apprec}
+
+  # ── datapath health ───────────────────────────────────────────────────────
+  - interval: 30s
+    name: heartbeat punts fire on any increase, flat counter is silent
+    input_series:
+      - series: 'apprec_flowfwd_datapath_total{job="node-exporter",instance="gateway0.example:9100",outcome="punted_heartbeat"}'
+        values: '23142x10 23142+800x10'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApprecHeartbeatPunts
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ApprecHeartbeatPunts
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", outcome: punted_heartbeat, severity: critical, component: apprec}
+
+  - interval: 30s
+    name: heartbeat lag gauge -- gateway0 steady state of 500.1 ms is silent, a 1.5 s stall fires
+    input_series:
+      - series: 'apprec_bpf_heartbeat_writer_lag_ns{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '500111624x10 1500000000x10'
+      - series: 'apprec_bpf_restart_heartbeat_gap_ns{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '221941635x10 1200000000x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ApprecHeartbeatWriterLag
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: ApprecRestartHeartbeatGap
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ApprecHeartbeatWriterLag
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+      - eval_time: 7m
+        alertname: ApprecRestartHeartbeatGap
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+
+  - interval: 30s
+    name: redirect errors (the HARD STOP condition)
+    input_series:
+      - series: 'apprec_bpf_redirect_health_total{job="node-exporter",instance="gateway0.example:9100",outcome="redirect_error"}'
+        values: '0x10 0+3x10'
+      - series: 'apprec_bpf_redirect_health_total{job="node-exporter",instance="gateway0.example:9100",outcome="exception"}'
+        values: '0x20'
+      - series: 'apprec_bpf_redirect_health_total{job="node-exporter",instance="gateway0.example:9100",outcome="devmap_xmit_error"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApprecRedirectErrors
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ApprecRedirectErrors
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", outcome: redirect_error, severity: critical, component: apprec}
+
+  - interval: 30s
+    name: installed flows that stop redirecting fire, flowing ones do not
+    input_series:
+      - series: 'apprec_flowfwd_datapath_total{job="node-exporter",instance="gateway0.example:9100",outcome="redirected"}'
+        values: '1656417+500x30 1671417x40'
+      - series: 'apprec_flowfwd_active_flows{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '88x70'
+    alert_rule_test:
+      - eval_time: 14m
+        alertname: ApprecRedirectStoppedWhileFlowsInstalled
+        exp_alerts: []
+      - eval_time: 36m
+        alertname: ApprecRedirectStoppedWhileFlowsInstalled
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", outcome: redirected, severity: warning, component: apprec}
+
+  - interval: 30s
+    name: slow-path share -- gateway0 shadow shape (53 %) silent, 90 % fires, fence_window majority fires its own alert
+    input_series:
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="slow",reason="pending"}'
+        values: '102x80 20x80'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="slow",reason="undecided"}'
+        values: '99x80 20x80'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="slow",reason="tunnel_egress"}'
+        values: '7x160'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="slow",reason="route_unsupported"}'
+        values: '15x160'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="slow",reason="fence_window"}'
+        values: '0x80 900x80'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="ft",reason="race_lost"}'
+        values: '110x160'
+      - series: 'apprec_admission_flows{job="node-exporter",instance="gateway0.example:9100",owner="xfp",reason=""}'
+        values: '88x160'
+    alert_rule_test:
+      - eval_time: 39m
+        alertname: ApprecSlowPathShareHigh
+        exp_alerts: []
+      - eval_time: 39m
+        alertname: ApprecFenceWindowStuck
+        exp_alerts: []
+      - eval_time: 75m
+        alertname: ApprecSlowPathShareHigh
+        exp_alerts:
+          - exp_labels: {instance: "gateway0.example:9100", severity: warning, component: apprec}
+      - eval_time: 60m
+        alertname: ApprecFenceWindowStuck
+        exp_alerts:
+          - exp_labels: {instance: "gateway0.example:9100", severity: warning, component: apprec}
+
+  - interval: 30s
+    name: conntrack refresh errors
+    input_series:
+      - series: 'apprec_flowoffload_ct_refresh_total{job="node-exporter",instance="gateway0.example:9100",result="error"}'
+        values: '0x10 0+1x10'
+      - series: 'apprec_flowoffload_ct_refresh_total{job="node-exporter",instance="gateway0.example:9100",result="success"}'
+        values: '74507+200x20'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: ApprecCTRefreshFailures
+        exp_alerts: []
+      - eval_time: 7m
+        alertname: ApprecCTRefreshFailures
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", result: error, severity: warning, component: apprec}
+
+  # ── capacity ──────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: flow_fwd near capacity, ledger evicting
+    input_series:
+      - series: 'apprec_flowfwd_active_flows{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '88x20 60000x20'
+      - series: 'apprec_flow_ledger_evictions_total{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '294492+100x130'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: ApprecFlowFwdNearCapacity
+        exp_alerts: []
+      - eval_time: 16m
+        alertname: ApprecFlowFwdNearCapacity
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+      - eval_time: 65m
+        alertname: ApprecLedgerEvicting
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: info, component: apprec}
+
+  # ── feeds ─────────────────────────────────────────────────────────────────
+  - interval: 30s
+    name: feed age, refresh failure, plane hash mismatch
+    input_series:
+      - series: 'apprec_feed_age_seconds{job="node-exporter",instance="gateway0.example:9100",feed="bitwire"}'
+        values: '19072x80'
+      - series: 'apprec_feed_age_seconds{job="node-exporter",instance="gateway0.example:9100",feed="geoip-cn"}'
+        values: '200000x80'
+      - series: 'apprec_feed_refresh_failures_total{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '0x10 1x70'
+      - series: 'apprec_feed_reload_ok{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '1x80'
+      - series: 'apprec_feeds_apply_failures_total{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '0x80'
+      # bitwire: nft and xdp planes built from the same bytes (gateway0 today) ...
+      - series: 'apprec_feed_content_hash{job="node-exporter",instance="gateway0.example:9100",plane="nft",feed="bitwire",sha256="06be7794"}'
+        values: '1x80'
+      - series: 'apprec_feed_content_hash{job="node-exporter",instance="gateway0.example:9100",plane="xdp",feed="bitwire",sha256="06be7794"}'
+        values: '1x80'
+      # ... geoip-cn: the two planes disagree
+      - series: 'apprec_feed_content_hash{job="node-exporter",instance="gateway0.example:9100",plane="nft",feed="geoip-cn",sha256="aaaa"}'
+        values: '1x80'
+      - series: 'apprec_feed_content_hash{job="node-exporter",instance="gateway0.example:9100",plane="xdp",feed="geoip-cn",sha256="bbbb"}'
+        values: '1x80'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: ApprecFeedStale
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", feed: geoip-cn, severity: warning, component: apprec}
+      - eval_time: 7m
+        alertname: ApprecFeedRefreshFailing
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+      - eval_time: 4m
+        alertname: ApprecFeedRefreshFailing
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: ApprecFeedPlaneHashMismatch
+        exp_alerts:
+          - exp_labels: {instance: "gateway0.example:9100", feed: geoip-cn, severity: warning, component: apprec}
+
+  # ── classifier / placement ────────────────────────────────────────────────
+  - interval: 30s
+    name: placement miss rate -- the 62 % baseline is above the gate but not a regression, 90 % is
+    input_series:
+      - series: 'apprec_conntrack_misses_total{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '0+62x100 6200+90x200'
+      - series: 'apprec_conntrack_updates_total{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '0+38x100 3800+10x200'
+      - series: 'apprec_connected{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '1x250 0x50'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: ApprecPlacementMissRateRegressed
+        exp_alerts: []
+      - eval_time: 130m
+        alertname: ApprecPlacementMissRateAboveGate
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: info, component: apprec}
+      - eval_time: 85m
+        alertname: ApprecPlacementMissRateRegressed
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+      - eval_time: 124m
+        alertname: ApprecClassifierDisconnected
+        exp_alerts: []
+      - eval_time: 132m
+        alertname: ApprecClassifierDisconnected
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", severity: warning, component: apprec}
+
+  # ── BGP correlation ───────────────────────────────────────────────────────
+  - interval: 30s
+    name: heartbeat punts alone do not correlate, punts plus a BGP transition do
+    input_series:
+      - series: 'apprec_flowfwd_datapath_total{job="node-exporter",instance="gateway0.example:9100",outcome="punted_heartbeat"}'
+        values: '0x10 0+500x10 5000x10 5000+500x10'
+      - series: 'apprec_flowoffload_manager_start_ts{job="node-exporter",instance="gateway0.example:9100"}'
+        values: '1788458592x40'
+      - series: 'bgpPeerFsmEstablishedTransitions{job="snmp/network/sc01",instance="sc01",bgpPeerRemoteAddr="10.255.255.2"}'
+        values: '5x30 6x10'
+      - series: 'bgpPeerState{job="snmp/network/sc01",instance="sc01",bgpPeerRemoteAddr="10.255.255.2",bgpPeerState="established"}'
+        values: '1x40'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: ApprecBGPCorrelatedDatapathEvent
+        exp_alerts: []
+      - eval_time: 17m
+        alertname: ApprecBGPCorrelatedDatapathEvent
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", outcome: punted_heartbeat, severity: critical, component: apprec}
+
+  # ── P0.3 leak guard ───────────────────────────────────────────────────────
+  - interval: 30s
+    name: VLAN90 leak guard hit (the live probe shape of 6 packets) and BitTorrent visibility
+    input_series:
+      - series: 'apprec_nft_rule_packets_total{job="node-exporter",instance="gateway0.example:9100",family="ipv4",rule="1",comment="ipv4-FWD-filter-1"}'
+        values: '0x10 6x30'
+      - series: 'apprec_nft_rule_packets_total{job="node-exporter",instance="gateway0.example:9100",family="ipv4",rule="16",comment="ipv4-FWD-filter-16"}'
+        values: '0x10 0+20x30'
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: VLAN90LeakGuardHit
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: VLAN90LeakGuardHit
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", family: ipv4, rule: "1", comment: ipv4-FWD-filter-1, severity: warning, component: gateway}
+      - eval_time: 8m
+        alertname: CleartextBitTorrentToWAN
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: CleartextBitTorrentToWAN
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", family: ipv4, rule: "16", comment: ipv4-FWD-filter-16, severity: warning, component: gateway}
