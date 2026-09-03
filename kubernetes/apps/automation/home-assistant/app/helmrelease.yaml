@@ -34,7 +34,7 @@ spec:
               # ships deebot-client 18.3.0 on 2026.5.x, which the vendor cloud
               # rejects outright with `code 1013, please update`. 2026.8.1
               # ships 18.5.1.
-              tag: 2026.8.3
+              tag: 2026.9.0
             env:
               TZ: America/New_York
             probes:
