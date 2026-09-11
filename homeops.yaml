@@ -45,10 +45,13 @@ cluster:
     - 10.123.123.125
     - 10.123.123.126
     - 10.123.123.127
-  # Establish the production nas01 NFS session across three storage VLANs.
+  # Establish the production nas01 NFS session across all four storage VLANs.
+  # 1201 was missing, so .201 had no anchor and only ever got the single
+  # transport the kubelet pod mounts create. One anchor per link, and nconnect=1,
+  # is what produces an even transport spread — see nfsmount.conf.
   nfs_trunk:
     export: /mnt/flashstor/data
-    vlans: [1202, 1203, 1204]
+    vlans: [1201, 1202, 1203, 1204]
   extra_cert_sans:
     - 192.168.255.10
   kubelet:

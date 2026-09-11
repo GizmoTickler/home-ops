@@ -118,31 +118,46 @@ cluster:
 	ign, err := RenderIgnition(env)
 	require.NoError(t, err)
 
-	assert.Equal(t, `# /etc/nfsmount.conf — port of Talos machine.files /etc/nfsmount.conf (overwrite).
-# Tuned NFS defaults for the TrueNAS NFS mounts (VolSync Kopia repo, media, OpenEBS).
-[ NFSMount_Global_Options ]
-nfsvers=4.2
-hard=True
-# Worst-case budget: 16 is the NFS_MAX_TRANSPORTS ceiling; nconnect=4 leaves room for up to 4 server addresses.
-nconnect=4
-max_connect=16
-noatime=True
-rsize=1048576
-wsize=1048576
-`, ignitionFileContent(t, ign, "/etc/nfsmount.conf"))
+	// Compare against the shipped template rather than a second copy of it: the
+	// old duplicated literal is exactly what made this test assert nconnect=4
+	// while the fix was being applied, and a duplicated fixture can only ever
+	// drift. What matters is that the rendered file IS the template.
+	wantConf, err := os.ReadFile(filepath.Join("..", "templates", "flatcar", "files", "nfsmount.conf"))
+	require.NoError(t, err)
+	assert.Equal(t, string(wantConf), ignitionFileContent(t, ign, "/etc/nfsmount.conf"))
+	assert.Contains(t, string(wantConf), "\nnconnect=1\n", "global nconnect must stay 1 under multi-address trunking")
+	assert.Contains(t, string(wantConf), "\nmax_connect=16\n", "max_connect must stay >= the trunked address count; kernel default 1 forbids trunking")
 
 	units := ignitionSystemdUnits(t, ign)
-	want := map[string]string{
-		`var-mnt-stor\x2dtrunk\x2d202.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 202 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.202.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-202\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
-		`var-mnt-stor\x2dtrunk\x2d203.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 203 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.203.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-203\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
-		`var-mnt-stor\x2dtrunk\x2d204.mount`: "[Unit]\nDescription=NFS 4.1 trunk anchor via VLAN 204 (adds transports to the nas01 session)\nAfter=network-online.target\nWants=network-online.target\n[Mount]\nWhat=192.168.204.10:/mnt/flashstor/data\nWhere=/var/mnt/stor-trunk-204\nType=nfs4\nOptions=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n[Install]\nWantedBy=multi-user.target\n",
-	}
-	for name, contents := range want {
+	// Assert the properties that matter per anchor rather than pinning a full
+	// copy of the unit text. The previous literal-map form duplicated the
+	// generator's output, so it pinned nconnect=4 and had to be edited in
+	// lockstep with the very bug it should have caught.
+	for _, storageVLAN := range cfg.Cluster.NFSTrunk.VLANs {
+		vlan := storageVLAN - 1000
+		name := fmt.Sprintf(`var-mnt-stor\x2dtrunk\x2d%d.mount`, vlan)
 		unit, ok := units[name]
 		require.True(t, ok, "missing NFS trunk anchor %s", name)
 		assert.True(t, unit.Enabled, name)
-		assert.Equal(t, contents, unit.Contents, name)
+		assert.Contains(t, unit.Contents, fmt.Sprintf("What=192.168.%d.10:/mnt/flashstor/data\n", vlan), name)
+		assert.Contains(t, unit.Contents, fmt.Sprintf("Where=/var/mnt/stor-trunk-%d\n", vlan), name)
+		// One transport per link. nconnect>1 would multiply the session PRIMARY
+		// only, reproducing the 4:1:1:1 skew this anchor set exists to avoid.
+		assert.Contains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=1,max_connect=16\n", name)
+		// Scope this to the Options line: the unit body deliberately NAMES
+		// nconnect=4 in its rationale comment, so a whole-unit NotContains
+		// would fail on the documentation rather than on the setting.
+		assert.NotContains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=4", name)
 	}
+	// One anchor per storage link, no more and no fewer: a missing anchor is a
+	// link that only ever carries the single transport pod mounts create.
+	anchorCount := 0
+	for name := range units {
+		if strings.Contains(name, "stor") && strings.Contains(name, "trunk") {
+			anchorCount++
+		}
+	}
+	assert.Equal(t, len(cfg.Cluster.NFSTrunk.VLANs), anchorCount, "expected exactly one anchor per configured storage VLAN")
 }
 
 func TestRenderIgnitionWithoutNFSTrunkConfigKeepsAnchorUnitsAbsent(t *testing.T) {
@@ -158,7 +173,7 @@ func TestRenderIgnitionWithoutNFSTrunkConfigKeepsAnchorUnitsAbsent(t *testing.T)
 	}
 }
 
-func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testing.T) {
+func TestRepositoryConfigRendersOneNFSTrunkAnchorPerStorageVLANOnEveryStorageNode(t *testing.T) {
 	cfg, err := config.LoadFile(filepath.Join("..", "..", "..", "..", "homeops.yaml"))
 	require.NoError(t, err)
 	restore := config.SetForTesting(cfg)
@@ -179,7 +194,12 @@ func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testin
 					anchors[name] = unit
 				}
 			}
-			require.Len(t, anchors, 3)
+			// Derived, not hardcoded: one anchor per configured storage VLAN. The
+			// literal 3 here outlived the addition of VLAN 1201 and would have to
+			// be edited by hand every time the fabric grows -- exactly the drift
+			// that left .201 without an anchor in the first place.
+			require.Len(t, anchors, len(cfg.Cluster.NFSTrunk.VLANs))
+			require.NotEmpty(t, cfg.Cluster.NFSTrunk.VLANs)
 			for _, storageVLAN := range cfg.Cluster.NFSTrunk.VLANs {
 				vlan := storageVLAN - 1000
 				name := fmt.Sprintf(`var-mnt-stor\x2dtrunk\x2d%d.mount`, vlan)
@@ -187,7 +207,7 @@ func TestRepositoryConfigRendersThreeNFSTrunkAnchorsOnEveryStorageNode(t *testin
 				require.True(t, ok, "missing NFS trunk anchor %s", name)
 				assert.True(t, unit.Enabled, unit.Name)
 				assert.Contains(t, unit.Contents, fmt.Sprintf("What=192.168.%d.10:%s\n", vlan, cfg.Cluster.NFSTrunk.Export), unit.Name)
-				assert.Contains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=4,max_connect=16\n", unit.Name)
+				assert.Contains(t, unit.Contents, "Options=vers=4.2,ro,noatime,nconnect=1,max_connect=16\n", unit.Name)
 			}
 		})
 	}
