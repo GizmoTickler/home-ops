@@ -1,0 +1,9 @@
+---
+# Deliberately no RoleBinding or ClusterRoleBinding: this runner only lints and runs
+# unit tests for infrastructure-automation. It never talks to the Kubernetes API, so it
+# gets no permissions at all - unlike the home-ops runner, which deploys to the cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ia-automation-runner
+automountServiceAccountToken: false
