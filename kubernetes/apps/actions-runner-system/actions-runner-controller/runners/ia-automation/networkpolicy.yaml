@@ -1,0 +1,40 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/networking.k8s.io/networkpolicy_v1.json
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ia-automation-runner-egress
+spec:
+  # CI for infrastructure-automation lints and runs unit tests. It needs GitHub, PyPI and
+  # Galaxy, and nothing on the home network. Self-hosted runners execute workflow code from
+  # any branch, so deny the private ranges outright rather than trusting the workflow.
+  podSelector:
+    matchLabels:
+      actions.github.com/scale-set-name: ia-automation
+  policyTypes:
+    - Egress
+    - Ingress
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # RFC1918: the whole home network, including the cluster pod and service CIDRs.
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Link-local, which also covers cloud metadata endpoints.
+              - 169.254.0.0/16
