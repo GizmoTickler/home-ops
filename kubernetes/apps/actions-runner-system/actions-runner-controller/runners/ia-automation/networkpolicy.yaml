@@ -11,6 +11,9 @@ spec:
   podSelector:
     matchLabels:
       actions.github.com/scale-set-name: ia-automation
+      # Runner pods only. The listener is ARC's own control channel to GitHub, runs no
+      # workflow code, and must not be caught by a policy meant for untrusted jobs.
+      app.kubernetes.io/component: runner
   policyTypes:
     - Egress
     - Ingress
