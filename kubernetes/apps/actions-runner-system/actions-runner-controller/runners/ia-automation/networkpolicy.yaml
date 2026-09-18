@@ -1,43 +1,47 @@
 ---
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/networking.k8s.io/networkpolicy_v1.json
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/cilium.io/ciliumnetworkpolicy_v2.json
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
 metadata:
   name: ia-automation-runner-egress
 spec:
   # CI for infrastructure-automation lints and runs unit tests. It needs GitHub, PyPI and
   # Galaxy, and nothing on the home network. Self-hosted runners execute workflow code from
   # any branch, so deny the private ranges outright rather than trusting the workflow.
-  podSelector:
+  #
+  # This replaces a networking.k8s.io NetworkPolicy. Under Cilium, any egress policy on
+  # these pods dropped about half of their DNS queries via the ClusterIP; see the DNS rule.
+  endpointSelector:
     matchLabels:
       actions.github.com/scale-set-name: ia-automation
-      # Runner pods only. The listener is ARC's own control channel to GitHub, runs no
-      # workflow code, and must not be caught by a policy meant for untrusted jobs.
+      # Runner pods only: the listener is ARC's control channel and runs no workflow code.
       app.kubernetes.io/component: runner
-  policyTypes:
-    - Egress
-    - Ingress
-  ingress: []
+  ingressDeny:
+    - fromEntities:
+        - all
   egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-            except:
-              # RFC1918: the whole home network, including the cluster pod and service CIDRs.
-              - 10.0.0.0/8
-              - 172.16.0.0/12
-              - 192.168.0.0/16
-              # Link-local, which also covers cloud metadata endpoints.
-              - 169.254.0.0/16
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s:k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          # Route DNS through Cilium's L7 proxy. With plain L3/L4 rules, about half of all
+          # queries sent to the kube-dns ClusterIP timed out under any egress policy on
+          # this pod (direct queries to each coredns pod IP never failed), which is the
+          # socket-LB reverse-NAT path for UDP replies. Measured: L3/L4 form ~50% timeouts;
+          # this form 100/100 answers. The pattern is the canonical Cilium DNS rule.
+          rules:
+            dns:
+              - matchPattern: "*"
+    - toCIDRSet:
+        - cidr: 0.0.0.0/0
+          except:
+            # RFC1918: the whole home network, including the cluster pod and service CIDRs.
+            - 10.0.0.0/8
+            - 172.16.0.0/12
+            - 192.168.0.0/16
+            # Link-local, which also covers cloud metadata endpoints.
+            - 169.254.0.0/16
