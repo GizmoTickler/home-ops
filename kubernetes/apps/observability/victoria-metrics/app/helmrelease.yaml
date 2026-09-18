@@ -162,23 +162,18 @@ spec:
               repeat_interval: 5m
               matchers:
                 - alertname=Watchdog
-            # Info-level alerts: visible to friday3, never paged. Without this
-            # route they fall through to the ROOT receiver (pushover) — info
-            # alerts were paging phones until 2026-08-22.
-            - receiver: friday3-diagnostics
+            # Info-level alerts: never paged. This route MUST exist even with no
+            # diagnostics receiver to send them to — without it they fall through
+            # to the ROOT receiver (pushover) and info alerts page phones, which
+            # is exactly what happened until 2026-08-22. It sinks to "null" while
+            # the friday3 webhook is retired; point it at the replacement
+            # diagnostics receiver when one exists.
+            - receiver: "null"
               group_wait: 0s
               group_interval: 5m
               repeat_interval: 24h
               matchers:
                 - severity=info
-            # Friday3 diagnostics - parallel path; Pushover still receives below
-            - receiver: friday3-diagnostics
-              continue: true
-              group_wait: 0s
-              group_interval: 5m
-              repeat_interval: 12h
-              matchers:
-                - severity=~"warning|critical"
             # Warning alerts
             - receiver: pushover
               group_wait: 1m
@@ -220,38 +215,22 @@ spec:
               - url_secret:
                   name: &secret alertmanager-secret
                   key: ALERTMANAGER_HEARTBEAT_URL
-          - name: friday3-diagnostics
-            webhook_configs:
-              - send_resolved: true
-                timeout: 10s
-                max_alerts: 5
-                # mTLS via Caddy on friday3 → OpenClaw gateway /hooks/amdiag
-                # (mapped hook; Hermes 127.0.0.1:8644 removed 2026-08-06,
-                # repointed 2026-08-07). Caddy rewrites the path and injects
-                # the dedicated OpenClaw hook token after the cert gate.
-                # Caddy's client_auth { mode require_and_verify } is the AuthN gate;
-                # client cert is minted from the friday3 client CA, sourced from
-                # alertmanager-secret via VMAlertmanagerConfig K8s-native refs
-                # (cert_file/key_file paths are rejected by the operator's
-                # admission webhook — only cert: / key_secret: refs are allowed).
-                # No HMAC needed since the only path to /webhooks/amdiag is
-                # through the cert gate.
-                url: https://friday3.${SECRET_DOMAIN}/webhooks/amdiag
-                http_config:
-                  tls_config:
-                    # Operator's TLSConfig struct uses camelCase JSON tags
-                    # (serverName / cert / keySecret), unlike the surrounding
-                    # snake_case AM-config keys.  Verified against
-                    # github.com/VictoriaMetrics/operator (v0.69.0)
-                    # api/operator/v1beta1/vmextra_types.go.
-                    serverName: friday3.${SECRET_DOMAIN}
-                    cert:
-                      secret:
-                        name: alertmanager-secret
-                        key: friday3-client.crt
-                    keySecret:
-                      name: alertmanager-secret
-                      key: friday3-client.key
+          # RETIRED 2026-09-18: the friday3-diagnostics webhook receiver
+          # (https://friday3.${SECRET_DOMAIN}/webhooks/amdiag, mTLS via Caddy →
+          # OpenClaw gateway) has been removed pending a redesign of the
+          # diagnostics path. It had been returning 403 proxy_attribution_required
+          # since 2026-09-16 15:34 ("Configure gateway.trustedProxies narrowly and
+          # make the proxy overwrite or safely rebuild forwarded client headers"),
+          # failing 98.21% of notifications and firing
+          # AlertmanagerClusterFailedToSendAlerts.
+          #
+          # Pushover delivery for warning/critical was never affected: that route
+          # carried continue: true and still falls through to the pushover routes.
+          # Only severity=info had no other destination; it now sinks to "null".
+          #
+          # The mTLS material (friday3-client.crt/.key/-ca.crt) is deliberately
+          # LEFT in externalsecret.yaml so a replacement can be wired up without
+          # re-minting certs. Remove it too if the redesign drops mTLS.
           - name: pushover
             pushover_configs:
               - html: true
