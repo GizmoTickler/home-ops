@@ -46,3 +46,14 @@ spec:
               - name: ACTIONS_RUNNER_REQUIRE_JOB_CONTAINER
                 value: "false"
         serviceAccountName: *name
+        # Jobs fail with EAI_AGAIN ("Temporary failure in name resolution") under their own
+        # download load while cluster DNS itself stays healthy: the glibc default of two
+        # attempts at five seconds gives up on a single dropped UDP reply. Retry more, and
+        # faster; pip, ansible-galaxy and go install are all idempotent on retry.
+        dnsConfig:
+          options:
+            - name: attempts
+              value: "5"
+            - name: timeout
+              value: "2"
+            - name: single-request-reopen
