@@ -7,6 +7,7 @@ resources:
   - ./externalsecret.yaml
   - ./externalsecret-encryption.yaml
   - ./helmrelease.yaml
+  - ./rbac-controller-secret.yaml
   - ./vmservicescrape.yaml
   - ./vmrule.yaml
   - ./grafanadashboard.yaml

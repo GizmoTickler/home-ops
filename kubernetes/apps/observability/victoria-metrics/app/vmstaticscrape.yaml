@@ -41,7 +41,6 @@ spec:
         - aap-0.${SECRET_DOMAIN}:9100
         - unifi-0.${SECRET_DOMAIN}:9100
         - netflow.${SECRET_DOMAIN}:9100
-        - 192.168.120.14:9100
         # Omarchy dev VMs (arch): omarchy0 on pve, omarchy1 on nas01
         - 192.168.120.15:9100
         - 192.168.120.16:9100
