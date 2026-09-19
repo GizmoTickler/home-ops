@@ -14,7 +14,7 @@ spec:
     githubConfigSecret: ia-automation-runner-secret
     # Jobs are bursty and infrequent: scale to zero between pushes.
     minRunners: 0
-    maxRunners: 2
+    maxRunners: 4
     runnerScaleSetName: ia-automation
     containerMode:
       type: kubernetes
