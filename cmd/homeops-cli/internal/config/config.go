@@ -158,6 +158,9 @@ type VMDefaults struct {
 type Node struct {
 	Name string `yaml:"name"`
 	IP   string `yaml:"ip"`
+	// OS optionally overrides cluster.os for this node (flatcar | fcos), so a
+	// cluster can be migrated one node at a time. Empty inherits cluster.os.
+	OS string `yaml:"os,omitempty"`
 	// VM customizes this node's VM hardware profile on the hypervisor.
 	VM VMProfile `yaml:"vm,omitempty"`
 }
@@ -231,6 +234,13 @@ type ClusterConfig struct {
 	ControlPlaneVIP string `yaml:"control_plane_vip,omitempty"`
 	// NodeInterface is the primary NIC name on the nodes (e.g. eth0).
 	NodeInterface string `yaml:"node_interface,omitempty"`
+	// OS selects the node operating-system family for every kubeadm node:
+	// "flatcar" (default when unset, so existing configs are unchanged) or
+	// "fcos" (Fedora CoreOS). nodes[].os / test_node.os override it per node.
+	// Only Ignition rendering, the hypervisor fw_cfg key, the image source,
+	// os-status and the bootstrap OS preflight depend on it; kubeadm configs,
+	// containerd config, kube-vip and networking addresses are identical.
+	OS string `yaml:"os,omitempty"`
 	// Nodes are the control-plane nodes in order; the first is the kubeadm
 	// init node.
 	Nodes []Node `yaml:"nodes,omitempty"`
@@ -640,6 +650,7 @@ func validate(c *Config) error {
 	if c.Cluster.NodeSSHPort < 0 || c.Cluster.NodeSSHPort > 65535 {
 		problems = append(problems, "cluster.node_ssh_port: must be between 1 and 65535 when set")
 	}
+	problems = append(problems, validateOSFamilies(c.Cluster)...)
 	for _, field := range []struct {
 		name  string
 		value string
@@ -1150,4 +1161,87 @@ func (c *Config) APIEndpoint() string {
 		return ""
 	}
 	return "k8s." + domain
+}
+
+// Node operating-system families (cluster.os / nodes[].os).
+const (
+	OSFlatcar = "flatcar"
+	OSFCOS    = "fcos"
+)
+
+// Ignition fw_cfg keys read by each OS family's qemu image on first boot.
+// Flatcar reads opt/org.flatcar-linux/config; the Fedora CoreOS qemu image
+// reads opt/com.coreos/config (verified on Proxmox VE 9 with
+// `qm set <id> --args "-fw_cfg name=opt/com.coreos/config,file=<snippet>"`).
+const (
+	IgnitionFwCfgKeyFlatcar = "opt/org.flatcar-linux/config"
+	IgnitionFwCfgKeyFCOS    = "opt/com.coreos/config"
+)
+
+// NormalizeOS canonicalizes an OS family value. Empty means "unset" and is
+// returned as-is so callers can apply inheritance; "fedora-coreos" and
+// "coreos" are accepted aliases for fcos. ok is false for unknown values.
+func NormalizeOS(value string) (os string, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "", true
+	case OSFlatcar:
+		return OSFlatcar, true
+	case OSFCOS, "fedora-coreos", "coreos":
+		return OSFCOS, true
+	default:
+		return "", false
+	}
+}
+
+// IgnitionFwCfgKey returns the qemu fw_cfg key the given OS family reads its
+// Ignition config from. Anything other than fcos (including "") keeps the
+// historical Flatcar key so existing Flatcar deployments are unchanged.
+func IgnitionFwCfgKey(osFamily string) string {
+	if normalized, _ := NormalizeOS(osFamily); normalized == OSFCOS {
+		return IgnitionFwCfgKeyFCOS
+	}
+	return IgnitionFwCfgKeyFlatcar
+}
+
+// ClusterOS returns the cluster-wide OS family (cluster.os), defaulting to
+// flatcar when unset or invalid (invalid values are rejected by validate).
+func (c *Config) ClusterOS() string {
+	if c != nil {
+		if normalized, ok := NormalizeOS(c.Cluster.OS); ok && normalized != "" {
+			return normalized
+		}
+	}
+	return OSFlatcar
+}
+
+// OSForNode returns the effective OS family for a node: its own os override,
+// else cluster.os, else flatcar.
+func (c *Config) OSForNode(node Node) string {
+	if normalized, ok := NormalizeOS(node.OS); ok && normalized != "" {
+		return normalized
+	}
+	return c.ClusterOS()
+}
+
+// NodeOS returns the effective OS family for a production node or the
+// configured test node by name. Unknown names get the cluster default.
+func (c *Config) NodeOS(name string) string {
+	if node, ok := c.ProvisioningNodeByName(name); ok {
+		return c.OSForNode(node)
+	}
+	return c.ClusterOS()
+}
+
+func validateOSFamilies(cluster ClusterConfig) []string {
+	var problems []string
+	if _, ok := NormalizeOS(cluster.OS); !ok {
+		problems = append(problems, fmt.Sprintf("cluster.os: %q is not supported (use flatcar or fcos)", cluster.OS))
+	}
+	for _, entry := range provisioningNodes(cluster) {
+		if _, ok := NormalizeOS(entry.node.OS); !ok {
+			problems = append(problems, fmt.Sprintf("%s.os: %q is not supported (use flatcar or fcos)", entry.path, entry.node.OS))
+		}
+	}
+	return problems
 }

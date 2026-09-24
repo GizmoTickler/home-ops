@@ -187,6 +187,10 @@ type VMConfig struct {
 	IgnitionPath   string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
 	ImageDiskPath  string // path/volume to import the Flatcar disk image from (import-from=)
 	ImageVolume    string // pre-existing storage volume to use directly as scsi0 (alternative to import)
+	// OSFamily selects the fw_cfg key the Ignition is attached under:
+	// "" / "flatcar" -> opt/org.flatcar-linux/config (historical default),
+	// "fcos" -> opt/com.coreos/config (Fedora CoreOS qemu image).
+	OSFamily string
 
 	// CloudInit, when set, deploys a general-purpose cloud-image VM (vm
 	// create): imported boot disk + cloud-init drive (see cloudinit.go).
@@ -596,6 +600,7 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 //     provisioning path) and the optional legacy OSD disk on scsi2,
 //   - injects the rendered Ignition via fw_cfg:
 //     args = -fw_cfg name=opt/org.flatcar-linux/config,file=<IgnitionPath>
+//     (opt/com.coreos/config when OSFamily is fcos — see addFlatcarIgnitionArgs)
 //
 // This does not alter the Talos buildVMOptions path.
 func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {

@@ -266,11 +266,14 @@ func addCloudInitOptions(ci CloudInitConfig) func([]proxmox.VirtualMachineOption
 	}
 }
 
+// addFlatcarIgnitionArgs attaches the staged Ignition through qemu fw_cfg under
+// the key the node's OS family reads: Flatcar (default) keeps
+// opt/org.flatcar-linux/config, Fedora CoreOS uses opt/com.coreos/config.
 func addFlatcarIgnitionArgs(options []proxmox.VirtualMachineOption, config VMConfig) []proxmox.VirtualMachineOption {
 	if config.IgnitionPath == "" {
 		return options
 	}
-	args := fmt.Sprintf("-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
+	args := fmt.Sprintf("-fw_cfg name=%s,file=%s", homeopscfg.IgnitionFwCfgKey(config.OSFamily), config.IgnitionPath)
 	return append(options, proxmox.VirtualMachineOption{Name: "args", Value: args})
 }
 

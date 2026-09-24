@@ -466,6 +466,9 @@ func mergeNode(base, override Node) Node {
 	if override.IP != "" {
 		out.IP = override.IP
 	}
+	if override.OS != "" {
+		out.OS = override.OS
+	}
 	out.VM = mergeVMProfile(out.VM, override.VM)
 	return out
 }
