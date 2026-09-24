@@ -446,3 +446,68 @@ func TestBootstrapStepperNumbering(t *testing.T) {
 		t.Fatalf("unexpected third step label: %q", got)
 	}
 }
+
+func TestCheckNodeReadyProbeFollowsNodeOS(t *testing.T) {
+	oldNewRunner := flatcarNewSSHRunner
+	t.Cleanup(func() { flatcarNewSSHRunner = oldNewRunner })
+
+	var probes []string
+	flatcarNewSSHRunner = func(_, _ string) flatcarSSHRunner {
+		return &recordingSSHRunner{out: "/usr/bin/kubelet\n", commands: &probes}
+	}
+	logger := common.NewColorLogger()
+	if err := checkFlatcarNodeReady("core", flatcarBootstrapNode{Name: "k8s-0", IP: "192.168.122.10"}, logger); err != nil {
+		t.Fatalf("flatcar probe: %v", err)
+	}
+	if err := checkFlatcarNodeReady("core", flatcarBootstrapNode{Name: "k8s-1", IP: "192.168.122.11", OS: "fcos"}, logger); err != nil {
+		t.Fatalf("fcos probe: %v", err)
+	}
+	// The Flatcar probe is byte-for-byte what it always was.
+	if probes[0] != "grep -q '^ID=flatcar' /etc/os-release && command -v kubelet" {
+		t.Fatalf("flatcar probe changed: %q", probes[0])
+	}
+	if !strings.Contains(probes[1], "^ID=fedora") || !strings.Contains(probes[1], "^VARIANT_ID=coreos") || !strings.Contains(probes[1], "command -v kubelet") {
+		t.Fatalf("fcos probe must check ID=fedora, VARIANT_ID=coreos and kubelet: %q", probes[1])
+	}
+
+	flatcarNewSSHRunner = func(_, _ string) flatcarSSHRunner {
+		return &fakeSSHRunner{execErr: errors.New("exit 1")}
+	}
+	err := checkFlatcarNodeReady("core", flatcarBootstrapNode{Name: "k8s-1", IP: "192.168.122.11", OS: "fcos"}, logger)
+	if err == nil || !strings.Contains(err.Error(), "not booted into Fedora CoreOS") {
+		t.Fatalf("expected an FCOS-specific failure, got %v", err)
+	}
+}
+
+func TestFlatcarNodesCarryConfiguredOS(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{Cluster: versionconfig.ClusterConfig{
+		Nodes: []versionconfig.Node{
+			{Name: "k8s-0", IP: "192.168.122.10"},
+			{Name: "k8s-1", IP: "192.168.122.11", OS: "fcos"},
+		},
+	}})
+	t.Cleanup(restore)
+	nodes, err := flatcarNodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, n := range nodes {
+		got[n.Name] = n.OS
+	}
+	if got["k8s-0"] != "flatcar" || got["k8s-1"] != "fcos" {
+		t.Fatalf("unexpected node OS families: %v", got)
+	}
+}
+
+type recordingSSHRunner struct {
+	out      string
+	commands *[]string
+}
+
+func (r *recordingSSHRunner) Connect() error { return nil }
+func (r *recordingSSHRunner) Close() error   { return nil }
+func (r *recordingSSHRunner) ExecuteCommand(command string) (string, error) {
+	*r.commands = append(*r.commands, command)
+	return r.out, nil
+}
