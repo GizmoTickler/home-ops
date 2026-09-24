@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -322,7 +323,7 @@ func plannedTeardownDetail(keep bool) string {
 	if keep {
 		return "plan: --keep leaves the node, VM, disks, and token for manual cleanup"
 	}
-	return "plan: drain/delete node; power off/delete VM and disks; invalidate token (also on failure)"
+	return "plan: drain node; remove its etcd member; delete node; power off/delete VM and disks; invalidate token (also on failure)"
 }
 
 func runRehearseNode(ctx context.Context, spec rehearseNodeSpec, opts rehearseNodeOptions, operations rehearseOperations) (rehearseReport, error) {
@@ -476,6 +477,7 @@ func renderRehearseReport(report rehearseReport, output string) (string, error) 
 func cleanupCommands(spec rehearseNodeSpec, tokenID string) []string {
 	return []string{
 		fmt.Sprintf("kubectl drain %s --ignore-daemonsets --delete-emptydir-data --force", spec.Node.Name),
+		fmt.Sprintf("kubectl -n kube-system exec etcd-%s -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key member list  # then: member remove <id of %s>", spec.InitNode.Name, spec.Node.Name),
 		fmt.Sprintf("kubectl delete node %s --ignore-not-found", spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s poweroff --name %s --force", spec.Provider, spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s delete --name %s --force", spec.Provider, spec.Node.Name),
@@ -671,17 +673,69 @@ func (realRehearseOperations) DrainAndDeleteNode(ctx context.Context, spec rehea
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(name) == "" {
-		return nil
-	}
 	var cleanupErrors []error
-	if _, err := rehearseCommandFn(ctx, "kubectl", "drain", spec.Node.Name, "--ignore-daemonsets", "--delete-emptydir-data", "--force", "--timeout="+timeout.String()); err != nil {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("drain: %w", err))
+	if strings.TrimSpace(name) != "" {
+		if _, err := rehearseCommandFn(ctx, "kubectl", "drain", spec.Node.Name, "--ignore-daemonsets", "--delete-emptydir-data", "--force", "--timeout="+timeout.String()); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("drain: %w", err))
+		}
 	}
-	if _, err := rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err != nil {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("delete node: %w", err))
+	// The drill joins as a control plane, so the node is also an etcd member.
+	// Deleting the Node object leaves that member behind, and a dead fourth
+	// member costs the cluster its failure tolerance. The member can exist
+	// without a Node object (a join that failed after etcd added it), so this
+	// runs whether or not the node registered.
+	if err := removeRehearsalEtcdMember(ctx, spec); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove etcd member: %w", err))
+	}
+	if strings.TrimSpace(name) != "" {
+		if _, err := rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete node: %w", err))
+		}
 	}
 	return errors.Join(cleanupErrors...)
+}
+
+func rehearsalEtcdctl(pod string, args ...string) []string {
+	base := []string{
+		"-n", "kube-system", "exec", pod, "--",
+		"etcdctl", "--endpoints=https://127.0.0.1:2379",
+		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+		"--cert=/etc/kubernetes/pki/etcd/server.crt",
+		"--key=/etc/kubernetes/pki/etcd/server.key",
+	}
+	return append(base, args...)
+}
+
+// removeRehearsalEtcdMember removes the drill node's etcd member through the
+// init node's etcd pod. Only a member whose name or peer URL is the test
+// node's own is ever removed.
+func removeRehearsalEtcdMember(ctx context.Context, spec rehearseNodeSpec) error {
+	pod := "etcd-" + spec.InitNode.Name
+	raw, err := rehearseCommandFn(ctx, "kubectl", rehearsalEtcdctl(pod, "member", "list", "-w", "json")...)
+	if err != nil {
+		return err
+	}
+	var payload struct {
+		Members []struct {
+			ID       uint64   `json:"ID"`
+			Name     string   `json:"name"`
+			PeerURLs []string `json:"peerURLs"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return fmt.Errorf("parse etcd member list: %w", err)
+	}
+	peer := "https://" + net.JoinHostPort(spec.Node.IP, "2380")
+	for _, member := range payload.Members {
+		if member.Name != spec.Node.Name && !slices.Contains(member.PeerURLs, peer) {
+			continue
+		}
+		id := strconv.FormatUint(member.ID, 16)
+		if _, err := rehearseCommandFn(ctx, "kubectl", rehearsalEtcdctl(pod, "member", "remove", id)...); err != nil {
+			return fmt.Errorf("member %s (%s): %w", id, member.Name, err)
+		}
+	}
+	return nil
 }
 
 func (realRehearseOperations) DeleteVM(_ context.Context, spec rehearseNodeSpec) error {

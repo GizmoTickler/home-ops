@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,8 +172,9 @@ func TestRunRehearseNodeKeepSkipsAllTeardown(t *testing.T) {
 	assert.Equal(t, []string{"preconditions", "token", "deploy", "ready", "smoke"}, fake.calls)
 	assert.Equal(t, "SKIP", report.Steps[4].Status)
 	assert.Contains(t, report.Steps[4].Detail, "--keep")
-	require.Len(t, report.CleanupCommands, 5)
-	assert.Contains(t, report.CleanupCommands[4], "kubeadm token delete abcdef")
+	require.Len(t, report.CleanupCommands, 6)
+	assert.Contains(t, report.CleanupCommands[5], "kubeadm token delete abcdef")
+	assert.Contains(t, report.CleanupCommands[1], "member list")
 }
 
 func TestRehearseNodePlanRenderingDoesNotExecuteOrConfirm(t *testing.T) {
@@ -283,6 +286,9 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 		commands = append(commands, name+" "+strings.Join(args, " "))
 		if len(args) >= 3 && args[0] == "get" && args[1] == "node" {
 			return "node/" + spec.Node.Name, nil
+		}
+		if slices.Contains(args, "etcdctl") {
+			return `{"members":[]}`, nil
 		}
 		return "ok", nil
 	}
@@ -405,4 +411,36 @@ func TestRehearseNodeFCOSTestNodeNeedsNoExplicitImage(t *testing.T) {
 	require.ErrorContains(t, err, "cancelled")
 	assert.True(t, confirmed)
 	assert.Empty(t, fake.calls)
+}
+
+// The drill joins as a control plane; teardown must remove the test node's
+// etcd member (and only that one), even when no Node object ever registered.
+func TestRehearsalTeardownRemovesOnlyTestEtcdMember(t *testing.T) {
+	for _, registered := range []bool{true, false} {
+		swapRehearseRuntime(t)
+		spec := testRehearseSpec(t)
+		var removed []string
+		rehearseCommandFn = func(_ context.Context, _ string, args ...string) (string, error) {
+			joined := strings.Join(args, " ")
+			switch {
+			case len(args) >= 3 && args[0] == "get" && args[1] == "node":
+				if registered {
+					return "node/" + spec.Node.Name, nil
+				}
+				return "", nil
+			case strings.Contains(joined, "member list"):
+				assert.Contains(t, joined, "etcd-"+spec.InitNode.Name)
+				return fmt.Sprintf(`{"members":[
+					{"ID":12345,"name":"k8s-0","peerURLs":["https://192.168.122.10:2380"]},
+					{"ID":3054047617017218159,"name":"%s","peerURLs":["https://%s:2380"]},
+					{"ID":4096,"name":"","peerURLs":["https://%s:2380"]}]}`, spec.Node.Name, spec.Node.IP, spec.Node.IP), nil
+			case strings.Contains(joined, "member remove"):
+				removed = append(removed, args[len(args)-1])
+			}
+			return "ok", nil
+		}
+		require.NoError(t, (realRehearseOperations{}).DrainAndDeleteNode(context.Background(), spec, time.Minute))
+		// The named member plus an unstarted learner (no name yet) on the test IP.
+		assert.Equal(t, []string{strconv.FormatUint(3054047617017218159, 16), "1000"}, removed, "registered=%v", registered)
+	}
 }
