@@ -136,6 +136,14 @@ func (e NodeEnv) envMap() map[string]string {
 	return m
 }
 
+// EnvMap returns the {{ ENV.* }} substitution map for this node, with the
+// cluster defaults applied. It is the exported seam sibling OS renderers
+// (internal/fcos) use to reuse every shared variable and override only the
+// OS-specific ones; the Flatcar render path itself keeps calling envMap.
+func (e NodeEnv) EnvMap() map[string]string {
+	return e.envMap()
+}
+
 func (e NodeEnv) withClusterDefaults() NodeEnv {
 	cfg := config.Get()
 	if e.ClusterName == "" {

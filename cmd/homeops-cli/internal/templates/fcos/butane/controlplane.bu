@@ -1,0 +1,449 @@
+# Butane -> Ignition for a Fedora CoreOS control-plane node (all 3 nodes are
+# control-plane). This is the FCOS sibling of flatcar/butane/controlplane.bu and
+# ports every behaviour of it; the OS migration changes NOTHING else (same
+# containerd config, kubeadm configs, kube-vip, addresses, Cilium devices).
+#
+# Rendered with {{ ENV.* }} substitution (Butane text AND local:-referenced files
+# both get ENV substitution by the Go renderer), then transpiled to Ignition with
+# --files-dir. The files dir is the Flatcar files/ + manifests/ with this
+# directory's files/ + systemd/ overlaid, so shared files (sysctl, nfsmount.conf,
+# containerd config, audit policy, scheduler config, kube-vip) are reused
+# verbatim rather than duplicated.
+#
+# FCOS-specific differences (each is explained where it is implemented):
+#   - networking: NetworkManager keyfiles instead of systemd-networkd .network
+#     files (the udev .link name pins are kept — udev applies them on FCOS too);
+#   - Kubernetes binaries: a directory sysext built on first boot instead of the
+#     Flatcar sysext-bakery image (ID=flatcar, will not merge on FCOS);
+#     kubelet.service + 10-kubeadm.conf come from the upstream kubeadm packaging;
+#   - OS updates: Zincati disabled instead of update.conf SERVER=disabled +
+#     masked locksmithd;
+#   - rollback: greenboot layered on first boot (one reboot) + a required
+#     health check, standing in for Flatcar's A/B partition fallback;
+#   - NTP: chronyd (/etc/chrony.conf) instead of systemd-timesyncd;
+#   - swap: empty zram-generator override; modules: + ublk_drv, nvme_tcp.
+#
+# All files set overwrite:true, as on Flatcar: several targets (/etc/hostname,
+# /etc/hosts, /etc/chrony.conf, /etc/nfsmount.conf, /etc/containerd/config.toml)
+# may already exist in the base image and Ignition aborts on a pre-existing file
+# unless overwrite is set.
+variant: fcos
+version: 1.7.0
+
+passwd:
+  users:
+    - name: core
+      # Node access key, sourced at render time from the configured secret reference (secrets.node_ssh_authorized_key)
+      # (matching PRIVATE key in the same item, used by homeops-cli kubeadm-over-SSH).
+      ssh_authorized_keys:
+        - "{{ ENV.SSH_AUTHORIZED_KEY }}"
+
+storage:
+  directories:
+    # Mount point for the NVMe download-scratch hostpath filesystem
+    # (openebs-hostpath-nvme StorageClass; nzbget /incomplete).
+    - path: /var/mnt/nvme-hostpath
+      mode: 0755
+  filesystems:
+    # scsi4 is the node-local NVMe download-scratch disk (thin zvol on the pve
+    # nvme-scratch stripe). Contents are disposable, but preserving the
+    # filesystem keeps reprovisioning from racing an in-flight PVC cleanup.
+    - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi4
+      format: ext4
+      label: openebs-nvme
+      wipe_filesystem: false
+  files:
+{{ ENV.STORAGE_NETWORK_FILES }}
+    # NOTE: the Kubernetes binaries are intentionally NOT fetched by Ignition,
+    # for the same reason as on Flatcar: install-k8s-sysext.service (below)
+    # downloads them on first boot After=network-online.target, where retries
+    # and checksum verification live in one place.
+
+    # --- identity ---
+    - path: /etc/hostname
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: "{{ ENV.NODE_NAME }}"
+
+    # Disable writeback throttling (WBT) on the NVMe scratch disk (Proxmox
+    # scsi4 — always enumerates at SCSI target *:0:0:4 even though the host
+    # adapter number varies per boot). WBT targets 2ms completion latency and
+    # clamped writeback to ~QD15 against the ZFS zvol backend, capping
+    # qbittorrent scratch writes at 279 MB/s with the disk 93% busy; with WBT
+    # off the same workload ran 347+ MB/s at 14% busy (validated live
+    # 2026-08-12). Scratch is bulk-throughput, not latency-sensitive.
+    # The scsi3 rule was dropped on 2026-08-24 with the SATA tier.
+    - path: /etc/udev/rules.d/99-scratch-wbt.rules
+      mode: 0644
+      contents:
+        inline: |
+          ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", KERNELS=="*:0:0:4", ATTR{queue/wbt_lat_usec}="0"
+
+    # kube-vip resolves the apiserver via the hostname "kubernetes" for its leader-election
+    # client; map it to the LOCAL apiserver so the control-plane VIP comes up during bootstrap
+    # (the VIP can't be up yet — chicken/egg). kubeadm puts "kubernetes" in the apiserver cert
+    # SANs, so TLS validates. Confirmed required in the P2 lab. (All nodes are control-plane.)
+    - path: /etc/hosts
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          127.0.0.1   localhost
+          ::1         localhost
+          127.0.0.1   kubernetes
+
+    # --- interface naming: pin the primary NIC (matched by MAC) to "eth0" so the name
+    # survives a machine-type change and matches cilium devices=eth0, kube-vip
+    # vip_interface=eth0 and the NetworkManager keyfile below (interface-name=eth0).
+    # udev applies /etc/systemd/network/*.link on FCOS exactly as on Flatcar. ---
+    - path: /etc/systemd/network/10-eth0.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC }}
+          [Link]
+          Name=eth0
+
+    # --- networking: jumbo frames + DHCP on the primary NIC.
+    # FCOS uses NetworkManager, not systemd-networkd: this keyfile is the port of
+    # Flatcar's 10-k8s.network. Keyfiles MUST be 0600 or NetworkManager ignores them.
+    #   MTUBytes=<mtu>   -> ethernet.mtu (an explicit profile MTU outranks the
+    #                       DHCP-provided one in NM, which is what UseMTU=false did;
+    #                       Kea also hands out 9000)
+    #   DHCP=yes         -> ipv4.method=auto + ipv6.method=auto
+    #   UseDomains=yes   -> NM applies DHCP search domains by default
+    # ipv4.may-fail=false makes NetworkManager-wait-online (network-online.target)
+    # wait for the DHCPv4 lease, as networkd's RequiredForOnline did, so the
+    # first-boot units ordered after network-online really have an address.
+    # addr-gen-mode=eui64 keeps networkd's SLAAC interface identifiers. ---
+    - path: /etc/NetworkManager/system-connections/10-k8s.nmconnection
+      mode: 0600
+      overwrite: true
+      contents:
+        inline: |
+          [connection]
+          id=10-k8s
+          type=ethernet
+          interface-name=eth0
+          autoconnect=true
+          autoconnect-priority=100
+
+          [ethernet]
+          mtu={{ ENV.NETWORK_MTU }}
+
+          [ipv4]
+          method=auto
+          may-fail=false
+
+          [ipv6]
+          method=auto
+          addr-gen-mode=eui64
+
+    # --- secondary NICs: Multus macvlan masters (VLAN 20 IoT, VLAN 90 VPN).
+    #
+    # These exist ONLY to be macvlan parents. They are pinned by MAC for the same
+    # reason as eth0 (a machine-type change would otherwise rename them and break
+    # the NetworkAttachmentDefinitions, which reference `master: eth1` / `eth2`).
+    #
+    # They MUST stay address-less. NetworkManager would otherwise auto-create a
+    # "Wired connection N" DHCP profile for them (the FCOS analogue of Flatcar's
+    # catch-all eth* rule): when eth1 was first hotplugged on Flatcar it took a
+    # lease on the IoT VLAN AND installed a second default route via the IoT
+    # gateway at the SAME metric as eth0's, ECMP-balancing control-plane egress
+    # onto the IoT VLAN. An explicit profile with ipv4+ipv6 method=disabled (no
+    # DHCP, no link-local, no RA — DHCP=no + LinkLocalAddressing=no +
+    # IPv6AcceptRA=no) prevents that while still bringing the link up.
+    # RequiredForOnline=no has no NM equivalent and is not needed: an
+    # address-less profile activates immediately, so it never delays
+    # network-online. ConfigureWithoutCarrier likewise: virtio NICs always report
+    # carrier. ---
+    - path: /etc/systemd/network/10-eth1.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC_IOT }}
+          [Link]
+          Name=eth1
+
+    - path: /etc/NetworkManager/system-connections/15-eth1-iot.nmconnection
+      mode: 0600
+      overwrite: true
+      contents:
+        inline: |
+          [connection]
+          id=15-eth1-iot
+          type=ethernet
+          interface-name=eth1
+          autoconnect=true
+
+          [ipv4]
+          method=disabled
+
+          [ipv6]
+          method=disabled
+
+    - path: /etc/systemd/network/10-eth2.link
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [Match]
+          MACAddress={{ ENV.NODE_MAC_VPN }}
+          [Link]
+          Name=eth2
+
+    - path: /etc/NetworkManager/system-connections/15-eth2-vpn.nmconnection
+      mode: 0600
+      overwrite: true
+      contents:
+        inline: |
+          [connection]
+          id=15-eth2-vpn
+          type=ethernet
+          interface-name=eth2
+          autoconnect=true
+
+          [ipv4]
+          method=disabled
+
+          [ipv6]
+          method=disabled
+
+    # --- OS updates: merge-gated, NOT stream-driven. Zincati is ACTIVE by default
+    # on FCOS and would follow the stable stream and reboot on its own; this
+    # replaces Flatcar's update.conf SERVER=disabled + masked locksmithd. Updates
+    # are instead staged by a git-pinned `rpm-ostree deploy <build>` (System
+    # Upgrade Controller plan, merge-gated like flatcar-os) and Kured reboots
+    # into the staged deployment. ---
+    - path: /etc/zincati/config.d/90-disable-auto-updates.toml
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          [updates]
+          enabled = false
+
+    # --- swap: FCOS 44 ships no swap, but the Fedora 45 rebase turns on zram swap
+    # by default via zram-generator. kubelet (failSwapOn default) and the
+    # memory-accounting assumptions carried over from Flatcar expect no swap, so an
+    # EMPTY /etc/systemd/zram-generator.conf overrides the vendor config in
+    # /usr/lib/systemd and defines no zram devices. ---
+    - path: /etc/systemd/zram-generator.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: ""
+
+    # --- NTP: the 5 homelab NTP servers (port of Talos machine.time.servers).
+    # FCOS runs chronyd, not systemd-timesyncd, so Flatcar's timesyncd.conf NTP=
+    # list becomes chrony "server" lines. ---
+    - path: /etc/chrony.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/chrony.conf
+
+    # --- OS tuning ported from Talos (ENV-substituted by the renderer where needed) ---
+    - path: /etc/sysctl.d/99-homeops.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/sysctl-99-homeops.conf
+    # FCOS copy of Flatcar's modules list plus ublk_drv (nvmeublk data path) and
+    # nvme_tcp (scale-csi kernel data path).
+    - path: /etc/modules-load.d/homeops.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/modules-load-homeops.conf
+    - path: /etc/nfsmount.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/nfsmount.conf
+
+    # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause).
+    # FCOS ships containerd 2.x in the base image (with moby-engine); the Flatcar
+    # config.toml (config version 3) is reused unchanged. ---
+    - path: /etc/containerd/config.toml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/containerd-config.toml
+
+    # --- kube-vip static pod (ARP control-plane VIP); kubelet starts it post-init ---
+    - path: /etc/kubernetes/manifests/kube-vip.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: manifests/kube-vip.yaml
+
+    # --- apiserver audit policy + scheduler config (mounted into static pods) ---
+    - path: /etc/kubernetes/audit/policy.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/audit-policy.yaml
+    - path: /etc/kubernetes/scheduler/config.yaml
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/scheduler-config.yaml
+
+    # --- Kubernetes directory sysext builder (see install-k8s-sysext.service).
+    # /usr/local is writable on FCOS (/var/usrlocal) and labelled bin_t. ---
+    - path: /usr/local/bin/homeops-install-k8s-sysext
+      mode: 0755
+      overwrite: true
+      contents:
+        local: files/install-k8s-sysext.sh
+
+    # --- greenboot REQUIRED health check: containerd active, and kubelet active
+    # once the node has joined. Picked up once greenboot is layered (below). ---
+    - path: /etc/greenboot/check/required.d/50-homeops-kubernetes.sh
+      mode: 0755
+      overwrite: true
+      contents:
+        local: files/greenboot-50-homeops-kubernetes.sh
+
+systemd:
+  units:
+    # Mount the OpenEBS scratch filesystem by label so the unit is independent
+    # of kernel /dev/sdX enumeration.
+    - name: var-mnt-nvme\x2dhostpath.mount
+      enabled: true
+      contents: |
+        [Unit]
+        Description=OpenEBS nvme-hostpath download scratch
+        [Mount]
+        What=/dev/disk/by-label/openebs-nvme
+        Where=/var/mnt/nvme-hostpath
+        Type=ext4
+        Options=defaults,noatime
+        [Install]
+        WantedBy=local-fs.target
+    # These anchors best-effort seed nas01 transports across the storage VLANs.
+    # nfsmount.conf guarantees max_connect=16 for every mount.nfs invocation.
+    # No anchor-to-kubelet ordering is needed or wanted; none should delay kubelet.
+{{ ENV.NFS_TRUNK_UNITS }}
+    # containerd from the FCOS base OS, pointed at our /etc/containerd/config.toml
+    - name: containerd.service
+      enabled: true
+      dropins:
+        - name: 10-use-config.conf
+          contents: |
+            [Service]
+            ExecStart=
+            ExecStart=/usr/bin/containerd --config /etc/containerd/config.toml
+    # kubelet: there is no package to supply the unit, so ship the upstream kubeadm
+    # packaging verbatim (kubernetes/release krel templates kubelet.service +
+    # 10-kubeadm.conf); /usr/bin/kubelet itself comes from the Kubernetes sysext.
+    # kubeadm configures it during init/join.
+    - name: kubelet.service
+      enabled: true
+      contents_local: systemd/kubelet.service
+      dropins:
+        - name: 10-kubeadm.conf
+          contents_local: systemd/10-kubeadm.conf
+        # The FCOS equivalent of the ExecStartPre lines the Flatcar sysext's own
+        # 10-kubeadm.conf carries: stage the CNI plugins into /opt/cni/bin (the
+        # containerd default bin dir), publish the Kubernetes version and create the
+        # /var-backed flex-volume dir the read-only /usr symlink points at. Ordered
+        # after the first-boot sysext build so kubelet does not race it.
+        - name: 20-homeops-fcos.conf
+          contents: |
+            [Unit]
+            After=install-k8s-sysext.service systemd-sysext.service
+            [Service]
+            ExecStartPre=/usr/bin/mkdir -p /opt/cni/bin
+            ExecStartPre=/usr/bin/cp -r /usr/libexec/cni/. /opt/cni/bin/
+            ExecStartPre=/usr/bin/cp /usr/share/kubernetes/kubernetes-version /etc/kubernetes-version
+            ExecStartPre=/usr/bin/mkdir -p /var/kubernetes/kubelet-plugins/volume/exec/
+    # Keep kubelet running the way the Flatcar sysext does (its
+    # multi-user.target.d/10-kubelet-service.conf).
+    - name: multi-user.target
+      dropins:
+        - name: 10-kubelet-service.conf
+          contents: |
+            [Unit]
+            Upholds=kubelet.service
+    # docker not used by the cluster runtime. FCOS also socket-activates docker, so
+    # mask the socket as well or the first connection to it fails noisily.
+    - name: docker.service
+      mask: true
+    - name: docker.socket
+      mask: true
+    # Merge extensions (the Kubernetes directory sysext) early on every boot.
+    - name: systemd-sysext.service
+      enabled: true
+    # First boot, BEFORE anything Kubernetes: layer greenboot and reboot once into
+    # the layered deployment. greenboot is not in the FCOS base image; it provides
+    # the boot-counting health checks that roll back to the previous rpm-ostree
+    # deployment when a required check (50-homeops-kubernetes.sh) keeps failing.
+    # Exactly-once: guarded by a stamp written before the reboot, and it never runs
+    # on a node that already joined (kubelet.conf), so it can never reboot a live
+    # cluster member without a drain. install-k8s-sysext Requires= it, so a failed
+    # layering blocks kubeadm (fail closed) instead of silently skipping rollback.
+    - name: homeops-layer-greenboot.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Layer greenboot (boot health checks + rollback) and reboot once (first boot)
+        Wants=network-online.target
+        After=network-online.target nss-lookup.target
+        Before=install-k8s-sysext.service kubelet.service
+        ConditionPathExists=!/var/lib/homeops/greenboot-layered
+        ConditionPathExists=!/etc/kubernetes/kubelet.conf
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/rpm-ostree install --idempotent --allow-inactive greenboot greenboot-default-health-checks
+        ExecStart=/usr/bin/mkdir -p /var/lib/homeops
+        ExecStart=/usr/bin/touch /var/lib/homeops/greenboot-layered
+        ExecStart=/usr/bin/systemctl --no-block reboot
+        [Install]
+        WantedBy=multi-user.target
+    # After the layering reboot: enable the greenboot units (rpm-ostree layering
+    # does not reliably apply presets for them). Runs once; health checks and boot
+    # counting are then active from the next boot (i.e. every OS upgrade reboot).
+    - name: homeops-enable-greenboot.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Enable the layered greenboot units (once, after the layering reboot)
+        ConditionPathExists=/usr/libexec/greenboot/greenboot
+        ConditionPathExists=!/var/lib/homeops/greenboot-enabled
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/bin/systemctl enable greenboot-task-runner.service greenboot-healthcheck.service greenboot-status.service greenboot-loading-message.service greenboot-grub2-set-counter.service greenboot-grub2-set-success.service greenboot-rpm-ostree-grub2-check-fallback.service redboot-auto-reboot.service redboot-task-runner.service
+        ExecStart=/usr/bin/touch /var/lib/homeops/greenboot-enabled
+        [Install]
+        WantedBy=multi-user.target
+    # First boot (after the greenboot reboot): build the Kubernetes directory
+    # sysext AFTER networking is up and merge it so kubeadm/kubelet binaries exist
+    # before homeops-cli runs `kubeadm init/join`. Idempotent via the per-version
+    # stamp. Replaces the Flatcar sysext-bakery image download + the
+    # systemd-sysupdate units (no sysupdate on FCOS; the upgrade path is documented
+    # in /usr/local/bin/homeops-install-k8s-sysext).
+    - name: install-k8s-sysext.service
+      enabled: true
+      contents: |
+        [Unit]
+        Description=Build + activate the Kubernetes directory sysext (first boot)
+        Wants=network-online.target
+        Requires=homeops-layer-greenboot.service
+        After=network-online.target nss-lookup.target homeops-layer-greenboot.service
+        ConditionPathExists=!/var/lib/homeops/k8s-sysext-{{ ENV.KUBERNETES_VERSION }}.stamp
+        [Service]
+        Type=oneshot
+        RemainAfterExit=yes
+        ExecStart=/usr/local/bin/homeops-install-k8s-sysext
+        ExecStart=/usr/bin/systemctl daemon-reload
+        [Install]
+        WantedBy=multi-user.target
