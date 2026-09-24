@@ -48,6 +48,11 @@ storage:
     # scsi4 is the node-local NVMe download-scratch disk (thin zvol on the pve
     # nvme-scratch stripe). Contents are disposable, but preserving the
     # filesystem keeps reprovisioning from racing an in-flight PVC cleanup.
+    # Identical to Flatcar: the Flatcar->FCOS rebuild replaces only the boot
+    # disk, and this disk keeps live OpenEBS hostpath PVs pinned to the node
+    # name, so it is reused (label openebs-nvme) and NEVER wiped. It is mounted
+    # by the explicit var-mnt-nvme\x2dhostpath.mount unit below, not
+    # with_mount_unit, exactly as on Flatcar.
     - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi4
       format: ext4
       label: openebs-nvme
@@ -268,8 +273,11 @@ storage:
         local: files/nfsmount.conf
 
     # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause).
-    # FCOS ships containerd 2.x in the base image (with moby-engine); the Flatcar
-    # config.toml (config version 3) is reused unchanged. ---
+    # FCOS ships containerd 2.3.x in the base image (with moby-engine); the Flatcar
+    # config.toml (config version 3) is reused unchanged. containerd 2.3 accepts
+    # version 3 and migrates it to version 4 in memory at start (a one-line
+    # warning; checked with `containerd --config ... config dump` on 2.3.4: every
+    # key here survives, CNI bin_dirs stays /opt/cni/bin, enable_selinux=false). ---
     - path: /etc/containerd/config.toml
       mode: 0644
       overwrite: true
