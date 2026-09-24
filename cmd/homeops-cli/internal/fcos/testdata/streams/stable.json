@@ -1,0 +1,101 @@
+{
+  "stream": "stable",
+  "metadata": {
+    "last-modified": "2026-09-15T13:08:38Z",
+    "generator": "fedora-coreos-stream-generator v0.2.19"
+  },
+  "architectures": {
+    "x86_64": {
+      "artifacts": {
+        "metal": {
+          "release": "44.20260829.3.1",
+          "formats": {
+            "4k.raw.xz": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-metal4k.x86_64.raw.xz",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-metal4k.x86_64.raw.xz.sig",
+                "sha256": "b281ff04c3046c791346f06a2ce715e92cdd74380dfad2e8cc550710f770ace7",
+                "uncompressed-sha256": "51c0ff0fa3f50aa3d5c4d7eabe6229d96cff789c277b42a115c89398a51f2b30"
+              }
+            },
+            "iso": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-iso.x86_64.iso",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-iso.x86_64.iso.sig",
+                "sha256": "b8069aee3e88dd4badcab4f610c669e19ecb43dbc1b74783da888c74e2943997"
+              }
+            },
+            "pxe": {
+              "kernel": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-kernel.x86_64",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-kernel.x86_64.sig",
+                "sha256": "afe1d3790e957b5f6ca82997ce1f6fd909ea87f354cdde04256d9c15bac80706"
+              },
+              "initramfs": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-initramfs.x86_64.img",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-initramfs.x86_64.img.sig",
+                "sha256": "2ce8cf51102ec649e68db81d00c24d8b25b8fa4bd83f7af5503216696f7dce0e"
+              },
+              "rootfs": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-rootfs.x86_64.img",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-live-rootfs.x86_64.img.sig",
+                "sha256": "bced02beb5af219b8c5c5dbea2d53cf61fdf849515a1fafde5a08f558925c0da"
+              }
+            },
+            "raw.xz": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-metal.x86_64.raw.xz",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-metal.x86_64.raw.xz.sig",
+                "sha256": "1b51b706065cd7e106b3b160ee4f0ebd425fccc52074cca31a731ff521a91315",
+                "uncompressed-sha256": "25f241e3948897f225f6977f53ecfa84cf78b5149480774870baf7302c87c0a7"
+              }
+            }
+          }
+        },
+        "proxmoxve": {
+          "release": "44.20260829.3.1",
+          "formats": {
+            "qcow2.xz": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-proxmoxve.x86_64.qcow2.xz",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-proxmoxve.x86_64.qcow2.xz.sig",
+                "sha256": "fa4b254f3360480eeff84b4dd01eb14847ffb2ee7311a9cd39b897adfa0db16d",
+                "uncompressed-sha256": "9a00f3cd5929b70abfa58c6f0371c503e808e297d39d00cbdd56d6a0a4c3604c"
+              }
+            }
+          }
+        },
+        "qemu": {
+          "release": "44.20260829.3.1",
+          "formats": {
+            "qcow2.xz": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-qemu.x86_64.qcow2.xz",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/x86_64/fedora-coreos-44.20260829.3.1-qemu.x86_64.qcow2.xz.sig",
+                "sha256": "a0aa13c4c88519c9c3ee6a16101f84c9f4184fc4eb1e687779b31177e540c12e",
+                "uncompressed-sha256": "46d90f2b792b17ea3b9105326ee068c6a2756d804757ebb8e4ea3aaf9e7ac75c"
+              }
+            }
+          }
+        }
+      }
+    },
+    "aarch64": {
+      "artifacts": {
+        "qemu": {
+          "release": "44.20260829.3.1",
+          "formats": {
+            "qcow2.xz": {
+              "disk": {
+                "location": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/aarch64/fedora-coreos-44.20260829.3.1-qemu.aarch64.qcow2.xz",
+                "signature": "https://builds.coreos.fedoraproject.org/prod/streams/stable/builds/44.20260829.3.1/aarch64/fedora-coreos-44.20260829.3.1-qemu.aarch64.qcow2.xz.sig",
+                "sha256": "2451e271691faa49f6f7f3d9a87d5aabe8b52ffcbcd7cf8790d2b574c389c10a",
+                "uncompressed-sha256": "d526f511cd7bd48c6a369310d09f6e6598b7a1a90b5e6776e99f7cc223e1fcda"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
