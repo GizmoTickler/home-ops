@@ -86,7 +86,7 @@ type NodeEnv struct {
 // "server" lines. NFS trunk anchors are plain systemd mount units and are
 // reused as-is.
 func (e NodeEnv) envMap() map[string]string {
-	m := e.NodeEnv.EnvMap()
+	m := e.EnvMap() // the embedded flatcar.NodeEnv's shared map
 	crictl := e.CrictlVersion
 	if crictl == "" {
 		crictl = DefaultCrictlVersion

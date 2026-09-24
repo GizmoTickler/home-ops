@@ -194,3 +194,30 @@ func TestRenderFCOSOSStatusTableAndJSON(t *testing.T) {
 	_, err = renderFCOSOSStatus(report, "yaml")
 	require.Error(t, err)
 }
+
+func TestFCOSOSStatusCommandRendersJSONAndRejectsBadOutput(t *testing.T) {
+	reset := versionconfig.SetForTesting(&versionconfig.Config{
+		Cluster: versionconfig.ClusterConfig{Nodes: []versionconfig.Node{{Name: "k8s-0", IP: "192.0.2.10", OS: "fcos"}}},
+	})
+	t.Cleanup(reset)
+	testutil.Swap(t, &osStatusNodeCommandFn, func(context.Context, versionconfig.Node, string, string) (string, error) {
+		return fcosProbeOutput(readRPMOstreeSample(t, "rpm_ostree_status_idle.json"), "0", "active"), nil
+	})
+
+	_, _, err := NewFCOSCommand().Find([]string{"os-status"})
+	require.NoError(t, err, "os-status is registered in the fcos group")
+	command := newFCOSOSStatusCommand()
+	var output strings.Builder
+	command.SetOut(&output)
+	command.SetArgs([]string{"--output", "json"})
+	command.SetContext(context.Background())
+	require.NoError(t, command.Execute())
+	assert.Contains(t, output.String(), `"fcos_version": "44.20260829.3.1"`)
+
+	bad := newFCOSOSStatusCommand()
+	bad.SetOut(&strings.Builder{})
+	bad.SetArgs([]string{"--output", "yaml"})
+	err = bad.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported output")
+}
