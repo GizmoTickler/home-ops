@@ -9,6 +9,7 @@ import (
 
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
+	fcosinternal "homeops-cli/internal/fcos"
 	flatcarinternal "homeops-cli/internal/flatcar"
 
 	"github.com/spf13/cobra"
@@ -47,11 +48,15 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 		return err
 	}
 	cfg := versionconfig.Get()
+	// The disposable node's OS comes from test_node.os (else cluster.os), so a
+	// join drill exercises exactly the OS the next production rebuild will run.
+	osFamily := cfg.OSForNode(options.Node)
 	vmProfile := options.Node.VM.ForProvider("flatcar")
 	if provider == providerVSphere {
 		vmProfile = options.Node.VM.ForProvider("vsphere")
 	}
 	deployOptions := deployVMOptions{
+		osFamily:        osFamily,
 		provider:        provider,
 		nodes:           []string{options.Node.Name},
 		imagePath:       options.ImagePath,
@@ -72,6 +77,7 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 		nodeInterface:   cfg.Cluster.NodeInterface,
 		concurrent:      1,
 		powerOn:         true,
+		stream:          fcosinternal.DefaultStream,
 	}
 	if err := validateDeployVMOptions(provider, deployOptions); err != nil {
 		return err
@@ -84,7 +90,7 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	env.BootstrapToken = options.Join.BootstrapToken
 	env.CACertHash = options.Join.CACertHash
 	env.CertificateKey = options.Join.CertificateKey
-	ignition, err := renderIgnitionFn(env)
+	ignition, err := renderIgnitionForOS(deployOptions.family(), env)
 	if err != nil {
 		return fmt.Errorf("render rehearsal ignition: %w", err)
 	}
@@ -96,7 +102,7 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
 	cmd.SetOut(io.Discard)
-	nodes := []flatcarNode{{name: options.Node.Name, ignition: ignition}}
+	nodes := []flatcarNode{{name: options.Node.Name, ignition: ignition, osFamily: deployOptions.family()}}
 	logger := common.NewColorLogger()
 	switch provider {
 	case providerVSphere:

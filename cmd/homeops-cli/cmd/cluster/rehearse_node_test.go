@@ -372,3 +372,37 @@ func TestExecuteRehearseNodeConfirmedJSON(t *testing.T) {
 	assert.Contains(t, out.String(), `"verdict": "PASS"`)
 	assert.Equal(t, testBootstrapToken, fake.invalidatedToken)
 }
+
+func TestRehearseNodeFCOSTestNodeNeedsNoExplicitImage(t *testing.T) {
+	oldConfig := rehearseConfigFn
+	oldConfirm := rehearseConfirmFn
+	rehearseConfigFn = func() *config.Config {
+		cfg := testRehearseConfig()
+		cfg.Cluster.TestNode.OS = "fcos"
+		return cfg
+	}
+	confirmed := false
+	rehearseConfirmFn = func(string, bool) (bool, error) {
+		confirmed = true
+		return false, nil // stop right after the image gate
+	}
+	t.Cleanup(func() {
+		rehearseConfigFn = oldConfig
+		rehearseConfirmFn = oldConfirm
+	})
+
+	fake := &fakeRehearseOperations{}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, executeRehearseNodeCommand(cmd, rehearseNodeOptions{Plan: true, Timeout: time.Minute, Output: "table"}, fake))
+	assert.Contains(t, out.String(), "FCOS stable stream qemu image")
+
+	// Execution passes the Proxmox image gate (FCOS stages the stream image)
+	// and reaches the confirmation prompt; declining stops before any work.
+	err := executeRehearseNodeCommand(cmd, rehearseNodeOptions{Timeout: time.Minute, Output: "table"}, fake)
+	require.ErrorContains(t, err, "cancelled")
+	assert.True(t, confirmed)
+	assert.Empty(t, fake.calls)
+}

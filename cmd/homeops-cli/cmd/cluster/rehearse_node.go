@@ -168,7 +168,10 @@ func executeRehearseNodeCommand(cmd *cobra.Command, opts rehearseNodeOptions, op
 		report := plannedRehearseReport(spec, opts)
 		return writeRehearseReport(cmd, report, opts.Output)
 	}
-	if spec.Provider == "proxmox" && strings.TrimSpace(opts.ImagePath) == "" && strings.TrimSpace(opts.ImageVolume) == "" {
+	// A Fedora CoreOS test node (test_node.os / cluster.os: fcos) stages the
+	// stream's qemu image itself; Flatcar still needs an explicit image.
+	fcosNode := rehearseConfigFn().OSForNode(spec.Node) == config.OSFCOS
+	if spec.Provider == "proxmox" && !fcosNode && strings.TrimSpace(opts.ImagePath) == "" && strings.TrimSpace(opts.ImageVolume) == "" {
 		return fmt.Errorf("one of --image-path or --image-volume is required for Proxmox execution (use --plan to inspect without one)")
 	}
 	confirmed, err := rehearseConfirmFn(fmt.Sprintf("Deploy, join, test, and destroy disposable node %s (VMID %d, IP %s)?", spec.Node.Name, spec.VMID, spec.Node.IP), false)
@@ -297,6 +300,9 @@ func plannedRehearseReport(spec rehearseNodeSpec, opts rehearseNodeOptions) rehe
 	}
 	if image == "" && spec.Provider == "proxmox" {
 		image = "<required at execution: --image-path or --image-volume>"
+		if rehearseConfigFn().OSForNode(spec.Node) == config.OSFCOS {
+			image = "<FCOS stable stream qemu image, staged at execution>"
+		}
 	}
 	steps := []rehearseStep{
 		{Name: "preconditions", Status: "SKIP", Duration: "0s", Detail: fmt.Sprintf("plan: verify apiserver; refuse node %s or VMID %d collisions", spec.Node.Name, spec.VMID)},

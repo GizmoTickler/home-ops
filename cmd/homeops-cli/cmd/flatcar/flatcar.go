@@ -4,6 +4,7 @@
 package flatcar
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
 	"homeops-cli/internal/constants"
+	fcosinternal "homeops-cli/internal/fcos"
 	"homeops-cli/internal/flatcar"
 	"homeops-cli/internal/proxmox"
 	"homeops-cli/internal/ssh"
@@ -115,6 +117,33 @@ var (
 	}
 )
 
+// Fedora CoreOS seams (swappable for tests). Kept in their own block so the
+// Flatcar function vars above are untouched.
+var (
+	renderFCOSIgnitionFn = fcosinternal.RenderIgnition
+	// nodeOSFn resolves a node's configured OS family (cluster.os /
+	// nodes[].os / test_node.os; flatcar when unset). Swappable for tests.
+	nodeOSFn = func(name string) string {
+		return versionconfig.Get().NodeOS(name)
+	}
+	// resolveFCOSImageFn resolves the current FCOS qemu image of a stream from
+	// the published stream metadata. Swappable for tests.
+	resolveFCOSImageFn = fcosinternal.ResolveQEMUImage
+	// stageFCOSImageFn runs the (idempotent, checksum-verifying) FCOS image
+	// staging command on the Proxmox host over SSH. Swappable for tests.
+	stageFCOSImageFn = func(cfg ssh.SSHConfig, command string) error {
+		client := newIgnitionSSHClientFn(cfg)
+		if err := client.Connect(); err != nil {
+			return fmt.Errorf("connect to %s@%s:%s: %w", cfg.Username, cfg.Host, cfg.Port, err)
+		}
+		defer func() { _ = client.Close() }()
+		if out, err := client.ExecuteCommand(command); err != nil {
+			return fmt.Errorf("stage FCOS image on %s: %w\n%s", cfg.Host, err, strings.TrimSpace(out))
+		}
+		return nil
+	}
+)
+
 func trueNASIgnitionSSHConfig(host, username, port string) ssh.SSHConfig {
 	return ssh.SSHConfig{
 		Host: host, Username: username, Port: port,
@@ -168,6 +197,26 @@ type proxmoxVMManager interface {
 type flatcarNode struct {
 	name     string
 	ignition []byte
+	// osFamily is the node OS the Ignition was rendered for ("" = flatcar); it
+	// selects the hypervisor's fw_cfg key (Flatcar vs Fedora CoreOS).
+	osFamily string
+}
+
+// renderIgnitionForOS renders a node's Ignition for its OS family: Fedora
+// CoreOS nodes get the fcos template, everything else the Flatcar one.
+func renderIgnitionForOS(osFamily string, env flatcar.NodeEnv) ([]byte, error) {
+	if osFamily == versionconfig.OSFCOS {
+		return renderFCOSIgnitionFn(fcosinternal.NodeEnv{NodeEnv: env})
+	}
+	return renderIgnitionFn(env)
+}
+
+// osDisplayName is the human name of an OS family for log/help text.
+func osDisplayName(osFamily string) string {
+	if osFamily == versionconfig.OSFCOS {
+		return "Fedora CoreOS"
+	}
+	return "Flatcar"
 }
 
 // flatcarDeployer abstracts how a Flatcar node is provisioned on a hypervisor.
@@ -276,9 +325,10 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.IgnitionPath = ignitionHandle
 	vmConfig.ImageDiskPath = d.imagePath
 	vmConfig.ImageVolume = d.imageVolume
+	vmConfig.OSFamily = node.osFamily
 	vmConfig.PowerOn = d.powerOn
 
-	d.logger.Info("Deploying Flatcar VM %s", node.name)
+	d.logger.Info("Deploying %s VM %s", osDisplayName(node.osFamily), node.name)
 	vmManager, err := newProxmoxVMManagerFn(d.host, d.tokenID, d.secret, d.node, common.EnvBool(constants.EnvProxmoxInsecure, false))
 	if err != nil {
 		return fmt.Errorf("failed to create Proxmox VM manager: %w", err)
@@ -375,7 +425,7 @@ func (d *vsphereFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 		IgnitionData: ignitionHandle,
 		PowerOn:      d.powerOn,
 	}
-	d.logger.Info("Cloning Flatcar VM %s on vSphere from template %s", node.name, d.template)
+	d.logger.Info("Cloning %s VM %s on vSphere from template %s", osDisplayName(node.osFamily), node.name, d.template)
 	return client.CloneFlatcarVM(cfg)
 }
 
@@ -495,11 +545,12 @@ func (d *truenasFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 		SkipZVolCreate: true,       // the Flatcar boot zvol is pre-staged
 		Flatcar:        true,
 		IgnitionPath:   ignitionHandle,
+		OSFamily:       node.osFamily,
 		TrueNASHost:    d.host,
 		TrueNASPort:    d.port,
 		NoSSL:          !d.useSSL,
 	}
-	d.logger.Info("Deploying Flatcar VM %s on TrueNAS", node.name)
+	d.logger.Info("Deploying %s VM %s on TrueNAS", osDisplayName(node.osFamily), node.name)
 	return client.DeployVM(cfg)
 }
 
@@ -972,6 +1023,13 @@ CA rotation. Leaf certs are not captured (kubeadm regenerates them off the CAs).
 }
 
 func newRenderIgnitionCommand() *cobra.Command {
+	return newRenderIgnitionCommandFor(versionconfig.OSFlatcar)
+}
+
+// newRenderIgnitionCommandFor builds render-ignition for one OS family. The
+// family is the command group's, not the node's configured os, so the FCOS
+// Ignition of a node can be previewed before its config is switched.
+func newRenderIgnitionCommandFor(osFamily string) *cobra.Command {
 	var (
 		nodeName       string
 		vip            string
@@ -983,13 +1041,13 @@ func newRenderIgnitionCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "render-ignition",
-		Short: "Render the Ignition JSON for a Flatcar node",
+		Short: fmt.Sprintf("Render the Ignition JSON for a %s node", osDisplayName(osFamily)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			env, err := buildNodeEnv(nodeName, vip, pauseImage, kubeVipVersion, nodeInterface)
 			if err != nil {
 				return err
 			}
-			ign, err := renderIgnitionFn(env)
+			ign, err := renderIgnitionForOS(osFamily, env)
 			if err != nil {
 				return err
 			}
@@ -1008,7 +1066,7 @@ func newRenderIgnitionCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&nodeName, "node", "k8s-0", "Flatcar node name")
+	cmd.Flags().StringVar(&nodeName, "node", "k8s-0", osDisplayName(osFamily)+" node name")
 	_ = cmd.RegisterFlagCompletionFunc("node", completion.ValidNodeNames)
 	cmd.Flags().StringVar(&vip, "vip", "", "Control-plane VIP (default from constants)")
 	cmd.Flags().StringVar(&pauseImage, "pause-image", "", "Pause/sandbox image (default from versions)")
@@ -1088,7 +1146,7 @@ func newGenKubeadmCommand() *cobra.Command {
 }
 
 func newDeployVMCommand() *cobra.Command {
-	opts := &deployVMOptions{}
+	opts := &deployVMOptions{osFamily: versionconfig.OSFlatcar}
 	cmd := &cobra.Command{
 		Use:   "deploy-vm",
 		Short: "Deploy Flatcar k8s VM(s) on Proxmox, vSphere, or TrueNAS with Ignition",
@@ -1123,22 +1181,29 @@ NAS (--ignition-dir, default /mnt/<pool>/VM) over SSH.`,
 
 func registerDeployVMFlags(cmd *cobra.Command, opts *deployVMOptions) {
 	cmd.Flags().StringVar(&opts.provider, "provider", "proxmox", "Hypervisor to deploy on: proxmox | vsphere (alias esxi) | truenas")
-	cmd.Flags().StringSliceVar(&opts.nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
+	if opts.family() == versionconfig.OSFCOS {
+		// No static default: the nodes configured os: fcos are resolved at run
+		// time (the config is not loaded while the command tree is built).
+		cmd.Flags().StringSliceVar(&opts.nodes, "nodes", nil, "Fedora CoreOS node names to deploy (default: every node configured os: fcos)")
+		cmd.Flags().StringVar(&opts.stream, "stream", fcosinternal.DefaultStream, "[proxmox] FCOS stream to take the qemu image from when neither --image-path nor --image-volume is given")
+	} else {
+		cmd.Flags().StringSliceVar(&opts.nodes, "nodes", nodeNames(), "Flatcar node names to deploy")
+	}
 	_ = cmd.RegisterFlagCompletionFunc("nodes", completion.ValidNodeNames)
-	cmd.Flags().StringVar(&opts.imagePath, "image-path", "", "[proxmox] Path on Proxmox to import the Flatcar disk image from (import-from)")
+	cmd.Flags().StringVar(&opts.imagePath, "image-path", "", fmt.Sprintf("[proxmox] Path on Proxmox to import the %s disk image from (import-from)", osDisplayName(opts.family())))
 	cmd.Flags().StringVar(&opts.imageVolume, "image-volume", "", "[proxmox] Existing storage volume to attach as scsi0 (alternative to --image-path)")
 	cmd.Flags().StringVar(&opts.snippetsDir, "snippets-dir", "", "[proxmox] snippets dir for Ignition files (default: hypervisors.proxmox.snippets_dir from homeops.yaml)")
 	cmd.Flags().StringVar(&opts.pveSSHHost, "pve-ssh-host", "", "[proxmox] host to SSH the Ignition to (default: the Proxmox API host)")
 	cmd.Flags().StringVar(&opts.pveSSHUser, "pve-ssh-user", "", "[proxmox] SSH user on the Proxmox host for Ignition upload (default: hypervisors.proxmox.ssh_user from homeops.yaml)")
 	cmd.Flags().StringVar(&opts.pveSSHPort, "pve-ssh-port", "22", "[proxmox] SSH port on the Proxmox host")
-	cmd.Flags().StringVar(&opts.vsphereTemplate, "vsphere-template", "", "[vsphere] name of the imported Flatcar OVA template to clone")
+	cmd.Flags().StringVar(&opts.vsphereTemplate, "vsphere-template", "", fmt.Sprintf("[vsphere] name of the imported %s OVA template to clone", osDisplayName(opts.family())))
 	cmd.Flags().StringVar(&opts.datastore, "datastore", "", "[vsphere] datastore to clone the VM onto")
 	cmd.Flags().StringVar(&opts.vsphereNetwork, "vsphere-network", "", "[vsphere] network/portgroup for the VM NIC")
 	cmd.Flags().IntVar(&opts.vcpus, "vcpus", 0, "[vsphere] vCPUs (0 = inherit template)")
 	cmd.Flags().IntVar(&opts.memory, "memory", 0, "[vsphere] memory in MB (0 = inherit template)")
 	cmd.Flags().StringVar(&opts.truenasPool, "truenas-pool", "", "[truenas] storage pool/dataset for the VM (default: hypervisors.truenas.vm.boot_storage from homeops.yaml)")
 	cmd.Flags().StringVar(&opts.networkBridge, "network-bridge", "", "[truenas] bridge to attach the VM NIC to (default: hypervisors.truenas.vm.network_bridge from homeops.yaml)")
-	cmd.Flags().StringVar(&opts.bootZVol, "boot-zvol", "", "[truenas] pre-staged Flatcar boot zvol (single-node; else <pool>/VM/<node>-boot)")
+	cmd.Flags().StringVar(&opts.bootZVol, "boot-zvol", "", fmt.Sprintf("[truenas] pre-staged %s boot zvol (single-node; else <pool>/VM/<node>-boot)", osDisplayName(opts.family())))
 	cmd.Flags().StringVar(&opts.ignitionDir, "ignition-dir", "", "[truenas] dir on the NAS for Ignition files (default /mnt/<pool>/VM)")
 	cmd.Flags().StringVar(&opts.truenasSSHHost, "truenas-ssh-host", "", "[truenas] host to SSH the Ignition to (default: the TrueNAS API host)")
 	cmd.Flags().StringVar(&opts.truenasSSHUser, "truenas-ssh-user", "", "[truenas] SSH user for Ignition upload (default: hypervisors.truenas.ssh_user from homeops.yaml)")
@@ -1155,6 +1220,8 @@ func registerDeployVMFlags(cmd *cobra.Command, opts *deployVMOptions) {
 }
 
 type deployVMOptions struct {
+	// osFamily is the command group's OS (flatcar | fcos; "" = flatcar).
+	osFamily    string
 	provider    string
 	nodes       []string
 	imagePath   string
@@ -1185,6 +1252,16 @@ type deployVMOptions struct {
 	concurrent     int
 	powerOn        bool
 	dryRun         bool
+	// fcos: stream the qemu image is resolved from when no image is given.
+	stream string
+}
+
+// family returns the normalized OS family of the deploy (flatcar when unset).
+func (o deployVMOptions) family() string {
+	if o.osFamily == versionconfig.OSFCOS {
+		return versionconfig.OSFCOS
+	}
+	return versionconfig.OSFlatcar
 }
 
 func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
@@ -1195,6 +1272,14 @@ func runDeployVM(cmd *cobra.Command, opts deployVMOptions) error {
 	if err != nil {
 		return err
 	}
+
+	// Keep the command group and the configured node OS in agreement, so a
+	// node can never be provisioned with the other OS's Ignition.
+	selected, err := selectDeployNodes(opts.family(), opts.nodes, cmd.Flags().Changed("nodes"))
+	if err != nil {
+		return err
+	}
+	opts.nodes = selected
 
 	// Provider-specific input validation BEFORE any Ignition rendering or mutation,
 	// so a bad flag fails fast (and without touching 1Password / the hypervisor).
@@ -1235,6 +1320,37 @@ func applyDeployVMConfigDefaults(cmd *cobra.Command, opts *deployVMOptions) {
 	cmdutil.ResolveStringFlagDefault(cmd, "truenas-ssh-user", &opts.truenasSSHUser, func() string {
 		return versionconfig.Get().Hypervisors.TrueNAS.SSHUser
 	})
+}
+
+// selectDeployNodes reconciles the requested node list with each node's
+// configured OS family (cluster.os / nodes[].os). An explicit --nodes entry of
+// the other family is an error; the default list is narrowed to the family, so
+// with no os keys configured `flatcar deploy-vm` deploys exactly what it always
+// did, and `fcos deploy-vm` defaults to the nodes configured os: fcos.
+func selectDeployNodes(osFamily string, requested []string, explicit bool) ([]string, error) {
+	other := map[string]string{versionconfig.OSFlatcar: "fcos", versionconfig.OSFCOS: "flatcar"}[osFamily]
+	if explicit {
+		for _, name := range requested {
+			if got := nodeOSFn(name); got != osFamily {
+				return nil, fmt.Errorf("node %q is configured os: %s; deploy it with `homeops-cli %s deploy-vm`, or set cluster.nodes[%s].os: %s",
+					name, got, other, name, osFamily)
+			}
+		}
+		return requested, nil
+	}
+	if osFamily == versionconfig.OSFCOS && len(requested) == 0 {
+		requested = versionconfig.Get().NodeNames()
+	}
+	selected := make([]string, 0, len(requested))
+	for _, name := range requested {
+		if nodeOSFn(name) == osFamily {
+			selected = append(selected, name)
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("no cluster nodes are configured os: %s (set cluster.os or cluster.nodes[].os, or pass --nodes)", osFamily)
+	}
+	return selected, nil
 }
 
 // provider identifiers for flatcar deploy-vm.
@@ -1281,7 +1397,9 @@ func validateDeployVMOptions(provider string, opts deployVMOptions) error {
 		}
 		return nil
 	default: // providerProxmox
-		if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun {
+		// FCOS resolves + stages the stream's qemu image itself when neither is
+		// given; Flatcar has no such source and still requires one.
+		if opts.imagePath == "" && opts.imageVolume == "" && !opts.dryRun && opts.family() != versionconfig.OSFCOS {
 			return fmt.Errorf("one of --image-path or --image-volume is required")
 		}
 		// Every value interpolated into a Proxmox option string (import-from=,
@@ -1316,11 +1434,11 @@ func buildFlatcarNodes(opts deployVMOptions) ([]flatcarNode, error) {
 		if err != nil {
 			return nil, err
 		}
-		ign, err := renderIgnitionFn(env)
+		ign, err := renderIgnitionForOS(opts.family(), env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to render ignition for %s: %w", nodeName, err)
 		}
-		nodes = append(nodes, flatcarNode{name: nodeName, ignition: ign})
+		nodes = append(nodes, flatcarNode{name: nodeName, ignition: ign, osFamily: opts.family()})
 	}
 	return nodes, nil
 }
@@ -1350,6 +1468,15 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 		sshPort = "22"
 	}
 
+	imagePath := opts.imagePath
+	if opts.family() == versionconfig.OSFCOS && opts.imagePath == "" && opts.imageVolume == "" {
+		staged, err := stageFCOSImageOnProxmox(cmd.Context(), opts, logger, sshHost, sshUser, sshPort)
+		if err != nil {
+			return err
+		}
+		imagePath = staged
+	}
+
 	deployer := &proxmoxFlatcarDeployer{
 		host:        pveHost,
 		tokenID:     tokenID,
@@ -1359,7 +1486,7 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 		sshUser:     sshUser,
 		sshPort:     sshPort,
 		snippetsDir: opts.snippetsDir,
-		imagePath:   opts.imagePath,
+		imagePath:   imagePath,
 		imageVolume: opts.imageVolume,
 		powerOn:     opts.powerOn,
 		logger:      logger,
@@ -1375,9 +1502,9 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s@%s:%s for %s",
 				len(n.ignition), sshUser, dst, deployer.ignitionPath(n.name), n.name)
 			logger.Info("[DRY RUN] would deploy %s (boot=%s, mac=%s, vmid via predefined)",
-				n.name, deployBootSource(opts.imagePath, opts.imageVolume), cfg.MacAddress)
+				n.name, deployBootSource(imagePath, opts.imageVolume), cfg.MacAddress)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d %s VM(s) planned\n", len(nodes), osDisplayName(opts.family()))
 		return nil
 	}
 
@@ -1389,10 +1516,10 @@ func deployProxmox(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 func deployVSphere(cmd *cobra.Command, opts deployVMOptions, logger *common.ColorLogger, nodes []flatcarNode) error {
 	if opts.dryRun {
 		for _, n := range nodes {
-			logger.Info("[DRY RUN] would clone Flatcar VM %s from template %s onto datastore %s (Ignition via guestinfo, %d bytes)",
-				n.name, opts.vsphereTemplate, opts.datastore, len(n.ignition))
+			logger.Info("[DRY RUN] would clone %s VM %s from template %s onto datastore %s (Ignition via guestinfo, %d bytes)",
+				osDisplayName(opts.family()), n.name, opts.vsphereTemplate, opts.datastore, len(n.ignition))
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d %s VM(s) planned\n", len(nodes), osDisplayName(opts.family()))
 		return nil
 	}
 
@@ -1439,10 +1566,10 @@ func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 			dst = "<truenas-host>"
 		}
 		for _, n := range nodes {
-			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s:%s/ignition-%s.json and create Flatcar VM %s on pool %s (Ignition via fw_cfg)",
-				len(n.ignition), dst, ignitionDir, n.name, n.name, opts.truenasPool)
+			logger.Info("[DRY RUN] would upload %d bytes of Ignition to %s:%s/ignition-%s.json and create %s VM %s on pool %s (Ignition via fw_cfg)",
+				len(n.ignition), dst, ignitionDir, n.name, osDisplayName(opts.family()), n.name, opts.truenasPool)
 		}
-		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d Flatcar VM(s) planned\n", len(nodes))
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[DRY RUN] %d %s VM(s) planned\n", len(nodes), osDisplayName(opts.family()))
 		return nil
 	}
 
@@ -1482,6 +1609,38 @@ func deployTrueNAS(cmd *cobra.Command, opts deployVMOptions, logger *common.Colo
 	}
 
 	return deployFlatcarNodes(logger, deployer, nodes, opts.concurrent)
+}
+
+// stageFCOSImageOnProxmox resolves the FCOS stream's current qemu image and
+// stages it (download, sha256-verify, decompress, verify) into the Proxmox
+// image cache dir over SSH, returning the disk path to import-from. Mirrors how
+// `vm create` stages cloud images there. In dry-run mode it only resolves and
+// reports the image.
+func stageFCOSImageOnProxmox(ctx context.Context, opts deployVMOptions, logger *common.ColorLogger, sshHost, sshUser, sshPort string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	img, err := resolveFCOSImageFn(ctx, opts.stream)
+	if err != nil {
+		return "", err
+	}
+	cacheDir := versionconfig.Get().Hypervisors.Proxmox.ImageCacheDir
+	command, diskPath, err := fcosinternal.ProxmoxStageCommand(img, cacheDir)
+	if err != nil {
+		return "", err
+	}
+	if opts.dryRun {
+		logger.Info("[DRY RUN] would stage FCOS %s (%s stream) from %s to %s (sha256-verified)", img.Release, img.Stream, img.Location, diskPath)
+		return diskPath, nil
+	}
+	if sshHost == "" {
+		return "", fmt.Errorf("cannot stage the FCOS image: no Proxmox SSH host (set --pve-ssh-host)")
+	}
+	logger.Info("Staging FCOS %s (%s stream) on %s:%s", img.Release, img.Stream, sshHost, diskPath)
+	if err := stageFCOSImageFn(ssh.SSHConfig{Host: sshHost, Username: sshUser, Port: sshPort}, command); err != nil {
+		return "", err
+	}
+	return diskPath, nil
 }
 
 func deployBootSource(imagePath, imageVolume string) string {
@@ -1549,7 +1708,7 @@ func deployFlatcarNodes(logger *common.ColorLogger, deployer flatcarDeployer, no
 
 	wg.Wait()
 	if len(failures) > 0 {
-		return fmt.Errorf("failed to deploy %d/%d Flatcar VMs: %s", len(failures), len(nodes), strings.Join(failures, "; "))
+		return fmt.Errorf("failed to deploy %d/%d %s VMs: %s", len(failures), len(nodes), osDisplayName(nodes[0].osFamily), strings.Join(failures, "; "))
 	}
 	return nil
 }

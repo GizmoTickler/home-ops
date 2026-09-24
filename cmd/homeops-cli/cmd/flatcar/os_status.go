@@ -98,7 +98,17 @@ func newOSStatusCommand() *cobra.Command {
 
 func buildFlatcarOSStatus(ctx context.Context) (flatcarOSStatusReport, error) {
 	cfg := versionconfig.Get()
-	nodes := cfg.Cluster.Nodes
+	// Nodes configured os: fcos have no update_engine; they are reported by
+	// `homeops-cli fcos os-status`. With no os keys set this keeps every node.
+	var nodes []versionconfig.Node
+	var skipped []string
+	for _, node := range cfg.Cluster.Nodes {
+		if cfg.OSForNode(node) == versionconfig.OSFCOS {
+			skipped = append(skipped, node.Name)
+			continue
+		}
+		nodes = append(nodes, node)
+	}
 	if len(nodes) == 0 {
 		return flatcarOSStatusReport{}, fmt.Errorf("cluster.nodes has no Flatcar nodes")
 	}
@@ -119,6 +129,9 @@ func buildFlatcarOSStatus(ctx context.Context) (flatcarOSStatusReport, error) {
 	}
 	sort.Slice(report.Nodes, func(i, j int) bool { return report.Nodes[i].Node < report.Nodes[j].Node })
 	report.Warnings = flatcarOSStatusWarnings(report.Nodes)
+	if len(skipped) > 0 {
+		report.Warnings = append(report.Warnings, "skipped os: fcos node(s) (see `homeops-cli fcos os-status`): "+strings.Join(skipped, ", "))
+	}
 	if len(report.Errors) > 0 {
 		return report, fmt.Errorf("os-status failed over SSH on %d node(s)", len(report.Errors))
 	}
