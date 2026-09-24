@@ -58,6 +58,17 @@ storage:
       label: openebs-nvme
       wipe_filesystem: false
   files:
+    # SELinux permissive, matching the Flatcar nodes (Permissive there), so the
+    # OS migration changes one thing at a time. Written by Ignition before the
+    # policy loads, so it applies from first boot. Denials are still logged:
+    # collect them (ausearch -m AVC) before switching to enforcing as its own step.
+    - path: /etc/selinux/config
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          SELINUX=permissive
+          SELINUXTYPE=targeted
 {{ ENV.STORAGE_NETWORK_FILES }}
     # NOTE: the Kubernetes binaries are intentionally NOT fetched by Ignition,
     # for the same reason as on Flatcar: install-k8s-sysext.service (below)
@@ -410,7 +421,9 @@ systemd:
         [Service]
         Type=oneshot
         RemainAfterExit=yes
-        ExecStart=/usr/bin/rpm-ostree install --idempotent --allow-inactive greenboot greenboot-default-health-checks
+        # qemu-guest-agent rides the same layering: Proxmox uses it for clean
+        # shutdown and IP discovery, as on the Flatcar nodes (not in the FCOS base).
+        ExecStart=/usr/bin/rpm-ostree install --idempotent --allow-inactive greenboot greenboot-default-health-checks qemu-guest-agent
         ExecStart=/usr/bin/mkdir -p /var/lib/homeops
         ExecStart=/usr/bin/touch /var/lib/homeops/greenboot-layered
         ExecStart=/usr/bin/systemctl --no-block reboot
@@ -430,6 +443,7 @@ systemd:
         Type=oneshot
         RemainAfterExit=yes
         ExecStart=/usr/bin/systemctl enable greenboot-task-runner.service greenboot-healthcheck.service greenboot-status.service greenboot-loading-message.service greenboot-grub2-set-counter.service greenboot-grub2-set-success.service greenboot-rpm-ostree-grub2-check-fallback.service redboot-auto-reboot.service redboot-task-runner.service
+        ExecStart=/usr/bin/systemctl enable --now qemu-guest-agent.service
         ExecStart=/usr/bin/touch /var/lib/homeops/greenboot-enabled
         [Install]
         WantedBy=multi-user.target
