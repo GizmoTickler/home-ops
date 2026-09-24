@@ -10,19 +10,17 @@ spec:
     name: scale-csi
   interval: 1h
   values:
-    # 2026-07-22 OOM incident: chart-default 256Mi controller limit is too small —
-    # zfs.resource.snapshot.query returns ~29MB JSON per call at current snapshot
-    # count (inherited tombstone-ledger props amplify every entry), and concurrent
-    # VolSync CreateVolume-from-snapshot + strict-fencing startup reconcile pushed
-    # the heap past the limit (crash loop, 12 restarts). 1Gi is headroom until the
-    # batch-14 driver fix (single-fetch + ledger relocation) lands.
+    # 2026-07-22 OOM incident: 29MB snapshot-query payloads (inherited
+    # tombstone-ledger props) pushed the controller past the old 256Mi limit, so
+    # it ran at 1Gi. The ledger relocation (v1.2.31 batch 14) removed the cause;
+    # measured 2026-09-23 the controller sits at 33Mi. 256Mi keeps ~8x headroom.
     controller:
       resources:
         requests:
           cpu: 10m
-          memory: 128Mi
+          memory: 64Mi
         limits:
-          memory: 1Gi
+          memory: 256Mi
     # Backend publication fencing. strict = backend allowlists converge to CSI
     # publications only (static subsystemHosts ignored for fenced volumes);
     # flipped 2026-07-22 after additive verification (27/27 converged,
@@ -48,8 +46,13 @@ spec:
       # so the clone dependency always resolves cleanly. Per-StorageClass detached
       # opt-in for real DR restores is tracked in Batch E.
       detachedVolumesFromSnapshots: false
+    # 2026-09-23: NFS and iSCSI DISABLED. Zero PVs, PVCs, targets or extents use
+    # either, and NFS has two open blockers recorded below (fabric node identity,
+    # NFSv4.2 ENOENT on driver-created exports). Disabling removes the
+    # scale-nfs/scale-iscsi StorageClasses and the per-protocol session GC work.
+    # The settings are kept so re-enabling is a one-line change.
     nfs:
-      enabled: true
+      enabled: false
       # 2026-08-26 STEP 1 of 2 (ordering is load-bearing): widen the export ACL
       # to the storage-fabric source addresses BEFORE `server` leaves MGMT.
       # shareAllowedNetworks is stamped onto every NEWLY created sharing.nfs
@@ -112,7 +115,7 @@ spec:
         - 192.168.204.21/32
         - 192.168.204.22/32
     iscsi:
-      enabled: true
+      enabled: false
       # 2026-08-26: portal moved off MGMT onto the fabric. The driver resolves
       # this to a TrueNAS portal by exact ip:port match against portal.listen
       # (resolveISCSIPortalIDsForEndpoints); nas01 portal id=3 already listens
@@ -151,6 +154,12 @@ spec:
       # Secure-by-default: only these Kubernetes node NQNs may connect
       # (nvme show-hostnqn per node; machine-id-derived, stable on Flatcar).
       subsystemAllowAnyHost: false
+      # 2026-09-23: 953 TCP sockets from k8s-0 alone for 14 volumes (4 paths x
+      # ~17 default I/O queues on 16 vCPUs). 8 queues per path is 32 per
+      # volume. Applies on the next connect of each path (restage/reschedule);
+      # a live controller cannot change its queue count.
+      connect:
+        nrIOQueues: 8
       subsystemHosts:
         - nqn.2014-08.org.nvmexpress:uuid:cce109e7-813a-4b2b-9314-c35b7064e3dd
         - nqn.2014-08.org.nvmexpress:uuid:0c2178cc-5aa6-45f3-bafe-718fe518fa62
@@ -162,21 +171,16 @@ spec:
         reclaimPolicy: Delete
         allowVolumeExpansion: true
         volumeBindingMode: Immediate
-      - name: scale-iscsi
-        protocol: iscsi
-        isDefault: false
-        reclaimPolicy: Delete
-        allowVolumeExpansion: true
-        volumeBindingMode: Immediate
-      - name: scale-nfs
-        protocol: nfs
-        isDefault: false
-        reclaimPolicy: Delete
-        allowVolumeExpansion: true
-        volumeBindingMode: Immediate
-        mountOptions:
-          - nfsvers=4
-          - noatime
+    # 2026-09-23 (chart v1.12.0): the bundled rules replace the hand-written
+    # VMRule. Their tombstone backlog alert is a count threshold now, so it no
+    # longer pages permanently under kopiur's hourly clone inflow; the two
+    # thresholds below keep this cluster's tighter tuning for the 6-hourly
+    # CronJob (oldest tombstone 12h, reap stale 7h = one missed run + slack).
+    metrics:
+      prometheusRule:
+        enabled: true
+        tombstoneOldestAgeSeconds: 43200
+        tombstoneReapStaleSeconds: 25200
     snapshotClass:
       create: true
       name: scale-snapshot
