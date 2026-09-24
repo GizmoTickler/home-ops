@@ -21,6 +21,11 @@ homeops-cli
 │   ├── os-status
 │   ├── reset-node
 │   └── reset-cluster
+├── fcos                     # Fedora CoreOS + kubeadm (selected per node via cluster.os / nodes[].os)
+│   ├── render-ignition
+│   ├── gen-kubeadm
+│   ├── deploy-vm
+│   └── os-status
 ├── k8s
 │   ├── browse-pvc
 │   ├── node-shell
@@ -159,7 +164,10 @@ homeops-cli bootstrap --provider talos      # legacy Talos path
 
 Key flags:
 
-- `--provider` (`flatcar` default, or `talos`)
+- `--provider` (`flatcar` default, or `talos`). `flatcar` is the kubeadm path
+  for every kubeadm node OS: nodes configured `os: fcos` (see **Fedora CoreOS**)
+  bootstrap through the same flow; only the preflight check that the node booted
+  the expected OS differs (`ID=flatcar` vs `ID=fedora` + `VARIANT_ID=coreos`).
 - `--plan` (pure config/template introspection; prints the complete ordered plan and exits)
 - `--check-secrets` (with `--plan`, availability-check listed references without printing references or values)
 - `--output` (`table` or `json`, with `--plan`)
@@ -233,8 +241,13 @@ Key flags:
 - `--keep` (retain disposable resources and token; print cleanup commands)
 - `--timeout` (default `15m`)
 - `--provider` (default `hypervisors.default`)
-- `--image-path` / `--image-volume` (Proxmox Flatcar image source)
+- `--image-path` / `--image-volume` (Proxmox image source; optional when the
+  test node is `os: fcos` — the FCOS stable-stream qemu image is staged)
 - `--output table|json`
+
+The disposable node boots the OS configured for it (`cluster.test_node.os`,
+else `cluster.os`, else Flatcar), so a join drill exercises the OS the next
+production rebuild will run.
 
 ## Flatcar
 
@@ -324,6 +337,97 @@ differently on Flatcar/kubeadm and intentionally have **no `flatcar` verb**:
 The `flatcar` verbs that *do* exist — `bootstrap --provider flatcar`, `deploy-vm`,
 `render-ignition`, `gen-kubeadm`, `save-pki`, `kubeconfig`, `reset-node`,
 `reset-cluster` — cover the operations without a GitOps/shared-tool equivalent.
+
+## Fedora CoreOS
+
+Fedora CoreOS (FCOS) is a drop-in kubeadm node OS alongside Flatcar. The kubeadm
+init/join configs, containerd config, kube-vip manifest, networking addresses
+and Cilium settings are identical; only the node OS changes.
+
+### Selecting the OS family
+
+```yaml
+cluster:
+  os: flatcar          # default when unset — existing configs are unchanged
+  nodes:
+    - name: k8s-2
+      ip: 192.168.122.12
+      os: fcos         # per-node override: migrate one node at a time
+  test_node:
+    name: k8s-test
+    os: fcos           # rehearse the FCOS join before touching production
+```
+
+`os` accepts `flatcar` or `fcos` (aliases `fedora-coreos`, `coreos`); unknown
+values fail config validation. The family selects the Ignition template, the
+qemu fw_cfg key (`opt/org.flatcar-linux/config` vs `opt/com.coreos/config`),
+the Proxmox image source, `os-status`, and the bootstrap OS preflight. The
+lifecycle commands under `flatcar` (`kubeconfig`, `save-pki`, `reboot-node`,
+`shutdown-cluster`, `reset-node`, `reset-cluster`) are OS-agnostic SSH/kubeadm
+operations and work unchanged for FCOS nodes.
+
+```bash
+# Render a node's FCOS Butane → Ignition (works before the node is switched to
+# os: fcos, so the migration can be reviewed first)
+homeops-cli fcos render-ignition --node k8s-2 --output-file k8s-2.ign
+
+# kubeadm init/join config (identical to flatcar gen-kubeadm)
+homeops-cli fcos gen-kubeadm --node k8s-0
+
+# Deploy every node configured os: fcos on Proxmox. With neither --image-path nor
+# --image-volume, the current --stream (default stable) qemu image is resolved
+# from builds.coreos.fedoraproject.org stream metadata, downloaded into
+# hypervisors.proxmox.image_cache_dir, verified against the published sha256
+# and uncompressed-sha256, decompressed and imported (a verified image is reused).
+homeops-cli fcos deploy-vm --power-on
+homeops-cli fcos deploy-vm --nodes k8s-2 --dry-run
+homeops-cli fcos deploy-vm --nodes k8s-2 --image-path /var/lib/vz/template/cache/fcos.qcow2
+
+# rpm-ostree deployment status (booted / staged / pending / rollback), layered
+# packages and the greenboot health-check result over SSH
+homeops-cli fcos os-status
+homeops-cli fcos os-status --output json
+homeops-cli fcos os-status --nodes k8s-test
+```
+
+`fcos deploy-vm` takes the same flags as `flatcar deploy-vm` (all three
+providers) plus `--stream`. It only deploys nodes configured `os: fcos`
+(default: all of them) and refuses an explicit `--nodes` entry configured for
+the other OS; `flatcar deploy-vm` likewise narrows its default node list to
+`os: flatcar` nodes and refuses FCOS ones. On vSphere clone an imported FCOS
+OVA (`--vsphere-template`); on TrueNAS boot a pre-staged FCOS image zvol.
+
+`fcos os-status` is read-only (`rpm-ostree status --json` needs no sudo). It
+queries every node configured `os: fcos` (or `--nodes`), warns on version skew,
+pending reboots (a staged/pending deployment or `/run/reboot-required`), failed
+greenboot checks and unavailable rpm-ostree, and exits nonzero only on SSH
+failure. `flatcar os-status` skips `os: fcos` nodes with a warning.
+
+### What an FCOS node runs differently
+
+- **Networking:** NetworkManager keyfiles (0600) instead of systemd-networkd
+  `.network` files — eth0 DHCP with the cluster MTU, address-less eth1/eth2
+  Multus macvlan masters, and the static NVMe-oF storage NICs (same addresses
+  and MTU as Flatcar). The udev `.link` files still pin eth0/eth1/eth2 by MAC.
+- **Kubernetes binaries:** a directory systemd-sysext built on first boot
+  (`install-k8s-sysext.service`: sha256-verified kubelet/kubeadm/kubectl from
+  dl.k8s.io, crictl, CNI plugins, `ID=_any`), since the Flatcar sysext images
+  do not merge on FCOS. `kubelet.service` + `10-kubeadm.conf` are the upstream
+  kubeadm packaging. Upgrade: drain, run
+  `sudo /usr/local/bin/homeops-install-k8s-sysext v<new>`, then `kubeadm upgrade`.
+- **OS updates:** Zincati is disabled
+  (`/etc/zincati/config.d/90-disable-auto-updates.toml`); updates are meant to be
+  merge-gated (pinned `rpm-ostree deploy <build>` + Kured reboot).
+- **Rollback:** first boot layers `greenboot` + `greenboot-default-health-checks`
+  and reboots once *before* any Kubernetes unit runs; a required health check
+  passes only when containerd (and, once joined, kubelet) is active.
+- **Other:** chronyd instead of timesyncd (same NTP servers), an empty
+  `/etc/systemd/zram-generator.conf` (no zram swap), and `ublk_drv` + `nvme_tcp`
+  added to the module list. The scratch disk (`scsi4`, label `openebs-nvme`) is
+  reused, never wiped, exactly as on Flatcar.
+
+Allow for one extra reboot on first boot (greenboot layering) before
+`kubeadm` becomes available.
 
 ## Talos (legacy)
 

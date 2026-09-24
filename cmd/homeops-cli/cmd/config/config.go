@@ -183,9 +183,13 @@ cluster:
   #domain_ref: env://SECRET_DOMAIN
   control_plane_vip: 192.168.123.253
   node_interface: eth0
+  # kubeadm node OS family: flatcar (default when unset) or fcos (Fedora CoreOS).
+  # nodes[].os / test_node.os override it per node.
+  #os: flatcar
   nodes:
     - name: k8s-0
       ip: 192.168.122.10
+      #os: fcos                              # optional per-node OS override
       # Optional per-node VM hardware profile (unset fields keep defaults):
       #vm:
       #  vmid: 200

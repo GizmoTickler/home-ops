@@ -1,6 +1,6 @@
 # HomeOps CLI
 
-`homeops-cli` is the Go-based operations tool for this repository. The built binary and the Cobra root command both use `homeops-cli`. It deploys Kubernetes (Flatcar/kubeadm, or legacy Talos) on Proxmox, TrueNAS, or vSphere.
+`homeops-cli` is the Go-based operations tool for this repository. The built binary and the Cobra root command both use `homeops-cli`. It deploys Kubernetes (Flatcar or Fedora CoreOS with kubeadm, or legacy Talos) on Proxmox, TrueNAS, or vSphere.
 
 ## Build and Verify
 
@@ -37,14 +37,20 @@ provider-agnostic VM helpers; the full schema is emitted by `config init`.
 
 ```yaml
 cluster:
+  os: flatcar            # kubeadm node OS: flatcar (default) | fcos
   nodes:
     - name: k8s-0
       ip: 192.168.122.10
+      # os: fcos         # optional per-node override (migrate one node at a time)
       vm:
         vmid: 200
         mac: "00:a0:98:00:00:01"
         boot_storage: nvme-mirror
 ```
+
+`cluster.os` / `cluster.nodes[].os` / `cluster.test_node.os` select the node
+operating system. Unset means Flatcar, so existing configs behave exactly as
+before; see [Fedora CoreOS VM Workflows](#fedora-coreos-vm-workflows).
 
 Secret references support several backends and can be mixed freely:
 
@@ -66,6 +72,7 @@ repo-root [`homeops.yaml`](../../homeops.yaml) (1Password-backed).
 ```bash
 homeops-cli bootstrap            # defaults to the Flatcar/kubeadm provider
 homeops-cli flatcar --help       # current provider (Flatcar Container Linux + kubeadm)
+homeops-cli fcos --help          # Fedora CoreOS + kubeadm nodes (cluster.os / nodes[].os: fcos)
 homeops-cli talos --help         # legacy provider (retained for reference/rollback)
 homeops-cli k8s --help
 homeops-cli volsync --help
@@ -185,6 +192,32 @@ homeops-cli flatcar save-pki                             # capture live cluster 
 Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade
 Controller Plan (`kubernetes/apps/system-upgrade/kubeadm-upgrade/`), not a CLI
 command.
+
+## Fedora CoreOS VM Workflows
+
+Nodes configured `os: fcos` run Fedora CoreOS with the **same** kubeadm configs,
+containerd config, kube-vip manifest, addresses and Cilium settings as Flatcar.
+`fcos deploy-vm` renders the FCOS Butane → Ignition and attaches it via fw_cfg
+under `opt/com.coreos/config` (Flatcar keeps `opt/org.flatcar-linux/config`).
+On Proxmox, when neither `--image-path` nor `--image-volume` is given, it
+resolves the current `--stream` (default `stable`) qemu `qcow2.xz` from the
+FCOS stream metadata, stages it into `hypervisors.proxmox.image_cache_dir`
+over SSH and verifies both published sha256 digests before importing.
+
+```bash
+homeops-cli fcos render-ignition --node k8s-2          # preview before switching the node's os
+homeops-cli fcos deploy-vm --nodes k8s-2 --dry-run
+homeops-cli fcos deploy-vm --power-on                  # every node configured os: fcos
+homeops-cli fcos os-status                             # rpm-ostree + greenboot status
+```
+
+The FCOS template uses NetworkManager keyfiles (including the storage NICs),
+builds a Kubernetes directory sysext on first boot, disables Zincati, layers
+greenboot (one extra first-boot reboot, before any Kubernetes unit) with a
+containerd/kubelet health check, and uses chronyd. `bootstrap`, `cluster
+rehearse-node` and the `flatcar` lifecycle commands (`kubeconfig`, `save-pki`,
+`reboot-node`, `reset-node`, …) work unchanged for FCOS nodes. Details:
+[COMMANDS.md → Fedora CoreOS](COMMANDS.md#fedora-coreos).
 
 ## Talos VM Workflows (legacy)
 
