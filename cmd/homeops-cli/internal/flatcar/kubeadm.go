@@ -312,6 +312,10 @@ func (o *Orchestrator) CreateJoinMaterial(node0IP string, ttl time.Duration) (*K
 	}
 	result, err := ParseKubeadmInitOutput(out)
 	if err != nil {
+		// The token exists on the cluster even though the output was unusable.
+		if result != nil && result.BootstrapToken != "" {
+			_ = deleteBootstrapTokenWithRunner(runner, result.BootstrapToken)
+		}
 		return nil, fmt.Errorf("parse kubeadm token create output: %w", err)
 	}
 	key, err := o.uploadCerts(runner)

@@ -164,8 +164,15 @@ func (c *SSHClient) runSSHCommand(remoteArgs ...string) (common.CommandResult, e
 		Name:    "ssh",
 		Args:    append(c.sshArgs(), remoteArgs...),
 		Timeout: defaultSSHCommandTimeout,
+		// Callers parse this output: kubeadm join material, the upload-certs
+		// key, admin.conf. RunCommand's default redaction would mask exactly
+		// those values before they are parsed. Every error path formats the
+		// output through combinedCommandOutput, which redacts.
+		Redactor: verbatimOutput,
 	})
 }
+
+func verbatimOutput(s string) string { return s }
 
 // UploadBytes streams content to remotePath on the remote host via ssh stdin
 // (sudo tee), so binary payloads never touch argv or a temp file.

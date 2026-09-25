@@ -379,3 +379,19 @@ func TestConnectErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "connect")
 }
+
+// A token whose print-join output can't be fully parsed still exists on the
+// cluster; CreateJoinMaterial must delete it rather than leak it.
+func TestCreateJoinMaterialDeletesTokenWhenOutputUnparseable(t *testing.T) {
+	r := &fakeRunner{responder: func(cmd string) (string, error) {
+		if strings.Contains(cmd, "kubeadm token create") {
+			return "kubeadm join 192.0.2.1:6443 --token " + testBootstrapTokenForRehearsal + " --discovery-token-ca-cert-hash sha256:<redacted>\n", nil
+		}
+		return "", nil
+	}}
+	defer withFakeRunner(t, r)()
+
+	_, err := NewOrchestrator(OrchestratorConfig{SSHUser: "core"}).CreateJoinMaterial("192.0.2.10", 30*time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, strings.Join(r.commands, "\n"), "kubeadm token delete abcdef")
+}

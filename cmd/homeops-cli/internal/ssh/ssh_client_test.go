@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -256,4 +257,38 @@ func setCommandRunnerForTesting(runner func(context.Context, common.CommandOptio
 	return func() {
 		runCommand = old
 	}
+}
+
+// ExecuteCommand's output is data for its caller (kubeadm join material is
+// parsed from it), so it must come back verbatim. The stub runs a real local
+// command through common.RunCommand, keeping the client's Redactor, so the
+// real redaction path is exercised.
+func TestExecuteCommandReturnsOutputVerbatim(t *testing.T) {
+	joinLine := "kubeadm join 192.0.2.1:6443 --token abcdef.0123456789abcdef --discovery-token-ca-cert-hash sha256:" + strings.Repeat("a", 64)
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		opts.Name = "printf"
+		opts.Args = []string{"%s\n", joinLine}
+		return common.RunCommand(ctx, opts)
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "node", Username: "core", Port: "22"})
+	out, err := client.ExecuteCommand("sudo kubeadm token create --print-join-command")
+	require.NoError(t, err)
+	assert.Equal(t, joinLine+"\n", out)
+}
+
+// Error output still goes through redaction.
+func TestExecuteCommandErrorOutputIsRedacted(t *testing.T) {
+	restore := setCommandRunnerForTesting(func(ctx context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+		opts.Name = "sh"
+		opts.Args = []string{"-c", "echo '--token abcdef.0123456789abcdef'; exit 3"}
+		return common.RunCommand(ctx, opts)
+	})
+	defer restore()
+
+	client := NewSSHClient(SSHConfig{Host: "node", Username: "core", Port: "22"})
+	_, err := client.ExecuteCommand("kubeadm join")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "0123456789abcdef")
 }
