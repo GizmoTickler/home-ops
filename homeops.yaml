@@ -28,7 +28,7 @@ cluster:
     name: k8s-test
     # Rehearsals exercise the OS the next rebuild will run.
     os: fcos
-    ip: 192.168.122.99
+    ip: 192.168.122.98
     vm:
       vmid: 299
       mac: "02:00:00:00:02:99"
