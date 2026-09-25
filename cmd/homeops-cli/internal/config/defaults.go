@@ -46,6 +46,8 @@ var (
 const (
 	DefaultProxmoxSSHUser        = "root"
 	DefaultProxmoxImageCacheDir  = "/var/lib/vz/template/cache"
+	DefaultProxmoxImportStorage  = "local"
+	DefaultProxmoxImportDir      = "/var/lib/vz/import"
 	DefaultTrueNASSSHUser        = "truenas_admin"
 	DefaultTrueNASNetworkBridge  = "br0"
 	DefaultTrueNASVMBootStorage  = "flashstor/VM"
@@ -232,6 +234,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.Hypervisors.Proxmox.ImageCacheDir == "" {
 		c.Hypervisors.Proxmox.ImageCacheDir = DefaultProxmoxImageCacheDir
+	}
+	if c.Hypervisors.Proxmox.ImportStorage == "" {
+		c.Hypervisors.Proxmox.ImportStorage = DefaultProxmoxImportStorage
+	}
+	if c.Hypervisors.Proxmox.ImportDir == "" {
+		c.Hypervisors.Proxmox.ImportDir = DefaultProxmoxImportDir
 	}
 	applyProxmoxVMDefaults(&c.Hypervisors.Proxmox.VM)
 	if c.Hypervisors.TrueNAS.ISODir == "" {

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1628,14 +1629,18 @@ func stageFCOSImageOnProxmox(ctx context.Context, opts deployVMOptions, logger *
 	if err != nil {
 		return "", err
 	}
-	cacheDir := versionconfig.Get().Hypervisors.Proxmox.ImageCacheDir
-	command, diskPath, err := fcosinternal.ProxmoxStageCommand(img, cacheDir)
+	// Stage into the import storage's directory and hand the VM create a
+	// volume ID: PVE rejects an import-from filesystem path from an API token
+	// ("Only root can pass arbitrary filesystem paths").
+	pve := versionconfig.Get().Hypervisors.Proxmox
+	command, diskPath, err := fcosinternal.ProxmoxStageCommand(img, pve.ImportDir)
 	if err != nil {
 		return "", err
 	}
+	volumeID := pve.ImportStorage + ":import/" + path.Base(diskPath)
 	if opts.dryRun {
-		logger.Info("[DRY RUN] would stage FCOS %s (%s stream) from %s to %s (sha256-verified)", img.Release, img.Stream, img.Location, diskPath)
-		return diskPath, nil
+		logger.Info("[DRY RUN] would stage FCOS %s (%s stream) from %s to %s (%s, sha256-verified)", img.Release, img.Stream, img.Location, diskPath, volumeID)
+		return volumeID, nil
 	}
 	if sshHost == "" {
 		return "", fmt.Errorf("cannot stage the FCOS image: no Proxmox SSH host (set --pve-ssh-host)")
@@ -1644,7 +1649,7 @@ func stageFCOSImageOnProxmox(ctx context.Context, opts deployVMOptions, logger *
 	if err := stageFCOSImageFn(proxmoxSSHConfig(sshHost, sshUser, sshPort), command); err != nil {
 		return "", err
 	}
-	return diskPath, nil
+	return volumeID, nil
 }
 
 func deployBootSource(imagePath, imageVolume string) string {

@@ -184,7 +184,10 @@ func TestFCOSDeployVMProxmoxStagesStreamImageAndUsesCoreOSKey(t *testing.T) {
 	require.Len(t, mgr.deployed, 1)
 	vm := mgr.deployed[0]
 	assert.Equal(t, "fcos", vm.OSFamily, "selects the opt/com.coreos/config fw_cfg key")
-	assert.Equal(t, "/var/lib/vz/template/cache/fedora-coreos-44.20260829.3.1-qemu.x86_64.qcow2", vm.ImageDiskPath)
+	// Staged into the import storage and referenced by volume ID: PVE refuses
+	// an import-from filesystem path from an API token.
+	assert.Contains(t, stageCommand, "/var/lib/vz/import/fedora-coreos-44.20260829.3.1-qemu.x86_64.qcow2")
+	assert.Equal(t, "local:import/fedora-coreos-44.20260829.3.1-qemu.x86_64.qcow2", vm.ImageDiskPath)
 	assert.Equal(t, "/var/lib/vz/snippets/ignition-k8s-0.json", vm.IgnitionPath)
 }
 

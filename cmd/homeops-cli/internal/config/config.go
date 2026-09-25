@@ -269,6 +269,12 @@ type ProxmoxConfig struct {
 	SSHKey string `yaml:"ssh_key,omitempty"`
 	// ImageCacheDir is where cloud images are staged before import.
 	ImageCacheDir string `yaml:"image_cache_dir,omitempty"`
+	// ImportStorage is the PVE storage (with the "import" content type) that
+	// staged FCOS disk images are imported from, and ImportDir its import/
+	// directory on the host. An API token may only pass import-from as a
+	// volume ID (<storage>:import/<file>); a filesystem path is root@pam only.
+	ImportStorage string `yaml:"import_storage,omitempty"`
+	ImportDir     string `yaml:"import_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, disk backends, network).
 	VM VMDefaults `yaml:"vm,omitempty"`
 }
