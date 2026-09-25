@@ -85,7 +85,9 @@ func TestSSHClientEmptyKeyPathPreservesAgentOnlyArguments(t *testing.T) {
 	}, client.sshArgs())
 }
 
-func TestSSHClientConfiguredKeyIsOfferedBeforeAgentFallback(t *testing.T) {
+// A configured key is the only identity offered: an agent holding more keys than
+// the server's MaxAuthTries would otherwise exhaust it first.
+func TestSSHClientConfiguredKeyIsTheOnlyIdentityOffered(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	path := writePrivateKey(t, t.TempDir(), privateKey, nil)
@@ -95,7 +97,7 @@ func TestSSHClientConfiguredKeyIsOfferedBeforeAgentFallback(t *testing.T) {
 	assert.Equal(t, []string{
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-i", path,
-		"-o", "IdentitiesOnly=no",
+		"-o", "IdentitiesOnly=yes",
 		"-o", "NumberOfPasswordPrompts=0",
 		"-p", "22",
 		"admin@nas",

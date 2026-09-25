@@ -241,9 +241,11 @@ func (c *SSHClient) sshArgs() []string {
 		// Preserve the historical agent-only invocation byte-for-byte.
 		args = append(args, "-o", "IdentitiesOnly=yes")
 	} else {
-		// Offer the explicitly selected identity first. IdentitiesOnly=no keeps
-		// the ambient agent available as a fallback if the server rejects it.
-		args = append(args, "-i", c.keyPath, "-o", "IdentitiesOnly=no")
+		// Offer ONLY the selected identity. With IdentitiesOnly=no ssh offers
+		// every agent key before it, and an agent holding more keys than the
+		// server's MaxAuthTries is disconnected ("Too many authentication
+		// failures") before the right key is ever tried.
+		args = append(args, "-i", c.keyPath, "-o", "IdentitiesOnly=yes")
 	}
 	return append(args,
 		"-o", "NumberOfPasswordPrompts=0",
