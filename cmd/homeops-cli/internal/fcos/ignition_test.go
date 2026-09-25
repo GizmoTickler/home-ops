@@ -401,9 +401,13 @@ func TestRenderIgnitionLayersGreenbootBeforeKubernetes(t *testing.T) {
 	assert.Contains(t, install, "Requires=homeops-layer-greenboot.service")
 	assert.Contains(t, install, "After=network-online.target nss-lookup.target homeops-layer-greenboot.service")
 
+	// greenboot 0.16 (Fedora 44) ships exactly these two units; enabling a
+	// unit it no longer ships fails the whole enable (seen on a live node).
 	enable := units["homeops-enable-greenboot.service"].Contents
-	assert.Contains(t, enable, "greenboot-healthcheck.service")
-	assert.Contains(t, enable, "greenboot-rpm-ostree-grub2-check-fallback.service")
+	assert.Contains(t, enable, "systemctl enable --now greenboot-healthcheck.service greenboot-set-rollback-trigger.service\n")
+	for _, gone := range []string{"greenboot-task-runner", "greenboot-grub2-", "greenboot-status", "redboot-"} {
+		assert.NotContains(t, enable, gone)
+	}
 }
 
 // TestRenderedShellScriptsParse runs `bash -n` over the shipped scripts so a
