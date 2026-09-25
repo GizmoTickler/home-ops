@@ -132,7 +132,7 @@ numa0=cpus=0-7,hostnodes=1,memory=8192,policy=bind
 bios=ovmf
 efidisk0=nvme1:1,efitype=4m,pre-enrolled-keys=0
 scsihw=virtio-scsi-single
-scsi0=nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1
+scsi0=nvme1:0,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1
 scsi3=openebs-ssd:100,discard=on,iothread=1,ssd=1
 scsi2=nvme1:300,discard=on,iothread=1
 boot=order=scsi0;scsi3
@@ -205,7 +205,7 @@ scsihw=virtio-scsi-single
 agent=enabled=1
 serial0=socket
 vga=serial0
-scsi0=local-lvm:20,import-from=/var/lib/vz/template/debian.qcow2
+scsi0=local-lvm:0,import-from=/var/lib/vz/template/debian.qcow2
 boot=order=scsi0
 ide2=local-lvm:cloudinit
 ciuser=debian

@@ -83,7 +83,7 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 	}
 
 	// scsi0 imports the Flatcar image.
-	assert.Equal(t, "nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
+	assert.Equal(t, "nvme1:0,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
 	// OpenEBS + the legacy OSD compatibility disk are preserved.
 	assert.Equal(t, "openebs-ssd:700,discard=on,iothread=1,ssd=1", optionMap["scsi3"])
 	// NVMe download-scratch disk rides scsi4.

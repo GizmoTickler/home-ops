@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"homeops-cli/internal/common"
@@ -421,7 +422,10 @@ func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
 	assert.False(t, hasArgs, "the API create must not carry args")
 	assert.Equal(t, 299, gotVMID)
 	assert.Equal(t, "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-test.json", gotArgs)
-	assert.Equal(t, []string{"create", "args", "start"}, order)
+	// scsi0 is imported at size 0 (PVE's required syntax) and grown before boot.
+	assert.Equal(t, "vm-ssd:0,import-from=local:import/fcos.qcow2", strings.Split(optionMap(created)["scsi0"], ",discard")[0])
+	assert.Equal(t, []string{"scsi0=32G"}, vm.resizes)
+	assert.Equal(t, []string{"create", "start", "args", "start"}, order, "handle lookups: resize, then power-on")
 
 	created, order = nil, nil
 	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}

@@ -36,6 +36,7 @@ type vmHandle interface {
 	Shutdown(context.Context) (taskHandle, error)
 	Stop(context.Context) (taskHandle, error)
 	Delete(context.Context) (taskHandle, error)
+	ResizeDisk(ctx context.Context, disk, size string) (taskHandle, error)
 }
 
 type proxmoxTaskHandle struct {
@@ -84,6 +85,14 @@ func (h proxmoxVMHandle) Shutdown(ctx context.Context) (taskHandle, error) {
 
 func (h proxmoxVMHandle) Stop(ctx context.Context) (taskHandle, error) {
 	task, err := h.vm.Stop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (h proxmoxVMHandle) ResizeDisk(ctx context.Context, disk, size string) (taskHandle, error) {
+	task, err := h.vm.ResizeDisk(ctx, disk, size)
 	if err != nil {
 		return nil, err
 	}
@@ -556,6 +565,13 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		return fmt.Errorf("VM creation task failed: %w", err)
 	}
 
+	if size := importedBootDiskSize(config); size > 0 {
+		vm.logger.Info("Growing imported boot disk of VM %d to %dG", vmid, size)
+		if err := vm.resizeDisk(vmid, "scsi0", fmt.Sprintf("%dG", size)); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its boot disk could not be grown to %dG (it was not started): %w", config.Name, vmid, size, err)
+		}
+	}
+
 	if rootArgs != "" {
 		vm.logger.Info("Applying qemu args to VM %d as root", vmid)
 		if err := config.SetRootArgs(vmid, rootArgs); err != nil {
@@ -654,11 +670,9 @@ func (vm *VMManager) flatcarBootDiskOpts(config VMConfig) string {
 	case config.ImageVolume != "":
 		opts = config.ImageVolume
 	case config.ImageDiskPath != "":
-		size := config.BootDiskSize
-		if size <= 0 {
-			size = 200
-		}
-		opts = fmt.Sprintf("%s:%d,import-from=%s", config.BootStorage, size, config.ImageDiskPath)
+		// PVE requires size 0 with import-from (the disk takes the image's
+		// size); DeployVM grows it to BootDiskSize before first boot.
+		opts = fmt.Sprintf("%s:0,import-from=%s", config.BootStorage, config.ImageDiskPath)
 	default:
 		size := config.BootDiskSize
 		if size <= 0 {
@@ -853,6 +867,31 @@ func (vm *VMManager) nextVMID() (int, error) {
 		return vm.getNextVMIDFn()
 	}
 	return vm.client.GetNextVMID()
+}
+
+// importedBootDiskSize is the size (GB) an imported boot disk (Flatcar/FCOS
+// image or cloud image) is grown to after the create, or 0 when scsi0 is not
+// an import.
+func importedBootDiskSize(config VMConfig) int {
+	if config.ImageVolume != "" || config.ImageDiskPath == "" {
+		return 0
+	}
+	if config.BootDiskSize > 0 {
+		return config.BootDiskSize
+	}
+	return 200
+}
+
+func (vm *VMManager) resizeDisk(vmid int, disk, size string) error {
+	handle, err := vm.vmHandleByID(vmid)
+	if err != nil {
+		return err
+	}
+	task, err := handle.ResizeDisk(vm.client.Context(), disk, size)
+	if err != nil {
+		return err
+	}
+	return task.Wait(vm.client.Context(), time.Second, 120*time.Second)
 }
 
 // splitRootOnlyArgs removes the root@pam-only "args" option from a create
