@@ -546,7 +546,9 @@ func TestProbeNetDoctorHostTimeout(t *testing.T) {
 	}))
 	testutil.Swap(t, &netDoctorProbeRootCAs, roots)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	// Long enough for the TLS handshake to finish under -race, so the timeout
+	// lands in the HTTP stage this test is about (25 ms flaked at tls=fail).
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	result := probeNetDoctorHost(ctx, netDoctorServerTarget(t, server, hostname))
 	require.Error(t, result.Err)
