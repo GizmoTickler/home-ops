@@ -26,6 +26,8 @@ cluster:
   # Disposable node identity for `cluster rehearse-node` (join drill).
   test_node:
     name: k8s-test
+    # Rehearsals exercise the OS the next rebuild will run.
+    os: fcos
     ip: 192.168.122.99
     vm:
       vmid: 299
