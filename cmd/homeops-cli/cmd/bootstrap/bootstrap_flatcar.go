@@ -589,6 +589,7 @@ var flatcarNewSSHRunner = func(sshUser, host string) flatcarSSHRunner {
 		Host:     host,
 		Username: sshUser,
 		Port:     strconv.Itoa(versionconfig.Get().Cluster.NodeSSHPort),
+		KeyPath:  versionconfig.Get().Cluster.NodeSSHKey,
 	})
 }
 

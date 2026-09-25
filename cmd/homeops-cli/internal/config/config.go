@@ -215,6 +215,11 @@ type ClusterConfig struct {
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
 	NodeSSHPort int `yaml:"node_ssh_port,omitempty"`
+	// NodeSSHKey is an optional passphrase-less private key offered on every
+	// SSH connection to a cluster node (bootstrap, join, rehearsal, os-status,
+	// certs, etcd). Empty uses the ambient agent / ssh_config, which only
+	// knows the nodes it has a Host entry for (not a rehearsal node).
+	NodeSSHKey string `yaml:"node_ssh_key,omitempty"`
 	// Observability identifies the namespace where metrics backends are
 	// discovered. No service name is configured or assumed.
 	Observability ObservabilityConfig `yaml:"observability,omitempty"`

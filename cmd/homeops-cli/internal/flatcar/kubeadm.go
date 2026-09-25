@@ -214,6 +214,7 @@ func (o *Orchestrator) runnerFor(host string) commandRunner {
 		Host:     host,
 		Username: o.sshUser,
 		Port:     o.port,
+		KeyPath:  config.Get().Cluster.NodeSSHKey,
 	})
 }
 

@@ -23,6 +23,7 @@ cluster:
   control_plane_vip: 192.168.123.253
   node_interface: eth0
   node_ssh_port: 22
+  node_ssh_key: ~/.ssh/keys/flatcar
   # Disposable node identity for `cluster rehearse-node` (join drill).
   test_node:
     name: k8s-test
