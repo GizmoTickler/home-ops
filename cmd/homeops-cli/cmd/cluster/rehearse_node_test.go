@@ -172,8 +172,9 @@ func TestRunRehearseNodeKeepSkipsAllTeardown(t *testing.T) {
 	assert.Equal(t, []string{"preconditions", "token", "deploy", "ready", "smoke"}, fake.calls)
 	assert.Equal(t, "SKIP", report.Steps[4].Status)
 	assert.Contains(t, report.Steps[4].Detail, "--keep")
-	require.Len(t, report.CleanupCommands, 6)
-	assert.Contains(t, report.CleanupCommands[5], "kubeadm token delete abcdef")
+	require.Len(t, report.CleanupCommands, 7)
+	assert.Contains(t, report.CleanupCommands[6], "kubeadm token delete abcdef")
+	assert.Contains(t, report.CleanupCommands[5], "ssh-keygen -R")
 	assert.Contains(t, report.CleanupCommands[1], "member list")
 }
 
@@ -299,7 +300,8 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 	assert.Contains(t, joined, "kubectl run homeops-rehearse-k8s-test")
 	assert.Contains(t, joined, "nodeSelector")
 	assert.Contains(t, joined, "kubectl exec")
-	assert.Contains(t, joined, "nslookup kubernetes.default")
+	// Fully qualified: busybox nslookup ignores the pod search list.
+	assert.Contains(t, joined, "nslookup kubernetes.default.svc.")
 	assert.Contains(t, joined, "kubectl delete pod")
 	assert.Contains(t, joined, "kubectl drain k8s-test")
 	assert.Contains(t, joined, "kubectl delete node k8s-test")
@@ -308,16 +310,23 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 func TestRealVMDeletionAssertsIdentityAndPowersOff(t *testing.T) {
 	swapRehearseRuntime(t)
 	spec := testRehearseSpec(t)
+	var forgotten []string
+	originalForget := forgetRehearsalHostKey
+	t.Cleanup(func() { forgetRehearsalHostKey = originalForget })
+	forgetRehearsalHostKey = func(ip string) { forgotten = append(forgotten, ip) }
 	lifecycle := &fakeLifecycle{summaries: []vmprov.VMSummary{{Name: spec.Node.Name, ID: "299", Status: "running"}}}
 	rehearseWithVMLifecycleFn = func(_ string, fn func(vmprov.VMLifecycle) error) error { return fn(lifecycle) }
 	require.NoError(t, (realRehearseOperations{}).DeleteVM(context.Background(), spec))
 	assert.True(t, lifecycle.stopped)
 	assert.True(t, lifecycle.deleted)
+	// The next rehearsal node reuses the IP with a new host key.
+	assert.Equal(t, []string{spec.Node.IP}, forgotten)
 
 	lifecycle = &fakeLifecycle{summaries: []vmprov.VMSummary{{Name: spec.Node.Name, ID: "300", Status: "running"}}}
 	err := (realRehearseOperations{}).DeleteVM(context.Background(), spec)
 	require.ErrorContains(t, err, "refusing to delete")
 	assert.False(t, lifecycle.deleted)
+	assert.Len(t, forgotten, 1, "a refused deletion keeps the host key")
 }
 
 type fakeKubeadmOrchestrator struct {

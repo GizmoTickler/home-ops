@@ -481,6 +481,7 @@ func cleanupCommands(spec rehearseNodeSpec, tokenID string) []string {
 		fmt.Sprintf("kubectl delete node %s --ignore-not-found", spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s poweroff --name %s --force", spec.Provider, spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s delete --name %s --force", spec.Provider, spec.Node.Name),
+		fmt.Sprintf("ssh-keygen -R %s", spec.Node.IP),
 		fmt.Sprintf("ssh %s@%s 'sudo kubeadm token delete %s'", spec.SSHUser, spec.InitNode.IP, tokenID),
 	}
 }
@@ -651,7 +652,9 @@ func (realRehearseOperations) SmokeTest(ctx context.Context, spec rehearseNodeSp
 	if _, err := rehearseCommandFn(ctx, "kubectl", "wait", "--namespace", "default", "--for=condition=Ready", "pod/"+name, "--timeout="+timeout.String()); err != nil {
 		return fmt.Errorf("wait for smoke pod: %w", err)
 	}
-	if _, err := rehearseCommandFn(ctx, "kubectl", "exec", "--namespace", "default", name, "--", "nslookup", "kubernetes.default"); err != nil {
+	// Fully qualified: busybox nslookup does not apply the pod's search list,
+	// so "kubernetes.default" is NXDOMAIN even when cluster DNS works.
+	if _, err := rehearseCommandFn(ctx, "kubectl", "exec", "--namespace", "default", name, "--", "nslookup", rehearseKubernetesFQDN()); err != nil {
 		return fmt.Errorf("smoke pod DNS lookup: %w", err)
 	}
 	return nil
@@ -765,9 +768,19 @@ func (realRehearseOperations) DeleteVM(_ context.Context, spec rehearseNodeSpec)
 		}
 		if err := lifecycle.DeleteVM(spec.Node.Name); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete VM and disks: %w", err))
+		} else {
+			// The next rehearsal node gets a new host key on the same IP, which
+			// StrictHostKeyChecking=accept-new refuses; forget the old one.
+			forgetRehearsalHostKey(spec.Node.IP)
 		}
 		return errors.Join(cleanupErrors...)
 	})
+}
+
+// forgetRehearsalHostKey drops the destroyed node's host key from the local
+// known_hosts. Best effort: a missing entry is not an error.
+var forgetRehearsalHostKey = func(ip string) {
+	_, _ = rehearseCommandFn(context.Background(), "ssh-keygen", "-R", ip)
 }
 
 func (realRehearseOperations) InvalidateToken(_ context.Context, spec rehearseNodeSpec, token string) error {
@@ -784,4 +797,14 @@ func runRehearseCommand(ctx context.Context, name string, args ...string) (strin
 		return result.Stdout, err
 	}
 	return result.Stdout, fmt.Errorf("%w: %s", err, detail)
+}
+
+// rehearseKubernetesFQDN is the API service's fully qualified name in the
+// configured cluster DNS domain.
+func rehearseKubernetesFQDN() string {
+	domain := strings.TrimSuffix(strings.TrimSpace(rehearseConfigFn().Cluster.DNSDomain), ".")
+	if domain == "" {
+		domain = "cluster.local"
+	}
+	return "kubernetes.default.svc." + domain
 }
