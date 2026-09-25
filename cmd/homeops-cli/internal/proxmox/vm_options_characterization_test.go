@@ -291,3 +291,19 @@ func TestStorageNICsUseDedicatedBridgeUntagged(t *testing.T) {
 	assert.Equal(t, "net4", nics[1].name)
 	assert.Equal(t, "virtio=02:00:00:00:02:a2,bridge=vmbr202,mtu=9000", nics[1].value)
 }
+
+// SR-IOV storage NICs are passed through after the create, so they never
+// become virtio netN (a VM with both would carry the storage MAC twice).
+func TestStorageNICsSkipSRIOVVFs(t *testing.T) {
+	vf := 1
+	nics := storageNICs(VMConfig{
+		NetworkBridge: "vmbr0",
+		StorageNICs: []homeopscfg.StorageNIC{
+			{VLAN: 1201, MAC: "02:00:00:00:02:a1", IP: "192.168.201.99/24", Bridge: "vmbr201", PF: "nic7", VF: &vf},
+			{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.99/24", Bridge: "vmbr202"},
+		},
+	})
+	require.Len(t, nics, 1)
+	assert.Equal(t, "net3", nics[0].name)
+	assert.Contains(t, nics[0].value, "02:00:00:00:02:a2")
+}

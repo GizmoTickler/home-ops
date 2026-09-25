@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -577,6 +578,9 @@ func TestDeployVMRealPath(t *testing.T) {
 	assert.Equal(t, "scsi4", mgr.deployed[0].ScratchSlot)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
+	// Live nodes are q35; no storage VF is configured for k8s-0 here.
+	assert.Equal(t, "q35", mgr.deployed[0].Machine)
+	assert.Nil(t, mgr.deployed[0].AttachStorageVFs)
 	// The root-only fw_cfg args go through qm over the same SSH target.
 	require.NotNil(t, mgr.deployed[0].SetRootArgs)
 	var argsOn string
@@ -1167,3 +1171,26 @@ func TestDeployTrueNASRealPathUsesCredentialUploadAndClientSeams(t *testing.T) {
 }
 
 var _ = cobra.Command{}
+
+// The host-side VF step: one attach per VF in VLAN order (hostpci0..N), the
+// node's storage MAC lower-cased, and a script bash accepts. It never changes
+// a port's VF count (that resets the port).
+func TestPVEStorageVFScript(t *testing.T) {
+	one, four := 1, 4
+	vfs := storageVFs([]versionconfig.StorageNIC{
+		{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24", PF: "nic4", VF: &one},
+		{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.20/24"},
+		{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24", PF: "nic7", VF: &four},
+	})
+	require.Len(t, vfs, 2)
+	script := pveStorageVFScript(200, vfs)
+	assert.Contains(t, script, "attach 0 'nic7' 4 'bc:24:11:3b:e0:50'\n")
+	assert.Contains(t, script, "attach 1 'nic4' 1 'bc:24:11:ff:50:81'\n")
+	assert.Contains(t, script, `qm set 200 --hostpci$slot "$pci,pcie=1"`)
+	assert.Contains(t, script, "/etc/storage-vfs.conf")
+	assert.NotContains(t, script, "sriov_numvfs\" >", "the VF count is never changed here")
+	parse := exec.Command("bash", "-n")
+	parse.Stdin = strings.NewReader(script)
+	out, err := parse.CombinedOutput()
+	require.NoError(t, err, string(out))
+}

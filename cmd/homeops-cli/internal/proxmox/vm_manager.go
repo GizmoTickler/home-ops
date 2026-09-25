@@ -212,6 +212,14 @@ type VMConfig struct {
 	// config"), so an API-token deploy cannot pass it to the create call; the
 	// caller applies it as root (qm set over SSH).
 	SetRootArgs func(vmid int, args string) error
+
+	// Machine is the QEMU machine type ("q35"); empty keeps the PVE default
+	// (i440fx). The live cluster nodes are q35, which PCIe passthrough needs.
+	Machine string
+
+	// AttachStorageVFs, when set, passes the SR-IOV storage VFs through to the
+	// VM after the create and before power-on (hostpci is root@pam-only too).
+	AttachStorageVFs func(vmid int) error
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -569,6 +577,13 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		vm.logger.Info("Growing imported boot disk of VM %d to %dG", vmid, size)
 		if err := vm.resizeDisk(vmid, "scsi0", fmt.Sprintf("%dG", size)); err != nil {
 			return fmt.Errorf("VM %s (VMID %d) was created but its boot disk could not be grown to %dG (it was not started): %w", config.Name, vmid, size, err)
+		}
+	}
+
+	if config.AttachStorageVFs != nil {
+		vm.logger.Info("Attaching SR-IOV storage VFs to VM %d", vmid)
+		if err := config.AttachStorageVFs(vmid); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its storage VFs could not be attached (it was not started): %w", config.Name, vmid, err)
 		}
 	}
 

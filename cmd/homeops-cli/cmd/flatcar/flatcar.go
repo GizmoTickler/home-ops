@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -118,6 +119,22 @@ var (
 		}
 		defer func() { _ = client.Close() }()
 		command := fmt.Sprintf("qm set %d --args %s", vmid, common.ShellQuote(args))
+		if sshUser != "root" {
+			command = "sudo " + command
+		}
+		_, err := client.ExecuteCommand(command)
+		return err
+	}
+	// attachPVEStorageVFsFn prepares each SR-IOV storage VF on the Proxmox
+	// host and passes it through to the VM (root SSH; see pveStorageVFScript).
+	// Swappable for tests.
+	attachPVEStorageVFsFn = func(sshHost, sshUser, sshPort string, vmid int, vfs []versionconfig.StorageNIC) error {
+		client := ssh.NewSSHClient(proxmoxSSHConfig(sshHost, sshUser, sshPort))
+		if err := client.Connect(); err != nil {
+			return err
+		}
+		defer func() { _ = client.Close() }()
+		command := "bash -c " + common.ShellQuote(pveStorageVFScript(vmid, vfs))
 		if sshUser != "root" {
 			command = "sudo " + command
 		}
@@ -351,6 +368,13 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	// SSH session that uploaded the snippet.
 	vmConfig.SetRootArgs = func(vmid int, args string) error {
 		return setPVEArgsFn(d.sshHost, d.sshUser, d.sshPort, vmid, args)
+	}
+	// The live nodes are q35; PCIe passthrough of storage VFs needs it too.
+	vmConfig.Machine = "q35"
+	if vfs := storageVFs(nodeConfig.StorageNICs); len(vfs) > 0 {
+		vmConfig.AttachStorageVFs = func(vmid int) error {
+			return attachPVEStorageVFsFn(d.sshHost, d.sshUser, d.sshPort, vmid, vfs)
+		}
 	}
 
 	d.logger.Info("Deploying %s VM %s", osDisplayName(node.osFamily), node.name)
@@ -1741,4 +1765,57 @@ func deployFlatcarNodes(logger *common.ColorLogger, deployer flatcarDeployer, no
 		return fmt.Errorf("failed to deploy %d/%d %s VMs: %s", len(failures), len(nodes), osDisplayName(nodes[0].osFamily), strings.Join(failures, "; "))
 	}
 	return nil
+}
+
+// pveStorageVFsConf is the Proxmox host file listing every storage VF in use
+// ("<pf> <vf> <mac>" per line). The host's storage-vfs.service replays it at
+// boot: VF count, MAC pin and vfio-pci binding.
+const pveStorageVFsConf = "/etc/storage-vfs.conf"
+
+// storageVFs returns the node's SR-IOV storage NICs in VLAN order (the order
+// they become hostpci0..N).
+func storageVFs(nics []versionconfig.StorageNIC) []versionconfig.StorageNIC {
+	var vfs []versionconfig.StorageNIC
+	for _, nic := range nics {
+		if nic.IsVF() {
+			vfs = append(vfs, nic)
+		}
+	}
+	sort.Slice(vfs, func(i, j int) bool { return vfs[i].VLAN < vfs[j].VLAN })
+	return vfs
+}
+
+// pveStorageVFScript renders the host-side steps for passing the node's
+// storage VFs through: each VF must already exist (the host provisions VF
+// counts; changing them resets the port, so it is never done here), gets the
+// node's storage MAC with spoof-check on, is bound to vfio-pci, is recorded in
+// the host's VF list for boot, and is attached as hostpciN. Values are
+// validated by config (interface name, VF index, MAC) and quoted here.
+func pveStorageVFScript(vmid int, vfs []versionconfig.StorageNIC) string {
+	q := common.ShellQuote
+	var b strings.Builder
+	b.WriteString(`set -eu
+conf=` + pveStorageVFsConf + `
+touch "$conf"
+attach() {
+  local slot=$1 pf=$2 vf=$3 mac=$4 dev pci drv
+  dev=/sys/class/net/$pf/device
+  if [ ! -e "$dev/virtfn$vf" ]; then
+    echo "$pf has no VF $vf (sriov_numvfs=$(cat "$dev/sriov_numvfs" 2>/dev/null || echo none)); provision it in $conf and restart storage-vfs.service" >&2
+    exit 1
+  fi
+  pci=$(basename "$(readlink "$dev/virtfn$vf")")
+  ip link set "$pf" vf "$vf" mac "$mac" spoofchk on
+  echo vfio-pci > "/sys/bus/pci/devices/$pci/driver_override"
+  drv=$(basename "$(readlink "/sys/bus/pci/devices/$pci/driver" 2>/dev/null)" 2>/dev/null || true)
+  if [ -n "$drv" ] && [ "$drv" != vfio-pci ]; then echo "$pci" > "/sys/bus/pci/devices/$pci/driver/unbind"; drv=; fi
+  [ -n "$drv" ] || echo "$pci" > /sys/bus/pci/drivers_probe
+  { grep -v "^$pf $vf " "$conf" || true; echo "$pf $vf $mac"; } > "$conf.tmp" && mv "$conf.tmp" "$conf"
+  qm set ` + strconv.Itoa(vmid) + ` --hostpci$slot "$pci,pcie=1" >/dev/null
+}
+`)
+	for slot, nic := range vfs {
+		fmt.Fprintf(&b, "attach %d %s %d %s\n", slot, q(nic.PF), *nic.VF, q(strings.ToLower(nic.MAC)))
+	}
+	return b.String()
 }

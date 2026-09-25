@@ -45,6 +45,9 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 		{Name: "sockets", Value: config.Sockets},
 		{Name: "ostype", Value: "l26"},
 	}
+	if config.Machine != "" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "machine", Value: config.Machine})
+	}
 
 	if profile.staticCPU != "" {
 		options = append(options, proxmox.VirtualMachineOption{Name: "cpu", Value: profile.staticCPU})
@@ -323,7 +326,14 @@ func storageNICs(config VMConfig) []secondaryNIC {
 		return nil
 	}
 
-	nics := append([]homeopscfg.StorageNIC(nil), config.StorageNICs...)
+	// SR-IOV VFs are passed through after the create (AttachStorageVFs), so
+	// only the virtio fabric NICs become netN here.
+	var nics []homeopscfg.StorageNIC
+	for _, nic := range config.StorageNICs {
+		if !nic.IsVF() {
+			nics = append(nics, nic)
+		}
+	}
 	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
 	out := make([]secondaryNIC, 0, len(nics))
 	for index, nic := range nics {

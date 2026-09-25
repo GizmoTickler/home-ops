@@ -435,3 +435,40 @@ func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
 	assert.Contains(t, err.Error(), "not started")
 	assert.Zero(t, vm.startCalls, "a VM without its Ignition must not boot")
 }
+
+// Storage VFs are attached after the create (and the disk grow) and before the
+// root args and power-on; a failed attach leaves the VM stopped.
+func TestVMManagerDeployVMAttachesStorageVFsBeforeBoot(t *testing.T) {
+	var order []string
+	vm := &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	manager := &VMManager{
+		client:        &Client{ctx: context.Background()},
+		logger:        common.NewColorLogger(),
+		listVMsFn:     func() (proxmox.VirtualMachines, error) { return proxmox.VirtualMachines{}, nil },
+		getNextVMIDFn: func() (int, error) { return 299, nil },
+		createVMTaskFn: func(int, ...proxmox.VirtualMachineOption) (taskHandle, error) {
+			order = append(order, "create")
+			return &fakeTaskHandle{}, nil
+		},
+		getVMHandleFn:   func(int) (vmHandle, error) { order = append(order, "handle"); return vm, nil },
+		verifyStorageFn: func(string) error { return nil },
+	}
+	config := VMConfig{
+		Name: "k8s-test", Memory: 4096, Cores: 2, Sockets: 1, BootDiskSize: 32, BootStorage: "vm-ssd",
+		NetworkBridge: "vmbr0", PowerOn: true, Machine: "q35",
+		IgnitionConfig: "{}", IgnitionPath: "/var/lib/vz/snippets/i.json", ImageDiskPath: "local:import/fcos.qcow2",
+		SetRootArgs:      func(int, string) error { order = append(order, "args"); return nil },
+		AttachStorageVFs: func(vmid int) error { order = append(order, "vfs"); return nil },
+	}
+	require.NoError(t, manager.DeployVM(config))
+	// handle #1 = disk grow, handle #2 = power-on.
+	assert.Equal(t, []string{"create", "handle", "vfs", "args", "handle"}, order)
+
+	order = nil
+	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	config.AttachStorageVFs = func(int) error { return errors.New("nic7 has no VF 4") }
+	err := manager.DeployVM(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage VFs could not be attached (it was not started)")
+	assert.Zero(t, vm.startCalls)
+}

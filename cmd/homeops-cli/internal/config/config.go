@@ -73,7 +73,17 @@ type StorageNIC struct {
 	// bridge (the live fabric: vmbr201-vmbr204, one physical port each).
 	// Empty keeps the tagged attach on the VM's network bridge.
 	Bridge string `yaml:"bridge,omitempty"`
+	// PF and VF select an SR-IOV virtual function on the hypervisor's storage
+	// port (PF is the host interface, VF the index) and pass it through to the
+	// VM instead of a virtio NIC. The VF carries MAC, so the guest matches it
+	// exactly as it would the virtio NIC. Set both or neither; a (PF, VF) pair
+	// belongs to one node.
+	PF string `yaml:"pf,omitempty"`
+	VF *int   `yaml:"vf,omitempty"`
 }
+
+// IsVF reports whether the NIC is an SR-IOV virtual function passthrough.
+func (n StorageNIC) IsVF() bool { return n.PF != "" && n.VF != nil }
 
 // NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
 // Flatcar nodes. Each VLAN is one of the storage_nics VLANs; its NFS server
@@ -853,6 +863,12 @@ var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`
 
 var storageBridgeName = regexp.MustCompile(`^vmbr[0-9]{1,4}$`)
 
+// storagePFName is a Linux interface name (at most 15 characters).
+var storagePFName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,14}$`)
+
+// maxStorageVF bounds the VF index (the storage ports expose at most 64 VFs).
+const maxStorageVF = 63
+
 func validateStorageFabric(cluster ClusterConfig) []string {
 	nodes := provisioningNodes(cluster)
 	// baseMACPaths retains every path that can resolve to a base NIC so storage
@@ -928,12 +944,22 @@ func validateStorageFabric(cluster ClusterConfig) []string {
 
 	seenStorageMACs := make(map[string]string)
 	seenHostOctets := make(map[byte]string)
+	seenVFs := make(map[string]string)
 	for _, entry := range nodes {
 		node := entry.node
 		nodeProblems, hostOctet, hostOctetValid := validateStorageNICs(node, entry.path)
 		problems = append(problems, nodeProblems...)
 		path := entry.path + ".vm.storage_nics"
 		for index, nic := range node.VM.StorageNICs {
+			if nic.IsVF() {
+				vfPath := fmt.Sprintf("%s[%d]", path, index)
+				key := fmt.Sprintf("%s/%d", nic.PF, *nic.VF)
+				if firstPath, duplicate := seenVFs[key]; duplicate {
+					problems = append(problems, fmt.Sprintf("%s: VF %d on %s is already assigned to %s", vfPath, *nic.VF, nic.PF, firstPath))
+				} else {
+					seenVFs[key] = vfPath
+				}
+			}
 			if !strictStorageMAC.MatchString(nic.MAC) {
 				continue
 			}
@@ -998,6 +1024,14 @@ func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 		}
 		if nic.Bridge != "" && !storageBridgeName.MatchString(nic.Bridge) {
 			problems = append(problems, fmt.Sprintf("%s.bridge: %q is not a Proxmox bridge name (vmbrN)", entryPath, nic.Bridge))
+		}
+		switch {
+		case (nic.PF == "") != (nic.VF == nil):
+			problems = append(problems, fmt.Sprintf("%s: pf and vf must be set together (SR-IOV passthrough) or not at all", entryPath))
+		case nic.PF != "" && !storagePFName.MatchString(nic.PF):
+			problems = append(problems, fmt.Sprintf("%s.pf: %q is not a host interface name", entryPath, nic.PF))
+		case nic.VF != nil && (*nic.VF < 0 || *nic.VF > maxStorageVF):
+			problems = append(problems, fmt.Sprintf("%s.vf: %d must be between 0 and %d", entryPath, *nic.VF, maxStorageVF))
 		}
 
 		expectedThirdOctet := nic.VLAN - 1000
