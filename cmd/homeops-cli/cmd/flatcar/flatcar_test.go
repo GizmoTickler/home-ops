@@ -567,12 +567,13 @@ func TestDeployVMRealPath(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	require.Len(t, mgr.deployed, 1)
 	assert.Equal(t, "k8s-0", mgr.deployed[0].Name)
-	assert.Equal(t, 700, mgr.deployed[0].OpenEBSSize)
+	// The scsi3 OpenEBS tier is retired: even with a configured pool and size,
+	// no OpenEBS disk is attached (live VMs carry only scsi0 + scsi4).
+	assert.Zero(t, mgr.deployed[0].OpenEBSSize)
+	assert.Empty(t, mgr.deployed[0].OpenEBSStorage)
 	require.Len(t, mgr.deployed[0].StorageNICs, 4)
 	assert.Equal(t, 1201, mgr.deployed[0].StorageNICs[0].VLAN)
-	assert.Equal(t, "openebs-ssd", mgr.deployed[0].OpenEBSStorage)
-	assert.Equal(t, "scsi3", mgr.deployed[0].OpenEBSSlot)
-	assert.True(t, mgr.deployed[0].OpenEBSSSD)
+	assert.Equal(t, "scsi4", mgr.deployed[0].ScratchSlot)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
 }

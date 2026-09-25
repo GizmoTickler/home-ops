@@ -290,13 +290,11 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	if nodeConfig.BootStorage != "" {
 		vmConfig.BootStorage = nodeConfig.BootStorage
 	}
-	if nodeConfig.OpenEBSStorage != "" {
-		vmConfig.OpenEBSStorage = nodeConfig.OpenEBSStorage
-	}
-	// Flatcar reserves scsi3 for its OpenEBS hostpath disk. Marking it as an
-	// SSD keeps the reprovisioned hardware identical to the live PVE VMs.
-	vmConfig.OpenEBSSlot = "scsi3"
-	vmConfig.OpenEBSSSD = true
+	// No OpenEBS data disk: the scsi3 SATA tier (and its openebs-ssd pool) was
+	// retired on 2026-08-24, and the live VMs carry only scsi0 + scsi4. OpenEBS
+	// hostpath PVs live on the scsi4 scratch disk below.
+	vmConfig.OpenEBSSize = 0
+	vmConfig.OpenEBSStorage = ""
 	// scsi4 carries the node-local NVMe download-scratch disk (thin zvol on
 	// the pve nvme-scratch stripe); Ignition formats and mounts it by label.
 	if nodeConfig.ScratchStorage != "" {
