@@ -112,6 +112,15 @@ func (c *SSHClient) Connect() error {
 	return nil
 }
 
+// asRoot runs command with root privileges: through sudo, unless the login
+// is already root (a Proxmox host has root SSH and no sudo).
+func (c *SSHClient) asRoot(command string) string {
+	if c.username == "root" {
+		return command
+	}
+	return "sudo " + command
+}
+
 // Close is a no-op for SSH agent connections
 func (c *SSHClient) Close() error {
 	// No cleanup needed for SSH agent connections
@@ -178,11 +187,11 @@ func verbatimOutput(s string) string { return s }
 // (sudo tee), so binary payloads never touch argv or a temp file.
 func (c *SSHClient) UploadBytes(content []byte, remotePath string) error {
 	c.logger.Debug("Uploading %d bytes to %s", len(content), remotePath)
-	mkdir := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath)))
+	mkdir := c.asRoot(fmt.Sprintf("mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath))))
 	if _, err := c.ExecuteCommand(mkdir); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", remotePath, err)
 	}
-	command := fmt.Sprintf("sudo tee %s > /dev/null", common.ShellQuote(remotePath))
+	command := c.asRoot(fmt.Sprintf("tee %s > /dev/null", common.ShellQuote(remotePath)))
 	result, err := runCommand(context.Background(), common.CommandOptions{
 		Name:    "ssh",
 		Args:    append(c.sshArgs(), command),
@@ -205,11 +214,11 @@ func (c *SSHClient) UploadFile(ctx context.Context, localPath, remotePath string
 	}
 	defer func() { _ = file.Close() }()
 
-	mkdir := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath)))
+	mkdir := c.asRoot(fmt.Sprintf("mkdir -p %s", common.ShellQuote(filepath.Dir(remotePath))))
 	if _, err := c.ExecuteCommand(mkdir); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", remotePath, err)
 	}
-	command := fmt.Sprintf("sudo tee %s > /dev/null", common.ShellQuote(remotePath))
+	command := c.asRoot(fmt.Sprintf("tee %s > /dev/null", common.ShellQuote(remotePath)))
 	result, err := runCommand(ctx, common.CommandOptions{
 		Name:    "ssh",
 		Args:    append(c.sshArgs(), command),
@@ -298,20 +307,20 @@ func (c *SSHClient) DownloadISO(isoURL, remotePath string) error {
 	// metacharacters, and an unquoted interpolation here is a command-injection
 	// (and wrong-file) vector.
 	dirPath := filepath.Dir(remotePath)
-	mkdirCmd := fmt.Sprintf("sudo mkdir -p %s", common.ShellQuote(dirPath))
+	mkdirCmd := c.asRoot(fmt.Sprintf("mkdir -p %s", common.ShellQuote(dirPath)))
 	if _, err := c.ExecuteCommand(mkdirCmd); err != nil {
 		c.logger.Warn("Failed to create directory (may already exist): %v", err)
 	}
 
 	// Download the ISO using wget or curl (using sudo for write permissions)
-	downloadCmd := fmt.Sprintf("sudo wget -O %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL))
+	downloadCmd := c.asRoot(fmt.Sprintf("wget -O %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL)))
 	c.logger.Debug("Download command: %s", downloadCmd)
 
 	_, err := c.ExecuteCommand(downloadCmd)
 	if err != nil {
 		// Try with curl as fallback (using sudo for write permissions)
 		c.logger.Debug("wget failed, trying curl: %v", err)
-		curlCmd := fmt.Sprintf("sudo curl -L -o %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL))
+		curlCmd := c.asRoot(fmt.Sprintf("curl -L -o %s %s", common.ShellQuote(remotePath), common.ShellQuote(isoURL)))
 		output, err := c.ExecuteCommand(curlCmd)
 		if err != nil {
 			return fmt.Errorf("failed to download ISO with both wget and curl: %w\nOutput: %s", err, output)
@@ -355,7 +364,7 @@ func (c *SSHClient) RemoveFile(remotePath string) error {
 
 	// remotePath is single-quoted so a value containing whitespace or shell
 	// metacharacters cannot expand into "rm -f" of the wrong target.
-	removeCmd := fmt.Sprintf("sudo rm -f %s", common.ShellQuote(remotePath))
+	removeCmd := c.asRoot(fmt.Sprintf("rm -f %s", common.ShellQuote(remotePath)))
 	_, err := c.ExecuteCommand(removeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove file: %w", err)

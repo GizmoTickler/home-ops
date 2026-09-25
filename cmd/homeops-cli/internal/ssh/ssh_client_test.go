@@ -292,3 +292,21 @@ func TestExecuteCommandErrorOutputIsRedacted(t *testing.T) {
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "0123456789abcdef")
 }
+
+// A root login (Proxmox) has no sudo; any other user needs it.
+func TestUploadBytesUsesSudoOnlyForNonRoot(t *testing.T) {
+	for user, wantSudo := range map[string]bool{"root": false, "core": true} {
+		var remote []string
+		restore := setCommandRunnerForTesting(func(_ context.Context, opts common.CommandOptions) (common.CommandResult, error) {
+			remote = append(remote, opts.Args[len(opts.Args)-1])
+			return common.CommandResult{}, nil
+		})
+		client := NewSSHClient(SSHConfig{Host: "h", Username: user, Port: "22"})
+		require.NoError(t, client.UploadBytes([]byte("x"), "/var/lib/vz/snippets/a.json"))
+		restore()
+		require.Len(t, remote, 2)
+		for _, cmd := range remote {
+			assert.Equal(t, wantSudo, strings.HasPrefix(cmd, "sudo "), "user=%s cmd=%q", user, cmd)
+		}
+	}
+}
