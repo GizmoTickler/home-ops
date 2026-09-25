@@ -264,6 +264,9 @@ type ProxmoxConfig struct {
 	SnippetsDir string `yaml:"snippets_dir,omitempty"`
 	// SSHUser is the default user for SSH-based staging to the PVE host.
 	SSHUser string `yaml:"ssh_user,omitempty"`
+	// SSHKey is an optional passphrase-less private key for PVE SSH flows
+	// (Ignition snippet upload, image staging). Empty uses the ambient agent.
+	SSHKey string `yaml:"ssh_key,omitempty"`
 	// ImageCacheDir is where cloud images are staged before import.
 	ImageCacheDir string `yaml:"image_cache_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, disk backends, network).

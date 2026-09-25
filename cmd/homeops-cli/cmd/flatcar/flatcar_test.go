@@ -93,6 +93,20 @@ func TestTrueNASIgnitionSSHConfigThreadsConfiguredKey(t *testing.T) {
 	}, trueNASIgnitionSSHConfig("nas", "admin", "22"))
 }
 
+// Proxmox SSH flows (Ignition upload, FCOS image staging) must offer the
+// configured key; without it only an agent that already holds the pve key
+// could reach the host.
+func TestProxmoxSSHConfigThreadsConfiguredKey(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{Proxmox: versionconfig.ProxmoxConfig{SSHKey: "~/.ssh/keys/proxmox-ssh"}},
+	})
+	defer restore()
+
+	assert.Equal(t, ssh.SSHConfig{
+		Host: "pve", Username: "root", Port: "22", KeyPath: "~/.ssh/keys/proxmox-ssh",
+	}, proxmoxSSHConfig("pve", "root", "22"))
+}
+
 // stubSecrets makes the config-sourced node identifiers deterministic (no
 // real secret-backend access) so buildNodeEnv is hermetic.
 func stubSecrets(t *testing.T) func() {

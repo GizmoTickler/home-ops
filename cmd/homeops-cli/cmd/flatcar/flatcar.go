@@ -103,11 +103,10 @@ var (
 	// uploadIgnitionToPVEFn writes the rendered Ignition to the snippets dir ON the
 	// Proxmox node over SSH. The fw_cfg file= path is read by qemu on that host, so the
 	// file must live there — not on whatever box runs this CLI (e.g. varunlnx0).
-	// Swappable for tests. Auth is via the ambient ssh-agent (sshArgs sets no -i).
+	// Swappable for tests. Auth uses hypervisors.proxmox.ssh_key when set, else
+	// the ambient ssh-agent.
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
-		return uploadIgnitionFile(ssh.SSHConfig{
-			Host: sshHost, Username: sshUser, Port: sshPort,
-		}, remotePath, content)
+		return uploadIgnitionFile(proxmoxSSHConfig(sshHost, sshUser, sshPort), remotePath, content)
 	}
 	// uploadIgnitionToNASFn writes the rendered Ignition to a dataset path ON the
 	// TrueNAS host over SSH (qemu reads the fw_cfg file= path there). Same transport
@@ -143,6 +142,13 @@ var (
 		return nil
 	}
 )
+
+func proxmoxSSHConfig(host, username, port string) ssh.SSHConfig {
+	return ssh.SSHConfig{
+		Host: host, Username: username, Port: port,
+		KeyPath: versionconfig.Get().Hypervisors.Proxmox.SSHKey,
+	}
+}
 
 func trueNASIgnitionSSHConfig(host, username, port string) ssh.SSHConfig {
 	return ssh.SSHConfig{
@@ -1637,7 +1643,7 @@ func stageFCOSImageOnProxmox(ctx context.Context, opts deployVMOptions, logger *
 		return "", fmt.Errorf("cannot stage the FCOS image: no Proxmox SSH host (set --pve-ssh-host)")
 	}
 	logger.Info("Staging FCOS %s (%s stream) on %s:%s", img.Release, img.Stream, sshHost, diskPath)
-	if err := stageFCOSImageFn(ssh.SSHConfig{Host: sshHost, Username: sshUser, Port: sshPort}, command); err != nil {
+	if err := stageFCOSImageFn(proxmoxSSHConfig(sshHost, sshUser, sshPort), command); err != nil {
 		return "", err
 	}
 	return diskPath, nil

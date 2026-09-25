@@ -495,6 +495,7 @@ func runDoctor(skipSecrets, network bool) error {
 		name string
 		path string
 	}{
+		{"hypervisors.proxmox.ssh_key", cfg.Hypervisors.Proxmox.SSHKey},
 		{"hypervisors.truenas.ssh_key", cfg.Hypervisors.TrueNAS.SSHKey},
 		{"state.etcd_backup.upload.ssh_key", cfg.State.EtcdBackup.Upload.SSHKey},
 	} {

@@ -140,6 +140,7 @@ hypervisors:
   default: proxmox
   proxmox:
     ssh_user: root
+    ssh_key: ~/.ssh/keys/proxmox-ssh
     snippets_dir: /var/lib/vz/snippets
     image_cache_dir: /var/lib/vz/template/cache
     vm:
