@@ -32,6 +32,15 @@ cluster:
     vm:
       vmid: 299
       mac: "02:00:00:00:02:99"
+      # Same NIC set as a production node, so a rehearsal renders and boots
+      # exactly what a rebuild will (both templates require the IoT MAC).
+      mac_iot: "02:00:00:00:02:9a"
+      mac_vpn: "02:00:00:00:02:9b"
+      storage_nics:
+        - { vlan: 1201, mac: "02:00:00:00:02:a1", ip: 192.168.201.99/24 }
+        - { vlan: 1202, mac: "02:00:00:00:02:a2", ip: 192.168.202.99/24 }
+        - { vlan: 1203, mac: "02:00:00:00:02:a3", ip: 192.168.203.99/24 }
+        - { vlan: 1204, mac: "02:00:00:00:02:a4", ip: 192.168.204.99/24 }
       boot_storage: vm-ssd
       openebs_storage: openebs-ssd
       scratch_storage: nvme-scratch
