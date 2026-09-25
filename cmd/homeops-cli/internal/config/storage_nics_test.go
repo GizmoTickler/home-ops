@@ -79,6 +79,7 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 		{name: "missing VLAN", entries: validEntries[:len(validEntries)-len("          - vlan: 1204\n            mac: \"BC:24:11:FB:16:76\"\n            ip: 192.168.204.20/24\n")], wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
 		{name: "duplicate VLAN", entries: validEntries, old: "vlan: 1204", replacement: "vlan: 1203", wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
 		{name: "duplicate MAC within node", entries: validEntries, old: "BC:24:11:ED:F6:B6", replacement: "bc:24:11:3b:e0:50", wantErr: "duplicates cluster.nodes[k8s-0].vm.storage_nics[0].mac"},
+		{name: "bridge is not a PVE bridge", entries: validEntries, old: "ip: 192.168.201.20/24\n", replacement: "ip: 192.168.201.20/24\n            bridge: eth0\n", wantErr: "is not a Proxmox bridge name"},
 	}
 
 	for _, tc := range cases {
@@ -364,24 +365,25 @@ func TestRepositoryHomeopsStorageNICMatrix(t *testing.T) {
 	assert.Zero(t, cfg.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net1)
 	assert.Equal(t, 8, cfg.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net2)
 
+	// The live fabric: each storage VLAN is its own untagged PVE bridge.
 	want := map[string][]StorageNIC{
 		"k8s-0": {
-			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
-			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
-			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
-			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
+			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24", Bridge: "vmbr201"},
+			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24", Bridge: "vmbr202"},
+			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24", Bridge: "vmbr203"},
+			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24", Bridge: "vmbr204"},
 		},
 		"k8s-1": {
-			{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24"},
-			{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24"},
-			{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24"},
-			{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24"},
+			{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24", Bridge: "vmbr201"},
+			{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24", Bridge: "vmbr202"},
+			{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24", Bridge: "vmbr203"},
+			{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24", Bridge: "vmbr204"},
 		},
 		"k8s-2": {
-			{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24"},
-			{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24"},
-			{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24"},
-			{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24"},
+			{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24", Bridge: "vmbr201"},
+			{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24", Bridge: "vmbr202"},
+			{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24", Bridge: "vmbr203"},
+			{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24", Bridge: "vmbr204"},
 		},
 	}
 	for name, expected := range want {

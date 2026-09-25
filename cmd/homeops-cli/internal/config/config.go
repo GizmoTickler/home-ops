@@ -69,6 +69,10 @@ type StorageNIC struct {
 	VLAN int    `yaml:"vlan"`
 	MAC  string `yaml:"mac"`
 	IP   string `yaml:"ip"`
+	// Bridge, when set, attaches the NIC untagged to this dedicated Proxmox
+	// bridge (the live fabric: vmbr201-vmbr204, one physical port each).
+	// Empty keeps the tagged attach on the VM's network bridge.
+	Bridge string `yaml:"bridge,omitempty"`
 }
 
 // NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
@@ -847,6 +851,8 @@ func provisioningNodes(cluster ClusterConfig) []provisioningNode {
 
 var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`)
 
+var storageBridgeName = regexp.MustCompile(`^vmbr[0-9]{1,4}$`)
+
 func validateStorageFabric(cluster ClusterConfig) []string {
 	nodes := provisioningNodes(cluster)
 	// baseMACPaths retains every path that can resolve to a base NIC so storage
@@ -989,6 +995,9 @@ func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 
 		if !strictStorageMAC.MatchString(nic.MAC) {
 			problems = append(problems, fmt.Sprintf("%s.mac: %q is not a valid 6-byte MAC address; expected a colon-separated 6-octet MAC", entryPath, nic.MAC))
+		}
+		if nic.Bridge != "" && !storageBridgeName.MatchString(nic.Bridge) {
+			problems = append(problems, fmt.Sprintf("%s.bridge: %q is not a Proxmox bridge name (vmbrN)", entryPath, nic.Bridge))
 		}
 
 		expectedThirdOctet := nic.VLAN - 1000

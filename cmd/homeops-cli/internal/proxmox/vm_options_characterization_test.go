@@ -2,10 +2,12 @@ package proxmox
 
 import (
 	"fmt"
+	homeopscfg "homeops-cli/internal/config"
 	"strings"
 	"testing"
 
 	"github.com/luthermonson/go-proxmox"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -269,4 +271,23 @@ func formatVMOptionsForCharacterization(opts []proxmox.VirtualMachineOption) str
 		fmt.Fprintf(&b, "%s=%v\n", opt.Name, opt.Value)
 	}
 	return b.String()
+}
+
+// The live NVMe-oF fabric is four dedicated bridges (vmbr201-vmbr204, one
+// physical port each), not VLAN tags on vmbr0: a rebuilt node attached the
+// tagged way came up with no storage path. A NIC with a bridge attaches
+// untagged to it; one without keeps the tagged attach.
+func TestStorageNICsUseDedicatedBridgeUntagged(t *testing.T) {
+	nics := storageNICs(VMConfig{
+		NetworkBridge: "vmbr0", NetworkMTU: 9000,
+		StorageNICs: []homeopscfg.StorageNIC{
+			{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.99/24", Bridge: "vmbr202"},
+			{VLAN: 1201, MAC: "02:00:00:00:02:a1", IP: "192.168.201.99/24"},
+		},
+	})
+	require.Len(t, nics, 2)
+	assert.Equal(t, "net3", nics[0].name)
+	assert.Equal(t, "virtio=02:00:00:00:02:a1,bridge=vmbr0,tag=1201,mtu=9000", nics[0].value)
+	assert.Equal(t, "net4", nics[1].name)
+	assert.Equal(t, "virtio=02:00:00:00:02:a2,bridge=vmbr202,mtu=9000", nics[1].value)
 }

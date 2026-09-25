@@ -327,7 +327,12 @@ func storageNICs(config VMConfig) []secondaryNIC {
 	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
 	out := make([]secondaryNIC, 0, len(nics))
 	for index, nic := range nics {
+		// A dedicated bridge (the live fabric) already is the VLAN: attach
+		// untagged. Otherwise tag the VLAN on the VM's network bridge.
 		value := fmt.Sprintf("virtio=%s,bridge=%s,tag=%d", nic.MAC, config.NetworkBridge, nic.VLAN)
+		if nic.Bridge != "" {
+			value = fmt.Sprintf("virtio=%s,bridge=%s", nic.MAC, nic.Bridge)
+		}
 		if config.NetworkMTU > 0 {
 			value += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
 		}
