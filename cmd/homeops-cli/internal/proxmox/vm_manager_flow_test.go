@@ -3,6 +3,7 @@ package proxmox
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -378,4 +379,55 @@ func captureStdout(t *testing.T, fn func()) string {
 	_, err = buf.ReadFrom(r)
 	require.NoError(t, err)
 	return buf.String()
+}
+
+// PVE lets only root@pam set qemu "args" (the fw_cfg Ignition attach), so an
+// API-token create must not carry it: it is applied through SetRootArgs after
+// the create and before power-on, and a failure there leaves the VM stopped.
+func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
+	newManager := func(created *[]proxmox.VirtualMachineOption, vm *fakeVMHandle, order *[]string) *VMManager {
+		return &VMManager{
+			client:        &Client{ctx: context.Background()},
+			logger:        common.NewColorLogger(),
+			listVMsFn:     func() (proxmox.VirtualMachines, error) { return proxmox.VirtualMachines{}, nil },
+			getNextVMIDFn: func() (int, error) { return 299, nil },
+			createVMTaskFn: func(_ int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {
+				*order = append(*order, "create")
+				*created = append([]proxmox.VirtualMachineOption{}, options...)
+				return &fakeTaskHandle{}, nil
+			},
+			getVMHandleFn:   func(int) (vmHandle, error) { *order = append(*order, "start"); return vm, nil },
+			verifyStorageFn: func(string) error { return nil },
+		}
+	}
+	config := VMConfig{
+		Name: "k8s-test", Memory: 4096, Cores: 2, Sockets: 1, BootDiskSize: 32, BootStorage: "vm-ssd",
+		NetworkBridge: "vmbr0", PowerOn: true, OSFamily: "fcos",
+		IgnitionConfig: "{}", IgnitionPath: "/var/lib/vz/snippets/ignition-k8s-test.json", ImageDiskPath: "local:import/fcos.qcow2",
+	}
+
+	var created []proxmox.VirtualMachineOption
+	var order []string
+	vm := &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	var gotVMID int
+	var gotArgs string
+	config.SetRootArgs = func(vmid int, args string) error {
+		order = append(order, "args")
+		gotVMID, gotArgs = vmid, args
+		return nil
+	}
+	require.NoError(t, newManager(&created, vm, &order).DeployVM(config))
+	_, hasArgs := optionMap(created)["args"]
+	assert.False(t, hasArgs, "the API create must not carry args")
+	assert.Equal(t, 299, gotVMID)
+	assert.Equal(t, "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-test.json", gotArgs)
+	assert.Equal(t, []string{"create", "args", "start"}, order)
+
+	created, order = nil, nil
+	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	config.SetRootArgs = func(int, string) error { return errors.New("qm set failed") }
+	err := newManager(&created, vm, &order).DeployVM(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not started")
+	assert.Zero(t, vm.startCalls, "a VM without its Ignition must not boot")
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -576,6 +577,15 @@ func TestDeployVMRealPath(t *testing.T) {
 	assert.Equal(t, "scsi4", mgr.deployed[0].ScratchSlot)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
+	// The root-only fw_cfg args go through qm over the same SSH target.
+	require.NotNil(t, mgr.deployed[0].SetRootArgs)
+	var argsOn string
+	testutil.Swap(t, &setPVEArgsFn, func(host, _, _ string, vmid int, args string) error {
+		argsOn = host + ":" + strconv.Itoa(vmid) + ":" + args
+		return nil
+	})
+	require.NoError(t, mgr.deployed[0].SetRootArgs(200, "-fw_cfg x"))
+	assert.Equal(t, "h:200:-fw_cfg x", argsOn)
 }
 
 // TestRunDeployVMRejectsUnsafeProxmoxOpts asserts deploy-vm refuses values that

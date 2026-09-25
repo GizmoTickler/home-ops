@@ -196,6 +196,13 @@ type VMConfig struct {
 	// create): imported boot disk + cloud-init drive (see cloudinit.go).
 	CloudInit *CloudInitConfig
 	BootMode  string // override boot order (e.g. "order=scsi0"); empty = sensible default
+
+	// SetRootArgs, when set, applies the qemu "args" option (the fw_cfg
+	// Ignition attach) out of band after the VM is created and before it is
+	// powered on. PVE lets only root@pam set args ("only root can set 'args'
+	// config"), so an API-token deploy cannot pass it to the create call; the
+	// caller applies it as root (qm set over SSH).
+	SetRootArgs func(vmid int, args string) error
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -532,6 +539,11 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		options = vm.buildVMOptions(config)
 	}
 
+	var rootArgs string
+	if config.SetRootArgs != nil {
+		options, rootArgs = splitRootOnlyArgs(options)
+	}
+
 	// Create the VM
 	task, err := vm.createVMTask(vmid, options...)
 	if err != nil {
@@ -542,6 +554,13 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	vm.logger.Info("Waiting for VM creation task to complete...")
 	if err := task.Wait(vm.client.Context(), time.Second, 120*time.Second); err != nil {
 		return fmt.Errorf("VM creation task failed: %w", err)
+	}
+
+	if rootArgs != "" {
+		vm.logger.Info("Applying qemu args to VM %d as root", vmid)
+		if err := config.SetRootArgs(vmid, rootArgs); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its qemu args could not be set (it was not started): %w", config.Name, vmid, err)
+		}
 	}
 
 	vm.logger.Success("VM %s created successfully with VMID: %d", config.Name, vmid)
@@ -834,6 +853,21 @@ func (vm *VMManager) nextVMID() (int, error) {
 		return vm.getNextVMIDFn()
 	}
 	return vm.client.GetNextVMID()
+}
+
+// splitRootOnlyArgs removes the root@pam-only "args" option from a create
+// request and returns it separately.
+func splitRootOnlyArgs(options []proxmox.VirtualMachineOption) ([]proxmox.VirtualMachineOption, string) {
+	kept := make([]proxmox.VirtualMachineOption, 0, len(options))
+	var args string
+	for _, option := range options {
+		if option.Name == "args" {
+			args = fmt.Sprint(option.Value)
+			continue
+		}
+		kept = append(kept, option)
+	}
+	return kept, args
 }
 
 func (vm *VMManager) createVMTask(vmid int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {

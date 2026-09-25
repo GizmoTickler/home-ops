@@ -109,6 +109,21 @@ var (
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
 		return uploadIgnitionFile(proxmoxSSHConfig(sshHost, sshUser, sshPort), remotePath, content)
 	}
+	// setPVEArgsFn sets a VM's qemu args on the Proxmox host with qm, which PVE
+	// only allows as root. Swappable for tests.
+	setPVEArgsFn = func(sshHost, sshUser, sshPort string, vmid int, args string) error {
+		client := ssh.NewSSHClient(proxmoxSSHConfig(sshHost, sshUser, sshPort))
+		if err := client.Connect(); err != nil {
+			return err
+		}
+		defer func() { _ = client.Close() }()
+		command := fmt.Sprintf("qm set %d --args %s", vmid, common.ShellQuote(args))
+		if sshUser != "root" {
+			command = "sudo " + command
+		}
+		_, err := client.ExecuteCommand(command)
+		return err
+	}
 	// uploadIgnitionToNASFn writes the rendered Ignition to a dataset path ON the
 	// TrueNAS host over SSH (qemu reads the fw_cfg file= path there). Same transport
 	// as the Proxmox path. Swappable for tests.
@@ -332,6 +347,11 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.ImageVolume = d.imageVolume
 	vmConfig.OSFamily = node.osFamily
 	vmConfig.PowerOn = d.powerOn
+	// The fw_cfg Ignition attach is root@pam-only; apply it over the same root
+	// SSH session that uploaded the snippet.
+	vmConfig.SetRootArgs = func(vmid int, args string) error {
+		return setPVEArgsFn(d.sshHost, d.sshUser, d.sshPort, vmid, args)
+	}
 
 	d.logger.Info("Deploying %s VM %s", osDisplayName(node.osFamily), node.name)
 	vmManager, err := newProxmoxVMManagerFn(d.host, d.tokenID, d.secret, d.node, common.EnvBool(constants.EnvProxmoxInsecure, false))
