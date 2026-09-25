@@ -206,12 +206,12 @@ type VMConfig struct {
 	CloudInit *CloudInitConfig
 	BootMode  string // override boot order (e.g. "order=scsi0"); empty = sensible default
 
-	// SetRootArgs, when set, applies the qemu "args" option (the fw_cfg
-	// Ignition attach) out of band after the VM is created and before it is
-	// powered on. PVE lets only root@pam set args ("only root can set 'args'
-	// config"), so an API-token deploy cannot pass it to the create call; the
-	// caller applies it as root (qm set over SSH).
-	SetRootArgs func(vmid int, args string) error
+	// SetRootOptions, when set, applies the root@pam-only options (see
+	// rootOnlyOptions: the fw_cfg Ignition "args", CPU "affinity") out of band
+	// after the VM is created and before it is powered on. PVE refuses them
+	// from an API token ("only root can set 'args'/'affinity' config"); the
+	// caller applies them as root (qm set over SSH).
+	SetRootOptions func(vmid int, options []RootOption) error
 
 	// Machine is the QEMU machine type ("q35"); empty keeps the PVE default
 	// (i440fx). The live cluster nodes are q35, which PCIe passthrough needs.
@@ -558,9 +558,9 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		options = vm.buildVMOptions(config)
 	}
 
-	var rootArgs string
-	if config.SetRootArgs != nil {
-		options, rootArgs = splitRootOnlyArgs(options)
+	var rootOptions []RootOption
+	if config.SetRootOptions != nil {
+		options, rootOptions = splitRootOnlyOptions(options)
 	}
 
 	// Create the VM
@@ -589,10 +589,10 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		}
 	}
 
-	if rootArgs != "" {
-		vm.logger.Info("Applying qemu args to VM %d as root", vmid)
-		if err := config.SetRootArgs(vmid, rootArgs); err != nil {
-			return fmt.Errorf("VM %s (VMID %d) was created but its qemu args could not be set (it was not started): %w", config.Name, vmid, err)
+	if len(rootOptions) > 0 {
+		vm.logger.Info("Applying root-only options to VM %d", vmid)
+		if err := config.SetRootOptions(vmid, rootOptions); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its root-only options could not be set (it was not started): %w", config.Name, vmid, err)
 		}
 	}
 
@@ -911,19 +911,28 @@ func (vm *VMManager) resizeDisk(vmid int, disk, size string) error {
 	return task.Wait(vm.client.Context(), time.Second, 120*time.Second)
 }
 
-// splitRootOnlyArgs removes the root@pam-only "args" option from a create
-// request and returns it separately.
-func splitRootOnlyArgs(options []proxmox.VirtualMachineOption) ([]proxmox.VirtualMachineOption, string) {
+// RootOption is one VM option only root@pam may set.
+type RootOption struct {
+	Name  string
+	Value string
+}
+
+// rootOnlyOptions are the VM options PVE refuses from an API token.
+var rootOnlyOptions = map[string]bool{"args": true, "affinity": true}
+
+// splitRootOnlyOptions removes the root@pam-only options from a create
+// request and returns them separately, in their original order.
+func splitRootOnlyOptions(options []proxmox.VirtualMachineOption) ([]proxmox.VirtualMachineOption, []RootOption) {
 	kept := make([]proxmox.VirtualMachineOption, 0, len(options))
-	var args string
+	var root []RootOption
 	for _, option := range options {
-		if option.Name == "args" {
-			args = fmt.Sprint(option.Value)
+		if rootOnlyOptions[option.Name] {
+			root = append(root, RootOption{Name: option.Name, Value: fmt.Sprint(option.Value)})
 			continue
 		}
 		kept = append(kept, option)
 	}
-	return kept, args
+	return kept, root
 }
 
 func (vm *VMManager) createVMTask(vmid int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {

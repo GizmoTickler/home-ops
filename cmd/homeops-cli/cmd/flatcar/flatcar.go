@@ -110,15 +110,15 @@ var (
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {
 		return uploadIgnitionFile(proxmoxSSHConfig(sshHost, sshUser, sshPort), remotePath, content)
 	}
-	// setPVEArgsFn sets a VM's qemu args on the Proxmox host with qm, which PVE
-	// only allows as root. Swappable for tests.
-	setPVEArgsFn = func(sshHost, sshUser, sshPort string, vmid int, args string) error {
+	// setPVERootOptionsFn sets a VM's root@pam-only options (qemu args, CPU
+	// affinity) on the Proxmox host with one qm set. Swappable for tests.
+	setPVERootOptionsFn = func(sshHost, sshUser, sshPort string, vmid int, options []proxmox.RootOption) error {
 		client := ssh.NewSSHClient(proxmoxSSHConfig(sshHost, sshUser, sshPort))
 		if err := client.Connect(); err != nil {
 			return err
 		}
 		defer func() { _ = client.Close() }()
-		command := fmt.Sprintf("qm set %d --args %s", vmid, common.ShellQuote(args))
+		command := pveRootOptionsCommand(vmid, options)
 		if sshUser != "root" {
 			command = "sudo " + command
 		}
@@ -369,8 +369,8 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	vmConfig.PowerOn = d.powerOn
 	// The fw_cfg Ignition attach is root@pam-only; apply it over the same root
 	// SSH session that uploaded the snippet.
-	vmConfig.SetRootArgs = func(vmid int, args string) error {
-		return setPVEArgsFn(d.sshHost, d.sshUser, d.sshPort, vmid, args)
+	vmConfig.SetRootOptions = func(vmid int, options []proxmox.RootOption) error {
+		return setPVERootOptionsFn(d.sshHost, d.sshUser, d.sshPort, vmid, options)
 	}
 	// The live nodes are q35; PCIe passthrough of storage VFs needs it too.
 	vmConfig.Machine = "q35"
@@ -1821,4 +1821,13 @@ attach() {
 		fmt.Fprintf(&b, "attach %d %s %d %s\n", slot, q(nic.PF), *nic.VF, q(strings.ToLower(nic.MAC)))
 	}
 	return b.String()
+}
+
+// pveRootOptionsCommand is the qm set for a VM's root-only options.
+func pveRootOptionsCommand(vmid int, options []proxmox.RootOption) string {
+	parts := []string{"qm", "set", strconv.Itoa(vmid)}
+	for _, option := range options {
+		parts = append(parts, "--"+option.Name, common.ShellQuote(option.Value))
+	}
+	return strings.Join(parts, " ")
 }

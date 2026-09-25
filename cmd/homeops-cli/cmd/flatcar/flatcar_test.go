@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -582,14 +581,14 @@ func TestDeployVMRealPath(t *testing.T) {
 	assert.Equal(t, "q35", mgr.deployed[0].Machine)
 	assert.Nil(t, mgr.deployed[0].AttachStorageVFs)
 	// The root-only fw_cfg args go through qm over the same SSH target.
-	require.NotNil(t, mgr.deployed[0].SetRootArgs)
-	var argsOn string
-	testutil.Swap(t, &setPVEArgsFn, func(host, _, _ string, vmid int, args string) error {
-		argsOn = host + ":" + strconv.Itoa(vmid) + ":" + args
+	require.NotNil(t, mgr.deployed[0].SetRootOptions)
+	var rootOn string
+	testutil.Swap(t, &setPVERootOptionsFn, func(host, _, _ string, vmid int, options []proxmox.RootOption) error {
+		rootOn = host + ":" + pveRootOptionsCommand(vmid, options)
 		return nil
 	})
-	require.NoError(t, mgr.deployed[0].SetRootArgs(200, "-fw_cfg x"))
-	assert.Equal(t, "h:200:-fw_cfg x", argsOn)
+	require.NoError(t, mgr.deployed[0].SetRootOptions(200, []proxmox.RootOption{{Name: "args", Value: "-fw_cfg x"}, {Name: "affinity", Value: "0-7,32-39"}}))
+	assert.Equal(t, "h:qm set 200 --args '-fw_cfg x' --affinity '0-7,32-39'", rootOn)
 }
 
 // TestRunDeployVMRejectsUnsafeProxmoxOpts asserts deploy-vm refuses values that

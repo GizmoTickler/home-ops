@@ -383,7 +383,7 @@ func captureStdout(t *testing.T, fn func()) string {
 }
 
 // PVE lets only root@pam set qemu "args" (the fw_cfg Ignition attach), so an
-// API-token create must not carry it: it is applied through SetRootArgs after
+// API-token create must not carry it: it is applied through SetRootOptions after
 // the create and before power-on, and a failure there leaves the VM stopped.
 func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
 	newManager := func(created *[]proxmox.VirtualMachineOption, vm *fakeVMHandle, order *[]string) *VMManager {
@@ -411,17 +411,21 @@ func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
 	var order []string
 	vm := &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
 	var gotVMID int
-	var gotArgs string
-	config.SetRootArgs = func(vmid int, args string) error {
+	var gotRoot []RootOption
+	config.CPUAffinity = "24-31,56-63"
+	config.SetRootOptions = func(vmid int, options []RootOption) error {
 		order = append(order, "args")
-		gotVMID, gotArgs = vmid, args
+		gotVMID, gotRoot = vmid, options
 		return nil
 	}
 	require.NoError(t, newManager(&created, vm, &order).DeployVM(config))
 	_, hasArgs := optionMap(created)["args"]
+	_, hasAffinity := optionMap(created)["affinity"]
 	assert.False(t, hasArgs, "the API create must not carry args")
+	assert.False(t, hasAffinity, "the API create must not carry affinity (root@pam only)")
 	assert.Equal(t, 299, gotVMID)
-	assert.Equal(t, "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-test.json", gotArgs)
+	assert.Contains(t, gotRoot, RootOption{Name: "args", Value: "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-test.json"})
+	assert.Contains(t, gotRoot, RootOption{Name: "affinity", Value: "24-31,56-63"})
 	// scsi0 is imported at size 0 (PVE's required syntax) and grown before boot.
 	assert.Equal(t, "vm-ssd:0,import-from=local:import/fcos.qcow2", strings.Split(optionMap(created)["scsi0"], ",discard")[0])
 	assert.Equal(t, []string{"scsi0=32G"}, vm.resizes)
@@ -429,7 +433,7 @@ func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
 
 	created, order = nil, nil
 	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
-	config.SetRootArgs = func(int, string) error { return errors.New("qm set failed") }
+	config.SetRootOptions = func(int, []RootOption) error { return errors.New("qm set failed") }
 	err := newManager(&created, vm, &order).DeployVM(config)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not started")
@@ -457,7 +461,7 @@ func TestVMManagerDeployVMAttachesStorageVFsBeforeBoot(t *testing.T) {
 		Name: "k8s-test", Memory: 4096, Cores: 2, Sockets: 1, BootDiskSize: 32, BootStorage: "vm-ssd",
 		NetworkBridge: "vmbr0", PowerOn: true, Machine: "q35",
 		IgnitionConfig: "{}", IgnitionPath: "/var/lib/vz/snippets/i.json", ImageDiskPath: "local:import/fcos.qcow2",
-		SetRootArgs:      func(int, string) error { order = append(order, "args"); return nil },
+		SetRootOptions:   func(int, []RootOption) error { order = append(order, "args"); return nil },
 		AttachStorageVFs: func(vmid int) error { order = append(order, "vfs"); return nil },
 	}
 	require.NoError(t, manager.DeployVM(config))
