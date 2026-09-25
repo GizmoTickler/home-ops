@@ -270,6 +270,23 @@ storage:
       overwrite: true
       contents:
         local: files/sysctl-99-homeops.conf
+    # Flatcar ships these in /usr/lib/sysctl.d/60-baselayout.conf and the
+    # shared 99-homeops.conf relies on them; FCOS defaults differ
+    # (ip_forward=0 fails kubeadm preflight, default rp_filter=2 fights
+    # Cilium). Ported verbatim so both OSes run the same kernel settings.
+    - path: /etc/sysctl.d/60-homeops-baselayout.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        inline: |
+          net.ipv4.ip_forward = 1
+          net.ipv4.conf.default.rp_filter = 0
+          net.ipv4.conf.all.rp_filter = 0
+          net.ipv4.conf.*.rp_filter = 0
+          -net.ipv4.conf.all.rp_filter
+          kernel.kptr_restrict = 1
+          fs.protected_regular = 0
+          fs.protected_fifos = 0
     # FCOS copy of Flatcar's modules list plus ublk_drv (nvmeublk data path) and
     # nvme_tcp (scale-csi kernel data path).
     - path: /etc/modules-load.d/homeops.conf

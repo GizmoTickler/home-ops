@@ -520,3 +520,19 @@ func TestRenderKubeadmConfigsMatchFlatcar(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, flatcarJoin, fcosJoin)
 }
+
+// Flatcar gets IP forwarding and rp_filter=0 from its own baselayout sysctl;
+// FCOS defaults to ip_forward=0 (kubeadm join preflight fails) and loose
+// rp_filter. The FCOS node must carry the same settings explicitly.
+func TestRenderIgnitionCarriesFlatcarBaselayoutSysctls(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	baselayout := ignitionFileContent(t, ign, "/etc/sysctl.d/60-homeops-baselayout.conf")
+	for _, line := range []string{
+		"net.ipv4.ip_forward = 1",
+		"net.ipv4.conf.default.rp_filter = 0",
+		"net.ipv4.conf.all.rp_filter = 0",
+	} {
+		assert.Contains(t, baselayout, line+"\n")
+	}
+}
