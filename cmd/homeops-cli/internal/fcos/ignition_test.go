@@ -404,7 +404,9 @@ func TestRenderIgnitionLayersGreenbootBeforeKubernetes(t *testing.T) {
 	// greenboot 0.16 (Fedora 44) ships exactly these two units; enabling a
 	// unit it no longer ships fails the whole enable (seen on a live node).
 	enable := units["homeops-enable-greenboot.service"].Contents
-	assert.Contains(t, enable, "systemctl enable --now greenboot-healthcheck.service greenboot-set-rollback-trigger.service\n")
+	// No --now: the health check refuses a manual start (RefuseManualStart),
+	// which failed the unit and skipped every later step on a live node.
+	assert.Contains(t, enable, "systemctl enable greenboot-healthcheck.service greenboot-set-rollback-trigger.service\n")
 	for _, gone := range []string{"greenboot-task-runner", "greenboot-grub2-", "greenboot-status", "redboot-"} {
 		assert.NotContains(t, enable, gone)
 	}

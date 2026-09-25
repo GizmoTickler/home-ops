@@ -461,7 +461,9 @@ systemd:
         RemainAfterExit=yes
         # greenboot 0.16 (Fedora 44) ships two units: the health check and the
         # rollback trigger. The older task-runner/grub2/redboot units are gone.
-        ExecStart=/usr/bin/systemctl enable --now greenboot-healthcheck.service greenboot-set-rollback-trigger.service
+        # Enable only: the health check refuses a manual start (it runs as a
+        # boot dependency), so it takes effect from the next boot.
+        ExecStart=/usr/bin/systemctl enable greenboot-healthcheck.service greenboot-set-rollback-trigger.service
         ExecStart=/usr/bin/systemctl enable --now qemu-guest-agent.service
         ExecStart=/usr/bin/touch /var/lib/homeops/greenboot-enabled
         [Install]
