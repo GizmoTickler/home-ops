@@ -31,6 +31,12 @@ spec:
     matchExpressions:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
+      # Flatcar only. Fedora CoreOS nodes register with homeops.io/os=fcos
+      # (kubeadm node-labels) and have no flatcar-update; the Flatcar nodes
+      # joined before the label existed carry none, so NotIn keeps them.
+      - key: homeops.io/os
+        operator: NotIn
+        values: ["fcos"]
   serviceAccountName: system-upgrade
   tolerations:
     - key: node-role.kubernetes.io/control-plane

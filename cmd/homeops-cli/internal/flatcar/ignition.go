@@ -50,6 +50,10 @@ var (
 // NodeEnv holds the per-node values needed to render the Flatcar/kubeadm templates.
 // Fields map 1:1 onto the {{ ENV.* }} placeholders in the embedded templates.
 type NodeEnv struct {
+	// NodeOS is the node's OS family ("flatcar" when empty). It becomes the
+	// homeops.io/os node label, which lets OS-specific automation (the Flatcar
+	// SUC plan) skip nodes running another OS.
+	NodeOS            string
 	NodeName          string // NODE_NAME (e.g. k8s-0)
 	NodeIP            string // NODE_IP
 	Node0IP           string // NODE0_IP
@@ -97,6 +101,11 @@ func (e NodeEnv) envMap() map[string]string {
 		}
 	}
 	add(constants.EnvNodeName, e.NodeName)
+	nodeOS := e.NodeOS
+	if nodeOS == "" {
+		nodeOS = "flatcar"
+	}
+	add(constants.EnvNodeOS, nodeOS)
 	add(constants.EnvNodeIP, e.NodeIP)
 	add(constants.EnvNode0IP, e.Node0IP)
 	add(constants.EnvNode1IP, e.Node1IP)

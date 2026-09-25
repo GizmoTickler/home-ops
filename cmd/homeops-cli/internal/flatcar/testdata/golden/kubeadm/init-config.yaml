@@ -16,6 +16,9 @@ nodeRegistration:
   kubeletExtraArgs:
     - name: node-ip
       value: "192.168.122.10"
+    # OS family label: OS-specific automation (the Flatcar SUC plan) selects on it.
+    - name: node-labels
+      value: "homeops.io/os=flatcar"
   # allowSchedulingOnControlPlanes: true  -> no control-plane NoSchedule taint
   taints: []
 # CNI installed separately (Cilium); kube-proxy replaced by Cilium; CoreDNS via Flux.

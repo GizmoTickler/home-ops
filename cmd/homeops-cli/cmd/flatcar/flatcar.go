@@ -717,6 +717,7 @@ func buildNodeEnv(nodeName string, vip, pauseImage, kubeVipVersion, nodeInterfac
 	}
 	return flatcar.NodeEnv{
 		NodeName:          nodeConfig.Name,
+		NodeOS:            cfg.NodeOS(nodeConfig.Name),
 		NodeIP:            nodeConfig.NodeIP,
 		Node0IP:           nodeIP(0),
 		Node1IP:           nodeIP(1),
