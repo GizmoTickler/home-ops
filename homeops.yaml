@@ -32,6 +32,12 @@ cluster:
     ip: 192.168.122.98
     vm:
       vmid: 299
+      # One NUMA node like production (k8s-2: 8-15,40-47 / node 0). Every pve
+      # thread is already pinned; this shares clab-0's range on node 1. 64 GB,
+      # not 96: node 1 has ~74 GB free and the binding is strict.
+      cpu_affinity: "24-31,56-63"
+      numa_node: 1
+      memory_mb: 65536
       mac: "02:00:00:00:02:99"
       # Same NIC set as a production node, so a rehearsal renders and boots
       # exactly what a rebuild will (both templates require the IoT MAC).

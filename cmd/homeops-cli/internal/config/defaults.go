@@ -531,6 +531,9 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
 	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
+	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice
 	}
@@ -562,6 +565,9 @@ func applyProviderProfile(out *ProviderVMProfile, override ProviderVMProfile) {
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
 	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
+	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice
 	}
@@ -579,6 +585,7 @@ func vmProfileToProviderProfile(profile VMProfile) ProviderVMProfile {
 		OpenEBSStorage: profile.OpenEBSStorage,
 		CPUAffinity:    profile.CPUAffinity,
 		NUMANode:       profile.NUMANode,
+		MemoryMB:       profile.MemoryMB,
 		PCIDevice:      profile.PCIDevice,
 		RDMPath:        profile.RDMPath,
 		Ceph:           profile.Ceph,
@@ -606,6 +613,9 @@ func applyProviderVMProfile(out *VMProfile, override ProviderVMProfile) {
 	}
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
+	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
 	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice

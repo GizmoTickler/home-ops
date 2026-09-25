@@ -348,6 +348,9 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	}
 	vmConfig.CPUAffinity = nodeConfig.CPUAffinity
 	vmConfig.NUMANode = nodeConfig.NUMANode
+	if nodeConfig.MemoryMB > 0 {
+		vmConfig.Memory = nodeConfig.MemoryMB
+	}
 	vmConfig.MacAddress = nodeConfig.MacAddress
 	// Multus macvlan masters (VLAN 20 IoT / VLAN 90 VPN). MTU 1500, not the
 	// cluster's 9000: these VLANs carry ordinary devices and macvlan children

@@ -50,6 +50,7 @@ type VMProfile struct {
 	ScratchStorage string       `yaml:"scratch_storage,omitempty"` // pool for the NVMe download-scratch disk (Flatcar scsi4)
 	CPUAffinity    string       `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
 	NUMANode       *int         `yaml:"numa_node,omitempty"`       // host NUMA node
+	MemoryMB       int          `yaml:"memory_mb,omitempty"`       // per-node memory override (NUMA binding sizes to it); 0 = provider default
 	PCIDevice      string       `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
 	RDMPath        string       `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
 	// Ceph retains the legacy OSD-disk passthrough configuration exposed by the
@@ -130,6 +131,7 @@ type ProviderVMProfile struct {
 	ScratchStorage string   `yaml:"scratch_storage,omitempty"`
 	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`
 	NUMANode       *int     `yaml:"numa_node,omitempty"`
+	MemoryMB       int      `yaml:"memory_mb,omitempty"`
 	PCIDevice      string   `yaml:"pci_device,omitempty"`
 	RDMPath        string   `yaml:"rdm_path,omitempty"`
 	Ceph           CephDisk `yaml:"ceph,omitempty"`

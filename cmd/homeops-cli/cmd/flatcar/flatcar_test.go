@@ -1194,3 +1194,20 @@ func TestPVEStorageVFScript(t *testing.T) {
 	out, err := parse.CombinedOutput()
 	require.NoError(t, err, string(out))
 }
+
+// A node's memory_mb overrides the provider default and is what the NUMA
+// binding sizes to (a 96 GB default cannot bind to a node with 74 GB free).
+func TestNodeMemoryOverrideReachesVMConfig(t *testing.T) {
+	cfg := &versionconfig.Config{Cluster: versionconfig.ClusterConfig{Nodes: []versionconfig.Node{{
+		Name: "k8s-0", IP: "192.0.2.10",
+		VM: versionconfig.VMProfile{VMID: 200, MemoryMB: 65536, CPUAffinity: "24-31,56-63", NUMANode: vfIntPtr(1)},
+	}}}}
+	restore := versionconfig.SetForTesting(cfg)
+	defer restore()
+	nodeConfig, ok := proxmox.GetFlatcarNodeConfig("k8s-0")
+	require.True(t, ok)
+	assert.Equal(t, 65536, nodeConfig.MemoryMB)
+	assert.Equal(t, 1, nodeConfig.NUMANode)
+}
+
+func vfIntPtr(i int) *int { return &i }

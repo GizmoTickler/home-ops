@@ -258,6 +258,7 @@ type FlatcarNodeConfig struct {
 	CephStorage    string                  // storage pool for the virtual legacy OSD disk
 	CPUAffinity    string                  // CPU core pinning
 	NUMANode       int                     // NUMA node (0 or 1)
+	MemoryMB       int                     // per-node memory override; 0 = provider default
 	MacAddress     string                  // Static MAC address
 	MacAddressIoT  string                  // net1 MAC, VLAN 20 (Multus macvlan master eth1)
 	MacAddressVPN  string                  // net2 MAC, VLAN 90 (Multus macvlan master eth2)
@@ -319,6 +320,7 @@ func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
 		CephStorage:    profile.Ceph.Storage,
 		CPUAffinity:    profile.CPUAffinity,
 		NUMANode:       vmProfileNUMANode(profile),
+		MemoryMB:       profile.MemoryMB,
 		MacAddress:     profile.Mac,
 		MacAddressIoT:  profile.MacIoT,
 		MacAddressVPN:  profile.MacVPN,
