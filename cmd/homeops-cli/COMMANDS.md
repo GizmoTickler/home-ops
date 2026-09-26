@@ -10,7 +10,8 @@ It is intentionally structured around the live Cobra command tree in `main.go` a
 homeops-cli
 ├── bootstrap
 ├── cluster
-│   └── rehearse-node
+│   ├── rehearse-node
+│   └── replace-node
 ├── completion [bash|zsh|fish|powershell]
 ├── flatcar                  # current provider (Flatcar Container Linux + kubeadm)
 │   ├── render-ignition
@@ -218,6 +219,28 @@ run a pinned DNS smoke pod using `volsync.check_image`; then drain/delete the
 node, power off/delete the VM and disks, and invalidate the token. Teardown also
 runs after post-deploy failures. `--keep` skips teardown and prints exact manual
 cleanup commands.
+
+`cluster replace-node --node <name>` rebuilds one existing production control
+plane (a `cluster.nodes` entry; never the test node) in place onto its
+configured OS, keeping its name, IPs, MACs, VMID, SR-IOV VFs and its `scsi4`
+scratch volume. It refuses a node whose configured OS is flatcar unless
+`--allow-same-os`, and requires a pinned image (`--image-path`/`--image-volume`)
+unless `--image-stream-latest`. Sequence: preconditions (target is a node and a
+`cluster.nodes` entry, every other node Ready, all etcd members healthy with at
+least 3 besides the target, VM/VMID match, placeholder VMID 9000+vmid free);
+cordon + drain; remove its etcd member and Node object; park `scsi4` on a
+placeholder VM (`qm move-disk ... --target-vmid`) and destroy the old VM;
+`ssh-keygen -R`; mint join material on the first other control plane; deploy
+powered off, swap the new empty `scsi4` for the preserved one (verified by ZFS
+guid), destroy the placeholder, start, join; wait Ready; smoke test; uncordon;
+post-checks (etcd count restored and healthy, expected osImage, Cilium agent
+Ready); invalidate the token. A failure after the volume left the VM prints
+manual recovery commands; the preserved volume is never deleted.
+
+```bash
+homeops-cli cluster replace-node --node k8s-2 --plan
+homeops-cli cluster replace-node --node k8s-2 --image-volume vm-ssd:vm-900-disk-0
+```
 
 Required configuration addition (the name defaults to `k8s-test` when omitted):
 
