@@ -21,4 +21,7 @@ nodeRegistration:
   kubeletExtraArgs:
     - name: node-ip
       value: "192.168.122.11"
+    # OS family label: OS-specific automation (the Flatcar SUC plan) selects on it.
+    - name: node-labels
+      value: "homeops.io/os=flatcar"
   taints: []

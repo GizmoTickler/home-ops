@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"homeops-cli/internal/config"
 	"homeops-cli/internal/ssh"
 	"homeops-cli/internal/testutil"
 
@@ -378,4 +379,34 @@ func TestConnectErrorPropagates(t *testing.T) {
 	_, err := o.InitFirstControlPlane("10.0.0.1", "cfg", nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "connect")
+}
+
+// A token whose print-join output can't be fully parsed still exists on the
+// cluster; CreateJoinMaterial must delete it rather than leak it.
+func TestCreateJoinMaterialDeletesTokenWhenOutputUnparseable(t *testing.T) {
+	r := &fakeRunner{responder: func(cmd string) (string, error) {
+		if strings.Contains(cmd, "kubeadm token create") {
+			return "kubeadm join 192.0.2.1:6443 --token " + testBootstrapTokenForRehearsal + " --discovery-token-ca-cert-hash sha256:<redacted>\n", nil
+		}
+		return "", nil
+	}}
+	defer withFakeRunner(t, r)()
+
+	_, err := NewOrchestrator(OrchestratorConfig{SSHUser: "core"}).CreateJoinMaterial("192.0.2.10", 30*time.Minute)
+	require.Error(t, err)
+	assert.Contains(t, strings.Join(r.commands, "\n"), "kubeadm token delete abcdef")
+}
+
+// The kubeadm orchestrator (init, join, token, reset) offers
+// cluster.node_ssh_key on every node connection.
+func TestOrchestratorRunnerOffersNodeSSHKey(t *testing.T) {
+	restore := config.SetForTesting(&config.Config{Cluster: config.ClusterConfig{NodeSSHKey: "~/.ssh/keys/flatcar"}})
+	defer restore()
+	var got ssh.SSHConfig
+	original := newCommandRunnerFn
+	defer func() { newCommandRunnerFn = original }()
+	newCommandRunnerFn = func(cfg ssh.SSHConfig) commandRunner { got = cfg; return &fakeRunner{} }
+
+	NewOrchestrator(OrchestratorConfig{SSHUser: "core", Port: "22"}).runnerFor("192.0.2.98")
+	assert.Equal(t, "~/.ssh/keys/flatcar", got.KeyPath)
 }

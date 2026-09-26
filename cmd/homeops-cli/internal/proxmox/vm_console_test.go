@@ -47,6 +47,7 @@ func TestConsoleURLUnknownVM(t *testing.T) {
 
 func TestImportTemplate(t *testing.T) {
 	createTask := &fakeTaskHandle{}
+	handle := &fakeVMHandle{name: "ubuntu-tpl", vmid: 9000}
 	var converted []string
 	var createdOptions []proxmox.VirtualMachineOption
 
@@ -61,10 +62,9 @@ func TestImportTemplate(t *testing.T) {
 			createdOptions = append([]proxmox.VirtualMachineOption{}, options...)
 			return createTask, nil
 		},
-		getVMHandleFn: func(vmid int) (vmHandle, error) {
-			t.Fatalf("template import must not power on the VM (got start for vmid %d)", vmid)
-			return nil, nil
-		},
+		// The handle is looked up to grow the imported disk; it must never be
+		// started.
+		getVMHandleFn:       func(int) (vmHandle, error) { return handle, nil },
 		verifyStorageFn:     func(string) error { return nil },
 		convertToTemplateFn: func(name string) error { converted = append(converted, name); return nil },
 	}
@@ -85,6 +85,8 @@ func TestImportTemplate(t *testing.T) {
 	assert.Equal(t, []string{"ubuntu-tpl"}, converted)
 	assert.Equal(t, 1, createTask.waits)
 	assert.NotEmpty(t, createdOptions)
+	assert.Zero(t, handle.startCalls, "template import must not power on the VM")
+	assert.Equal(t, []string{"scsi0=10G"}, handle.resizes, "the imported disk is grown to the requested size")
 }
 
 func TestImportTemplateDeployFailure(t *testing.T) {

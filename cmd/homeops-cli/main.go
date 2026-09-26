@@ -140,6 +140,7 @@ Environment:
 		cluster.NewCommand(),
 		configcmd.NewCommand(),
 		flatcar.NewCommand(),
+		flatcar.NewFCOSCommand(),
 		kubernetes.NewCommand(),
 		talos.NewCommand(),
 		vm.NewVMCommand(),

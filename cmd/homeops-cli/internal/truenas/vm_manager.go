@@ -51,6 +51,10 @@ type VMConfig struct {
 	// Ignition reads on first boot. Setting Flatcar selects this create path.
 	Flatcar      bool
 	IgnitionPath string // host path on the NAS to the rendered Ignition (.ign) file
+	// OSFamily selects the fw_cfg key for the Ignition attach: "" / "flatcar"
+	// keeps opt/org.flatcar-linux/config; "fcos" uses opt/com.coreos/config.
+	// The Flatcar create path (pre-staged boot zvol) is otherwise identical.
+	OSFamily string
 }
 
 // GetDefaultVMConfig returns the effective TrueNAS VM defaults from
@@ -585,9 +589,12 @@ func (vm *VMManager) buildVMConfig(config VMConfig) map[string]interface{} {
 	// <qemu:commandline> passthrough), so this is the same mechanism Proxmox uses.
 	if config.Flatcar {
 		vmConfig["description"] = fmt.Sprintf("Flatcar Linux VM - %s", config.Name)
+		if normalized, _ := homeopscfg.NormalizeOS(config.OSFamily); normalized == homeopscfg.OSFCOS {
+			vmConfig["description"] = fmt.Sprintf("Fedora CoreOS VM - %s", config.Name)
+		}
 		if config.IgnitionPath != "" {
 			vmConfig["command_line_args"] = fmt.Sprintf(
-				"-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
+				"-fw_cfg name=%s,file=%s", homeopscfg.IgnitionFwCfgKey(config.OSFamily), config.IgnitionPath)
 		}
 	}
 

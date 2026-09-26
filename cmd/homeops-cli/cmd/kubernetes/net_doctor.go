@@ -784,6 +784,11 @@ func probeNetDoctorHost(ctx context.Context, target netDoctorProbeTarget) netDoc
 	result := netDoctorProbeResult{Target: target}
 	started := time.Now()
 	address := net.JoinHostPort(target.Address, fmt.Sprintf("%d", target.Port))
+	// net/http dials on its own goroutine, which can still be running when Do
+	// returns on a context timeout, so the dial facts are guarded and copied
+	// into result only after Do returns.
+	var dialMu sync.Mutex
+	var dial netDoctorProbeResult
 	transport := &http.Transport{
 		DisableKeepAlives: true,
 		DialTLSContext: func(dialCtx context.Context, _, _ string) (net.Conn, error) {
@@ -791,21 +796,31 @@ func probeNetDoctorHost(ctx context.Context, target netDoctorProbeTarget) netDoc
 			if err != nil {
 				return nil, err
 			}
-			result.TCPConnected = true
+			dialMu.Lock()
+			dial.TCPConnected = true
+			dialMu.Unlock()
 			tlsConn := tls.Client(conn, &tls.Config{ServerName: target.Hostname, RootCAs: netDoctorProbeRootCAs, MinVersion: tls.VersionTLS12})
 			handshakeErr := tlsConn.HandshakeContext(dialCtx)
 			state := tlsConn.ConnectionState()
+			dialMu.Lock()
+			defer dialMu.Unlock()
 			if len(state.PeerCertificates) > 0 {
-				result.CertNotAfter = state.PeerCertificates[0].NotAfter
+				dial.CertNotAfter = state.PeerCertificates[0].NotAfter
 			}
 			if handshakeErr != nil {
 				_ = conn.Close()
 				return nil, handshakeErr
 			}
-			result.TLSHandshook = true
-			result.ChainValid = len(state.VerifiedChains) > 0
+			dial.TLSHandshook = true
+			dial.ChainValid = len(state.VerifiedChains) > 0
 			return tlsConn, nil
 		},
+	}
+	collectDial := func() {
+		dialMu.Lock()
+		defer dialMu.Unlock()
+		result.TCPConnected, result.TLSHandshook = dial.TCPConnected, dial.TLSHandshook
+		result.ChainValid, result.CertNotAfter = dial.ChainValid, dial.CertNotAfter
 	}
 	defer transport.CloseIdleConnections()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+target.Hostname+"/", nil)
@@ -816,6 +831,7 @@ func probeNetDoctorHost(ctx context.Context, target netDoctorProbeTarget) netDoc
 	request.Host = target.Hostname
 	response, err := (&http.Client{Transport: transport}).Do(request)
 	result.Latency = time.Since(started)
+	collectDial()
 	if err != nil {
 		result.Err = err
 		return result

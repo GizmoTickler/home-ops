@@ -36,6 +36,7 @@ type vmHandle interface {
 	Shutdown(context.Context) (taskHandle, error)
 	Stop(context.Context) (taskHandle, error)
 	Delete(context.Context) (taskHandle, error)
+	ResizeDisk(ctx context.Context, disk, size string) (taskHandle, error)
 }
 
 type proxmoxTaskHandle struct {
@@ -84,6 +85,14 @@ func (h proxmoxVMHandle) Shutdown(ctx context.Context) (taskHandle, error) {
 
 func (h proxmoxVMHandle) Stop(ctx context.Context) (taskHandle, error) {
 	task, err := h.vm.Stop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return proxmoxTaskHandle{task: task}, nil
+}
+
+func (h proxmoxVMHandle) ResizeDisk(ctx context.Context, disk, size string) (taskHandle, error) {
+	task, err := h.vm.ResizeDisk(ctx, disk, size)
 	if err != nil {
 		return nil, err
 	}
@@ -187,11 +196,30 @@ type VMConfig struct {
 	IgnitionPath   string // Proxmox snippets path the Ignition was written to (for fw_cfg attach)
 	ImageDiskPath  string // path/volume to import the Flatcar disk image from (import-from=)
 	ImageVolume    string // pre-existing storage volume to use directly as scsi0 (alternative to import)
+	// OSFamily selects the fw_cfg key the Ignition is attached under:
+	// "" / "flatcar" -> opt/org.flatcar-linux/config (historical default),
+	// "fcos" -> opt/com.coreos/config (Fedora CoreOS qemu image).
+	OSFamily string
 
 	// CloudInit, when set, deploys a general-purpose cloud-image VM (vm
 	// create): imported boot disk + cloud-init drive (see cloudinit.go).
 	CloudInit *CloudInitConfig
 	BootMode  string // override boot order (e.g. "order=scsi0"); empty = sensible default
+
+	// SetRootOptions, when set, applies the root@pam-only options (see
+	// rootOnlyOptions: the fw_cfg Ignition "args", CPU "affinity") out of band
+	// after the VM is created and before it is powered on. PVE refuses them
+	// from an API token ("only root can set 'args'/'affinity' config"); the
+	// caller applies them as root (qm set over SSH).
+	SetRootOptions func(vmid int, options []RootOption) error
+
+	// Machine is the QEMU machine type ("q35"); empty keeps the PVE default
+	// (i440fx). The live cluster nodes are q35, which PCIe passthrough needs.
+	Machine string
+
+	// AttachStorageVFs, when set, passes the SR-IOV storage VFs through to the
+	// VM after the create and before power-on (hostpci is root@pam-only too).
+	AttachStorageVFs func(vmid int) error
 }
 
 // TalosNodeConfig defines per-node configuration matching actual deployment
@@ -230,6 +258,7 @@ type FlatcarNodeConfig struct {
 	CephStorage    string                  // storage pool for the virtual legacy OSD disk
 	CPUAffinity    string                  // CPU core pinning
 	NUMANode       int                     // NUMA node (0 or 1)
+	MemoryMB       int                     // per-node memory override; 0 = provider default
 	MacAddress     string                  // Static MAC address
 	MacAddressIoT  string                  // net1 MAC, VLAN 20 (Multus macvlan master eth1)
 	MacAddressVPN  string                  // net2 MAC, VLAN 90 (Multus macvlan master eth2)
@@ -291,6 +320,7 @@ func flatcarNodeConfigFromNode(node homeopscfg.Node) FlatcarNodeConfig {
 		CephStorage:    profile.Ceph.Storage,
 		CPUAffinity:    profile.CPUAffinity,
 		NUMANode:       vmProfileNUMANode(profile),
+		MemoryMB:       profile.MemoryMB,
 		MacAddress:     profile.Mac,
 		MacAddressIoT:  profile.MacIoT,
 		MacAddressVPN:  profile.MacVPN,
@@ -528,6 +558,11 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 		options = vm.buildVMOptions(config)
 	}
 
+	var rootOptions []RootOption
+	if config.SetRootOptions != nil {
+		options, rootOptions = splitRootOnlyOptions(options)
+	}
+
 	// Create the VM
 	task, err := vm.createVMTask(vmid, options...)
 	if err != nil {
@@ -538,6 +573,27 @@ func (vm *VMManager) DeployVM(config VMConfig) error {
 	vm.logger.Info("Waiting for VM creation task to complete...")
 	if err := task.Wait(vm.client.Context(), time.Second, 120*time.Second); err != nil {
 		return fmt.Errorf("VM creation task failed: %w", err)
+	}
+
+	if size := importedBootDiskSize(config); size > 0 {
+		vm.logger.Info("Growing imported boot disk of VM %d to %dG", vmid, size)
+		if err := vm.resizeDisk(vmid, "scsi0", fmt.Sprintf("%dG", size)); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its boot disk could not be grown to %dG (it was not started): %w", config.Name, vmid, size, err)
+		}
+	}
+
+	if config.AttachStorageVFs != nil {
+		vm.logger.Info("Attaching SR-IOV storage VFs to VM %d", vmid)
+		if err := config.AttachStorageVFs(vmid); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its storage VFs could not be attached (it was not started): %w", config.Name, vmid, err)
+		}
+	}
+
+	if len(rootOptions) > 0 {
+		vm.logger.Info("Applying root-only options to VM %d", vmid)
+		if err := config.SetRootOptions(vmid, rootOptions); err != nil {
+			return fmt.Errorf("VM %s (VMID %d) was created but its root-only options could not be set (it was not started): %w", config.Name, vmid, err)
+		}
 	}
 
 	vm.logger.Success("VM %s created successfully with VMID: %d", config.Name, vmid)
@@ -596,6 +652,7 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 //     provisioning path) and the optional legacy OSD disk on scsi2,
 //   - injects the rendered Ignition via fw_cfg:
 //     args = -fw_cfg name=opt/org.flatcar-linux/config,file=<IgnitionPath>
+//     (opt/com.coreos/config when OSFamily is fcos — see addFlatcarIgnitionArgs)
 //
 // This does not alter the Talos buildVMOptions path.
 func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
@@ -630,11 +687,9 @@ func (vm *VMManager) flatcarBootDiskOpts(config VMConfig) string {
 	case config.ImageVolume != "":
 		opts = config.ImageVolume
 	case config.ImageDiskPath != "":
-		size := config.BootDiskSize
-		if size <= 0 {
-			size = 200
-		}
-		opts = fmt.Sprintf("%s:%d,import-from=%s", config.BootStorage, size, config.ImageDiskPath)
+		// PVE requires size 0 with import-from (the disk takes the image's
+		// size); DeployVM grows it to BootDiskSize before first boot.
+		opts = fmt.Sprintf("%s:0,import-from=%s", config.BootStorage, config.ImageDiskPath)
 	default:
 		size := config.BootDiskSize
 		if size <= 0 {
@@ -829,6 +884,55 @@ func (vm *VMManager) nextVMID() (int, error) {
 		return vm.getNextVMIDFn()
 	}
 	return vm.client.GetNextVMID()
+}
+
+// importedBootDiskSize is the size (GB) an imported boot disk (Flatcar/FCOS
+// image or cloud image) is grown to after the create, or 0 when scsi0 is not
+// an import.
+func importedBootDiskSize(config VMConfig) int {
+	if config.ImageVolume != "" || config.ImageDiskPath == "" {
+		return 0
+	}
+	if config.BootDiskSize > 0 {
+		return config.BootDiskSize
+	}
+	return 200
+}
+
+func (vm *VMManager) resizeDisk(vmid int, disk, size string) error {
+	handle, err := vm.vmHandleByID(vmid)
+	if err != nil {
+		return err
+	}
+	task, err := handle.ResizeDisk(vm.client.Context(), disk, size)
+	if err != nil {
+		return err
+	}
+	return task.Wait(vm.client.Context(), time.Second, 120*time.Second)
+}
+
+// RootOption is one VM option only root@pam may set.
+type RootOption struct {
+	Name  string
+	Value string
+}
+
+// rootOnlyOptions are the VM options PVE refuses from an API token.
+var rootOnlyOptions = map[string]bool{"args": true, "affinity": true}
+
+// splitRootOnlyOptions removes the root@pam-only options from a create
+// request and returns them separately, in their original order.
+func splitRootOnlyOptions(options []proxmox.VirtualMachineOption) ([]proxmox.VirtualMachineOption, []RootOption) {
+	kept := make([]proxmox.VirtualMachineOption, 0, len(options))
+	var root []RootOption
+	for _, option := range options {
+		if rootOnlyOptions[option.Name] {
+			root = append(root, RootOption{Name: option.Name, Value: fmt.Sprint(option.Value)})
+			continue
+		}
+		kept = append(kept, option)
+	}
+	return kept, root
 }
 
 func (vm *VMManager) createVMTask(vmid int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {

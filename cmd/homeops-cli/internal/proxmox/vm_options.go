@@ -45,6 +45,9 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 		{Name: "sockets", Value: config.Sockets},
 		{Name: "ostype", Value: "l26"},
 	}
+	if config.Machine != "" {
+		options = append(options, proxmox.VirtualMachineOption{Name: "machine", Value: config.Machine})
+	}
 
 	if profile.staticCPU != "" {
 		options = append(options, proxmox.VirtualMachineOption{Name: "cpu", Value: profile.staticCPU})
@@ -266,11 +269,14 @@ func addCloudInitOptions(ci CloudInitConfig) func([]proxmox.VirtualMachineOption
 	}
 }
 
+// addFlatcarIgnitionArgs attaches the staged Ignition through qemu fw_cfg under
+// the key the node's OS family reads: Flatcar (default) keeps
+// opt/org.flatcar-linux/config, Fedora CoreOS uses opt/com.coreos/config.
 func addFlatcarIgnitionArgs(options []proxmox.VirtualMachineOption, config VMConfig) []proxmox.VirtualMachineOption {
 	if config.IgnitionPath == "" {
 		return options
 	}
-	args := fmt.Sprintf("-fw_cfg name=opt/org.flatcar-linux/config,file=%s", config.IgnitionPath)
+	args := fmt.Sprintf("-fw_cfg name=%s,file=%s", homeopscfg.IgnitionFwCfgKey(config.OSFamily), config.IgnitionPath)
 	return append(options, proxmox.VirtualMachineOption{Name: "args", Value: args})
 }
 
@@ -320,11 +326,23 @@ func storageNICs(config VMConfig) []secondaryNIC {
 		return nil
 	}
 
-	nics := append([]homeopscfg.StorageNIC(nil), config.StorageNICs...)
+	// SR-IOV VFs are passed through after the create (AttachStorageVFs), so
+	// only the virtio fabric NICs become netN here.
+	var nics []homeopscfg.StorageNIC
+	for _, nic := range config.StorageNICs {
+		if !nic.IsVF() {
+			nics = append(nics, nic)
+		}
+	}
 	sort.Slice(nics, func(i, j int) bool { return nics[i].VLAN < nics[j].VLAN })
 	out := make([]secondaryNIC, 0, len(nics))
 	for index, nic := range nics {
+		// A dedicated bridge (the live fabric) already is the VLAN: attach
+		// untagged. Otherwise tag the VLAN on the VM's network bridge.
 		value := fmt.Sprintf("virtio=%s,bridge=%s,tag=%d", nic.MAC, config.NetworkBridge, nic.VLAN)
+		if nic.Bridge != "" {
+			value = fmt.Sprintf("virtio=%s,bridge=%s", nic.MAC, nic.Bridge)
+		}
 		if config.NetworkMTU > 0 {
 			value += fmt.Sprintf(",mtu=%d", config.NetworkMTU)
 		}

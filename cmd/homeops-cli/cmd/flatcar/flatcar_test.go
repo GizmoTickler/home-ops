@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -91,6 +92,20 @@ func TestTrueNASIgnitionSSHConfigThreadsConfiguredKey(t *testing.T) {
 	assert.Equal(t, ssh.SSHConfig{
 		Host: "nas", Username: "admin", Port: "22", KeyPath: "~/.ssh/keys/nas01-ssh",
 	}, trueNASIgnitionSSHConfig("nas", "admin", "22"))
+}
+
+// Proxmox SSH flows (Ignition upload, FCOS image staging) must offer the
+// configured key; without it only an agent that already holds the pve key
+// could reach the host.
+func TestProxmoxSSHConfigThreadsConfiguredKey(t *testing.T) {
+	restore := versionconfig.SetForTesting(&versionconfig.Config{
+		Hypervisors: versionconfig.HypervisorsConfig{Proxmox: versionconfig.ProxmoxConfig{SSHKey: "~/.ssh/keys/proxmox-ssh"}},
+	})
+	defer restore()
+
+	assert.Equal(t, ssh.SSHConfig{
+		Host: "pve", Username: "root", Port: "22", KeyPath: "~/.ssh/keys/proxmox-ssh",
+	}, proxmoxSSHConfig("pve", "root", "22"))
 }
 
 // stubSecrets makes the config-sourced node identifiers deterministic (no
@@ -553,14 +568,27 @@ func TestDeployVMRealPath(t *testing.T) {
 	require.NoError(t, cmd.Execute())
 	require.Len(t, mgr.deployed, 1)
 	assert.Equal(t, "k8s-0", mgr.deployed[0].Name)
-	assert.Equal(t, 700, mgr.deployed[0].OpenEBSSize)
+	// The scsi3 OpenEBS tier is retired: even with a configured pool and size,
+	// no OpenEBS disk is attached (live VMs carry only scsi0 + scsi4).
+	assert.Zero(t, mgr.deployed[0].OpenEBSSize)
+	assert.Empty(t, mgr.deployed[0].OpenEBSStorage)
 	require.Len(t, mgr.deployed[0].StorageNICs, 4)
 	assert.Equal(t, 1201, mgr.deployed[0].StorageNICs[0].VLAN)
-	assert.Equal(t, "openebs-ssd", mgr.deployed[0].OpenEBSStorage)
-	assert.Equal(t, "scsi3", mgr.deployed[0].OpenEBSSlot)
-	assert.True(t, mgr.deployed[0].OpenEBSSSD)
+	assert.Equal(t, "scsi4", mgr.deployed[0].ScratchSlot)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
 	assert.Equal(t, "h:"+snip+"/ignition-k8s-0.json", uploadedTo)
+	// Live nodes are q35; no storage VF is configured for k8s-0 here.
+	assert.Equal(t, "q35", mgr.deployed[0].Machine)
+	assert.Nil(t, mgr.deployed[0].AttachStorageVFs)
+	// The root-only fw_cfg args go through qm over the same SSH target.
+	require.NotNil(t, mgr.deployed[0].SetRootOptions)
+	var rootOn string
+	testutil.Swap(t, &setPVERootOptionsFn, func(host, _, _ string, vmid int, options []proxmox.RootOption) error {
+		rootOn = host + ":" + pveRootOptionsCommand(vmid, options)
+		return nil
+	})
+	require.NoError(t, mgr.deployed[0].SetRootOptions(200, []proxmox.RootOption{{Name: "args", Value: "-fw_cfg x"}, {Name: "affinity", Value: "0-7,32-39"}}))
+	assert.Equal(t, "h:qm set 200 --args '-fw_cfg x' --affinity '0-7,32-39'", rootOn)
 }
 
 // TestRunDeployVMRejectsUnsafeProxmoxOpts asserts deploy-vm refuses values that
@@ -1142,3 +1170,43 @@ func TestDeployTrueNASRealPathUsesCredentialUploadAndClientSeams(t *testing.T) {
 }
 
 var _ = cobra.Command{}
+
+// The host-side VF step: one attach per VF in VLAN order (hostpci0..N), the
+// node's storage MAC lower-cased, and a script bash accepts. It never changes
+// a port's VF count (that resets the port).
+func TestPVEStorageVFScript(t *testing.T) {
+	one, four := 1, 4
+	vfs := storageVFs([]versionconfig.StorageNIC{
+		{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24", PF: "nic4", VF: &one},
+		{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.20/24"},
+		{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24", PF: "nic7", VF: &four},
+	})
+	require.Len(t, vfs, 2)
+	script := pveStorageVFScript(200, vfs)
+	assert.Contains(t, script, "attach 0 'nic7' 4 'bc:24:11:3b:e0:50'\n")
+	assert.Contains(t, script, "attach 1 'nic4' 1 'bc:24:11:ff:50:81'\n")
+	assert.Contains(t, script, `qm set 200 --hostpci$slot "$pci,pcie=1"`)
+	assert.Contains(t, script, "/etc/storage-vfs.conf")
+	assert.NotContains(t, script, "sriov_numvfs\" >", "the VF count is never changed here")
+	parse := exec.Command("bash", "-n")
+	parse.Stdin = strings.NewReader(script)
+	out, err := parse.CombinedOutput()
+	require.NoError(t, err, string(out))
+}
+
+// A node's memory_mb overrides the provider default and is what the NUMA
+// binding sizes to (a 96 GB default cannot bind to a node with 74 GB free).
+func TestNodeMemoryOverrideReachesVMConfig(t *testing.T) {
+	cfg := &versionconfig.Config{Cluster: versionconfig.ClusterConfig{Nodes: []versionconfig.Node{{
+		Name: "k8s-0", IP: "192.0.2.10",
+		VM: versionconfig.VMProfile{VMID: 200, MemoryMB: 65536, CPUAffinity: "24-31,56-63", NUMANode: vfIntPtr(1)},
+	}}}}
+	restore := versionconfig.SetForTesting(cfg)
+	defer restore()
+	nodeConfig, ok := proxmox.GetFlatcarNodeConfig("k8s-0")
+	require.True(t, ok)
+	assert.Equal(t, 65536, nodeConfig.MemoryMB)
+	assert.Equal(t, 1, nodeConfig.NUMANode)
+}
+
+func vfIntPtr(i int) *int { return &i }

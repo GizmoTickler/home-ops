@@ -24,7 +24,7 @@ import (
 // stageImageFn downloads a cloud image onto the hypervisor host over SSH
 // (idempotent: skips when already present). Swappable for tests.
 var stageImageFn = func(sshUser, host, url, destPath string) error {
-	client := ssh.NewSSHClient(ssh.SSHConfig{Host: host, Username: sshUser, Port: "22"})
+	client := ssh.NewSSHClient(ssh.SSHConfig{Host: host, Username: sshUser, Port: "22", KeyPath: versionconfig.Get().Hypervisors.Proxmox.SSHKey})
 	if err := client.Connect(); err != nil {
 		return fmt.Errorf("connect to %s@%s: %w", sshUser, host, err)
 	}

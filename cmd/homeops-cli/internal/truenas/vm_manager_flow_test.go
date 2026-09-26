@@ -267,3 +267,19 @@ func captureStdout(t *testing.T, fn func()) string {
 	require.NoError(t, err)
 	return buf.String()
 }
+
+func TestBuildVMConfigFCOSUsesCoreOSFwCfgKey(t *testing.T) {
+	manager := NewVMManager("nas", "key", 443, true)
+	cfg := manager.buildVMConfig(VMConfig{
+		Name:         "k8s-0",
+		Memory:       8192,
+		VCPUs:        4,
+		Flatcar:      true,
+		OSFamily:     "fcos",
+		IgnitionPath: "/mnt/flashstor/VM/ignition-k8s-0.json",
+	})
+	// The Fedora CoreOS qemu image only reads opt/com.coreos/config; the Flatcar
+	// key would leave the node booting with no Ignition at all.
+	assert.Equal(t, "-fw_cfg name=opt/com.coreos/config,file=/mnt/flashstor/VM/ignition-k8s-0.json", cfg["command_line_args"])
+	assert.Equal(t, "Fedora CoreOS VM - k8s-0", cfg["description"])
+}

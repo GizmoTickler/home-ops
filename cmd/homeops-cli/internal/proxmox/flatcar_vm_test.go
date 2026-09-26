@@ -83,7 +83,7 @@ func TestBuildFlatcarVMOptionsImportPath(t *testing.T) {
 	}
 
 	// scsi0 imports the Flatcar image.
-	assert.Equal(t, "nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
+	assert.Equal(t, "nvme1:0,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1", optionMap["scsi0"])
 	// OpenEBS + the legacy OSD compatibility disk are preserved.
 	assert.Equal(t, "openebs-ssd:700,discard=on,iothread=1,ssd=1", optionMap["scsi3"])
 	// NVMe download-scratch disk rides scsi4.
@@ -139,5 +139,34 @@ func TestBuildFlatcarVMOptionsScratchDiskIsOptIn(t *testing.T) {
 	})
 	for _, opt := range options {
 		assert.NotEqual(t, "scsi4", opt.Name, "scratch disk must not attach without a configured pool")
+	}
+}
+
+func TestBuildFlatcarVMOptionsFwCfgKeyFollowsOSFamily(t *testing.T) {
+	manager := &VMManager{}
+	for _, tc := range []struct {
+		family string
+		want   string
+	}{
+		// Unset keeps the historical Flatcar key: existing deploys are unchanged.
+		{"", "-fw_cfg name=opt/org.flatcar-linux/config,file=/var/lib/vz/snippets/ignition-k8s-0.json"},
+		{"flatcar", "-fw_cfg name=opt/org.flatcar-linux/config,file=/var/lib/vz/snippets/ignition-k8s-0.json"},
+		// The Fedora CoreOS qemu image reads its Ignition from opt/com.coreos/config.
+		{"fcos", "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-0.json"},
+	} {
+		options := manager.buildFlatcarVMOptions(VMConfig{
+			Name:          "k8s-0",
+			BootStorage:   "vm-ssd",
+			ImageDiskPath: "/var/lib/vz/template/cache/fedora-coreos-qemu.x86_64.qcow2",
+			IgnitionPath:  "/var/lib/vz/snippets/ignition-k8s-0.json",
+			OSFamily:      tc.family,
+		})
+		var args interface{}
+		for _, opt := range options {
+			if opt.Name == "args" {
+				args = opt.Value
+			}
+		}
+		assert.Equal(t, tc.want, args, "os family %q", tc.family)
 	}
 }

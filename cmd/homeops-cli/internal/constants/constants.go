@@ -49,6 +49,7 @@ const (
 	EnvNodeMACVPN          = "NODE_MAC_VPN"
 	EnvNodeName            = "NODE_NAME"
 	EnvNodeIP              = "NODE_IP"
+	EnvNodeOS              = "NODE_OS"
 	EnvNode0IP             = "NODE0_IP"
 	EnvNode1IP             = "NODE1_IP"
 	EnvNode2IP             = "NODE2_IP"
@@ -70,6 +71,12 @@ const (
 	EnvNetworkMTU          = "NETWORK_MTU"
 	EnvStorageNetworkFiles = "STORAGE_NETWORK_FILES"
 	EnvNFSTrunkUnits       = "NFS_TRUNK_UNITS"
+
+	// Fedora CoreOS-only template variables (embedded fcos templates). The
+	// shared Flatcar/kubeadm names above are reused unchanged.
+	EnvCrictlVersion     = "CRICTL_VERSION"
+	EnvCNIPluginsVersion = "CNI_PLUGINS_VERSION"
+	EnvChronyServers     = "CHRONY_SERVERS"
 )
 
 // Kubernetes namespaces commonly used

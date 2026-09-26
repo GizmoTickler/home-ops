@@ -3,8 +3,10 @@ package proxmox
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"homeops-cli/internal/common"
@@ -378,4 +380,99 @@ func captureStdout(t *testing.T, fn func()) string {
 	_, err = buf.ReadFrom(r)
 	require.NoError(t, err)
 	return buf.String()
+}
+
+// PVE lets only root@pam set qemu "args" (the fw_cfg Ignition attach), so an
+// API-token create must not carry it: it is applied through SetRootOptions after
+// the create and before power-on, and a failure there leaves the VM stopped.
+func TestVMManagerDeployVMAppliesRootOnlyArgsOutOfBand(t *testing.T) {
+	newManager := func(created *[]proxmox.VirtualMachineOption, vm *fakeVMHandle, order *[]string) *VMManager {
+		return &VMManager{
+			client:        &Client{ctx: context.Background()},
+			logger:        common.NewColorLogger(),
+			listVMsFn:     func() (proxmox.VirtualMachines, error) { return proxmox.VirtualMachines{}, nil },
+			getNextVMIDFn: func() (int, error) { return 299, nil },
+			createVMTaskFn: func(_ int, options ...proxmox.VirtualMachineOption) (taskHandle, error) {
+				*order = append(*order, "create")
+				*created = append([]proxmox.VirtualMachineOption{}, options...)
+				return &fakeTaskHandle{}, nil
+			},
+			getVMHandleFn:   func(int) (vmHandle, error) { *order = append(*order, "start"); return vm, nil },
+			verifyStorageFn: func(string) error { return nil },
+		}
+	}
+	config := VMConfig{
+		Name: "k8s-test", Memory: 4096, Cores: 2, Sockets: 1, BootDiskSize: 32, BootStorage: "vm-ssd",
+		NetworkBridge: "vmbr0", PowerOn: true, OSFamily: "fcos",
+		IgnitionConfig: "{}", IgnitionPath: "/var/lib/vz/snippets/ignition-k8s-test.json", ImageDiskPath: "local:import/fcos.qcow2",
+	}
+
+	var created []proxmox.VirtualMachineOption
+	var order []string
+	vm := &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	var gotVMID int
+	var gotRoot []RootOption
+	config.CPUAffinity = "24-31,56-63"
+	config.SetRootOptions = func(vmid int, options []RootOption) error {
+		order = append(order, "args")
+		gotVMID, gotRoot = vmid, options
+		return nil
+	}
+	require.NoError(t, newManager(&created, vm, &order).DeployVM(config))
+	_, hasArgs := optionMap(created)["args"]
+	_, hasAffinity := optionMap(created)["affinity"]
+	assert.False(t, hasArgs, "the API create must not carry args")
+	assert.False(t, hasAffinity, "the API create must not carry affinity (root@pam only)")
+	assert.Equal(t, 299, gotVMID)
+	assert.Contains(t, gotRoot, RootOption{Name: "args", Value: "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-k8s-test.json"})
+	assert.Contains(t, gotRoot, RootOption{Name: "affinity", Value: "24-31,56-63"})
+	// scsi0 is imported at size 0 (PVE's required syntax) and grown before boot.
+	assert.Equal(t, "vm-ssd:0,import-from=local:import/fcos.qcow2", strings.Split(optionMap(created)["scsi0"], ",discard")[0])
+	assert.Equal(t, []string{"scsi0=32G"}, vm.resizes)
+	assert.Equal(t, []string{"create", "start", "args", "start"}, order, "handle lookups: resize, then power-on")
+
+	created, order = nil, nil
+	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	config.SetRootOptions = func(int, []RootOption) error { return errors.New("qm set failed") }
+	err := newManager(&created, vm, &order).DeployVM(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not started")
+	assert.Zero(t, vm.startCalls, "a VM without its Ignition must not boot")
+}
+
+// Storage VFs are attached after the create (and the disk grow) and before the
+// root args and power-on; a failed attach leaves the VM stopped.
+func TestVMManagerDeployVMAttachesStorageVFsBeforeBoot(t *testing.T) {
+	var order []string
+	vm := &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	manager := &VMManager{
+		client:        &Client{ctx: context.Background()},
+		logger:        common.NewColorLogger(),
+		listVMsFn:     func() (proxmox.VirtualMachines, error) { return proxmox.VirtualMachines{}, nil },
+		getNextVMIDFn: func() (int, error) { return 299, nil },
+		createVMTaskFn: func(int, ...proxmox.VirtualMachineOption) (taskHandle, error) {
+			order = append(order, "create")
+			return &fakeTaskHandle{}, nil
+		},
+		getVMHandleFn:   func(int) (vmHandle, error) { order = append(order, "handle"); return vm, nil },
+		verifyStorageFn: func(string) error { return nil },
+	}
+	config := VMConfig{
+		Name: "k8s-test", Memory: 4096, Cores: 2, Sockets: 1, BootDiskSize: 32, BootStorage: "vm-ssd",
+		NetworkBridge: "vmbr0", PowerOn: true, Machine: "q35",
+		IgnitionConfig: "{}", IgnitionPath: "/var/lib/vz/snippets/i.json", ImageDiskPath: "local:import/fcos.qcow2",
+		SetRootOptions:   func(int, []RootOption) error { order = append(order, "args"); return nil },
+		AttachStorageVFs: func(vmid int) error { order = append(order, "vfs"); return nil },
+	}
+	require.NoError(t, manager.DeployVM(config))
+	// handle #1 = disk grow, handle #2 = power-on.
+	assert.Equal(t, []string{"create", "handle", "vfs", "args", "handle"}, order)
+
+	order = nil
+	vm = &fakeVMHandle{name: "k8s-test", vmid: 299, startTask: &fakeTaskHandle{}}
+	config.AttachStorageVFs = func(int) error { return errors.New("nic7 has no VF 4") }
+	err := manager.DeployVM(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "storage VFs could not be attached (it was not started)")
+	assert.Zero(t, vm.startCalls)
 }

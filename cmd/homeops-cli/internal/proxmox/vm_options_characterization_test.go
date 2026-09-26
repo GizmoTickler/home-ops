@@ -2,10 +2,12 @@ package proxmox
 
 import (
 	"fmt"
+	homeopscfg "homeops-cli/internal/config"
 	"strings"
 	"testing"
 
 	"github.com/luthermonson/go-proxmox"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -132,7 +134,7 @@ numa0=cpus=0-7,hostnodes=1,memory=8192,policy=bind
 bios=ovmf
 efidisk0=nvme1:1,efitype=4m,pre-enrolled-keys=0
 scsihw=virtio-scsi-single
-scsi0=nvme1:200,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1
+scsi0=nvme1:0,import-from=/var/lib/vz/template/flatcar.img,discard=on,iothread=1
 scsi3=openebs-ssd:100,discard=on,iothread=1,ssd=1
 scsi2=nvme1:300,discard=on,iothread=1
 boot=order=scsi0;scsi3
@@ -205,7 +207,7 @@ scsihw=virtio-scsi-single
 agent=enabled=1
 serial0=socket
 vga=serial0
-scsi0=local-lvm:20,import-from=/var/lib/vz/template/debian.qcow2
+scsi0=local-lvm:0,import-from=/var/lib/vz/template/debian.qcow2
 boot=order=scsi0
 ide2=local-lvm:cloudinit
 ciuser=debian
@@ -269,4 +271,39 @@ func formatVMOptionsForCharacterization(opts []proxmox.VirtualMachineOption) str
 		fmt.Fprintf(&b, "%s=%v\n", opt.Name, opt.Value)
 	}
 	return b.String()
+}
+
+// The live NVMe-oF fabric is four dedicated bridges (vmbr201-vmbr204, one
+// physical port each), not VLAN tags on vmbr0: a rebuilt node attached the
+// tagged way came up with no storage path. A NIC with a bridge attaches
+// untagged to it; one without keeps the tagged attach.
+func TestStorageNICsUseDedicatedBridgeUntagged(t *testing.T) {
+	nics := storageNICs(VMConfig{
+		NetworkBridge: "vmbr0", NetworkMTU: 9000,
+		StorageNICs: []homeopscfg.StorageNIC{
+			{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.99/24", Bridge: "vmbr202"},
+			{VLAN: 1201, MAC: "02:00:00:00:02:a1", IP: "192.168.201.99/24"},
+		},
+	})
+	require.Len(t, nics, 2)
+	assert.Equal(t, "net3", nics[0].name)
+	assert.Equal(t, "virtio=02:00:00:00:02:a1,bridge=vmbr0,tag=1201,mtu=9000", nics[0].value)
+	assert.Equal(t, "net4", nics[1].name)
+	assert.Equal(t, "virtio=02:00:00:00:02:a2,bridge=vmbr202,mtu=9000", nics[1].value)
+}
+
+// SR-IOV storage NICs are passed through after the create, so they never
+// become virtio netN (a VM with both would carry the storage MAC twice).
+func TestStorageNICsSkipSRIOVVFs(t *testing.T) {
+	vf := 1
+	nics := storageNICs(VMConfig{
+		NetworkBridge: "vmbr0",
+		StorageNICs: []homeopscfg.StorageNIC{
+			{VLAN: 1201, MAC: "02:00:00:00:02:a1", IP: "192.168.201.99/24", Bridge: "vmbr201", PF: "nic7", VF: &vf},
+			{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.99/24", Bridge: "vmbr202"},
+		},
+	})
+	require.Len(t, nics, 1)
+	assert.Equal(t, "net3", nics[0].name)
+	assert.Contains(t, nics[0].value, "02:00:00:00:02:a2")
 }

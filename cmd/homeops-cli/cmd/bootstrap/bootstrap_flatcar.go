@@ -29,9 +29,13 @@ import (
 // than exporting a large surface or duplicating logic.
 
 // flatcarBootstrapNode carries the per-node identity for the kubeadm flow.
+// The kubeadm flow itself is OS-agnostic; OS (cluster.os / nodes[].os, "" =
+// flatcar) only selects the preflight check that the node booted the
+// expected OS, so Flatcar and Fedora CoreOS nodes bootstrap identically.
 type flatcarBootstrapNode struct {
 	Name string
 	IP   string
+	OS   string
 }
 
 // Swappable function vars for the Flatcar kubeadm path. Tests inject fakes for
@@ -121,7 +125,7 @@ func flatcarNodes() ([]flatcarBootstrapNode, error) {
 		if !ok {
 			return nil, fmt.Errorf("unknown flatcar node %q", name)
 		}
-		nodes = append(nodes, flatcarBootstrapNode{Name: cfg.Name, IP: cfg.NodeIP})
+		nodes = append(nodes, flatcarBootstrapNode{Name: cfg.Name, IP: cfg.NodeIP, OS: versionconfig.Get().NodeOS(name)})
 	}
 	return nodes, nil
 }
@@ -573,7 +577,8 @@ func runFlatcarPreflight(config *BootstrapConfig, nodes []flatcarBootstrapNode, 
 		if err := flatcarCheckNode(sshUser, node, logger); err != nil {
 			return fmt.Errorf("node %s (%s) preflight failed: %w", node.Name, node.IP, err)
 		}
-		logger.Debug("Node %s (%s) reachable, Flatcar booted, kubelet present", node.Name, node.IP)
+		_, osName := nodeReadyProbe(node.OS)
+		logger.Debug("Node %s (%s) reachable, %s booted, kubelet present", node.Name, node.IP, osName)
 	}
 	return nil
 }
@@ -584,6 +589,7 @@ var flatcarNewSSHRunner = func(sshUser, host string) flatcarSSHRunner {
 		Host:     host,
 		Username: sshUser,
 		Port:     strconv.Itoa(versionconfig.Get().Cluster.NodeSSHPort),
+		KeyPath:  versionconfig.Get().Cluster.NodeSSHKey,
 	})
 }
 
@@ -594,9 +600,21 @@ type flatcarSSHRunner interface {
 	ExecuteCommand(command string) (string, error)
 }
 
-// checkFlatcarNodeReady SSHes to a node and verifies it is booted into Flatcar
-// (os-release ID=flatcar) and that the kubelet binary is present, so the kubeadm
-// init/join steps have what they need.
+// nodeReadyProbe returns the one-round-trip preflight probe for a node's OS
+// family and the OS name used in errors: Flatcar is os-release ID=flatcar;
+// Fedora CoreOS is ID=fedora + VARIANT_ID=coreos. Both then require kubelet
+// (from the Kubernetes sysext) on PATH.
+func nodeReadyProbe(osFamily string) (command, osName string) {
+	if osFamily == versionconfig.OSFCOS {
+		return "grep -q '^ID=fedora' /etc/os-release && grep -q '^VARIANT_ID=coreos' /etc/os-release && command -v kubelet", "Fedora CoreOS"
+	}
+	return "grep -q '^ID=flatcar' /etc/os-release && command -v kubelet", "Flatcar"
+}
+
+// checkFlatcarNodeReady SSHes to a node and verifies it is booted into its
+// configured OS (os-release ID=flatcar, or ID=fedora + VARIANT_ID=coreos for
+// FCOS) and that the kubelet binary is present, so the kubeadm init/join steps
+// have what they need.
 func checkFlatcarNodeReady(sshUser string, node flatcarBootstrapNode, logger *common.ColorLogger) error {
 	runner := flatcarNewSSHRunner(sshUser, node.IP)
 	if err := runner.Connect(); err != nil {
@@ -604,10 +622,11 @@ func checkFlatcarNodeReady(sshUser string, node flatcarBootstrapNode, logger *co
 	}
 	defer func() { _ = runner.Close() }()
 
-	// Verify Flatcar + kubelet in one round trip.
-	out, err := runner.ExecuteCommand("grep -q '^ID=flatcar' /etc/os-release && command -v kubelet")
+	// Verify the OS + kubelet in one round trip.
+	probe, osName := nodeReadyProbe(node.OS)
+	out, err := runner.ExecuteCommand(probe)
 	if err != nil {
-		return fmt.Errorf("node not booted into Flatcar or kubelet missing: %w", err)
+		return fmt.Errorf("node not booted into %s or kubelet missing: %w", osName, err)
 	}
 	if !strings.Contains(out, "kubelet") {
 		return fmt.Errorf("kubelet not found on node (output: %q)", strings.TrimSpace(out))

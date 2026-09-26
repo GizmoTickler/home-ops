@@ -38,6 +38,8 @@ type fakeVMHandle struct {
 	shutdownCalls int
 	stopCalls     int
 	deleteCalls   int
+	resizes       []string
+	resizeErr     error
 }
 
 func (f *fakeVMHandle) Name() string   { return f.name }
@@ -58,6 +60,13 @@ func (f *fakeVMHandle) Stop(context.Context) (taskHandle, error) {
 func (f *fakeVMHandle) Delete(context.Context) (taskHandle, error) {
 	f.deleteCalls++
 	return f.deleteTask, f.deleteErr
+}
+func (f *fakeVMHandle) ResizeDisk(_ context.Context, disk, size string) (taskHandle, error) {
+	f.resizes = append(f.resizes, disk+"="+size)
+	if f.resizeErr != nil {
+		return nil, f.resizeErr
+	}
+	return &fakeTaskHandle{}, nil
 }
 
 func TestVMManagerBuildVMOptions(t *testing.T) {

@@ -28,6 +28,9 @@ var brewTemplates embed.FS
 //go:embed flatcar/butane/*.bu flatcar/kubeadm/*.yaml flatcar/files/* flatcar/manifests/*
 var flatcarTemplates embed.FS
 
+//go:embed fcos/butane/*.bu fcos/files/* fcos/systemd/*
+var fcosTemplates embed.FS
+
 // readTemplateFile returns template content, preferring a user override from
 // the configured templates.dir (homeops.yaml) over the embedded copy. The
 // override file shadows the embedded one by relative path, e.g.
@@ -198,6 +201,58 @@ func ListFlatcarFiles(subdir string) ([]string, error) {
 	entries, err := flatcarTemplates.ReadDir(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list flatcar dir %s: %w", subdir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		names = append(names, fmt.Sprintf("%s/%s", subdir, e.Name()))
+	}
+	return names, nil
+}
+
+// RenderFCOSTemplate renders a Fedora CoreOS template (the Butane document or a
+// local: referenced file) with {{ ENV.* }} substitution. The templateName is the
+// path relative to the embedded fcos/ directory, e.g. "butane/controlplane.bu",
+// "files/install-k8s-sysext.sh", "systemd/kubelet.service". FCOS reuses the
+// Flatcar kubeadm configs and shared files (RenderFlatcarTemplate) unchanged;
+// only the FCOS-specific files live under fcos/.
+func RenderFCOSTemplate(templateName string, env map[string]string) (string, error) {
+	templateFile := fmt.Sprintf("fcos/%s", templateName)
+	content, err := readTemplateFile(fcosTemplates, templateFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read fcos template %s: %w", templateName, err)
+	}
+
+	// Simple Jinja2-style variable replacement (same as the Flatcar renderer).
+	result := string(content)
+	for key, value := range env {
+		placeholder := fmt.Sprintf("{{ ENV.%s }}", key)
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+
+	return result, nil
+}
+
+// GetFCOSTemplate returns the raw Fedora CoreOS template content (no substitution).
+func GetFCOSTemplate(templateName string) (string, error) {
+	templateFile := fmt.Sprintf("fcos/%s", templateName)
+	content, err := readTemplateFile(fcosTemplates, templateFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read fcos template %s: %w", templateName, err)
+	}
+	return string(content), nil
+}
+
+// ListFCOSFiles returns the embedded file paths (relative to fcos/) under the
+// given subdirectory (e.g. "files" or "systemd"). The FCOS Ignition renderer
+// overlays these on the Flatcar files when materializing its FilesDir.
+func ListFCOSFiles(subdir string) ([]string, error) {
+	dir := fmt.Sprintf("fcos/%s", subdir)
+	entries, err := fcosTemplates.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list fcos dir %s: %w", subdir, err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {

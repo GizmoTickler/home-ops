@@ -539,3 +539,24 @@ func decodeIgnitionContents(t *testing.T, ign string) string {
 	}
 	return sb.String()
 }
+
+// kubeadm registers each node with homeops.io/os=<family> so OS-specific
+// automation can select on it: the Flatcar SUC plan ran (and failed) on the
+// FCOS rehearsal node because nothing distinguished it.
+func TestKubeadmConfigsLabelNodeOS(t *testing.T) {
+	env := sampleEnv()
+	env.BootstrapToken = "abcdef.0123456789abcdef"
+	env.CACertHash = "sha256:" + strings.Repeat("a", 64)
+	env.CertificateKey = strings.Repeat("b", 64)
+	join, err := RenderKubeadmJoinConfig(env)
+	require.NoError(t, err)
+	assert.Contains(t, join, `value: "homeops.io/os=flatcar"`, "an unset OS is flatcar")
+
+	env.NodeOS = "fcos"
+	join, err = RenderKubeadmJoinConfig(env)
+	require.NoError(t, err)
+	assert.Contains(t, join, "- name: node-labels\n      value: \"homeops.io/os=fcos\"")
+	initCfg, err := RenderKubeadmInitConfig(env)
+	require.NoError(t, err)
+	assert.Contains(t, initCfg, `value: "homeops.io/os=fcos"`)
+}

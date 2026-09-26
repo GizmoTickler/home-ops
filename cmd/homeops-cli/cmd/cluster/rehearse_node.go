@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -168,7 +169,10 @@ func executeRehearseNodeCommand(cmd *cobra.Command, opts rehearseNodeOptions, op
 		report := plannedRehearseReport(spec, opts)
 		return writeRehearseReport(cmd, report, opts.Output)
 	}
-	if spec.Provider == "proxmox" && strings.TrimSpace(opts.ImagePath) == "" && strings.TrimSpace(opts.ImageVolume) == "" {
+	// A Fedora CoreOS test node (test_node.os / cluster.os: fcos) stages the
+	// stream's qemu image itself; Flatcar still needs an explicit image.
+	fcosNode := rehearseConfigFn().OSForNode(spec.Node) == config.OSFCOS
+	if spec.Provider == "proxmox" && !fcosNode && strings.TrimSpace(opts.ImagePath) == "" && strings.TrimSpace(opts.ImageVolume) == "" {
 		return fmt.Errorf("one of --image-path or --image-volume is required for Proxmox execution (use --plan to inspect without one)")
 	}
 	confirmed, err := rehearseConfirmFn(fmt.Sprintf("Deploy, join, test, and destroy disposable node %s (VMID %d, IP %s)?", spec.Node.Name, spec.VMID, spec.Node.IP), false)
@@ -297,6 +301,9 @@ func plannedRehearseReport(spec rehearseNodeSpec, opts rehearseNodeOptions) rehe
 	}
 	if image == "" && spec.Provider == "proxmox" {
 		image = "<required at execution: --image-path or --image-volume>"
+		if rehearseConfigFn().OSForNode(spec.Node) == config.OSFCOS {
+			image = "<FCOS stable stream qemu image, staged at execution>"
+		}
 	}
 	steps := []rehearseStep{
 		{Name: "preconditions", Status: "SKIP", Duration: "0s", Detail: fmt.Sprintf("plan: verify apiserver; refuse node %s or VMID %d collisions", spec.Node.Name, spec.VMID)},
@@ -316,7 +323,7 @@ func plannedTeardownDetail(keep bool) string {
 	if keep {
 		return "plan: --keep leaves the node, VM, disks, and token for manual cleanup"
 	}
-	return "plan: drain/delete node; power off/delete VM and disks; invalidate token (also on failure)"
+	return "plan: drain node; remove its etcd member; delete node; power off/delete VM and disks; invalidate token (also on failure)"
 }
 
 func runRehearseNode(ctx context.Context, spec rehearseNodeSpec, opts rehearseNodeOptions, operations rehearseOperations) (rehearseReport, error) {
@@ -470,9 +477,11 @@ func renderRehearseReport(report rehearseReport, output string) (string, error) 
 func cleanupCommands(spec rehearseNodeSpec, tokenID string) []string {
 	return []string{
 		fmt.Sprintf("kubectl drain %s --ignore-daemonsets --delete-emptydir-data --force", spec.Node.Name),
+		fmt.Sprintf("kubectl -n kube-system exec etcd-%s -- etcdctl --endpoints=https://127.0.0.1:2379 --cacert=/etc/kubernetes/pki/etcd/ca.crt --cert=/etc/kubernetes/pki/etcd/server.crt --key=/etc/kubernetes/pki/etcd/server.key member list  # then: member remove <id of %s>", spec.InitNode.Name, spec.Node.Name),
 		fmt.Sprintf("kubectl delete node %s --ignore-not-found", spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s poweroff --name %s --force", spec.Provider, spec.Node.Name),
 		fmt.Sprintf("homeops-cli vm %s delete --name %s --force", spec.Provider, spec.Node.Name),
+		fmt.Sprintf("ssh-keygen -R %s", spec.Node.IP),
 		fmt.Sprintf("ssh %s@%s 'sudo kubeadm token delete %s'", spec.SSHUser, spec.InitNode.IP, tokenID),
 	}
 }
@@ -643,7 +652,9 @@ func (realRehearseOperations) SmokeTest(ctx context.Context, spec rehearseNodeSp
 	if _, err := rehearseCommandFn(ctx, "kubectl", "wait", "--namespace", "default", "--for=condition=Ready", "pod/"+name, "--timeout="+timeout.String()); err != nil {
 		return fmt.Errorf("wait for smoke pod: %w", err)
 	}
-	if _, err := rehearseCommandFn(ctx, "kubectl", "exec", "--namespace", "default", name, "--", "nslookup", "kubernetes.default"); err != nil {
+	// Fully qualified: busybox nslookup does not apply the pod's search list,
+	// so "kubernetes.default" is NXDOMAIN even when cluster DNS works.
+	if _, err := rehearseCommandFn(ctx, "kubectl", "exec", "--namespace", "default", name, "--", "nslookup", rehearseKubernetesFQDN()); err != nil {
 		return fmt.Errorf("smoke pod DNS lookup: %w", err)
 	}
 	return nil
@@ -665,17 +676,69 @@ func (realRehearseOperations) DrainAndDeleteNode(ctx context.Context, spec rehea
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(name) == "" {
-		return nil
-	}
 	var cleanupErrors []error
-	if _, err := rehearseCommandFn(ctx, "kubectl", "drain", spec.Node.Name, "--ignore-daemonsets", "--delete-emptydir-data", "--force", "--timeout="+timeout.String()); err != nil {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("drain: %w", err))
+	if strings.TrimSpace(name) != "" {
+		if _, err := rehearseCommandFn(ctx, "kubectl", "drain", spec.Node.Name, "--ignore-daemonsets", "--delete-emptydir-data", "--force", "--timeout="+timeout.String()); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("drain: %w", err))
+		}
 	}
-	if _, err := rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err != nil {
-		cleanupErrors = append(cleanupErrors, fmt.Errorf("delete node: %w", err))
+	// The drill joins as a control plane, so the node is also an etcd member.
+	// Deleting the Node object leaves that member behind, and a dead fourth
+	// member costs the cluster its failure tolerance. The member can exist
+	// without a Node object (a join that failed after etcd added it), so this
+	// runs whether or not the node registered.
+	if err := removeRehearsalEtcdMember(ctx, spec); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove etcd member: %w", err))
+	}
+	if strings.TrimSpace(name) != "" {
+		if _, err := rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete node: %w", err))
+		}
 	}
 	return errors.Join(cleanupErrors...)
+}
+
+func rehearsalEtcdctl(pod string, args ...string) []string {
+	base := []string{
+		"-n", "kube-system", "exec", pod, "--",
+		"etcdctl", "--endpoints=https://127.0.0.1:2379",
+		"--cacert=/etc/kubernetes/pki/etcd/ca.crt",
+		"--cert=/etc/kubernetes/pki/etcd/server.crt",
+		"--key=/etc/kubernetes/pki/etcd/server.key",
+	}
+	return append(base, args...)
+}
+
+// removeRehearsalEtcdMember removes the drill node's etcd member through the
+// init node's etcd pod. Only a member whose name or peer URL is the test
+// node's own is ever removed.
+func removeRehearsalEtcdMember(ctx context.Context, spec rehearseNodeSpec) error {
+	pod := "etcd-" + spec.InitNode.Name
+	raw, err := rehearseCommandFn(ctx, "kubectl", rehearsalEtcdctl(pod, "member", "list", "-w", "json")...)
+	if err != nil {
+		return err
+	}
+	var payload struct {
+		Members []struct {
+			ID       uint64   `json:"ID"`
+			Name     string   `json:"name"`
+			PeerURLs []string `json:"peerURLs"`
+		} `json:"members"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return fmt.Errorf("parse etcd member list: %w", err)
+	}
+	peer := "https://" + net.JoinHostPort(spec.Node.IP, "2380")
+	for _, member := range payload.Members {
+		if member.Name != spec.Node.Name && !slices.Contains(member.PeerURLs, peer) {
+			continue
+		}
+		id := strconv.FormatUint(member.ID, 16)
+		if _, err := rehearseCommandFn(ctx, "kubectl", rehearsalEtcdctl(pod, "member", "remove", id)...); err != nil {
+			return fmt.Errorf("member %s (%s): %w", id, member.Name, err)
+		}
+	}
+	return nil
 }
 
 func (realRehearseOperations) DeleteVM(_ context.Context, spec rehearseNodeSpec) error {
@@ -705,9 +768,19 @@ func (realRehearseOperations) DeleteVM(_ context.Context, spec rehearseNodeSpec)
 		}
 		if err := lifecycle.DeleteVM(spec.Node.Name); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("delete VM and disks: %w", err))
+		} else {
+			// The next rehearsal node gets a new host key on the same IP, which
+			// StrictHostKeyChecking=accept-new refuses; forget the old one.
+			forgetRehearsalHostKey(spec.Node.IP)
 		}
 		return errors.Join(cleanupErrors...)
 	})
+}
+
+// forgetRehearsalHostKey drops the destroyed node's host key from the local
+// known_hosts. Best effort: a missing entry is not an error.
+var forgetRehearsalHostKey = func(ip string) {
+	_, _ = rehearseCommandFn(context.Background(), "ssh-keygen", "-R", ip)
 }
 
 func (realRehearseOperations) InvalidateToken(_ context.Context, spec rehearseNodeSpec, token string) error {
@@ -724,4 +797,14 @@ func runRehearseCommand(ctx context.Context, name string, args ...string) (strin
 		return result.Stdout, err
 	}
 	return result.Stdout, fmt.Errorf("%w: %s", err, detail)
+}
+
+// rehearseKubernetesFQDN is the API service's fully qualified name in the
+// configured cluster DNS domain.
+func rehearseKubernetesFQDN() string {
+	domain := strings.TrimSuffix(strings.TrimSpace(rehearseConfigFn().Cluster.DNSDomain), ".")
+	if domain == "" {
+		domain = "cluster.local"
+	}
+	return "kubernetes.default.svc." + domain
 }

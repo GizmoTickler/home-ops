@@ -50,6 +50,7 @@ type VMProfile struct {
 	ScratchStorage string       `yaml:"scratch_storage,omitempty"` // pool for the NVMe download-scratch disk (Flatcar scsi4)
 	CPUAffinity    string       `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
 	NUMANode       *int         `yaml:"numa_node,omitempty"`       // host NUMA node
+	MemoryMB       int          `yaml:"memory_mb,omitempty"`       // per-node memory override (NUMA binding sizes to it); 0 = provider default
 	PCIDevice      string       `yaml:"pci_device,omitempty"`      // vSphere SR-IOV PCI address (e.g. "0000:04:00.0")
 	RDMPath        string       `yaml:"rdm_path,omitempty"`        // vSphere pRDM descriptor path
 	// Ceph retains the legacy OSD-disk passthrough configuration exposed by the
@@ -69,7 +70,21 @@ type StorageNIC struct {
 	VLAN int    `yaml:"vlan"`
 	MAC  string `yaml:"mac"`
 	IP   string `yaml:"ip"`
+	// Bridge, when set, attaches the NIC untagged to this dedicated Proxmox
+	// bridge (the live fabric: vmbr201-vmbr204, one physical port each).
+	// Empty keeps the tagged attach on the VM's network bridge.
+	Bridge string `yaml:"bridge,omitempty"`
+	// PF and VF select an SR-IOV virtual function on the hypervisor's storage
+	// port (PF is the host interface, VF the index) and pass it through to the
+	// VM instead of a virtio NIC. The VF carries MAC, so the guest matches it
+	// exactly as it would the virtio NIC. Set both or neither; a (PF, VF) pair
+	// belongs to one node.
+	PF string `yaml:"pf,omitempty"`
+	VF *int   `yaml:"vf,omitempty"`
 }
+
+// IsVF reports whether the NIC is an SR-IOV virtual function passthrough.
+func (n StorageNIC) IsVF() bool { return n.PF != "" && n.VF != nil }
 
 // NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
 // Flatcar nodes. Each VLAN is one of the storage_nics VLANs; its NFS server
@@ -116,6 +131,7 @@ type ProviderVMProfile struct {
 	ScratchStorage string   `yaml:"scratch_storage,omitempty"`
 	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`
 	NUMANode       *int     `yaml:"numa_node,omitempty"`
+	MemoryMB       int      `yaml:"memory_mb,omitempty"`
 	PCIDevice      string   `yaml:"pci_device,omitempty"`
 	RDMPath        string   `yaml:"rdm_path,omitempty"`
 	Ceph           CephDisk `yaml:"ceph,omitempty"`
@@ -158,6 +174,9 @@ type VMDefaults struct {
 type Node struct {
 	Name string `yaml:"name"`
 	IP   string `yaml:"ip"`
+	// OS optionally overrides cluster.os for this node (flatcar | fcos), so a
+	// cluster can be migrated one node at a time. Empty inherits cluster.os.
+	OS string `yaml:"os,omitempty"`
 	// VM customizes this node's VM hardware profile on the hypervisor.
 	VM VMProfile `yaml:"vm,omitempty"`
 }
@@ -212,6 +231,11 @@ type ClusterConfig struct {
 	ExtraCertSANs []string `yaml:"extra_cert_sans,omitempty"`
 	// NodeSSHPort is used for direct SSH connections to configured cluster nodes.
 	NodeSSHPort int `yaml:"node_ssh_port,omitempty"`
+	// NodeSSHKey is an optional passphrase-less private key offered on every
+	// SSH connection to a cluster node (bootstrap, join, rehearsal, os-status,
+	// certs, etcd). Empty uses the ambient agent / ssh_config, which only
+	// knows the nodes it has a Host entry for (not a rehearsal node).
+	NodeSSHKey string `yaml:"node_ssh_key,omitempty"`
 	// Observability identifies the namespace where metrics backends are
 	// discovered. No service name is configured or assumed.
 	Observability ObservabilityConfig `yaml:"observability,omitempty"`
@@ -231,6 +255,13 @@ type ClusterConfig struct {
 	ControlPlaneVIP string `yaml:"control_plane_vip,omitempty"`
 	// NodeInterface is the primary NIC name on the nodes (e.g. eth0).
 	NodeInterface string `yaml:"node_interface,omitempty"`
+	// OS selects the node operating-system family for every kubeadm node:
+	// "flatcar" (default when unset, so existing configs are unchanged) or
+	// "fcos" (Fedora CoreOS). nodes[].os / test_node.os override it per node.
+	// Only Ignition rendering, the hypervisor fw_cfg key, the image source,
+	// os-status and the bootstrap OS preflight depend on it; kubeadm configs,
+	// containerd config, kube-vip and networking addresses are identical.
+	OS string `yaml:"os,omitempty"`
 	// Nodes are the control-plane nodes in order; the first is the kubeadm
 	// init node.
 	Nodes []Node `yaml:"nodes,omitempty"`
@@ -254,8 +285,17 @@ type ProxmoxConfig struct {
 	SnippetsDir string `yaml:"snippets_dir,omitempty"`
 	// SSHUser is the default user for SSH-based staging to the PVE host.
 	SSHUser string `yaml:"ssh_user,omitempty"`
+	// SSHKey is an optional passphrase-less private key for PVE SSH flows
+	// (Ignition snippet upload, image staging). Empty uses the ambient agent.
+	SSHKey string `yaml:"ssh_key,omitempty"`
 	// ImageCacheDir is where cloud images are staged before import.
 	ImageCacheDir string `yaml:"image_cache_dir,omitempty"`
+	// ImportStorage is the PVE storage (with the "import" content type) that
+	// staged FCOS disk images are imported from, and ImportDir its import/
+	// directory on the host. An API token may only pass import-from as a
+	// volume ID (<storage>:import/<file>); a filesystem path is root@pam only.
+	ImportStorage string `yaml:"import_storage,omitempty"`
+	ImportDir     string `yaml:"import_dir,omitempty"`
 	// VM overrides the default VM composition (sizing, disk backends, network).
 	VM VMDefaults `yaml:"vm,omitempty"`
 }
@@ -640,6 +680,7 @@ func validate(c *Config) error {
 	if c.Cluster.NodeSSHPort < 0 || c.Cluster.NodeSSHPort > 65535 {
 		problems = append(problems, "cluster.node_ssh_port: must be between 1 and 65535 when set")
 	}
+	problems = append(problems, validateOSFamilies(c.Cluster)...)
 	for _, field := range []struct {
 		name  string
 		value string
@@ -822,6 +863,14 @@ func provisioningNodes(cluster ClusterConfig) []provisioningNode {
 
 var strictStorageMAC = regexp.MustCompile(`^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$`)
 
+var storageBridgeName = regexp.MustCompile(`^vmbr[0-9]{1,4}$`)
+
+// storagePFName is a Linux interface name (at most 15 characters).
+var storagePFName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,14}$`)
+
+// maxStorageVF bounds the VF index (the storage ports expose at most 64 VFs).
+const maxStorageVF = 63
+
 func validateStorageFabric(cluster ClusterConfig) []string {
 	nodes := provisioningNodes(cluster)
 	// baseMACPaths retains every path that can resolve to a base NIC so storage
@@ -897,12 +946,22 @@ func validateStorageFabric(cluster ClusterConfig) []string {
 
 	seenStorageMACs := make(map[string]string)
 	seenHostOctets := make(map[byte]string)
+	seenVFs := make(map[string]string)
 	for _, entry := range nodes {
 		node := entry.node
 		nodeProblems, hostOctet, hostOctetValid := validateStorageNICs(node, entry.path)
 		problems = append(problems, nodeProblems...)
 		path := entry.path + ".vm.storage_nics"
 		for index, nic := range node.VM.StorageNICs {
+			if nic.IsVF() {
+				vfPath := fmt.Sprintf("%s[%d]", path, index)
+				key := fmt.Sprintf("%s/%d", nic.PF, *nic.VF)
+				if firstPath, duplicate := seenVFs[key]; duplicate {
+					problems = append(problems, fmt.Sprintf("%s: VF %d on %s is already assigned to %s", vfPath, *nic.VF, nic.PF, firstPath))
+				} else {
+					seenVFs[key] = vfPath
+				}
+			}
 			if !strictStorageMAC.MatchString(nic.MAC) {
 				continue
 			}
@@ -964,6 +1023,17 @@ func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 
 		if !strictStorageMAC.MatchString(nic.MAC) {
 			problems = append(problems, fmt.Sprintf("%s.mac: %q is not a valid 6-byte MAC address; expected a colon-separated 6-octet MAC", entryPath, nic.MAC))
+		}
+		if nic.Bridge != "" && !storageBridgeName.MatchString(nic.Bridge) {
+			problems = append(problems, fmt.Sprintf("%s.bridge: %q is not a Proxmox bridge name (vmbrN)", entryPath, nic.Bridge))
+		}
+		switch {
+		case (nic.PF == "") != (nic.VF == nil):
+			problems = append(problems, fmt.Sprintf("%s: pf and vf must be set together (SR-IOV passthrough) or not at all", entryPath))
+		case nic.PF != "" && !storagePFName.MatchString(nic.PF):
+			problems = append(problems, fmt.Sprintf("%s.pf: %q is not a host interface name", entryPath, nic.PF))
+		case nic.VF != nil && (*nic.VF < 0 || *nic.VF > maxStorageVF):
+			problems = append(problems, fmt.Sprintf("%s.vf: %d must be between 0 and %d", entryPath, *nic.VF, maxStorageVF))
 		}
 
 		expectedThirdOctet := nic.VLAN - 1000
@@ -1150,4 +1220,87 @@ func (c *Config) APIEndpoint() string {
 		return ""
 	}
 	return "k8s." + domain
+}
+
+// Node operating-system families (cluster.os / nodes[].os).
+const (
+	OSFlatcar = "flatcar"
+	OSFCOS    = "fcos"
+)
+
+// Ignition fw_cfg keys read by each OS family's qemu image on first boot.
+// Flatcar reads opt/org.flatcar-linux/config; the Fedora CoreOS qemu image
+// reads opt/com.coreos/config (verified on Proxmox VE 9 with
+// `qm set <id> --args "-fw_cfg name=opt/com.coreos/config,file=<snippet>"`).
+const (
+	IgnitionFwCfgKeyFlatcar = "opt/org.flatcar-linux/config"
+	IgnitionFwCfgKeyFCOS    = "opt/com.coreos/config"
+)
+
+// NormalizeOS canonicalizes an OS family value. Empty means "unset" and is
+// returned as-is so callers can apply inheritance; "fedora-coreos" and
+// "coreos" are accepted aliases for fcos. ok is false for unknown values.
+func NormalizeOS(value string) (os string, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "", true
+	case OSFlatcar:
+		return OSFlatcar, true
+	case OSFCOS, "fedora-coreos", "coreos":
+		return OSFCOS, true
+	default:
+		return "", false
+	}
+}
+
+// IgnitionFwCfgKey returns the qemu fw_cfg key the given OS family reads its
+// Ignition config from. Anything other than fcos (including "") keeps the
+// historical Flatcar key so existing Flatcar deployments are unchanged.
+func IgnitionFwCfgKey(osFamily string) string {
+	if normalized, _ := NormalizeOS(osFamily); normalized == OSFCOS {
+		return IgnitionFwCfgKeyFCOS
+	}
+	return IgnitionFwCfgKeyFlatcar
+}
+
+// ClusterOS returns the cluster-wide OS family (cluster.os), defaulting to
+// flatcar when unset or invalid (invalid values are rejected by validate).
+func (c *Config) ClusterOS() string {
+	if c != nil {
+		if normalized, ok := NormalizeOS(c.Cluster.OS); ok && normalized != "" {
+			return normalized
+		}
+	}
+	return OSFlatcar
+}
+
+// OSForNode returns the effective OS family for a node: its own os override,
+// else cluster.os, else flatcar.
+func (c *Config) OSForNode(node Node) string {
+	if normalized, ok := NormalizeOS(node.OS); ok && normalized != "" {
+		return normalized
+	}
+	return c.ClusterOS()
+}
+
+// NodeOS returns the effective OS family for a production node or the
+// configured test node by name. Unknown names get the cluster default.
+func (c *Config) NodeOS(name string) string {
+	if node, ok := c.ProvisioningNodeByName(name); ok {
+		return c.OSForNode(node)
+	}
+	return c.ClusterOS()
+}
+
+func validateOSFamilies(cluster ClusterConfig) []string {
+	var problems []string
+	if _, ok := NormalizeOS(cluster.OS); !ok {
+		problems = append(problems, fmt.Sprintf("cluster.os: %q is not supported (use flatcar or fcos)", cluster.OS))
+	}
+	for _, entry := range provisioningNodes(cluster) {
+		if _, ok := NormalizeOS(entry.node.OS); !ok {
+			problems = append(problems, fmt.Sprintf("%s.os: %q is not supported (use flatcar or fcos)", entry.path, entry.node.OS))
+		}
+	}
+	return problems
 }

@@ -23,15 +23,35 @@ cluster:
   control_plane_vip: 192.168.123.253
   node_interface: eth0
   node_ssh_port: 22
+  node_ssh_key: ~/.ssh/keys/flatcar
   # Disposable node identity for `cluster rehearse-node` (join drill).
   test_node:
     name: k8s-test
-    ip: 192.168.122.99
+    # Rehearsals exercise the OS the next rebuild will run.
+    os: fcos
+    ip: 192.168.122.98
     vm:
       vmid: 299
+      # One NUMA node like production (k8s-2: 8-15,40-47 / node 0). Every pve
+      # thread is already pinned; this shares clab-0's range on node 1. 64 GB,
+      # not 96: node 1 has ~74 GB free and the binding is strict.
+      cpu_affinity: "24-31,56-63"
+      numa_node: 1
+      memory_mb: 65536
       mac: "02:00:00:00:02:99"
+      # Same NIC set as a production node, so a rehearsal renders and boots
+      # exactly what a rebuild will (both templates require the IoT MAC).
+      mac_iot: "02:00:00:00:02:9a"
+      mac_vpn: "02:00:00:00:02:9b"
+      # SR-IOV passthrough (pf/vf): one VF per storage port per node, index =
+      # node (VF 0 = VM 106 bench, 1-3 = k8s-0..2, 4 = this rehearsal node).
+      # bridge stays as the virtio fallback: drop pf/vf to use it.
+      storage_nics:
+        - { vlan: 1201, mac: "02:00:00:00:02:a1", ip: 192.168.201.99/24, bridge: vmbr201, pf: nic7, vf: 4 }
+        - { vlan: 1202, mac: "02:00:00:00:02:a2", ip: 192.168.202.99/24, bridge: vmbr202, pf: nic6, vf: 4 }
+        - { vlan: 1203, mac: "02:00:00:00:02:a3", ip: 192.168.203.99/24, bridge: vmbr203, pf: nic4, vf: 4 }
+        - { vlan: 1204, mac: "02:00:00:00:02:a4", ip: 192.168.204.99/24, bridge: vmbr204, pf: nic5, vf: 4 }
       boot_storage: vm-ssd
-      openebs_storage: openebs-ssd
       scratch_storage: nvme-scratch
       ceph:
         mode: none
@@ -68,6 +88,7 @@ cluster:
       max_size: 900GB
   nodes:
     - name: k8s-0
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.10
       vm:
         vmid: 200
@@ -75,18 +96,18 @@ cluster:
         mac_iot: "BC:24:11:B9:55:83"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:33:4C:37"   # net2, VLAN 90 (Multus macvlan master eth2)
         storage_nics:
-          - { vlan: 1201, mac: "BC:24:11:3B:E0:50", ip: 192.168.201.20/24 } # net3
-          - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24 } # net4
-          - { vlan: 1203, mac: "BC:24:11:FF:50:81", ip: 192.168.203.20/24 } # net5
-          - { vlan: 1204, mac: "BC:24:11:FB:16:76", ip: 192.168.204.20/24 } # net6
+          - { vlan: 1201, mac: "BC:24:11:3B:E0:50", ip: 192.168.201.20/24, bridge: vmbr201, pf: nic7, vf: 1 } # net3
+          - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24, bridge: vmbr202, pf: nic6, vf: 1 } # net4
+          - { vlan: 1203, mac: "BC:24:11:FF:50:81", ip: 192.168.203.20/24, bridge: vmbr203, pf: nic4, vf: 1 } # net5
+          - { vlan: 1204, mac: "BC:24:11:FB:16:76", ip: 192.168.204.20/24, bridge: vmbr204, pf: nic5, vf: 1 } # net6
         boot_storage: vm-ssd
-        openebs_storage: openebs-ssd
         scratch_storage: nvme-scratch
         cpu_affinity: "0-7,32-39"
         numa_node: 0
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN
     - name: k8s-1
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.11
       vm:
         vmid: 201
@@ -94,18 +115,18 @@ cluster:
         mac_iot: "BC:24:11:24:80:8B"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:C6:89:07"   # net2, VLAN 90 (Multus macvlan master eth2)
         storage_nics:
-          - { vlan: 1201, mac: "BC:24:11:6B:64:25", ip: 192.168.201.21/24 } # net3
-          - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24 } # net4
-          - { vlan: 1203, mac: "BC:24:11:8C:C8:43", ip: 192.168.203.21/24 } # net5
-          - { vlan: 1204, mac: "BC:24:11:D1:C4:BE", ip: 192.168.204.21/24 } # net6
+          - { vlan: 1201, mac: "BC:24:11:6B:64:25", ip: 192.168.201.21/24, bridge: vmbr201, pf: nic7, vf: 2 } # net3
+          - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24, bridge: vmbr202, pf: nic6, vf: 2 } # net4
+          - { vlan: 1203, mac: "BC:24:11:8C:C8:43", ip: 192.168.203.21/24, bridge: vmbr203, pf: nic4, vf: 2 } # net5
+          - { vlan: 1204, mac: "BC:24:11:D1:C4:BE", ip: 192.168.204.21/24, bridge: vmbr204, pf: nic5, vf: 2 } # net6
         boot_storage: vm-ssd
-        openebs_storage: openebs-ssd
         scratch_storage: nvme-scratch
         cpu_affinity: "16-23,48-55"
         numa_node: 1
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN
     - name: k8s-2
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.12
       vm:
         vmid: 202
@@ -113,12 +134,11 @@ cluster:
         mac_iot: "BC:24:11:60:19:38"   # net1, VLAN 20 (Multus macvlan master eth1)
         mac_vpn: "BC:24:11:B1:02:55"   # net2, VLAN 90 (Multus macvlan master eth2)
         storage_nics:
-          - { vlan: 1201, mac: "BC:24:11:B3:CD:67", ip: 192.168.201.22/24 } # net3
-          - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24 } # net4
-          - { vlan: 1203, mac: "BC:24:11:F6:D9:1D", ip: 192.168.203.22/24 } # net5
-          - { vlan: 1204, mac: "BC:24:11:63:50:11", ip: 192.168.204.22/24 } # net6
+          - { vlan: 1201, mac: "BC:24:11:B3:CD:67", ip: 192.168.201.22/24, bridge: vmbr201, pf: nic7, vf: 3 } # net3
+          - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24, bridge: vmbr202, pf: nic6, vf: 3 } # net4
+          - { vlan: 1203, mac: "BC:24:11:F6:D9:1D", ip: 192.168.203.22/24, bridge: vmbr203, pf: nic4, vf: 3 } # net5
+          - { vlan: 1204, mac: "BC:24:11:63:50:11", ip: 192.168.204.22/24, bridge: vmbr204, pf: nic5, vf: 3 } # net6
         boot_storage: vm-ssd
-        openebs_storage: openebs-ssd
         scratch_storage: nvme-scratch
         cpu_affinity: "8-15,40-47"
         numa_node: 0
@@ -129,6 +149,7 @@ hypervisors:
   default: proxmox
   proxmox:
     ssh_user: root
+    ssh_key: ~/.ssh/keys/proxmox-ssh
     snippets_dir: /var/lib/vz/snippets
     image_cache_dir: /var/lib/vz/template/cache
     vm:

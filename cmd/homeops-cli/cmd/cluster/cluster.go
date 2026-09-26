@@ -11,5 +11,6 @@ func NewCommand() *cobra.Command {
 		Short: "Run end-to-end cluster assurance workflows",
 	}
 	cmd.AddCommand(newRehearseNodeCommand())
+	cmd.AddCommand(newReplaceNodeCommand())
 	return cmd
 }

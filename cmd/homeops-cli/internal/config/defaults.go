@@ -46,6 +46,8 @@ var (
 const (
 	DefaultProxmoxSSHUser        = "root"
 	DefaultProxmoxImageCacheDir  = "/var/lib/vz/template/cache"
+	DefaultProxmoxImportStorage  = "local"
+	DefaultProxmoxImportDir      = "/var/lib/vz/import"
 	DefaultTrueNASSSHUser        = "truenas_admin"
 	DefaultTrueNASNetworkBridge  = "br0"
 	DefaultTrueNASVMBootStorage  = "flashstor/VM"
@@ -232,6 +234,12 @@ func applyDefaults(c *Config) {
 	}
 	if c.Hypervisors.Proxmox.ImageCacheDir == "" {
 		c.Hypervisors.Proxmox.ImageCacheDir = DefaultProxmoxImageCacheDir
+	}
+	if c.Hypervisors.Proxmox.ImportStorage == "" {
+		c.Hypervisors.Proxmox.ImportStorage = DefaultProxmoxImportStorage
+	}
+	if c.Hypervisors.Proxmox.ImportDir == "" {
+		c.Hypervisors.Proxmox.ImportDir = DefaultProxmoxImportDir
 	}
 	applyProxmoxVMDefaults(&c.Hypervisors.Proxmox.VM)
 	if c.Hypervisors.TrueNAS.ISODir == "" {
@@ -466,6 +474,9 @@ func mergeNode(base, override Node) Node {
 	if override.IP != "" {
 		out.IP = override.IP
 	}
+	if override.OS != "" {
+		out.OS = override.OS
+	}
 	out.VM = mergeVMProfile(out.VM, override.VM)
 	return out
 }
@@ -520,6 +531,9 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
 	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
+	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice
 	}
@@ -551,6 +565,9 @@ func applyProviderProfile(out *ProviderVMProfile, override ProviderVMProfile) {
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
 	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
+	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice
 	}
@@ -568,6 +585,7 @@ func vmProfileToProviderProfile(profile VMProfile) ProviderVMProfile {
 		OpenEBSStorage: profile.OpenEBSStorage,
 		CPUAffinity:    profile.CPUAffinity,
 		NUMANode:       profile.NUMANode,
+		MemoryMB:       profile.MemoryMB,
 		PCIDevice:      profile.PCIDevice,
 		RDMPath:        profile.RDMPath,
 		Ceph:           profile.Ceph,
@@ -595,6 +613,9 @@ func applyProviderVMProfile(out *VMProfile, override ProviderVMProfile) {
 	}
 	if override.NUMANode != nil {
 		out.NUMANode = intPtr(*override.NUMANode)
+	}
+	if override.MemoryMB != 0 {
+		out.MemoryMB = override.MemoryMB
 	}
 	if override.PCIDevice != "" {
 		out.PCIDevice = override.PCIDevice

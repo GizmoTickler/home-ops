@@ -9,7 +9,9 @@ import (
 
 	"homeops-cli/internal/common"
 	versionconfig "homeops-cli/internal/config"
+	fcosinternal "homeops-cli/internal/fcos"
 	flatcarinternal "homeops-cli/internal/flatcar"
+	"homeops-cli/internal/ssh"
 
 	"github.com/spf13/cobra"
 )
@@ -25,6 +27,11 @@ type RehearsalDeployOptions struct {
 	Join        flatcarinternal.KubeadmResult
 	SSHUser     string
 	Timeout     time.Duration
+	// Boot, when set, creates the VM powered off and hands it to Boot before
+	// its first start. Boot does any pre-boot disk work and must power the VM
+	// on; the kubeadm wait and join follow. Proxmox only (replace-node swaps
+	// the preserved scratch disk in here).
+	Boot func(context.Context) error
 }
 
 // DeployRehearsalNode reuses the same render, staging, and hypervisor deployers
@@ -46,12 +53,19 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	if err != nil {
 		return err
 	}
+	if options.Boot != nil && provider != providerProxmox {
+		return fmt.Errorf("a powered-off deploy with a pre-boot step is only supported on Proxmox, not %s", provider)
+	}
 	cfg := versionconfig.Get()
+	// The disposable node's OS comes from test_node.os (else cluster.os), so a
+	// join drill exercises exactly the OS the next production rebuild will run.
+	osFamily := cfg.OSForNode(options.Node)
 	vmProfile := options.Node.VM.ForProvider("flatcar")
 	if provider == providerVSphere {
 		vmProfile = options.Node.VM.ForProvider("vsphere")
 	}
 	deployOptions := deployVMOptions{
+		osFamily:        osFamily,
 		provider:        provider,
 		nodes:           []string{options.Node.Name},
 		imagePath:       options.ImagePath,
@@ -71,7 +85,8 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 		vip:             cfg.Cluster.ControlPlaneVIP,
 		nodeInterface:   cfg.Cluster.NodeInterface,
 		concurrent:      1,
-		powerOn:         true,
+		powerOn:         options.Boot == nil,
+		stream:          fcosinternal.DefaultStream,
 	}
 	if err := validateDeployVMOptions(provider, deployOptions); err != nil {
 		return err
@@ -84,7 +99,7 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	env.BootstrapToken = options.Join.BootstrapToken
 	env.CACertHash = options.Join.CACertHash
 	env.CertificateKey = options.Join.CertificateKey
-	ignition, err := renderIgnitionFn(env)
+	ignition, err := renderIgnitionForOS(deployOptions.family(), env)
 	if err != nil {
 		return fmt.Errorf("render rehearsal ignition: %w", err)
 	}
@@ -96,7 +111,7 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	cmd := &cobra.Command{}
 	cmd.SetContext(ctx)
 	cmd.SetOut(io.Discard)
-	nodes := []flatcarNode{{name: options.Node.Name, ignition: ignition}}
+	nodes := []flatcarNode{{name: options.Node.Name, ignition: ignition, osFamily: deployOptions.family()}}
 	logger := common.NewColorLogger()
 	switch provider {
 	case providerVSphere:
@@ -109,6 +124,11 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 	if err != nil {
 		return err
 	}
+	if options.Boot != nil {
+		if err := options.Boot(ctx); err != nil {
+			return fmt.Errorf("pre-boot step for %s: %w", options.Node.Name, err)
+		}
+	}
 
 	orchestrator := flatcarinternal.NewOrchestrator(flatcarinternal.OrchestratorConfig{
 		SSHUser: options.SSHUser,
@@ -120,4 +140,31 @@ func DeployRehearsalNode(ctx context.Context, options RehearsalDeployOptions) er
 		return err
 	}
 	return orchestrator.JoinControlPlane(options.Node.IP, joinConfig)
+}
+
+// RunPVERootCommand runs one command on the Proxmox host over the configured
+// SSH session (hypervisors.proxmox.ssh_user / ssh_key; sudo when the user is
+// not root) and returns its output. It is the transport for the qm/pvesm
+// steps that the Proxmox API does not expose (disk reassignment between VMs).
+func RunPVERootCommand(command string) (string, error) {
+	host, _, _, _, err := getProxmoxCredentialsFn()
+	if err != nil {
+		return "", err
+	}
+	if host == "" {
+		return "", fmt.Errorf("proxmox host is not configured")
+	}
+	user := versionconfig.Get().Hypervisors.Proxmox.SSHUser
+	if user == "" {
+		user = "root"
+	}
+	client := ssh.NewSSHClient(proxmoxSSHConfig(host, user, "22"))
+	if err := client.Connect(); err != nil {
+		return "", fmt.Errorf("connect to %s@%s: %w", user, host, err)
+	}
+	defer func() { _ = client.Close() }()
+	if user != "root" {
+		command = "sudo " + command
+	}
+	return client.ExecuteCommand(command)
 }

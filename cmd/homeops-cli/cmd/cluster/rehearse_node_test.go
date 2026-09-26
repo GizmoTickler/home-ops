@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -170,8 +172,10 @@ func TestRunRehearseNodeKeepSkipsAllTeardown(t *testing.T) {
 	assert.Equal(t, []string{"preconditions", "token", "deploy", "ready", "smoke"}, fake.calls)
 	assert.Equal(t, "SKIP", report.Steps[4].Status)
 	assert.Contains(t, report.Steps[4].Detail, "--keep")
-	require.Len(t, report.CleanupCommands, 5)
-	assert.Contains(t, report.CleanupCommands[4], "kubeadm token delete abcdef")
+	require.Len(t, report.CleanupCommands, 7)
+	assert.Contains(t, report.CleanupCommands[6], "kubeadm token delete abcdef")
+	assert.Contains(t, report.CleanupCommands[5], "ssh-keygen -R")
+	assert.Contains(t, report.CleanupCommands[1], "member list")
 }
 
 func TestRehearseNodePlanRenderingDoesNotExecuteOrConfirm(t *testing.T) {
@@ -284,6 +288,9 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 		if len(args) >= 3 && args[0] == "get" && args[1] == "node" {
 			return "node/" + spec.Node.Name, nil
 		}
+		if slices.Contains(args, "etcdctl") {
+			return `{"members":[]}`, nil
+		}
 		return "ok", nil
 	}
 
@@ -293,7 +300,8 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 	assert.Contains(t, joined, "kubectl run homeops-rehearse-k8s-test")
 	assert.Contains(t, joined, "nodeSelector")
 	assert.Contains(t, joined, "kubectl exec")
-	assert.Contains(t, joined, "nslookup kubernetes.default")
+	// Fully qualified: busybox nslookup ignores the pod search list.
+	assert.Contains(t, joined, "nslookup kubernetes.default.svc.")
 	assert.Contains(t, joined, "kubectl delete pod")
 	assert.Contains(t, joined, "kubectl drain k8s-test")
 	assert.Contains(t, joined, "kubectl delete node k8s-test")
@@ -302,16 +310,23 @@ func TestRealSmokeAndNodeCleanupCommands(t *testing.T) {
 func TestRealVMDeletionAssertsIdentityAndPowersOff(t *testing.T) {
 	swapRehearseRuntime(t)
 	spec := testRehearseSpec(t)
+	var forgotten []string
+	originalForget := forgetRehearsalHostKey
+	t.Cleanup(func() { forgetRehearsalHostKey = originalForget })
+	forgetRehearsalHostKey = func(ip string) { forgotten = append(forgotten, ip) }
 	lifecycle := &fakeLifecycle{summaries: []vmprov.VMSummary{{Name: spec.Node.Name, ID: "299", Status: "running"}}}
 	rehearseWithVMLifecycleFn = func(_ string, fn func(vmprov.VMLifecycle) error) error { return fn(lifecycle) }
 	require.NoError(t, (realRehearseOperations{}).DeleteVM(context.Background(), spec))
 	assert.True(t, lifecycle.stopped)
 	assert.True(t, lifecycle.deleted)
+	// The next rehearsal node reuses the IP with a new host key.
+	assert.Equal(t, []string{spec.Node.IP}, forgotten)
 
 	lifecycle = &fakeLifecycle{summaries: []vmprov.VMSummary{{Name: spec.Node.Name, ID: "300", Status: "running"}}}
 	err := (realRehearseOperations{}).DeleteVM(context.Background(), spec)
 	require.ErrorContains(t, err, "refusing to delete")
 	assert.False(t, lifecycle.deleted)
+	assert.Len(t, forgotten, 1, "a refused deletion keeps the host key")
 }
 
 type fakeKubeadmOrchestrator struct {
@@ -371,4 +386,70 @@ func TestExecuteRehearseNodeConfirmedJSON(t *testing.T) {
 	require.NoError(t, executeRehearseNodeCommand(cmd, rehearseNodeOptions{Timeout: time.Minute, Output: "json", ImageVolume: "volume"}, fake))
 	assert.Contains(t, out.String(), `"verdict": "PASS"`)
 	assert.Equal(t, testBootstrapToken, fake.invalidatedToken)
+}
+
+func TestRehearseNodeFCOSTestNodeNeedsNoExplicitImage(t *testing.T) {
+	oldConfig := rehearseConfigFn
+	oldConfirm := rehearseConfirmFn
+	rehearseConfigFn = func() *config.Config {
+		cfg := testRehearseConfig()
+		cfg.Cluster.TestNode.OS = "fcos"
+		return cfg
+	}
+	confirmed := false
+	rehearseConfirmFn = func(string, bool) (bool, error) {
+		confirmed = true
+		return false, nil // stop right after the image gate
+	}
+	t.Cleanup(func() {
+		rehearseConfigFn = oldConfig
+		rehearseConfirmFn = oldConfirm
+	})
+
+	fake := &fakeRehearseOperations{}
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	require.NoError(t, executeRehearseNodeCommand(cmd, rehearseNodeOptions{Plan: true, Timeout: time.Minute, Output: "table"}, fake))
+	assert.Contains(t, out.String(), "FCOS stable stream qemu image")
+
+	// Execution passes the Proxmox image gate (FCOS stages the stream image)
+	// and reaches the confirmation prompt; declining stops before any work.
+	err := executeRehearseNodeCommand(cmd, rehearseNodeOptions{Timeout: time.Minute, Output: "table"}, fake)
+	require.ErrorContains(t, err, "cancelled")
+	assert.True(t, confirmed)
+	assert.Empty(t, fake.calls)
+}
+
+// The drill joins as a control plane; teardown must remove the test node's
+// etcd member (and only that one), even when no Node object ever registered.
+func TestRehearsalTeardownRemovesOnlyTestEtcdMember(t *testing.T) {
+	for _, registered := range []bool{true, false} {
+		swapRehearseRuntime(t)
+		spec := testRehearseSpec(t)
+		var removed []string
+		rehearseCommandFn = func(_ context.Context, _ string, args ...string) (string, error) {
+			joined := strings.Join(args, " ")
+			switch {
+			case len(args) >= 3 && args[0] == "get" && args[1] == "node":
+				if registered {
+					return "node/" + spec.Node.Name, nil
+				}
+				return "", nil
+			case strings.Contains(joined, "member list"):
+				assert.Contains(t, joined, "etcd-"+spec.InitNode.Name)
+				return fmt.Sprintf(`{"members":[
+					{"ID":12345,"name":"k8s-0","peerURLs":["https://192.168.122.10:2380"]},
+					{"ID":3054047617017218159,"name":"%s","peerURLs":["https://%s:2380"]},
+					{"ID":4096,"name":"","peerURLs":["https://%s:2380"]}]}`, spec.Node.Name, spec.Node.IP, spec.Node.IP), nil
+			case strings.Contains(joined, "member remove"):
+				removed = append(removed, args[len(args)-1])
+			}
+			return "ok", nil
+		}
+		require.NoError(t, (realRehearseOperations{}).DrainAndDeleteNode(context.Background(), spec, time.Minute))
+		// The named member plus an unstarted learner (no name yet) on the test IP.
+		assert.Equal(t, []string{strconv.FormatUint(3054047617017218159, 16), "1000"}, removed, "registered=%v", registered)
+	}
 }
