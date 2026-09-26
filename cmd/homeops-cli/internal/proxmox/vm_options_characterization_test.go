@@ -141,6 +141,7 @@ boot=order=scsi0;scsi3
 net0=virtio=00:a0:98:1a:f3:72,bridge=vmbr0,mtu=9000,queues=8,tag=999
 watchdog=model=i6300esb
 agent=enabled=1
+serial0=socket
 onboot=1
 args=-fw_cfg name=opt/org.flatcar-linux/config,file=/var/lib/vz/snippets/kube-0.ign
 `,
@@ -161,6 +162,7 @@ ostype=l26
 scsi0=nvme2:vm-9001-disk-0
 boot=order=scsi0
 net0=virtio,bridge=vmbr0
+serial0=socket
 `,
 		},
 		{
@@ -179,6 +181,7 @@ ostype=l26
 scsi0=local:200
 boot=order=scsi0
 net0=virtio,bridge=vmbr0
+serial0=socket
 `,
 		},
 		{

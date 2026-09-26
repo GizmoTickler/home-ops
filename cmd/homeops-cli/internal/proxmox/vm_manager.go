@@ -653,6 +653,10 @@ func (vm *VMManager) buildVMOptions(config VMConfig) []proxmox.VirtualMachineOpt
 //   - injects the rendered Ignition via fw_cfg:
 //     args = -fw_cfg name=opt/org.flatcar-linux/config,file=<IgnitionPath>
 //     (opt/com.coreos/config when OSFamily is fcos — see addFlatcarIgnitionArgs)
+//   - adds a serial port (serial0: socket). The FCOS qemu image boots with
+//     console=ttyS0; without a serial port serial-getty@ttyS0 fails with EIO and
+//     restart-loops every 10 s. vga is left at the default so the noVNC console
+//     keeps working; the serial console is reachable with `qm terminal <vmid>`.
 //
 // This does not alter the Talos buildVMOptions path.
 func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMachineOption {
@@ -670,10 +674,11 @@ func (vm *VMManager) buildFlatcarVMOptions(config VMConfig) []proxmox.VirtualMac
 			includeQueues:         true,
 			usePositiveMTUAndVLAN: true,
 		},
-		includeWatchdog: true,
-		useConfigAgent:  true,
-		includeOnBoot:   true,
-		afterOnBoot:     addFlatcarIgnitionArgs,
+		includeWatchdog:   true,
+		useConfigAgent:    true,
+		includeSerialPort: true,
+		includeOnBoot:     true,
+		afterOnBoot:       addFlatcarIgnitionArgs,
 	})
 }
 

@@ -170,3 +170,20 @@ func TestBuildFlatcarVMOptionsFwCfgKeyFollowsOSFamily(t *testing.T) {
 		assert.Equal(t, tc.want, args, "os family %q", tc.family)
 	}
 }
+
+// The FCOS qemu image boots with console=ttyS0; a VM without a serial port
+// leaves serial-getty@ttyS0 restart-looping on EIO (1,242 restarts on k8s-2).
+// Flatcar/FCOS nodes get serial0=socket, and vga stays at the PVE default so
+// the noVNC console keeps working.
+func TestBuildFlatcarVMOptionsAddsSerialPortKeepsVGA(t *testing.T) {
+	for _, family := range []string{"", "fcos"} {
+		options := optionValues((&VMManager{}).buildFlatcarVMOptions(VMConfig{
+			Name: "k8s-2", Memory: 4096, Cores: 4, Sockets: 1,
+			BootStorage: "vm-ssd", ImageVolume: "vm-ssd:vm-202-disk-0",
+			NetworkBridge: "vmbr0", OSFamily: family,
+		}))
+		assert.Equal(t, "socket", options["serial0"], "os family %q", family)
+		_, hasVGA := options["vga"]
+		assert.False(t, hasVGA, "vga must stay at the default for os family %q", family)
+	}
+}

@@ -560,3 +560,13 @@ func TestKubeadmConfigsLabelNodeOS(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, initCfg, `value: "homeops.io/os=fcos"`)
 }
+
+// The runc BinaryName redirect (and the containerd drop-in that installs the
+// copy) is FCOS-only: Flatcar's /usr is not a stacked overlay and its runc lives
+// elsewhere, so a Flatcar node must keep containerd's default runc lookup.
+func TestRenderIgnitionKeepsDefaultRuncBinary(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	assert.NotContains(t, ignitionFileContent(t, ign, "/etc/containerd/config.toml"), "BinaryName")
+	assert.NotContains(t, string(ign), "containerd-runc")
+}

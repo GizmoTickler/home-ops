@@ -28,8 +28,12 @@ type vmOptionsProfile struct {
 	network          vmNetworkOptionsProfile
 	includeWatchdog  bool
 	useConfigAgent   bool
-	includeOnBoot    bool
-	afterOnBoot      func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
+	// includeSerialPort adds serial0=socket (a UNIX-socket serial port on the
+	// PVE host) without touching vga, so the guest gets a real ttyS0 for a
+	// console=ttyS0 kernel command line and `qm terminal` works.
+	includeSerialPort bool
+	includeOnBoot     bool
+	afterOnBoot       func([]proxmox.VirtualMachineOption, VMConfig) []proxmox.VirtualMachineOption
 }
 
 type vmNetworkOptionsProfile struct {
@@ -118,6 +122,9 @@ func (vm *VMManager) buildParameterizedVMOptions(config VMConfig, profile vmOpti
 	}
 	if profile.useConfigAgent && config.AgentEnabled {
 		options = append(options, proxmox.VirtualMachineOption{Name: "agent", Value: "enabled=1"})
+	}
+	if profile.includeSerialPort {
+		options = append(options, proxmox.VirtualMachineOption{Name: "serial0", Value: "socket"})
 	}
 	if profile.includeOnBoot && config.StartOnBoot {
 		options = append(options, proxmox.VirtualMachineOption{Name: "onboot", Value: 1})

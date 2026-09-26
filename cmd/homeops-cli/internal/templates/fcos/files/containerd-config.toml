@@ -1,0 +1,33 @@
+# /etc/containerd/config.toml — FCOS copy of flatcar/files/containerd-config.toml
+# (it shadows the Flatcar file of the same name in the Butane files dir). It MUST
+# stay identical to the Flatcar config except for the BinaryName line below; a
+# unit test (TestFCOSContainerdConfigOnlyAddsRuncBinaryName) enforces that.
+#
+# containerd 2.x (config version 3).
+# Ports Talos's /etc/cri/conf.d/20-customization.part + adds kubeadm requirements
+# (systemd cgroups, pinned pause image). VERIFY plugin keys/version against the containerd
+# shipped by the Flatcar sysext bundle (2.x uses io.containerd.cri.v1.*; 1.x uses io.containerd.grpc.v1.cri).
+version = 3
+
+[plugins.'io.containerd.cri.v1.images']
+  # Talos: discard_unpacked_layers = false
+  discard_unpacked_layers = false
+  [plugins.'io.containerd.cri.v1.images'.pinned_images]
+    sandbox = '{{ ENV.PAUSE_IMAGE }}'
+
+[plugins.'io.containerd.cri.v1.runtime']
+  # Talos: device_ownership_from_security_context = true
+  device_ownership_from_security_context = true
+  [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+    runtime_type = 'io.containerd.runc.v2'
+    [plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+      # kubeadm + kubelet cgroupDriver=systemd require this on the runtime side
+      SystemdCgroup = true
+      # FCOS only: run runc from a non-overlay filesystem. /usr/bin/runc lives on
+      # the Kubernetes sysext overlay stacked on the composefs root overlay
+      # (already FILESYSTEM_MAX_STACK_DEPTH=2), so runc's exeseal overlay of its
+      # own binary fails ("overlayfs: maximum fs stacking depth exceeded") on
+      # every container start/exec and it falls back to a memfd copy of itself
+      # (~60% start overhead). The containerd drop-in 10-runc-copy.conf installs
+      # this copy from /usr/bin/runc before every containerd start.
+      BinaryName = '/var/lib/containerd-runc/runc'
