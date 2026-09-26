@@ -517,7 +517,7 @@ spec:
 
 **Common Registries:**
 - `oci://ghcr.io/bjw-s-labs/helm/app-template` - app-template v4.4.0
-- `oci://ghcr.io/home-operations/charts-mirror/cilium` - Mirrored charts
+- `oci://quay.io/cilium/charts/cilium` - Cilium (upstream OCI chart; the home-operations mirror stopped at 1.18.6)
 - `oci://ghcr.io/grafana/helm-charts/grafana-operator` - Official Grafana
 - `oci://ghcr.io/rook/rook-ceph` - Official Rook Ceph
 
