@@ -153,7 +153,7 @@ hypervisors:
     snippets_dir: /var/lib/vz/snippets
     image_cache_dir: /var/lib/vz/template/cache
     vm:
-      memory_mb: 98304
+      memory_mb: 81920  # 80 GB (2026-09-26): SR-IOV pins all guest RAM; 96 GB left ~12 GB free per NUMA node and OOM-killed k8s-1/k8s-2
       cores: 16
       boot_disk_gb: 100
       openebs_disk_gb: 700

@@ -135,16 +135,27 @@ func TestReplacePreconditionsQuorum(t *testing.T) {
 		name    string
 		members []string
 		unhealt bool
+		resumed bool
 		want    string
 	}{
 		{name: "three members leave two", members: []string{"k8s-0", "k8s-1", "k8s-2"}, want: "only 2 healthy etcd members besides k8s-2"},
 		{name: "unhealthy member", members: []string{"k8s-0", "k8s-1", "k8s-2", "k8s-test"}, unhealt: true, want: "not healthy"},
 		{name: "four healthy members", members: []string{"k8s-0", "k8s-1", "k8s-2", "k8s-test"}},
+		// A resumed run: an earlier attempt removed k8s-2's member (etcdFixture
+		// gives the third slot k8s-2's IP, so a placeholder name stands in for
+		// a fourth member at another address).
+		{name: "resumed after member removal", members: []string{"k8s-0", "k8s-1", "gone", "k8s-test"}, resumed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			swapRehearseRuntime(t)
 			spec := testReplaceSpec(t, "k8s-2")
 			memberJSON, healthJSON := etcdFixture(tc.members...)
+			if tc.resumed {
+				// Drop the member at k8s-2's address: it was already removed.
+				memberJSON = strings.Replace(memberJSON, `{"ID":3,"name":"gone","peerURLs":["https://192.0.2.12:2380"],"clientURLs":["https://192.0.2.12:2379"]},`, "", 1)
+				healthJSON = strings.Replace(healthJSON, `{"endpoint":"https://192.0.2.12:2379","health":true},`, "", 1)
+				require.NotContains(t, memberJSON, "192.0.2.12", "fixture must no longer hold the target")
+			}
 			if tc.unhealt {
 				healthJSON = strings.Replace(healthJSON, `"health":true`, `"health":false`, 1)
 			}
@@ -177,7 +188,7 @@ func TestReplacePreconditionsQuorum(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, 4, pre.EtcdMembers)
+			assert.Equal(t, 4, pre.EtcdMembers, "expected membership after the rejoin: the others plus the rebuilt node")
 			assert.Equal(t, "nvme-scratch:vm-202-disk-0", pre.ScratchVolume)
 			assert.Equal(t, "111", pre.ScratchGUID)
 		})
@@ -635,4 +646,34 @@ func TestReplacePostChecks(t *testing.T) {
 	ciliumReady = "False"
 	_, err = ops.PostChecks(context.Background(), spec, replacePreflight{EtcdMembers: 4})
 	require.ErrorContains(t, err, "no Ready cilium agent")
+}
+
+func TestReplaceRemoveFromClusterRetriesThroughVIPFailover(t *testing.T) {
+	cfg := testReplaceConfig()
+	swapReplaceConfig(t, cfg)
+	swapRehearseRuntime(t)
+	oldRetries, oldDelay := replaceAPIRetries, replaceAPIRetryDelay
+	t.Cleanup(func() { replaceAPIRetries, replaceAPIRetryDelay = oldRetries, oldDelay })
+	replaceAPIRetries, replaceAPIRetryDelay = 5, time.Millisecond
+	spec := testReplaceSpec(t, "k8s-2")
+	deletes := 0
+	rehearseCommandFn = func(_ context.Context, _ string, args ...string) (string, error) {
+		joined := strings.Join(args, " ")
+		if strings.Contains(joined, "member list") {
+			return `{"members":[]}`, nil
+		}
+		if strings.HasPrefix(joined, "delete node k8s-2") {
+			deletes++
+			if deletes < 3 {
+				return "", fmt.Errorf("Unable to connect to the server: connection reset by peer")
+			}
+			return "", nil
+		}
+		return "", fmt.Errorf("unexpected %s", joined)
+	}
+	require.NoError(t, (realReplaceOperations{}).RemoveFromCluster(context.Background(), spec))
+	assert.Equal(t, 3, deletes, "the node delete is retried until the API answers again")
+
+	deletes = -100 // never succeeds within the retry budget
+	require.ErrorContains(t, (realReplaceOperations{}).RemoveFromCluster(context.Background(), spec), "delete node")
 }

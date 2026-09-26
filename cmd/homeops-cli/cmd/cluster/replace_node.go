@@ -710,8 +710,9 @@ func checkReplaceQuorum(members []replaceEtcdMember, spec rehearseNodeSpec) erro
 			others++
 		}
 	}
-	if targets != 1 {
-		return fmt.Errorf("expected exactly one etcd member for %s, found %d", spec.Node.Name, targets)
+	// Zero is a resumed run: an earlier attempt already removed the member.
+	if targets > 1 {
+		return fmt.Errorf("expected at most one etcd member for %s, found %d", spec.Node.Name, targets)
 	}
 	if others < replaceMinOtherHealthyMembers {
 		return fmt.Errorf("only %d healthy etcd members besides %s (need at least %d so quorum survives its removal)", others, spec.Node.Name, replaceMinOtherHealthyMembers)
@@ -763,7 +764,15 @@ func (realReplaceOperations) Preconditions(ctx context.Context, spec rehearseNod
 	if err != nil {
 		return replacePreflight{}, err
 	}
-	return replacePreflight{EtcdMembers: len(members), ScratchVolume: volume, ScratchGUID: guid}, nil
+	// Expected membership once the node rejoins: every other member plus the
+	// rebuilt node, whether or not an earlier attempt already removed it.
+	expected := 1
+	for _, m := range members {
+		if !isTargetEtcdMember(m, spec) {
+			expected++
+		}
+	}
+	return replacePreflight{EtcdMembers: expected, ScratchVolume: volume, ScratchGUID: guid}, nil
 }
 
 func checkReplaceVMs(summaries []vmprov.VMSummary, spec rehearseNodeSpec) error {
@@ -854,14 +863,31 @@ func (realReplaceOperations) Drain(ctx context.Context, spec rehearseNodeSpec, t
 	return nil
 }
 
+// replaceAPIRetries x replaceAPIRetryDelay bounds the wait for a VIP failover.
+var (
+	replaceAPIRetries    = 18
+	replaceAPIRetryDelay = 10 * time.Second
+)
+
 func (realReplaceOperations) RemoveFromCluster(ctx context.Context, spec rehearseNodeSpec) error {
 	if err := removeRehearsalEtcdMember(ctx, spec); err != nil {
 		return fmt.Errorf("remove etcd member: %w", err)
 	}
-	if _, err := rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err != nil {
-		return fmt.Errorf("delete node: %w", err)
+	// Removing the member can take down the API server the control-plane VIP
+	// points at (when the target holds the kube-vip lease) until the VIP fails
+	// over; retry through that window instead of failing mid-rebuild.
+	var err error
+	for attempt := 0; attempt < replaceAPIRetries; attempt++ {
+		if _, err = rehearseCommandFn(ctx, "kubectl", "delete", "node", spec.Node.Name, "--ignore-not-found=true"); err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("delete node: %w", ctx.Err())
+		case <-time.After(replaceAPIRetryDelay):
+		}
 	}
-	return nil
+	return fmt.Errorf("delete node: %w", err)
 }
 
 // PreserveScratch parks the node's scsi4 volume on a new placeholder VM and
