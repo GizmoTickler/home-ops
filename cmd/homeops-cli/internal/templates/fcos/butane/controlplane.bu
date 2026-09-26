@@ -32,6 +32,25 @@
 variant: fcos
 version: 1.7.0
 
+# Guest halt-poll window (cpuidle-haltpoll, built into the FCOS kernel as the
+# "haltpoll" governor). An idle vCPU keeps polling in the guest for up to
+# guest_halt_poll_ns before it halts, so a wake inside that window is a flag
+# write instead of an IPI plus a VM exit/entry on pve. The default (200 us,
+# shrinking to 0 once gaps exceed it) lets the vCPUs of a low-depth storage
+# stream (nvmeublk queue threads, kernel nvme-tcp io_work, the submitter) fall
+# into the deep halt between I/Os; 1 ms with no shrink removes that wake. On
+# VM 106 it cut nvmeublk's QD1 4K p99 about 3x with the kernel initiator
+# unchanged (claude-config infra/plans/nvmeublk-userspace-architecture.md
+# §6.1 and "Build log: L1-L3"). Cost: an idle vCPU spins up to 1 ms after each
+# idle entry; the node vCPUs are pinned to host cores, so those cycles are the
+# node's own. Applied by Ignition on first boot (kargs stage, one reboot in the
+# initramfs); the sysfs files under /sys/module/haltpoll/parameters/ show the
+# values in effect.
+kernel_arguments:
+  should_exist:
+    - haltpoll.guest_halt_poll_ns=1000000
+    - haltpoll.guest_halt_poll_allow_shrink=N
+
 passwd:
   users:
     - name: core

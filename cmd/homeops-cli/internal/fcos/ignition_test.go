@@ -544,6 +544,28 @@ func TestRenderIgnitionCarriesFlatcarBaselayoutSysctls(t *testing.T) {
 	}
 }
 
+// The guest halt-poll window is a node knob of the storage data path (nvmeublk
+// hot-lane design, lever L1): 1 ms with no shrink, as kernel arguments so it
+// holds from the first instruction of every boot, on every node.
+func TestRenderIgnitionSetsGuestHaltPollWindow(t *testing.T) {
+	for _, env := range []NodeEnv{sampleEnv(), func() NodeEnv { e := sampleEnv(); e.NodeName = "k8s-2"; e.NodeIP = "192.168.122.12"; return e }()} {
+		ign, err := RenderIgnition(env)
+		require.NoError(t, err)
+		var doc struct {
+			KernelArguments struct {
+				ShouldExist    []string `json:"shouldExist"`
+				ShouldNotExist []string `json:"shouldNotExist"`
+			} `json:"kernelArguments"`
+		}
+		require.NoError(t, json.Unmarshal(ign, &doc))
+		assert.ElementsMatch(t, []string{
+			"haltpoll.guest_halt_poll_ns=1000000",
+			"haltpoll.guest_halt_poll_allow_shrink=N",
+		}, doc.KernelArguments.ShouldExist, "node %s", env.NodeName)
+		assert.Empty(t, doc.KernelArguments.ShouldNotExist)
+	}
+}
+
 // runc's exeseal overlays its own binary directory on every container start and
 // exec; on FCOS /usr/bin is the sysext overlay on the composefs root overlay
 // (already at the kernel's max stacking depth), so the overlay fails and runc
