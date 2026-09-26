@@ -1,14 +1,16 @@
 # Butane -> Ignition for a Fedora CoreOS control-plane node (all 3 nodes are
 # control-plane). This is the FCOS sibling of flatcar/butane/controlplane.bu and
 # ports every behaviour of it; the OS migration changes NOTHING else (same
-# containerd config, kubeadm configs, kube-vip, addresses, Cilium devices).
+# containerd config apart from the FCOS runc path, kubeadm configs, kube-vip,
+# addresses, Cilium devices).
 #
 # Rendered with {{ ENV.* }} substitution (Butane text AND local:-referenced files
 # both get ENV substitution by the Go renderer), then transpiled to Ignition with
 # --files-dir. The files dir is the Flatcar files/ + manifests/ with this
 # directory's files/ + systemd/ overlaid, so shared files (sysctl, nfsmount.conf,
-# containerd config, audit policy, scheduler config, kube-vip) are reused
-# verbatim rather than duplicated.
+# audit policy, scheduler config, kube-vip) are reused verbatim rather than
+# duplicated. The containerd config is shadowed by an FCOS copy that only adds
+# the runc BinaryName (see the containerd.service drop-ins).
 #
 # FCOS-specific differences (each is explained where it is implemented):
 #   - networking: NetworkManager keyfiles instead of systemd-networkd .network
@@ -302,7 +304,9 @@ storage:
 
     # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause).
     # FCOS ships containerd 2.3.x in the base image (with moby-engine); the Flatcar
-    # config.toml (config version 3) is reused unchanged. containerd 2.3 accepts
+    # config.toml (config version 3) is reused with ONE addition: fcos/files/
+    # containerd-config.toml shadows it and adds the runc BinaryName pointing at the
+    # non-overlay copy installed by containerd's 10-runc-copy.conf drop-in. containerd 2.3 accepts
     # version 3 and migrates it to version 4 in memory at start (a one-line
     # warning; checked with `containerd --config ... config dump` on 2.3.4: every
     # key here survives, CNI bin_dirs stays /opt/cni/bin, enable_selinux=false). ---
@@ -376,6 +380,25 @@ systemd:
             [Service]
             ExecStart=
             ExecStart=/usr/bin/containerd --config /etc/containerd/config.toml
+        # runc cannot seal its own binary on FCOS: runc's exeseal mounts an
+        # overlay with lowerdir=<dir of runc> on every container start/exec, and
+        # /usr/bin is the Kubernetes sysext overlay on the composefs root overlay,
+        # already at the kernel's maximum stacking depth (2). fsconfig fails with
+        # EINVAL ("overlayfs: maximum fs stacking depth exceeded") and runc falls
+        # back to copying itself into a memfd (~60% container-start overhead). So
+        # containerd runs runc (BinaryName in /etc/containerd/config.toml) from a
+        # plain copy on /var, refreshed from /usr/bin/runc before EVERY containerd
+        # start so it always matches the OS image's runc after an update.
+        # install unlinks before writing, so a runc still executing from the old
+        # copy is not hit with ETXTBSY. SELinux: no container-selinux file context
+        # covers /var/lib/containerd-runc (it would label var_lib_t), so the copy
+        # is labelled container_runtime_exec_t explicitly — the type
+        # /usr/bin/runc carries — so runc stays executable under enforcing.
+        - name: 10-runc-copy.conf
+          contents: |
+            [Service]
+            ExecStartPre=/usr/bin/install -D -m 0755 /usr/bin/runc /var/lib/containerd-runc/runc
+            ExecStartPre=/usr/bin/chcon -t container_runtime_exec_t /var/lib/containerd-runc/runc
     # kubelet: there is no package to supply the unit, so ship the upstream kubeadm
     # packaging verbatim (kubernetes/release krel templates kubelet.service +
     # 10-kubeadm.conf); /usr/bin/kubelet itself comes from the Kubernetes sysext.

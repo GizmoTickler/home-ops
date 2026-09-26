@@ -475,8 +475,9 @@ func TestRenderIgnitionFCOSFilesOverlayFlatcarFiles(t *testing.T) {
 	ign, err := RenderIgnition(sampleEnv())
 	require.NoError(t, err)
 	assert.Contains(t, rendered, "fcos/butane/controlplane.bu")
-	assert.Contains(t, rendered, "flatcar/files/containerd-config.toml")
 	assert.Contains(t, rendered, "flatcar/manifests/kube-vip.yaml")
+	// The FCOS containerd config shadows the Flatcar one (runc BinaryName).
+	assert.Contains(t, rendered, "fcos/files/containerd-config.toml")
 	assert.Contains(t, rendered, "fcos/files/modules-load-homeops.conf")
 	assert.NotContains(t, rendered, "flatcar/butane/controlplane.bu")
 	// The FCOS modules list shadows the Flatcar one of the same name.
@@ -541,4 +542,64 @@ func TestRenderIgnitionCarriesFlatcarBaselayoutSysctls(t *testing.T) {
 	} {
 		assert.Contains(t, baselayout, line+"\n")
 	}
+}
+
+// runc's exeseal overlays its own binary directory on every container start and
+// exec; on FCOS /usr/bin is the sysext overlay on the composefs root overlay
+// (already at the kernel's max stacking depth), so the overlay fails and runc
+// falls back to a memfd self-copy. containerd must run runc from a non-overlay
+// copy on /var, refreshed from the image before every start and labelled so it
+// stays executable under SELinux enforcing.
+func TestRenderIgnitionRunsRuncFromNonOverlayCopy(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+
+	containerd, ok := ignitionSystemdUnits(t, ign)["containerd.service"]
+	require.True(t, ok)
+	var dropin string
+	for _, d := range containerd.Dropins {
+		if d.Name == "10-runc-copy.conf" {
+			dropin = d.Contents
+		}
+	}
+	assert.Equal(t, "[Service]\n"+
+		"ExecStartPre=/usr/bin/install -D -m 0755 /usr/bin/runc /var/lib/containerd-runc/runc\n"+
+		"ExecStartPre=/usr/bin/chcon -t container_runtime_exec_t /var/lib/containerd-runc/runc\n",
+		dropin)
+
+	cfg := ignitionFileContent(t, ign, "/etc/containerd/config.toml")
+	assert.Contains(t, cfg, "      BinaryName = '/var/lib/containerd-runc/runc'\n")
+	// BinaryName must sit in the runc runtime's options table (after its header
+	// and before any later table), or containerd ignores it.
+	optionsHdr := "[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]"
+	i := strings.Index(cfg, optionsHdr)
+	require.GreaterOrEqual(t, i, 0)
+	tail := cfg[i+len(optionsHdr):]
+	j := strings.Index(tail, "BinaryName")
+	require.GreaterOrEqual(t, j, 0)
+	assert.NotContains(t, tail[:j], "\n[", "BinaryName must be inside the runc options table")
+}
+
+// The FCOS containerd config shadows the Flatcar one only to add the runc
+// BinaryName; every other setting must stay identical (comments aside), so the
+// two OSes keep running the same CRI config.
+func TestFCOSContainerdConfigOnlyAddsRuncBinaryName(t *testing.T) {
+	settings := func(rel string) []string {
+		raw, err := os.ReadFile(filepath.Join("..", "templates", rel))
+		require.NoError(t, err)
+		var out []string
+		for _, line := range strings.Split(string(raw), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			out = append(out, line)
+		}
+		return out
+	}
+	flatcarCfg := settings("flatcar/files/containerd-config.toml")
+	fcosCfg := settings("fcos/files/containerd-config.toml")
+	assert.NotContains(t, flatcarCfg, "BinaryName = '/var/lib/containerd-runc/runc'",
+		"Flatcar's runc is not on a stacked overlay and lives elsewhere")
+	assert.Equal(t, append(flatcarCfg, "BinaryName = '/var/lib/containerd-runc/runc'"), fcosCfg)
 }
