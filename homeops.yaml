@@ -88,6 +88,7 @@ cluster:
       max_size: 900GB
   nodes:
     - name: k8s-0
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.10
       vm:
         vmid: 200
@@ -106,6 +107,7 @@ cluster:
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN
     - name: k8s-1
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.11
       vm:
         vmid: 201
@@ -124,6 +126,7 @@ cluster:
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN
     - name: k8s-2
+      os: fcos  # Phase B (2026-09-26): rebuilt in place with `cluster replace-node`
       ip: 192.168.122.12
       vm:
         vmid: 202
