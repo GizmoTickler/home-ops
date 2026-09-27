@@ -508,3 +508,69 @@ spec:
           labels:
             severity: warning
             component: gateway
+
+    # ── NGFW monitoring (2026-09-27): risk signals are monitor-only by owner decision;
+    #    phase-1 app rules are count-only (action continue + log) for a 7-day review ──
+    - name: apprec-ngfw.rules
+      interval: 60s
+      rules:
+        - alert: ApprecSevereRiskFlow
+          # nDPI flow risks rated Severe. No risk-filter is configured on gateway0
+          # (nothing is blocked); this is the monitoring the enforcement decision
+          # will be based on. Counters come from vyos-apprec's classifier.
+          expr: |-
+            increase(apprec_risk_flows_total{job="node-exporter",instance=~"gateway0.*",risk=~"client_contacted_a_malware_host|possible_exploit_attempt|rce_injection|sql_injection|xss_attack|binary_app_transfer|malicious_fingerprint"}[15m]) > 0
+          for: 0m
+          keep_firing_for: 1h
+          annotations:
+            summary: "nDPI flagged {{ $value | humanize }} flow(s) with Severe risk {{ $labels.risk }} on gateway0 in 15m"
+            description: |-
+              Monitor-only: nothing was blocked. Find the hosts with
+              `show app-recognition flows` on gateway0 (filter on the risk), and review the
+              "gateway0 NGFW" Grafana dashboard for the trend before deciding on enforcement.
+          labels:
+            severity: warning
+            component: apprec
+
+        - alert: ApprecHighRiskSurge
+          # High-severity risks with a steady background (e.g. tls_susp_extn,
+          # http_susp_user_agent): alert on a surge against the previous week's
+          # hourly average, not on presence.
+          expr: |-
+            (
+              increase(apprec_risk_flows_total{job="node-exporter",instance=~"gateway0.*",risk=~"clear_text_credentials|http_susp_content|http_susp_header|http_susp_url|http_susp_user_agent|malicious_ssl_cert_sha1_fingerp|mismatching_protocol_with_server_ip_address|non_printable_invalid_chars_detected|obfuscated_traffic|obsolete_tls_v1_1_or_older|possible_slow_dos|self_signed_cert|smb_insecure_vers|ssh_obsolete_cli_vers_cipher|susp_dga_domain_name|tls_cert_expired|tls_cert_mismatch|tls_susp_extn|weak_tls_cipher"}[1h]) > 50
+            )
+            and on (risk)
+            (
+              increase(apprec_risk_flows_total{job="node-exporter",instance=~"gateway0.*"}[1h])
+              > 3 * (increase(apprec_risk_flows_total{job="node-exporter",instance=~"gateway0.*"}[7d] offset 1h) / 168)
+            )
+          for: 0m
+          keep_firing_for: 1h
+          annotations:
+            summary: "nDPI High risk {{ $labels.risk }} surged to {{ $value | humanize }} flows/h on gateway0"
+            description: |-
+              More than 50 flows in the last hour and over 3x the previous week's hourly average.
+              Monitor-only (no risk-filter configured). Identify the source with
+              `show app-recognition flows` and check the "gateway0 NGFW" dashboard.
+          labels:
+            severity: info
+            component: apprec
+
+        - alert: ApprecNGFWCountRuleHit
+          # Phase-1 NGFW rules (forward filter, count-only): 20-26 anonymizer/proxy
+          # apps outside VLAN90, 30-31 DoH/DoT and DNScrypt from non-resolvers,
+          # 35 Mining, 40-41 AnyDesk/TeamViewer from IoT. Any hit is a candidate
+          # finding for the phase-2 enforcement review.
+          expr: |-
+            increase(apprec_nft_rule_packets_total{job="node-exporter",instance=~"gateway0.*",rule=~"2[0-6]|3[01]|35|4[01]"}[1h]) > 0
+          for: 0m
+          keep_firing_for: 2h
+          annotations:
+            summary: "NGFW count-only rule {{ $labels.family }} {{ $labels.rule }} matched {{ $value | humanize }} packets in 1h on gateway0"
+            description: |-
+              Visibility only (action continue). `sudo journalctl -k | grep FWD-filter-{{ $labels.rule }}-C`
+              on gateway0 shows the source and destination of each hit.
+          labels:
+            severity: info
+            component: gateway
