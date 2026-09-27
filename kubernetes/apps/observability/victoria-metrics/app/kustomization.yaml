@@ -24,6 +24,7 @@ resources:
   - ./pdns-auth-dashboard.yaml
   - ./kea-dhcp4-dashboard.yaml
   - ./dnscrypt-proxy-dashboard.yaml
+  - ./gateway0-ngfw-dashboard.yaml
   - ./stream-aggr-config.yaml
   - ./trustsec-sgacl-exporter.yaml
 configMapGenerator:

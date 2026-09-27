@@ -331,3 +331,54 @@ tests:
         alertname: CleartextBitTorrentToWAN
         exp_alerts:
           - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", family: ipv4, rule: "16", comment: ipv4-FWD-filter-16, severity: warning, component: gateway}
+
+  # ── NGFW monitoring ────────────────────────────────────────────────────────
+  - interval: 1m
+    name: a Severe risk flow fires; a Low risk does not
+    input_series:
+      - series: 'apprec_risk_flows_total{job="node-exporter",instance="gateway0.example:9100",risk="possible_exploit_attempt"}'
+        values: '0x20 1x20'
+      - series: 'apprec_risk_flows_total{job="node-exporter",instance="gateway0.example:9100",risk="unidirectional_traffic"}'
+        values: '0+100x40'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ApprecSevereRiskFlow
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ApprecSevereRiskFlow
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", risk: possible_exploit_attempt, severity: warning, component: apprec}
+
+  - interval: 10m
+    name: a High risk surge fires; the same risk at its steady weekly rate does not
+    input_series:
+      # 6 flows per 10 min (36/h) for a week, then 60 per 10 min (360/h)
+      - series: 'apprec_risk_flows_total{job="node-exporter",instance="gateway0.example:9100",risk="tls_susp_extn"}'
+        values: '0+6x1008 6048+60x12'
+      # steady 20 per 10 min (120/h) throughout: above 50/h but not a surge
+      - series: 'apprec_risk_flows_total{job="node-exporter",instance="gateway0.example:9100",risk="http_susp_user_agent"}'
+        values: '0+20x1020'
+    alert_rule_test:
+      - eval_time: 7d
+        alertname: ApprecHighRiskSurge
+        exp_alerts: []
+      - eval_time: 7d2h
+        alertname: ApprecHighRiskSurge
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", risk: tls_susp_extn, severity: info, component: apprec}
+
+  - interval: 1m
+    name: a phase-1 NGFW count rule hit fires; the BitTorrent rule 16 is left to its own alert
+    input_series:
+      - series: 'apprec_nft_rule_packets_total{job="node-exporter",instance="gateway0.example:9100",family="ipv4",rule="30",comment="ipv4-FWD-filter-30"}'
+        values: '0x30 4x30'
+      - series: 'apprec_nft_rule_packets_total{job="node-exporter",instance="gateway0.example:9100",family="ipv4",rule="16",comment="ipv4-FWD-filter-16"}'
+        values: '0+5x60'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: ApprecNGFWCountRuleHit
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ApprecNGFWCountRuleHit
+        exp_alerts:
+          - exp_labels: {job: node-exporter, instance: "gateway0.example:9100", family: ipv4, rule: "30", comment: ipv4-FWD-filter-30, severity: info, component: gateway}
