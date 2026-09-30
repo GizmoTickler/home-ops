@@ -172,7 +172,8 @@ spec:
       # maxVolumesPerNode 64: each ublk volume gets 4 queues x 128 tags and a
       # node holds 64 (k8s-1 had 17 volumes attached on 2026-09-30, 47 PVs in
       # all); no CSI limit is advertised while ublk is opt-in only.
-      # The daemon tag is pinned so a chart bump does not roll the data path.
+      # The daemon tag is pinned so a chart bump does not roll the data path
+      # (1.13.1 changed only the controller; the daemon stays at v1.13.0).
       # Going back: delete the canary volumes first; then drop this block.
       ublk:
         enabled: true
