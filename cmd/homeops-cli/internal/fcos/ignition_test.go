@@ -603,3 +603,14 @@ func TestFCOSContainerdConfigOnlyAddsRuncBinaryName(t *testing.T) {
 		"Flatcar's runc is not on a stacked overlay and lives elsewhere")
 	assert.Equal(t, append(flatcarCfg, "BinaryName = '/var/lib/containerd-runc/runc'"), fcosCfg)
 }
+
+func TestRenderIgnitionSetsNFSReadahead(t *testing.T) {
+	ign, err := RenderIgnition(sampleEnv())
+	require.NoError(t, err)
+	// nfs-utils' 99-nfs.rules applies [nfsrahead] to every NFS bdi; the 128 KiB
+	// default caps streaming reads on the 1 MiB rsize media mounts.
+	conf := ignitionFileContent(t, ign, "/etc/nfs.conf.d/readahead.conf")
+	assert.Contains(t, conf, "[nfsrahead]")
+	assert.Contains(t, conf, "\nnfs4=16384\n")
+	assert.Contains(t, conf, "\nnfs=16384\n")
+}
