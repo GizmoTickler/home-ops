@@ -301,6 +301,13 @@ storage:
       overwrite: true
       contents:
         local: files/nfsmount.conf
+    # NFS client readahead: nfs-utils' 99-nfs.rules sets read_ahead_kb on every NFS
+    # bdi from [nfsrahead] (default 128 KiB). 16 MiB for the 1 MiB rsize media mounts.
+    - path: /etc/nfs.conf.d/readahead.conf
+      mode: 0644
+      overwrite: true
+      contents:
+        local: files/nfs-readahead.conf
 
     # --- containerd CRI config (systemd cgroups, Talos CRI customizations, pinned pause).
     # FCOS ships containerd 2.3.x in the base image (with moby-engine); the Flatcar
