@@ -21,6 +21,14 @@ spec:
           memory: 64Mi
         limits:
           memory: 256Mi
+    # 2026-10-01: canary of the Rust node agent (scale-csi-node, chart 1.15.0)
+    # on k8s-2 only, NVMe-oF kernel path (4 volumes there). The Go node plugin
+    # keeps k8s-0 and k8s-1; nvmeublkd still runs on all three. Going back:
+    # delete rustNodes; the Go DaemonSet takes k8s-2 back and adopts what the
+    # agent staged.
+    node:
+      rustNodes:
+        - k8s-2
     # Backend publication fencing. strict = backend allowlists converge to CSI
     # publications only (static subsystemHosts ignored for fenced volumes);
     # flipped 2026-07-22 after additive verification (27/27 converged,
@@ -173,7 +181,7 @@ spec:
       # node holds 64 (k8s-1 had 17 volumes attached on 2026-09-30, 47 PVs in
       # all); no CSI limit is advertised while ublk is opt-in only.
       # The daemon tag is pinned so a chart bump does not roll the data path
-      # (1.13.1 and 1.14.0 left the daemon unchanged; it stays at v1.13.0).
+      # (1.13.1, 1.14.0 and 1.15.0 left the daemon unchanged; it stays at v1.13.0).
       # Going back: delete the canary volumes first; then drop this block.
       ublk:
         enabled: true
