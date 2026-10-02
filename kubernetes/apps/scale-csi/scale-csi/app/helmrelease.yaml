@@ -22,8 +22,10 @@ spec:
         limits:
           memory: 256Mi
     # The Rust node agent (scale-csi-node) on every node, one DaemonSet: canary on
-    # k8s-2 from 2026-10-01, all nodes from 2026-10-02 (chart 1.20.0). nvmeublkd
-    # runs on all three. Going back: implementation: go (the Go plugin adopts
+    # k8s-2 from 2026-10-01, all nodes from 2026-10-02 (chart 1.20.0). Data path
+    # is the kernel initiator; the nvmeublk userspace path (nvmeublkd and the
+    # scale-nvmeof-ublk class) was removed 2026-10-02 with no volumes on it.
+    # Going back: implementation: go (the Go plugin adopts
     # what the agent staged).
     node:
       implementation: rust
@@ -170,23 +172,6 @@ spec:
         - nqn.2014-08.org.nvmexpress:uuid:cce109e7-813a-4b2b-9314-c35b7064e3dd
         - nqn.2014-08.org.nvmexpress:uuid:0c2178cc-5aa6-45f3-bafe-718fe518fa62
         - nqn.2014-08.org.nvmexpress:uuid:2121dcbe-603f-46ec-b21a-b3dbad9d5f04
-      # 2026-09-30 (chart v1.13.0): userspace NVMe/TCP data path (nvmeublkd),
-      # canary stage (Gate C in claude-config plans/fcos-nvmeublk-migration.md).
-      # ublk.enabled deploys nvmeublkd on every node and lets classes opt in
-      # (scale-nvmeof-ublk below); dataPath stays kernel, so no existing
-      # volume moves. Nodes are FCOS 7.1 with ublk_drv loaded at boot.
-      # maxVolumesPerNode 64: each ublk volume gets 4 queues x 128 tags and a
-      # node holds 64 (k8s-1 had 17 volumes attached on 2026-09-30, 47 PVs in
-      # all); no CSI limit is advertised while ublk is opt-in only.
-      # The daemon tag is pinned so a chart bump does not roll the data path
-      # (1.13.1 through 1.22.0 left the daemon unchanged; it stays at v1.13.0).
-      # Going back: delete the canary volumes first; then drop this block.
-      ublk:
-        enabled: true
-        maxVolumesPerNode: 64
-        daemon:
-          image:
-            tag: v1.13.0
     storageClasses:
       - name: scale-nvmeof
         protocol: nvmeof
@@ -194,17 +179,6 @@ spec:
         reclaimPolicy: Delete
         allowVolumeExpansion: true
         volumeBindingMode: Immediate
-      # Canary class for the ublk data path. A volume keeps the data path it
-      # was provisioned with. Online resize is not possible while a ublk
-      # volume is staged (it grows at the next pod restart).
-      - name: scale-nvmeof-ublk
-        protocol: nvmeof
-        isDefault: false
-        reclaimPolicy: Delete
-        allowVolumeExpansion: true
-        volumeBindingMode: Immediate
-        extraParameters:
-          nvmeof/dataPath: ublk
     # 2026-09-23 (chart v1.12.0): the bundled rules replace the hand-written
     # VMRule. Their tombstone backlog alert is a count threshold now, so it no
     # longer pages permanently under kopiur's hourly clone inflow; the two
