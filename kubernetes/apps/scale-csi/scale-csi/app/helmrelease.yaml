@@ -21,15 +21,12 @@ spec:
           memory: 64Mi
         limits:
           memory: 256Mi
-    # Rust node agent (scale-csi-node) on every node: k8s-2 canary since
-    # 2026-10-01 (chart 1.15.0), k8s-0 and k8s-1 added 2026-10-02 (chart
-    # 1.20.0). nvmeublkd runs on all three. Going back: remove a node from
-    # rustNodes; the Go DaemonSet takes it back and adopts what the agent staged.
+    # The Rust node agent (scale-csi-node) on every node, one DaemonSet: canary on
+    # k8s-2 from 2026-10-01, all nodes from 2026-10-02 (chart 1.20.0). nvmeublkd
+    # runs on all three. Going back: implementation: go (the Go plugin adopts
+    # what the agent staged).
     node:
-      rustNodes:
-        - k8s-2
-        - k8s-0
-        - k8s-1
+      implementation: rust
     # Backend publication fencing. strict = backend allowlists converge to CSI
     # publications only (static subsystemHosts ignored for fenced volumes);
     # flipped 2026-07-22 after additive verification (27/27 converged,
