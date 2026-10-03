@@ -8,6 +8,12 @@ Patch-level k8s sysext updates are automatic (`systemd-sysupdate -C kubernetes` 
 This Plan covers the remaining piece: a deliberate Kubernetes **minor** bump
 (e.g. `v1.36 → v1.37`), which requires the `kubeadm upgrade` dance.
 
+> **Fedora CoreOS nodes** have no systemd-sysupdate, so patch releases are not
+> automatic there and step 1 of the Job instead runs
+> `/usr/local/bin/homeops-install-k8s-sysext <version>` (rebuilds the directory
+> sysext from sha256-verified dl.k8s.io binaries). Use this Plan for patch bumps on
+> FCOS too.
+
 ## ⚠️ Status: UNVALIDATED — dormant by default
 
 This Plan has **not yet been run** on this cluster. It is **dormant**: the node selector
