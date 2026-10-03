@@ -439,8 +439,9 @@ failure. `flatcar os-status` skips `os: fcos` nodes with a warning.
   kubeadm packaging. Upgrade: drain, run
   `sudo /usr/local/bin/homeops-install-k8s-sysext v<new>`, then `kubeadm upgrade`.
 - **OS updates:** Zincati is disabled
-  (`/etc/zincati/config.d/90-disable-auto-updates.toml`); updates are meant to be
-  merge-gated (pinned `rpm-ostree deploy <build>` + Kured reboot).
+  (`/etc/zincati/config.d/90-disable-auto-updates.toml`); updates are
+  merge-gated: the `fcos-os` SUC Plan stages the pinned build with `rpm-ostree
+  rebase`, then kured reboots one node at a time.
 - **Rollback:** first boot layers `greenboot` + `greenboot-default-health-checks`
   and reboots once *before* any Kubernetes unit runs; a required health check
   passes only when containerd (and, once joined, kubelet) is active.

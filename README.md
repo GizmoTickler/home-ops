@@ -130,7 +130,7 @@ The Kubernetes cluster is deployed using [Fedora CoreOS](https://fedoraproject.o
 - [scale-csi](https://github.com/GizmoTickler/scale-csi): Primary storage — a purpose-built TrueNAS SCALE CSI driver (WebSocket API, zero SSH) providing NVMe-oF/TCP, iSCSI, and NFS StorageClasses with snapshots, detached clones, expansion, and a driver-side orphan reconciler.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
-- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when a node flags `/run/reboot-required`. Zincati is disabled on the FCOS nodes, so OS updates never reboot a node on their own. [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) hosts the upgrade Plans (see `apps/system-upgrade`).
+- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when a node has a pending rpm-ostree deployment or flags `/run/reboot-required`. Zincati is disabled on the FCOS nodes; OS releases are merge-gated through the `fcos-os` Plan, which stages the pinned build for kured to reboot into. [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) hosts the upgrade Plans (see `apps/system-upgrade`).
 - [kopiur](https://github.com/home-operations/kopiur): Kopia-based backup and restore of persistent volume claims (hourly `SnapshotSchedule`s to the `nas-s3` ClusterRepository; restore-on-create via a `Restore` populator).
 
 ### GitOps
