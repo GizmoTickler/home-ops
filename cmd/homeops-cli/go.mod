@@ -12,7 +12,7 @@ require (
 	github.com/coreos/butane v0.29.0
 	github.com/diskfs/go-diskfs v1.9.4
 	github.com/fatih/color v1.19.0
-	github.com/luthermonson/go-proxmox v0.8.1
+	github.com/luthermonson/go-proxmox v0.8.2
 	github.com/mattn/go-isatty v0.0.24
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
