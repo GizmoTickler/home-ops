@@ -17,6 +17,7 @@ metadata:
   name: kgateway-external
   annotations:
     external-dns.alpha.kubernetes.io/target: &externalHostname "kgateway-external.${SECRET_DOMAIN}"
+    external-dns.kubernetes.io/target: *externalHostname
     gatus.home-operations.com/endpoint: |-
       client:
         dns-resolver: tcp://192.168.123.250:53
@@ -26,6 +27,7 @@ spec:
   infrastructure:
     annotations:
       external-dns.alpha.kubernetes.io/hostname: *externalHostname
+      external-dns.kubernetes.io/hostname: *externalHostname
       lbipam.cilium.io/ips: 192.168.255.12
   listeners:
     - name: http
@@ -52,6 +54,7 @@ metadata:
   name: kgateway-internal
   annotations:
     external-dns.alpha.kubernetes.io/target: &internalHostname "kgateway-internal.${SECRET_DOMAIN}"
+    external-dns.kubernetes.io/target: *internalHostname
     gatus.home-operations.com/endpoint: |-
       group: internal
 spec:
@@ -59,6 +62,7 @@ spec:
   infrastructure:
     annotations:
       external-dns.alpha.kubernetes.io/hostname: *internalHostname
+      external-dns.kubernetes.io/hostname: *internalHostname
       lbipam.cilium.io/ips: 192.168.255.11
   listeners:
     - name: http
@@ -85,6 +89,7 @@ metadata:
   name: https-redirect
   annotations:
     external-dns.alpha.kubernetes.io/controller: none
+    external-dns.kubernetes.io/controller: none
 spec:
   parentRefs:
     - name: kgateway-external
