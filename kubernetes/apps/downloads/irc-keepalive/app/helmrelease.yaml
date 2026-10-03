@@ -1,0 +1,63 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: irc-keepalive
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: irc-keepalive
+  interval: 1h
+  values:
+    controllers:
+      irc-keepalive:
+        # TorrentLeech's NickServ (Anope) drops nicks unseen for 21 days. autobrr
+        # keeps only its own -bot alias fresh, so log in as the main nick weekly.
+        # A failed run (bad credentials, dropped registration) fires KubeJobFailed.
+        type: cronjob
+        cronjob:
+          schedule: 17 4 * * 1
+          backoffLimit: 2
+          concurrencyPolicy: Forbid
+          successfulJobsHistory: 1
+          failedJobsHistory: 1
+          ttlSecondsAfterFinished: 86400
+        containers:
+          app:
+            image:
+              repository: docker.io/library/python
+              tag: 3.14-alpine@sha256:2e740b2c28a426e74f11396c05e38afb3191acced75045b8d62df573c1dc8ce8
+            command: ["python3", "-I", "/app/keepalive.py"]
+            env:
+              IRC_SERVER: irc.torrentleech.org
+              IRC_PORT: "7021"
+              PYTHONDONTWRITEBYTECODE: "1"
+            envFrom:
+              - secretRef:
+                  name: irc-keepalive-secret
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
+        pod:
+          restartPolicy: Never
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+    persistence:
+      script:
+        type: configMap
+        name: irc-keepalive-script
+        globalMounts:
+          - path: /app/keepalive.py
+            subPath: keepalive.py
+            readOnly: true

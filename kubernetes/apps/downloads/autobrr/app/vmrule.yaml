@@ -15,5 +15,11 @@ spec:
           annotations:
             summary: >-
               {{ $labels.network }} is not being monitored by Autobrr
+            description: >-
+              autobrr is enabled for {{ $labels.network }} but not joined to its
+              announce channel. Check the autobrr IRC log for the reason (SASL 904
+              = NickServ credentials or registration). Fix within two weeks:
+              NickServ registrations expire after 21 days unseen (TorrentLeech), and
+              a lapsed account must be re-registered and re-grouped.
           labels:
             severity: critical

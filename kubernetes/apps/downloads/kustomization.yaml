@@ -13,6 +13,7 @@ resources:
   - ./vpn-egress-killswitch.yaml
   - ./autobrr/ks.yaml
   - ./bazarr/ks.yaml
+  - ./irc-keepalive/ks.yaml
   - ./nzbget/ks.yaml
   - ./pinchflat/ks.yaml
   - ./prowlarr/ks.yaml
