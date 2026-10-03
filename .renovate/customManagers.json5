@@ -12,6 +12,16 @@
         '{ "releases": $each($, function($v, $k) { $v.channel = "stable" ? { "version": $k } : undefined }) }',
       ],
     },
+    // fcos-os SUC Plan: same merge-gated contract as flatcar-os. The stable
+    // stream metadata publishes only the current release, which is all the
+    // pin needs. NEVER automerge (see autoMerge.json5).
+    fcos: {
+      defaultRegistryUrlTemplate: "https://builds.coreos.fedoraproject.org/streams/stable.json",
+      format: "json",
+      transformTemplates: [
+        '{ "releases": [{ "version": architectures.x86_64.artifacts.metal.release }] }',
+      ],
+    },
   },
   customManagers: [
     {

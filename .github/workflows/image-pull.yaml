@@ -167,6 +167,21 @@ jobs:
           }
           trap cleanup EXIT
 
+          # The EXIT trap never runs when the job is cancelled or the runner pod is
+          # killed, which strands a crashlooping DaemonSet on every node (seen live:
+          # one sat for 7 days firing KubePodCrashLooping). Sweep any prepull
+          # DaemonSet older than 30 minutes (job timeout is 10) before starting.
+          cutoff=$(( $(date +%s) - 1800 ))
+          kubectl -n "$NAMESPACE" get daemonset -l app.kubernetes.io/managed-by=image-pull-workflow \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.metadata.creationTimestamp}{"\n"}{end}' 2>/dev/null \
+            | while read -r ds created; do
+                [ -n "$ds" ] || continue
+                if [ "$(date -d "$created" +%s)" -lt "$cutoff" ]; then
+                  echo "Removing stale prepull DaemonSet $ds (created $created)"
+                  kubectl -n "$NAMESPACE" delete daemonset "$ds" --ignore-not-found --wait=false || true
+                fi
+              done || true
+
           # kubelet pulls the image BEFORE it tries to exec the container command, so we
           # override command with a guaranteed-nonexistent path: the pull still happens,
           # but the container fails to start instantly (StartError) instead of running the

@@ -14,3 +14,4 @@ resources:
   - ./system-upgrade-controller/ks.yaml
   - ./kubeadm-upgrade/ks.yaml
   - ./flatcar-upgrade/ks.yaml
+  - ./fcos-upgrade/ks.yaml
