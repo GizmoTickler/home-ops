@@ -395,15 +395,110 @@ function errorTileResponse(label, message, status) {
 }
 
 // --- Origin fetch helpers ---
-async function fetchKromgoMetric(metric, env) {
+// A README view loads every panel in both themes at once (~40 origin calls).
+// That burst trips the zone's bot protection, which answers the Worker's
+// subrequests with a 403 "Just a moment..." challenge page, so the panels
+// rendered ERR. Same-zone subrequests inherit the visitor's bot score, and
+// GitHub's camo fetcher scores as automated, so live calls on its behalf are
+// challenged no matter how few there are. The cron trigger (scheduled(), every
+// 5 minutes, no visitor attached) therefore snapshots every origin value into
+// KV, and requests serve from that snapshot. Live fetches remain the fallback
+// when the snapshot is stale: cached per colo while fresh, shared by concurrent
+// requests in an isolate, and backed by a day-long last-known-good copy.
+const SNAPSHOT_KEY = "origin-snapshot";
+const SNAPSHOT_FRESH_S = 900;
+let snapshotMemo = null;
+
+async function readSnapshot(env) {
+  if (!env.SNAPSHOT) return null;
+  if (snapshotMemo && Date.now() - snapshotMemo.at < 30000) return snapshotMemo.value;
+  const value = await env.SNAPSHOT.get(SNAPSHOT_KEY, { type: "json", cacheTtl: 60 }).catch(() => null);
+  snapshotMemo = { at: Date.now(), value };
+  return value;
+}
+const ORIGIN_FRESH_S = 60;
+const ORIGIN_STALE_S = 86400;
+const originInflight = new Map();
+
+async function cachedOrigin(key, fetcher, env) {
+  const snap = (await readSnapshot(env))?.entries?.[key];
+  if (snap && (Date.now() - snap.at) / 1000 < SNAPSHOT_FRESH_S) return { ok: true, data: snap.data };
+
+  const cacheReq = new Request(`https://origin-cache.local/${key}`, { method: "GET" });
+  const cached = await caches.default.match(cacheReq);
+  const cachedAt = parseInt(cached?.headers.get("x-fetch-time") || "0");
+  const age = cachedAt ? (Date.now() - cachedAt) / 1000 : Number.POSITIVE_INFINITY;
+  if (cached && age < ORIGIN_FRESH_S) return { ok: true, data: await cached.json() };
+
+  let pending = originInflight.get(key);
+  if (!pending) {
+    pending = fetcher().finally(() => originInflight.delete(key));
+    originInflight.set(key, pending);
+  }
+  let result;
+  try {
+    result = await pending;
+  } catch (e) {
+    result = { ok: false, error: "timeout", detail: `${e?.name}: ${e?.message}` };
+  }
+  if (result.ok) {
+    const headers = new Headers({
+      "Content-Type": "application/json",
+      "Cache-Control": `public, s-maxage=${ORIGIN_STALE_S}`,
+      "x-fetch-time": Date.now().toString(),
+    });
+    await caches.default.put(cacheReq, new Response(JSON.stringify(result.data), { status: 200, headers }));
+    return result;
+  }
+  console.log(JSON.stringify({ origin: key, error: result.error, detail: result.detail, staleAgeS: Number.isFinite(age) ? Math.round(age) : null }));
+  if (cached && age < ORIGIN_STALE_S) return { ok: true, data: await cached.json(), stale: true };
+  if (snap && (Date.now() - snap.at) / 1000 < ORIGIN_STALE_S) return { ok: true, data: snap.data, stale: true };
+  return result;
+}
+
+// Origin values the panels read; refreshed together by the cron trigger.
+const KROMGO_ORIGIN_METRICS = [...ALLOWED_METRICS].filter(
+  (m) => m !== "network_status" && m !== "renovate" && !m.endsWith("_panel"),
+);
+
+async function refreshSnapshot(env) {
+  const previous = (await env.SNAPSHOT.get(SNAPSHOT_KEY, { type: "json" }).catch(() => null))?.entries || {};
+  const entries = { ...previous };
+  const failed = [];
+  const sources = [
+    ...KROMGO_ORIGIN_METRICS.map((m) => [`kromgo/${m}`, () => fetchKromgoOrigin(m, env)]),
+    ...(env.KUMA_DOMAIN ? [["kuma/internet", () => fetchKumaOrigin(env)]] : []),
+  ];
+  // Sequential on purpose: a burst is exactly what the zone's bot protection challenges.
+  for (const [key, fetcher] of sources) {
+    try {
+      const result = await fetcher();
+      if (result.ok) entries[key] = { at: Date.now(), data: result.data };
+      else failed.push(`${key}: ${result.error} ${result.detail || ""}`.trim());
+    } catch (e) {
+      failed.push(`${key}: ${e?.name}: ${e?.message}`);
+    }
+  }
+  await env.SNAPSHOT.put(SNAPSHOT_KEY, JSON.stringify({ at: Date.now(), entries }));
+  console.log(JSON.stringify({ snapshot: "refreshed", ok: sources.length - failed.length, failed }));
+}
+
+async function fetchKromgoOrigin(metric, env) {
   const resp = await fetch(`https://kromgo.${env.SECRET_DOMAIN}/${metric}`, {
     headers: { "CF-Access-Client-Id": env.CF_CLIENT_ID, "CF-Access-Client-Secret": env.CF_CLIENT_SECRET },
     signal: AbortSignal.timeout(10000),
   });
   const ct = resp.headers.get("content-type") || "";
-  if (ct.includes("text/html")) return { ok: false, error: "auth" };
-  if (!resp.ok) return { ok: false, error: "unavailable" };
+  if (ct.includes("text/html")) {
+    const title = ((await resp.text().catch(() => "")).match(/<title>([^<]*)</i) || [])[1] || "";
+    return { ok: false, error: "auth", detail: `${resp.status} ${title}` };
+  }
+  if (!resp.ok) return { ok: false, error: "unavailable", detail: `${resp.status}` };
   return { ok: true, data: await resp.json() };
+}
+
+async function fetchKromgoMetric(metric, env) {
+  return cachedOrigin(`kromgo/${metric}`, () => fetchKromgoOrigin(metric, env), env);
 }
 
 async function fetchWanMetric(metric, env) {
@@ -417,27 +512,24 @@ async function fetchWanMetric(metric, env) {
 }
 
 // --- Uptime Kuma status page API ---
+async function fetchKumaOrigin(env) {
+  const resp = await fetch(`https://status.${env.KUMA_DOMAIN}/api/status-page/heartbeat/internet`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!resp.ok) return { ok: false, error: "unavailable", detail: `${resp.status}` };
+  const data = await resp.json();
+  // Monitor 2 = Frontier Fiber — get latest heartbeat
+  const beats = data.heartbeatList?.["2"];
+  if (!beats || beats.length === 0) return { ok: false, error: "no data" };
+  const latest = beats[beats.length - 1];
+  // status: 1 = UP, 0 = DOWN, 2 = PENDING
+  return { ok: true, data: { up: latest.status === 1, ping: latest.ping, time: latest.time } };
+}
+
 async function fetchKumaStatus(env) {
   if (!env.KUMA_DOMAIN) return null;
-  try {
-    const resp = await fetch(`https://status.${env.KUMA_DOMAIN}/api/status-page/heartbeat/internet`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    // Monitor 2 = Frontier Fiber — get latest heartbeat
-    const beats = data.heartbeatList?.["2"];
-    if (!beats || beats.length === 0) return null;
-    const latest = beats[beats.length - 1];
-    // status: 1 = UP, 0 = DOWN, 2 = PENDING
-    return {
-      up: latest.status === 1,
-      ping: latest.ping,
-      time: latest.time,
-    };
-  } catch {
-    return null;
-  }
+  const result = await cachedOrigin("kuma/internet", () => fetchKumaOrigin(env), env);
+  return result.ok ? result.data : null;
 }
 
 function metricStateCacheRequest(key) {
@@ -734,6 +826,11 @@ var index_default = {
 
     // All metric endpoints go through edge cache
     return withEdgeCache(request, () => renderMetric(metricName, url, env), ctx);
+  },
+
+  async scheduled(_event, env, ctx) {
+    if (!env.SNAPSHOT || !env.CF_CLIENT_ID || !env.CF_CLIENT_SECRET || !env.SECRET_DOMAIN) return;
+    ctx.waitUntil(refreshSnapshot(env));
   },
 };
 

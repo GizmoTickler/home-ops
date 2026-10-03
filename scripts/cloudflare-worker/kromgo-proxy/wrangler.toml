@@ -19,6 +19,16 @@ type = "Text"
 globs = ["**/*.b64.txt"]
 fallthrough = true
 
+# README badge snapshot: the cron refreshes every origin value into KV every 5
+# minutes (sequentially, with no visitor attached, so the zone's bot protection
+# does not challenge it); requests serve from the snapshot. See src/index.js.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "SNAPSHOT"
+id = "8a44774e459948669c291095d778403e"
+
 # Worker will be available at: https://kromgo-proxy.<your-username>.workers.dev
 # You can also add a custom domain if desired (but defeats the purpose)
 
