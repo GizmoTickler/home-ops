@@ -43,6 +43,9 @@ spec:
               PROWLARR__APP__THEME: dark
               PROWLARR__AUTH__METHOD: External
               PROWLARR__AUTH__REQUIRED: DisabledForLocalAddresses
+              # Reject requests for any other Host (DNS-rebinding guard). Callers use the
+              # gateway hostname or the in-cluster Service name; probes send Host: localhost.
+              PROWLARR__SERVER__ALLOWEDHOSTS: prowlarr.${SECRET_DOMAIN},prowlarr.downloads.svc.cluster.local,prowlarr.downloads.svc,prowlarr.downloads,prowlarr
               PROWLARR__LOG__DBENABLED: "False"
               PROWLARR__LOG__LEVEL: info
               PROWLARR__SERVER__PORT: &port 80
@@ -59,6 +62,10 @@ spec:
                   httpGet:
                     path: /ping
                     port: *port
+                    # kubelet probes the pod IP, which Allowed Hosts rejects; loopback is always allowed
+                    httpHeaders:
+                      - name: Host
+                        value: localhost
                   initialDelaySeconds: 20
                   periodSeconds: 10
                   timeoutSeconds: 1
