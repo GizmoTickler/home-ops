@@ -1,20 +1,44 @@
-# System-Upgrade (Flatcar/kubeadm)
+# System-Upgrade (kubeadm nodes)
 
-Automated Kubernetes minor-upgrades and node reboot coordination for the
-Flatcar Container Linux + kubeadm control plane.
+Upgrade Plans and node reboot coordination for the kubeadm control plane.
+
+> **Current state:** all three nodes (k8s-0/1/2) run **Fedora CoreOS** (rebuilt in
+> place on 2026-09-26, `homeops.io/os=fcos`). The two Plans in this directory were
+> written for **Flatcar** and do not upgrade FCOS nodes — see
+> [Fedora CoreOS nodes](#fedora-coreos-nodes) below. The Flatcar sections are kept
+> for reference while the Flatcar provider remains selectable in homeops-cli.
 
 ## Architecture
 
-Three components, all deployed to the `system-upgrade` namespace:
+Components deployed to the `system-upgrade` namespace:
 
 | Component | Purpose | Control point |
 |---|---|---|
 | **system-upgrade-controller** | Runs privileged Jobs on selected nodes via `Plan` CRs. | `system-upgrade-controller/app/` |
-| **kubeadm-upgrade** (Plan) | Orchestrates `kubeadm upgrade` (minor bumps) via sysext swap → drain → upgrade → kubelet restart. | `kubeadm-upgrade/app/plan.yaml` (version) |
-| **flatcar-upgrade** (Plan) | Merge-gated Flatcar OS releases: stages the pinned version via `flatcar-update` (channel polling is disabled on the nodes). | `flatcar-upgrade/app/plan.yaml` (version) |
-| **kured** | Coordinates reboots when a sysext or Flatcar OS update flags a reboot. One-at-a-time, no lock auto-expiry. | `kured/app/helmrelease.yaml` (Helm) |
+| **kubeadm-upgrade** (Plan) | Flatcar-only: orchestrates `kubeadm upgrade` (minor bumps) via sysext swap → drain → upgrade → kubelet restart. Dormant (label-gated). | `kubeadm-upgrade/app/plan.yaml` (version) |
+| **flatcar-upgrade** (Plan) | Flatcar-only: merge-gated Flatcar OS releases via `flatcar-update`. Excludes `homeops.io/os=fcos`, so it selects no node today. | `flatcar-upgrade/app/plan.yaml` (version) |
+| **kured** | Coordinates reboots, one node at a time, no lock auto-expiry. Reboots when `/run/reboot-required` exists (the sentinel command also checks Flatcar's `update_engine`, which FCOS lacks). | `kured/app/helmrelease.yaml` (Helm) |
 
-## Upgrade Flow
+## Fedora CoreOS nodes
+
+- **OS updates:** Zincati is disabled (`/etc/zincati/config.d/90-disable-auto-updates.toml`,
+  `[updates] enabled = false`), so FCOS never follows the stream or reboots on its
+  own. The FCOS Butane template describes a git-pinned `rpm-ostree deploy <build>`
+  Plan as the intended merge-gated path, but **no such Plan exists in this repo yet**.
+  Check node state with `homeops-cli fcos os-status`.
+- **Rollback:** greenboot is layered on first boot with a kubelet/containerd health
+  check, standing in for Flatcar's A/B partition fallback.
+- **Kubernetes binaries:** a directory systemd-sysext at
+  `/var/lib/extensions/kubernetes`, built on first boot by
+  `/usr/local/bin/homeops-install-k8s-sysext`. There is no systemd-sysupdate on FCOS,
+  so the `kubeadm-upgrade` Plan's sysupdate step does not apply. The documented
+  upgrade path is per node: drain, run
+  `sudo /usr/local/bin/homeops-install-k8s-sysext v<new-version>`, then
+  `kubeadm upgrade apply|node` and restart kubelet (no reboot needed).
+- **Node rebuilds:** `homeops-cli cluster replace-node --node <name>` rebuilds a node
+  in place onto its configured OS.
+
+## Flatcar upgrade flow (reference)
 
 ### Automatic (Kubernetes patch-level only)
 
@@ -58,7 +82,7 @@ See `kubeadm-upgrade/app/README.md` for the full trigger procedure.
 The homeops CLI reads the Kubernetes target from
 `kubeadm-upgrade/app/plan.yaml` `spec.version` and the Flatcar OS target from
 `flatcar-upgrade/app/plan.yaml` `spec.version` — these are the single source
-of truth for the GitOps Plans and the `homeops-cli flatcar render-ignition`
+of truth for the GitOps Plans and the `homeops-cli flatcar|fcos render-ignition`
 / `gen-kubeadm` / provisioning commands. There is no separate `versions.env`
 or tuppr CRD.
 
@@ -68,8 +92,8 @@ or tuppr CRD.
 # Plan and controller health
 kubectl -n system-upgrade get deploy,ds,plan -o wide
 
-# Confirm Plan is dormant (no node labels = no Jobs)
-kubectl get nodes -L homeops.io/kubeadm-upgrade
+# Node OS family and kubeadm-upgrade arming label
+kubectl get nodes -L homeops.io/os -L homeops.io/kubeadm-upgrade
 
 # Flux reconciliation status
 kubectl -n system-upgrade get kustomizations

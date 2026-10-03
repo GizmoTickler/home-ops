@@ -13,7 +13,7 @@ homeops-cli
 │   ├── rehearse-node
 │   └── replace-node
 ├── completion [bash|zsh|fish|powershell]
-├── flatcar                  # current provider (Flatcar Container Linux + kubeadm)
+├── flatcar                  # Flatcar Container Linux + kubeadm, plus lifecycle verbs shared with FCOS
 │   ├── render-ignition
 │   ├── gen-kubeadm
 │   ├── deploy-vm
@@ -22,7 +22,7 @@ homeops-cli
 │   ├── os-status
 │   ├── reset-node
 │   └── reset-cluster
-├── fcos                     # Fedora CoreOS + kubeadm (selected per node via cluster.os / nodes[].os)
+├── fcos                     # Fedora CoreOS + kubeadm — current cluster OS (selected via cluster.os / nodes[].os)
 │   ├── render-ignition
 │   ├── gen-kubeadm
 │   ├── deploy-vm
@@ -454,8 +454,8 @@ Allow for one extra reboot on first boot (greenboot layering) before
 
 ## Talos (legacy)
 
-> **Legacy provider.** The cluster runs Flatcar + kubeadm (see **Flatcar**
-> above). The `talos` command group is retained for reference/rollback; the
+> **Legacy provider.** The cluster runs Fedora CoreOS + kubeadm (see **Fedora
+> CoreOS** and **Flatcar** above). The `talos` command group is retained for reference/rollback; the
 > commands below operate on Talos nodes only.
 
 ### Node and Cluster Operations
@@ -1035,7 +1035,14 @@ For shell-specific setup, see [`COMPLETION.md`](./COMPLETION.md).
 
 ## Practical Workflows
 
-### Deploy Flatcar nodes on Proxmox (current)
+### Deploy Fedora CoreOS nodes on Proxmox (current)
+
+```bash
+homeops-cli fcos deploy-vm --power-on                  # every node configured os: fcos
+homeops-cli cluster replace-node --node k8s-2 --plan   # in-place rebuild of one production node (dry plan)
+```
+
+### Deploy Flatcar nodes on Proxmox
 
 ```bash
 homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --concurrency 3

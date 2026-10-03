@@ -70,9 +70,10 @@ repo-root [`homeops.yaml`](../../homeops.yaml) (1Password-backed).
 ## Core Commands
 
 ```bash
-homeops-cli bootstrap            # defaults to the Flatcar/kubeadm provider
-homeops-cli flatcar --help       # current provider (Flatcar Container Linux + kubeadm)
-homeops-cli fcos --help          # Fedora CoreOS + kubeadm nodes (cluster.os / nodes[].os: fcos)
+homeops-cli bootstrap            # defaults to the flatcar (kubeadm) provider; also drives FCOS nodes
+homeops-cli fcos --help          # Fedora CoreOS + kubeadm nodes (cluster.os / nodes[].os: fcos) — current cluster OS
+homeops-cli flatcar --help       # Flatcar Container Linux + kubeadm nodes, plus the shared lifecycle verbs
+homeops-cli cluster --help       # rehearse-node drills, replace-node in-place rebuilds
 homeops-cli talos --help         # legacy provider (retained for reference/rollback)
 homeops-cli k8s --help
 homeops-cli volsync --help
@@ -140,9 +141,11 @@ Provider-specific config (homeops.yaml): `hypervisors.truenas.image_dir`
 template for `vm create --provider vsphere`). TrueNAS staging SSH uses
 `secrets.truenas_username` (default: `truenas_admin`).
 
-## Flatcar VM Workflows (current)
+## Flatcar VM Workflows
 
-The cluster runs **Flatcar Container Linux + kubeadm**. `flatcar deploy-vm`
+The cluster nodes were rebuilt onto **Fedora CoreOS** on 2026-09-26 (see
+[Fedora CoreOS VM Workflows](#fedora-coreos-vm-workflows)); Flatcar remains a
+selectable node OS, and the lifecycle verbs below serve both. `flatcar deploy-vm`
 renders a Butane → Ignition config (injecting 1Password secrets), uploads it to
 the Proxmox snippets store over SSH, and creates the VM; kubeadm init/join runs
 on first boot and Cilium is then installed.
@@ -189,9 +192,10 @@ homeops-cli flatcar reset-node --node k8s-1 --force      # kubeadm reset (destru
 homeops-cli flatcar save-pki                             # capture live cluster PKI into the configured store
 ```
 
-Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade
-Controller Plan (`kubernetes/apps/system-upgrade/kubeadm-upgrade/`), not a CLI
-command.
+On Flatcar, Kubernetes minor upgrades are GitOps-driven via the kubeadm System
+Upgrade Controller Plan (`kubernetes/apps/system-upgrade/kubeadm-upgrade/`), not a
+CLI command. That Plan relies on systemd-sysupdate and does not apply to FCOS nodes
+(see `kubernetes/apps/system-upgrade/README.md`).
 
 ## Fedora CoreOS VM Workflows
 
@@ -222,7 +226,7 @@ rehearse-node` and the `flatcar` lifecycle commands (`kubeconfig`, `save-pki`,
 ## Talos VM Workflows (legacy)
 
 > **Legacy provider.** Retained for reference/rollback; the current cluster uses
-> Flatcar + kubeadm (see above).
+> Fedora CoreOS + kubeadm (see above).
 
 ### Proxmox-first deployment
 
@@ -325,6 +329,10 @@ homeops-cli k8s force-sync-externalsecret my-secret -n default
 ```
 
 ## VolSync Workflows
+
+> VolSync is no longer installed in this cluster (no VolSync CRDs); PVC backups
+> are handled by kopiur (`kopiur.home-operations.com`). These commands remain for
+> clusters that still run VolSync.
 
 ```bash
 homeops-cli volsync snapshot --app paperless --namespace default

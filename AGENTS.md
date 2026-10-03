@@ -6,7 +6,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 This is a comprehensive home infrastructure repository containing:
 - **Kubernetes cluster configuration** using GitOps with Flux
-- **Flatcar Container Linux + kubeadm** cluster management (a legacy Talos provider is retained for reference/rollback)
+- **Fedora CoreOS + kubeadm** cluster management (nodes k8s-0/1/2 run FCOS 44 since 2026-09-26; the Flatcar provider remains selectable and a legacy Talos provider is retained for reference)
 - **HomeOps CLI** (Go-based) for infrastructure automation
 - **Kubernetes applications** deployed via Helm and Kustomize
 
@@ -54,13 +54,13 @@ make deps-update  # Update all dependencies
 The CLI relies on several environment variables. The following must be set globally:
 - `KUBECONFIG` - Path to your Kubernetes config file
 - `SOPS_AGE_KEY_FILE` - Path to your SOPS age key file
-- `TALOSCONFIG` - Path to your Talos config file (legacy Talos provider only; not used by the Flatcar/kubeadm path)
+- `TALOSCONFIG` - Path to your Talos config file (legacy Talos provider only; not used by the FCOS/Flatcar kubeadm path)
 
 The following is automatically set by main.go if not already defined:
 - `MINIJINJA_CONFIG_FILE=./.minijinja.toml`
 
 Required environment variables:
-- `KUBERNETES_VERSION` - Current Kubernetes version (Flatcar clusters resolve this from the kubeadm System Upgrade Controller Plan)
+- `KUBERNETES_VERSION` - Current Kubernetes version (kubeadm clusters resolve this from the kubeadm System Upgrade Controller Plan)
 - `TALOS_VERSION` - Talos version (legacy Talos provider only)
 
 ### Kubernetes Management
@@ -80,12 +80,15 @@ flux <command>
 ### CLI Usage Examples
 
 ```bash
-# Bootstrap entire cluster (defaults to the Flatcar/kubeadm provider)
+# Bootstrap entire cluster (defaults to the `flatcar` kubeadm provider, which also drives FCOS nodes; the OS comes from cluster.os in homeops.yaml)
 ./homeops-cli bootstrap
 
-# Flatcar Container Linux operations (current cluster provider)
-./homeops-cli flatcar deploy-vm --nodes k8s-test
-# (Kubernetes minor upgrades are GitOps-driven via the kubeadm System Upgrade Controller Plan)
+# Fedora CoreOS operations (current cluster OS)
+./homeops-cli fcos deploy-vm --nodes k8s-test
+./homeops-cli fcos os-status
+./homeops-cli cluster replace-node --node k8s-2 --plan
+# Lifecycle verbs shared with Flatcar live under `flatcar` (kubeconfig, save-pki, reboot-node, reset-node, ...)
+# (the kubeadm-upgrade SUC Plan is Flatcar-only; see kubernetes/apps/system-upgrade/README.md for FCOS)
 
 # Legacy Talos operations (retained provider; not the current cluster OS)
 ./homeops-cli bootstrap --provider talos
@@ -96,9 +99,9 @@ flux <command>
 ./homeops-cli k8s browse-pvc --namespace default
 ./homeops-cli k8s sync --type kustomization --namespace flux-system
 
-# Volume sync operations
-./homeops-cli volsync snapshot --app paperless --namespace default
-./homeops-cli volsync restore --app paperless --namespace default
+# Legacy VolSync commands still exist but VolSync is no longer installed;
+# backups are kopiur (kopiur.home-operations.com) — inspect with kubectl:
+kubectl get snapshotschedules,snapshots -A
 ```
 **Always run format, type-check, and test before completing any task.**
 
@@ -109,17 +112,19 @@ flux <command>
 The HomeOps CLI is structured as a Cobra-based application with the following key components:
 
 **Main Commands:**
-- `bootstrap/` - Complete cluster bootstrap with preflight checks (defaults to the Flatcar/kubeadm provider; `--provider talos` for the legacy path)
-- `flatcar/` - Flatcar Container Linux node and VM management (kubeadm; current provider)
+- `bootstrap/` - Complete cluster bootstrap with preflight checks (defaults to the `flatcar` kubeadm provider, which also drives FCOS nodes; `--provider talos` for the legacy path)
+- `flatcar/` - kubeadm node and VM management: the `fcos` command group (current cluster OS) and the `flatcar` group, sharing deployers and lifecycle verbs
+- `cluster/` - `rehearse-node` drills and `replace-node` in-place rebuilds
 - `talos/` - Talos Linux node and VM management (legacy; retained for reference/rollback)
 - `kubernetes/` - Kubernetes cluster operations
-- `volsync/` - Volume backup and restore operations
+- `volsync/` - Legacy VolSync backup/restore operations (VolSync is no longer installed)
 - `workstation/` - Local development environment setup
 - `completion/` - Shell completion support
 
 **Internal Packages:**
-- `internal/templates/` - Embedded templates: `flatcar/` (Butane/Ignition + kubeadm configs, current) and `talos/` (legacy Talos machine config)
+- `internal/templates/` - Embedded templates: `fcos/` (FCOS Butane overlay, current), `flatcar/` (Butane/Ignition + kubeadm configs, shared files reused by FCOS) and `talos/` (legacy Talos machine config)
 - `internal/flatcar/` - Ignition rendering for the Flatcar/kubeadm provider
+- `internal/fcos/` - Fedora CoreOS Ignition rendering and stream-metadata image resolution
 - `internal/talos/` - Talos factory API integration for custom ISOs (legacy)
 - `internal/truenas/` - TrueNAS API client for VM management
 - `internal/yaml/` - YAML processing and merging utilities
@@ -128,12 +133,12 @@ The HomeOps CLI is structured as a Cobra-based application with the following ke
 
 **Template System:**
 - Templates are embedded in the binary via go:embed
-- Flatcar/kubeadm: Butane → Ignition + kubeadm init/join configs in `internal/templates/flatcar/`
+- FCOS/kubeadm: Butane (`internal/templates/fcos/butane/controlplane.bu`, overlaid on the Flatcar files) → Ignition + kubeadm init/join configs in `internal/templates/flatcar/`
 - Legacy Talos machine-config templates in `internal/templates/talos/`
 - Bootstrap templates for initial cluster resources
 - 1Password integration for secret injection during template rendering
 
-**VM Deployment Flow (Flatcar/kubeadm, current):**
+**VM Deployment Flow (FCOS/kubeadm, current; Flatcar is the same apart from the image and fw_cfg key):**
 1. Render the Butane → Ignition config (with 1Password secret injection)
 2. Upload the Ignition config to the Proxmox snippets store over SSH
 3. Create the VM referencing the Ignition config (`--name`, no dashes in ZVol/VM names)
@@ -163,15 +168,16 @@ kubernetes/apps/<namespace>/<app>/
 - `kube-system` - Core Kubernetes components (Cilium, CoreDNS)
 - `cert-manager` - Certificate management
 - `external-secrets` - 1Password integration
-- `observability` - Grafana, Prometheus, Loki stack
+- `observability` - VictoriaMetrics, VictoriaLogs, Grafana stack
 - `downloads` - Media acquisition apps (Radarr, Sonarr, qBittorrent, etc.)
 - `media` - Media serving apps
 - `self-hosted` - Self-hosted utilities and tools
-- `automation` - Automation tools (n8n)
+- `automation` - Automation tools (Home Assistant, n8n)
 - `network` - Networking applications
-- `rook-ceph` - Distributed storage
+- `scale-csi` - TrueNAS CSI driver (primary storage, `scale-nvmeof` default StorageClass)
 - `openebs-system` - Local storage
-- `volsync-system` - Backup orchestration
+- `kopiur-system` - Backup orchestration (kopiur + Kopia UI)
+- `system-upgrade` - system-upgrade-controller Plans + kured
 
 ## Kubernetes Manifest Patterns
 
@@ -202,7 +208,7 @@ spec:
 spec:
   components:
     - ../../../../components/nfs-scaler    # KEDA auto-scaling for NFS availability
-    - ../../../../components/volsync-direct   # Backup/restore with Kopia
+    - ../../../../components/kopiur/backup    # Backup/restore with kopiur (Kopia)
 ```
 
 **Dependencies:**
@@ -211,8 +217,6 @@ spec:
   dependsOn:
     - name: keda
       namespace: observability
-    - name: rook-ceph-cluster
-      namespace: rook-ceph
 ```
 
 **Variable Substitution:**
@@ -220,26 +224,25 @@ spec:
 spec:
   postBuild:
     substitute:
-      APP: radarr
-      VOLSYNC_CAPACITY: 5Gi
+      APP: atuin
+      KOPIUR_CAPACITY: 15Gi
 ```
 
 **Health Checks (Critical infrastructure):**
 ```yaml
 spec:
   healthChecks:
-    - apiVersion: ceph.rook.io/v1
-      kind: CephCluster
-      namespace: rook-ceph
-      name: rook-ceph
+    - apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      name: gts-production
   healthCheckExprs:
-    - apiVersion: ceph.rook.io/v1
-      kind: CephCluster
-      failed: status.ceph.health == 'HEALTH_ERR'
-      current: status.ceph.health in ['HEALTH_OK', 'HEALTH_WARN']
+    - apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      failed: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'False')
+      current: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
 ```
 
-**Multi-Part Applications (e.g., Grafana, Rook Ceph):**
+**Multi-Part Applications (e.g., Grafana):**
 Multiple Kustomization resources in one file with dependencies:
 ```yaml
 ---
@@ -286,8 +289,8 @@ spec:
 ```
 
 **Two Chart Types:**
-1. **app-template** (bjw-s-labs v4.4.0): Used for custom apps (Radarr, Sonarr, qBittorrent, etc.)
-2. **Native charts**: Used for infrastructure (Cilium, Grafana, Victoria Metrics, Rook Ceph)
+1. **app-template** (bjw-s-labs v5.2.1): Used for custom apps (Radarr, Sonarr, qBittorrent, etc.)
+2. **Native charts**: Used for infrastructure (Cilium, Grafana, Victoria Metrics, scale-csi, kopiur)
 
 ### app-template HelmRelease Pattern
 
@@ -468,10 +471,10 @@ resources:
 
 **Available Components:**
 
-1. **volsync** (`components/volsync/`):
-   - PVC with ReplicationDestination dataSource
-   - ReplicationSource with Kopia backend
-   - Variables: `${APP}`, `${VOLSYNC_CAPACITY}`, `${VOLSYNC_STORAGECLASS}`
+1. **kopiur/backup** (`components/kopiur/backup/`):
+   - PVC with a kopiur `Restore` as `dataSourceRef` (restore-on-create)
+   - `SnapshotPolicy` + hourly `SnapshotSchedule` to the `nas-s3` ClusterRepository
+   - Variables: `${APP}`, `${KOPIUR_CAPACITY}`, `${KOPIUR_STORAGECLASS}`, `${KOPIUR_SNAPSHOTCLASS}`
 
 2. **nfs-scaler** (`components/nfs-scaler/`):
    - ScaledObject (KEDA) that scales to 0 when NFS unavailable
@@ -490,7 +493,7 @@ resources:
 # In ks.yaml:
 spec:
   components:
-    - ../../../../components/volsync
+    - ../../../../components/kopiur/backup
 
 # In namespace kustomization.yaml:
 components:
@@ -516,17 +519,17 @@ spec:
 ```
 
 **Common Registries:**
-- `oci://ghcr.io/bjw-s-labs/helm/app-template` - app-template v4.4.0
+- `oci://ghcr.io/bjw-s-labs/helm/app-template` - app-template v5.2.1
 - `oci://quay.io/cilium/charts/cilium` - Cilium (upstream OCI chart; the home-operations mirror stopped at 1.18.6)
 - `oci://ghcr.io/grafana/helm-charts/grafana-operator` - Official Grafana
-- `oci://ghcr.io/rook/rook-ceph` - Official Rook Ceph
+- `oci://ghcr.io/home-operations/charts/kopiur` - kopiur backup operator
 
 ### Variable Substitution Flow
 
 1. **cluster-config-secret** (from 1Password via ExternalSecret)
 2. **Flux root patches** inject into all Kustomizations
-3. **App-level postBuild.substitute** (APP=radarr, VOLSYNC_CAPACITY=5Gi)
-4. **Component templates** use variables (${APP}, ${VOLSYNC_CAPACITY})
+3. **App-level postBuild.substitute** (APP=atuin, KOPIUR_CAPACITY=15Gi)
+4. **Component templates** use variables (${APP}, ${KOPIUR_CAPACITY})
 5. **Helm values** use templates ({{ .Release.Name }}, ${SECRET_DOMAIN})
 
 ### Observability Pattern
@@ -550,7 +553,7 @@ serviceMonitor:
 1. **Security**: All apps run non-root with read-only root filesystem
 2. **Images**: Always pin SHA256 digests
 3. **Secrets**: Use External Secrets Operator with 1Password
-4. **Storage**: Ceph for distributed, OpenEBS for local, VolSync for backups
+4. **Storage**: scale-csi (TrueNAS NVMe-oF) for app PVCs, OpenEBS for local scratch, kopiur for backups
 5. **Networking**: Gateway API (HTTPRoute) instead of Ingress
 6. **GitOps**: All configuration in git, Flux reconciles automatically
 7. **Dependencies**: Explicitly declare with dependsOn
@@ -559,15 +562,15 @@ serviceMonitor:
 ### Infrastructure Components
 
 **Storage:**
-- Rook Ceph for distributed storage
+- scale-csi (TrueNAS SCALE NVMe-oF/TCP) for application volumes
 - OpenEBS for local persistent volumes
-- VolSync with Kopia for backups
+- kopiur (Kopia) for backups
 
 **Networking:**
 - Cilium CNI with eBPF datapath
 - Gateway API for ingress
 - Cloudflare Tunnel for external access
-- k8s-gateway for internal DNS
+- external-dns (PowerDNS RFC2136 + Cloudflare) for DNS records
 
 **Security:**
 - External Secrets Operator with 1Password
@@ -579,7 +582,7 @@ serviceMonitor:
 ### Template Development
 
 When working with node configuration templates:
-- Flatcar/kubeadm templates (current): `cmd/homeops-cli/internal/templates/flatcar/`
+- FCOS/kubeadm templates (current): `cmd/homeops-cli/internal/templates/fcos/` (overlaid on the shared `cmd/homeops-cli/internal/templates/flatcar/` files)
 - Legacy Talos templates: `cmd/homeops-cli/internal/templates/talos/`
 - Use Jinja2 syntax with environment variable substitution
 - Test template rendering with `make dev` before deployment
@@ -611,8 +614,7 @@ The CLI integrates with 1Password for secret management:
 
 ## Data Restore Process
 
-For restoring application data with VolSync and Longhorn v2, see the detailed guide:
-[VolSync v2 Restore Process Documentation](./docs/volsync-v2-restore-process.md)
+Application data restores are kopiur `Restore` resources: each app PVC created by the `components/kopiur/backup` component restores from its latest snapshot on (re)creation. List snapshots with `kubectl get snapshots.kopiur.home-operations.com -n <namespace>`.
 
 ## Common Issues and Solutions
 
@@ -629,7 +631,7 @@ For restoring application data with VolSync and Longhorn v2, see the detailed gu
 - Ensure 1Password references are accessible
 
 **VM Deployment Problems:**
-- Flatcar: ensure the Ignition config uploads to the Proxmox snippets store (SSH reachable) before VM creation
+- FCOS/Flatcar: ensure the Ignition config uploads to the Proxmox snippets store (SSH reachable) before VM creation; FCOS first boot layers greenboot and reboots once before kubeadm is available
 - Legacy Talos: use the `--generate-iso` flag for custom Talos ISOs and ensure the ISO is downloaded before VM creation
 - Verify hypervisor (Proxmox/TrueNAS) credentials are configured
 - Check ZVol naming conventions (no dashes in VM names)
