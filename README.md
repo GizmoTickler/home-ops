@@ -4,7 +4,7 @@
 
 ### <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f680/512.gif" alt="🚀" width="16" height="16"> Home Operations Repository <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f6a7/512.gif" alt="🚧" width="16" height="16">
 
-_Kubernetes on Flatcar Container Linux + kubeadm &middot; TrueNAS NVMe-oF storage (scale-csi) &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
+_Kubernetes on Fedora CoreOS + kubeadm &middot; TrueNAS NVMe-oF storage (scale-csi) &middot; GitOps managed_ <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f916/512.gif" alt="🤖" width="16" height="16">
 
 <br/>
 
@@ -44,9 +44,9 @@ _Kubernetes on Flatcar Container Linux + kubeadm &middot; TrueNAS NVMe-oF storag
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f4a1/512.gif" alt="💡" width="20" height="20"> Overview
 
-This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Flatcar Container Linux](https://www.flatcar.org/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
+This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Fedora CoreOS](https://fedoraproject.org/coreos/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.2 with [scale-csi](https://github.com/GizmoTickler/scale-csi) providing primary storage — NVMe-oF/TCP (plus iSCSI and NFS) volumes served by a TrueNAS SCALE box over its WebSocket API — and node-local scratch volumes via the OpenEBS hostpath provisioner backed by a dedicated ZFS RAID10 SSD pool on the hypervisor.
+**Architecture**: The cluster runs on Proxmox VE 9.2 with [scale-csi](https://github.com/GizmoTickler/scale-csi) providing primary storage — NVMe-oF/TCP volumes served by a TrueNAS SCALE box over its WebSocket API — node-local scratch volumes via the OpenEBS hostpath provisioner backed by a dedicated NVMe ZFS pool (`nvme-scratch`) on the hypervisor, and [kopiur](https://github.com/home-operations/kopiur) (Kopia) for PVC backup and restore.
 
 ---
 
@@ -60,20 +60,20 @@ The built binary and CLI command name are `homeops-cli`.
 
 | Command | What it does |
 |---------|-------------|
-| `homeops-cli bootstrap --provider flatcar` | End-to-end Flatcar/kubeadm cluster init: `kubeadm init`/`join` over SSH, then Cilium + CRDs + Flux, with preflight checks and 1Password secret injection |
-| `homeops-cli flatcar deploy-vm` | Provisions Flatcar Container Linux VMs on Proxmox (Ignition via fw_cfg) with batch/concurrent deployment |
-| `homeops-cli flatcar render-ignition` | Renders the Butane→Ignition config for a node (debug/inspection) |
+| `homeops-cli bootstrap --provider flatcar` | End-to-end kubeadm cluster init (the `flatcar` provider also drives Fedora CoreOS nodes): `kubeadm init`/`join` over SSH, then Cilium + CRDs + Flux, with preflight checks and 1Password secret injection |
+| `homeops-cli fcos deploy-vm` | Provisions Fedora CoreOS VMs on Proxmox (Ignition via fw_cfg) with batch/concurrent deployment |
+| `homeops-cli fcos render-ignition` | Renders the Butane→Ignition config for a node (debug/inspection) |
+| `homeops-cli fcos os-status` | Shows rpm-ostree deployment + greenboot status across nodes |
+| `homeops-cli cluster replace-node` | Rebuilds a node in place (drain, etcd member removal, redeploy, rejoin) |
 | `homeops-cli k8s view-secret` | Decodes secret data with interactive secret and namespace selection |
-| `homeops-cli volsync snapshot` | Triggers Kopia-backed PVC snapshots via VolSync |
-| `homeops-cli volsync restore` | Point-in-time PVC recovery from Kopia repository |
-| `homeops-cli volsync migrate` | Safe storage-class migration of an app's PVC (fresh backup → guarded cutover → restore-on-create) |
+| `homeops-cli volsync ...` | Legacy VolSync snapshot/restore/migrate commands — VolSync is no longer installed (backups moved to kopiur) |
 | `homeops-cli workstation` | Developer workstation setup and validation |
 
 **Key internals:**
 
-- **Native API clients** for Proxmox VE and TrueNAS Scale, plus Flatcar release-image resolution — no shelling out
+- **Native API clients** for Proxmox VE and TrueNAS Scale, plus Fedora CoreOS stream / Flatcar release-image resolution — no shelling out
 - **1Password CLI integration** for zero-plaintext secret management
-- **Embedded Butane→Ignition transpilation** (CoreOS Butane library) + kubeadm v1beta4 config rendering for Flatcar nodes
+- **Embedded Butane→Ignition transpilation** (CoreOS Butane library) + kubeadm v1beta4 config rendering for Fedora CoreOS (and Flatcar) nodes
 - **Interactive TUI** with rich prompts, spinners, and progress indicators
 - **Full test suite** with unit and integration tests
 
@@ -81,37 +81,37 @@ See the dedicated CLI guide at [`cmd/homeops-cli/README.md`](./cmd/homeops-cli/R
 
 ```
 cmd/homeops-cli/
-├── cmd/           # CLI commands (bootstrap, flatcar, volsync, kubernetes, workstation)
-├── internal/      # packages: proxmox, truenas, flatcar, ssh, iso, config, security, ui, ...
+├── cmd/           # CLI commands (bootstrap, cluster, fcos/flatcar, volsync, kubernetes, workstation)
+├── internal/      # packages: proxmox, truenas, fcos, flatcar, ssh, iso, config, security, ui, ...
 ├── main.go        # Cobra root command with signal handling
 └── Makefile       # Build, test, lint, coverage
 ```
 
 ## <img src="https://fonts.gstatic.com/s/e/notoemoji/latest/1f331/512.gif" alt="🌱" width="20" height="20"> Kubernetes
 
-The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.flatcar.org/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.2 VMs. Primary storage is provided by [scale-csi](https://github.com/GizmoTickler/scale-csi), a purpose-built CSI driver that provisions ZFS-backed NVMe-oF/TCP, iSCSI, and NFS volumes on a TrueNAS SCALE appliance (NVMe SLOG-backed, sub-millisecond commit latency), with VolSync/Kopia handling per-app backup and restore.
+The Kubernetes cluster is deployed using [Fedora CoreOS](https://fedoraproject.org/coreos/) with [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/) on Proxmox VE 9.2 VMs. Primary storage is provided by [scale-csi](https://github.com/GizmoTickler/scale-csi), a purpose-built CSI driver that provisions ZFS-backed NVMe-oF/TCP, iSCSI, and NFS volumes on a TrueNAS SCALE appliance (NVMe SLOG-backed, sub-millisecond commit latency), with [kopiur](https://github.com/home-operations/kopiur) (Kopia) handling per-app backup and restore.
 
 ### Infrastructure Details
 
 - **Hypervisor**: Proxmox VE 9.2 with KVM/QEMU virtualization
-- **Primary Storage**: scale-csi (NVMe-oF/TCP, iSCSI, NFS) on TrueNAS SCALE — `scale-nvmeof` is the default StorageClass; secure-by-default NVMe host-NQN allowlisting; driver-side orphan GC
-- **Local Storage**: OpenEBS hostpath provisioner on a dedicated 4-drive ZFS RAID10 SSD pool (`openebs-ssd`) on the Proxmox host — high-throughput scratch for download landing zones and VolSync mover caches
+- **Primary Storage**: scale-csi (NVMe-oF/TCP; the driver also supports iSCSI and NFS) on TrueNAS SCALE — `scale-nvmeof` is the default (and only scale-csi) StorageClass; secure-by-default NVMe host-NQN allowlisting; driver-side orphan GC
+- **Local Storage**: OpenEBS hostpath provisioner on a dedicated 2x NVMe ZFS pool (`nvme-scratch`) on the Proxmox host — high-throughput scratch for download landing zones and CI runner work volumes
 - **Network Infrastructure**:
   - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP (40Gbps) on the Proxmox host
   - Cisco switch providing high-speed interconnect
   - Jumbo frames (MTU 9000) enabled end-to-end
-- **OS / Distribution**: Flatcar Container Linux (immutable, auto-updating) bootstrapped with **kubeadm** (v1beta4); Kubernetes **v1.36.1**. The kubelet/kubeadm/kubectl/CNI binaries are delivered as a **systemd-sysext** image and version-managed by systemd-sysupdate.
+- **OS / Distribution**: Fedora CoreOS 44 (immutable, rpm-ostree; Zincati auto-updates disabled, greenboot health checks layered) bootstrapped with **kubeadm** (v1beta4); Kubernetes **v1.36.2**, containerd 2.3. The kubelet/kubeadm/kubectl/crictl/CNI binaries are delivered as a **directory systemd-sysext** (`/var/lib/extensions/kubernetes`) built on first boot by `homeops-install-k8s-sysext`, which is also the documented Kubernetes binary upgrade path (no systemd-sysupdate on FCOS).
 - **Control-plane endpoint**: kube-vip (ARP/L2) VIP `192.168.123.253:6443` — CNI-independent, so it is usable as the `kubeadm` control-plane endpoint during init/join.
-- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 96GB RAM, and NUMA-pinned CPU affinity
+- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 80GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
-  - **Boot Disk**: 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS (`/dev/sda`)
-  - **Local Scratch**: 700GB VirtIO SCSI zvol from the `openebs-ssd` ZFS RAID10 pool, mounted at `/var/mnt/local-hostpath` for OpenEBS hostPath workloads (`/dev/sdc`)
+  - **Boot Disk**: 100GB VirtIO SCSI disk on the `vm-ssd` ZFS mirror for the FCOS OS (`/dev/sda`)
+  - **Local Scratch**: 451GB VirtIO SCSI zvol from the `nvme-scratch` ZFS pool (ext4, `LABEL=openebs-nvme`), mounted at `/var/mnt/nvme-hostpath` for OpenEBS hostPath workloads (`/dev/sdb`)
   - **App Volumes**: attached on demand by scale-csi as NVMe-oF/TCP (or iSCSI) block devices from TrueNAS — no static data disks
 - **Networking**:
   - Cilium CNI with eBPF datapath
   - kgateway (Gateway API) for ingress with L2/BGP announcements
-  - VirtIO network adapters: 16 queues on the primary NIC, 8 on VLAN 90 and the storage fabric, and no queues key on VLAN 20
-  - Network interface: `eth0` (Flatcar names the Proxmox VirtIO NIC `eth0`, not `ens18`)
+  - VirtIO network adapters: 16 queues on the primary NIC, 8 on VLAN 90, and no queues key on VLAN 20; the four storage-fabric NICs are SR-IOV VFs passed through from the Proxmox host
+  - Network interface: `eth0` (the primary NIC name is pinned by a udev `.link` file, not `ens18`)
 - **Guest Integration**: QEMU Guest Agent for enhanced VM management
 - **Ingress**: kgateway (Gateway API) with Cilium L2/BGP LoadBalancer services
 - **DNS**: external-dns for Cloudflare (public) and PowerDNS via RFC2136 (internal) DNS management
@@ -126,12 +126,12 @@ The Kubernetes cluster is deployed using [Flatcar Container Linux](https://www.f
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and PowerDNS (RFC2136) integration.
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
-- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath scratch storage on the dedicated `openebs-ssd` ZFS RAID10 pool.
+- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath scratch storage on the dedicated `nvme-scratch` NVMe ZFS pool.
 - [scale-csi](https://github.com/GizmoTickler/scale-csi): Primary storage — a purpose-built TrueNAS SCALE CSI driver (WebSocket API, zero SSH) providing NVMe-oF/TCP, iSCSI, and NFS StorageClasses with snapshots, detached clones, expansion, and a driver-side orphan reconciler.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
-- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when the Kubernetes systemd-sysext patch updates or a Flatcar OS update have staged a reboot — Flatcar's `locksmithd` is masked, so kured is the reboot orchestrator. Minor Kubernetes upgrades are driven via [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) (see `apps/system-upgrade`).
-- [volsync](https://github.com/backube/volsync): Backup and recovery of persistent volume claims with Kopia.
+- [kured](https://github.com/kubereboot/kured): Coordinates safe, one-at-a-time node reboots (GitOps-managed) when a node has a pending rpm-ostree deployment or flags `/run/reboot-required`. Zincati is disabled on the FCOS nodes; OS releases are merge-gated through the `fcos-os` Plan, which stages the pinned build for kured to reboot into. [system-upgrade-controller](https://github.com/rancher/system-upgrade-controller) hosts the upgrade Plans (see `apps/system-upgrade`).
+- [kopiur](https://github.com/home-operations/kopiur): Kopia-based backup and restore of persistent volume claims (hourly `SnapshotSchedule`s to the `nas-s3` ClusterRepository; restore-on-create via a `Restore` populator).
 
 ### GitOps
 
@@ -156,15 +156,17 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ```sh
 📁 home-ops
-├── 📁 bootstrap          # Initial cluster bootstrap resources
 ├── 📁 kubernetes
 │   ├── 📁 apps          # Application deployments by namespace
 │   │   ├── 📁 actions-runner-system # Self-hosted GitHub runners
-│   │   ├── 📁 automation     # Workflow automation (n8n)
+│   │   ├── 📁 auth           # Identity provider (Pocket ID)
+│   │   ├── 📁 automation     # Home Assistant and workflow automation (n8n)
 │   │   ├── 📁 cert-manager   # Certificate management
+│   │   ├── 📁 database       # CloudNativePG operator and clusters
 │   │   ├── 📁 downloads      # Media acquisition stack
 │   │   ├── 📁 external-secrets # Secret management
 │   │   ├── 📁 flux-system    # Flux controllers
+│   │   ├── 📁 kopiur-system  # Volume backup and recovery (kopiur + Kopia UI)
 │   │   ├── 📁 kube-system    # Core Kubernetes components
 │   │   ├── 📁 media          # Media serving applications
 │   │   ├── 📁 network        # Networking applications
@@ -172,13 +174,13 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 openebs-system # Local storage provisioner
 │   │   ├── 📁 scale-csi      # TrueNAS CSI driver (NVMe-oF/iSCSI/NFS)
 │   │   ├── 📁 self-hosted    # Productivity and tools
-│   │   ├── 📁 system-upgrade # Automated upgrades
-│   │   └── 📁 volsync-system # Volume backup and recovery
+│   │   ├── 📁 system         # Node device plugins
+│   │   └── 📁 system-upgrade # Upgrade Plans and reboot coordination
 │   ├── 📁 components    # Reusable Kustomize components
 │   │   ├── 📁 alerts         # AlertManager configurations
 │   │   ├── 📁 cluster-secret # Cluster-wide secrets
-│   │   ├── 📁 nfs-scaler     # NFS availability scaling
-│   │   └── 📁 volsync-direct # Direct volume backup/restore
+│   │   ├── 📁 kopiur         # PVC + kopiur backup/restore wiring
+│   │   └── 📁 nfs-scaler     # NFS availability scaling
 │   └── 📁 flux          # Flux system configuration
 ├── 📁 cmd               # HomeOps CLI source code
 │   └── 📁 homeops-cli   # Go-based automation tool
@@ -189,16 +191,16 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 
 ### Flux Workflow
 
-This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows an app whose persistent volume is provisioned by scale-csi and backed up by VolSync — the app's PVC is created with a `dataSourceRef` to a VolSync `ReplicationDestination`, so data restores automatically on (re)creation.
+This is a high-level look how Flux deploys my applications with dependencies. In most cases a `HelmRelease` will depend on other `HelmRelease`'s, in other cases a `Kustomization` will depend on other `Kustomization`'s, and in rare situations an app can depend on a `HelmRelease` and a `Kustomization`. The example below shows an app whose persistent volume is provisioned by scale-csi and backed up by kopiur — the app's PVC is created with a `dataSourceRef` to a kopiur `Restore`, so data restores automatically on (re)creation.
 
 ```mermaid
 graph TD
     A>Kustomization: scale-csi] -->|Creates| B[HelmRelease: scale-csi]
-    C>Kustomization: volsync] -->|Creates| D[HelmRelease: volsync]
+    C>Kustomization: kopiur] -->|Creates| D[HelmRelease: kopiur]
     E>Kustomization: atuin] -->|Creates| F(HelmRelease: atuin)
     E>Kustomization: atuin] -->|Creates| G(PVC: atuin on scale-nvmeof)
     G>PVC: atuin] -->|Provisioned by| B>HelmRelease: scale-csi]
-    F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: volsync]
+    F>HelmRelease: atuin] -->|Backed up by| D>HelmRelease: kopiur]
 ```
 
 ### Automation & Tooling
@@ -210,10 +212,10 @@ The repository includes comprehensive automation for cluster management through 
 A purpose-built Go application that provides complete infrastructure automation:
 
 **Core Capabilities:**
-- **Bootstrap**: Complete cluster initialization (`--provider flatcar`: kubeadm init/join over SSH, then Cilium/CRDs/Flux) with preflight checks and 1Password integration
-- **Flatcar Provisioning**: Butane→Ignition rendering, kubeadm config generation, and `kubeadm init`/`join` orchestration over SSH
-- **VM Management**: Proxmox VE 9.2 VM creation booting Flatcar images with Ignition injected via qemu fw_cfg
-- **Volume Operations**: VolSync-based backup and restore with Kopia integration
+- **Bootstrap**: Complete cluster initialization (`--provider flatcar`, which also drives FCOS nodes: kubeadm init/join over SSH, then Cilium/CRDs/Flux) with preflight checks and 1Password integration
+- **FCOS Provisioning**: Butane→Ignition rendering, kubeadm config generation, and `kubeadm init`/`join` orchestration over SSH (`cluster.os: fcos` in `homeops.yaml`; Flatcar remains selectable)
+- **VM Management**: Proxmox VE 9.2 VM creation booting the Fedora CoreOS qemu image with Ignition injected via qemu fw_cfg
+- **Node Lifecycle**: `cluster rehearse-node` drills and `cluster replace-node` in-place rebuilds
 - **Kubernetes Management**: Deployment restarts, PVC browsing, and maintenance operations
 
 **Key Commands:**
@@ -221,22 +223,20 @@ A purpose-built Go application that provides complete infrastructure automation:
 # Bootstrap entire cluster
 homeops-cli bootstrap
 
-# Flatcar node provisioning + cluster bootstrap (kubeadm)
-homeops-cli flatcar deploy-vm --nodes k8s-0,k8s-1,k8s-2 --image-path /var/lib/vz/template/flatcar.img --concurrent 3
-homeops-cli flatcar render-ignition --node k8s-0      # inspect rendered Ignition
-homeops-cli bootstrap --provider flatcar              # kubeadm init/join + Cilium/CRDs/Flux
+# FCOS node provisioning + cluster bootstrap (kubeadm)
+homeops-cli fcos deploy-vm --power-on                 # all os: fcos nodes; stages the stable-stream image
+homeops-cli fcos render-ignition --node k8s-0         # inspect rendered Ignition
+homeops-cli fcos os-status                            # rpm-ostree + greenboot status
+homeops-cli bootstrap --provider flatcar              # kubeadm init/join + Cilium/CRDs/Flux (FCOS nodes too)
 
 # Kubernetes and Flux operations
 homeops-cli k8s view-secret
 homeops-cli k8s apply-ks ./kubernetes/apps/observability/grafana/ks.yaml --name grafana-instance
 
-# Volume backup/restore
-homeops-cli volsync snapshot --pvc data-pvc --namespace default
-homeops-cli volsync restore --pvc data-pvc --namespace default
 ```
 
 **Supporting Tools:**
-- **Template Rendering**: Embedded Butane→Ignition transpilation (CoreOS Butane) + kubeadm v1beta4 configs for Flatcar
+- **Template Rendering**: Embedded Butane→Ignition transpilation (CoreOS Butane) + kubeadm v1beta4 configs for FCOS (and Flatcar)
 - **Secret Injection**: [1Password CLI](https://developer.1password.com/docs/cli/) integration for secure secret management
 - **Environment Management**: [mise](https://github.com/jdx/mise) for tool and environment variable management
 - **Configuration Validation**: Pre-commit hooks with kubeconform and YAML linting
@@ -294,7 +294,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
   - TCP Congestion Control: BBR
   - TCP Buffer Sizes: 64MB max
   - Socket Buffers: 128MB (rcvbuf/sndbuf)
-  - NFS nconnect: 16 parallel connections
+  - NFS: session trunking across the four storage VLANs (`nconnect=1`, `max_connect=16`)
 
 ---
 
@@ -307,25 +307,26 @@ The cluster hosts a variety of self-hosted applications organized by namespace a
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Atuin](https://github.com/atuinsh/atuin) | Shell history sync | `sh.${SECRET_DOMAIN}` |
-| [OCIS](https://github.com/owncloud/ocis) | Personal file sync & sharing | `ocis.${SECRET_DOMAIN}` |
-| [The Lounge](https://github.com/thelounge/thelounge) | Persistent IRC/web chat client | `thelounge.${SECRET_DOMAIN}` |
+| [IT-Tools](https://github.com/CorentinTh/it-tools) | Developer utilities | `it-tools.${SECRET_DOMAIN}` |
+| [NetBox](https://github.com/netbox-community/netbox) | DCIM/IPAM source of truth | `netbox.${SECRET_DOMAIN}` |
+| [webhook](https://github.com/adnanh/webhook) | HTTP-triggered hooks | `webhook.${SECRET_DOMAIN}` |
 
 ### Content & Finance (self-hosted namespace)
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [Actual](https://github.com/actualbudget/actual) | Personal budgeting | `actual.${SECRET_DOMAIN}` |
-| [FreshRSS](https://github.com/FreshRSS/FreshRSS) | RSS feed aggregator | `feeds.${SECRET_DOMAIN}` |
+| [FreshRSS](https://github.com/FreshRSS/FreshRSS) | RSS feed aggregator | `rss.${SECRET_DOMAIN}` |
 
-All self-hosted apps now share the `self-hosted` namespace so VolSync movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
+All self-hosted apps now share the `self-hosted` namespace so kopiur movers and Kopia ownership stay aligned (snapshots live under identities like `app@self-hosted:/data`).
 
 ### Media & Requests (media namespace)
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
-| [Jellyseerr](https://github.com/Fallenbagel/jellyseerr) | Media discovery & request management | `requests.${SECRET_DOMAIN}` |
+| [Seerr](https://github.com/seerr-team/seerr) | Media discovery & request management | `requests.${SECRET_DOMAIN}` |
 
-Media workloads live in the `media` namespace so VolSync and Kopia identities follow `app@media:/data` for consistent restores.
+Media workloads live in the `media` namespace so kopiur/Kopia identities follow `app@media:/data` for consistent restores.
 
 ### Downloads & Indexers (downloads namespace)
 
@@ -333,7 +334,6 @@ Media workloads live in the `media` namespace so VolSync and Kopia identities fo
 |-------------|---------|--------|
 | [Autobrr](https://github.com/autobrr/autobrr) | Real-time announce filtering & actions | `autobrr.${SECRET_DOMAIN}` |
 | [Bazarr](https://github.com/morpheus65535/bazarr) | Subtitle management for Radarr/Sonarr libraries | `bazarr.${SECRET_DOMAIN}` |
-| [Cross-Seed](https://github.com/cross-seed/cross-seed) | Torrent cross-seeding suggestions | Internal only |
 | [NZBGet](https://github.com/nzbgetcom/nzbget) | Usenet downloader | `nzbget.${SECRET_DOMAIN}` |
 | [Pinchflat](https://github.com/kieranjeglin/pinchflat) | Long-form video & podcast archiving | `pinchflat.${SECRET_DOMAIN}` |
 | [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Indexer proxy & search aggregator | `prowlarr.${SECRET_DOMAIN}` |
@@ -341,18 +341,24 @@ Media workloads live in the `media` namespace so VolSync and Kopia identities fo
 | [Qui](https://github.com/autobrr/qui) | Autobrr queue monitor & dashboard | `qui.${SECRET_DOMAIN}` |
 | [Radarr](https://github.com/Radarr/Radarr) | Movie library automation | `radarr.${SECRET_DOMAIN}` |
 | [Recyclarr](https://github.com/Recyclarr/Recyclarr) | Radarr/Sonarr config synchronisation | Internal only |
-| [TQM](https://github.com/home-operations/tqm) | Automated qBittorrent retag/cleanup jobs | Internal only |
 | [Sonarr](https://github.com/Sonarr/Sonarr) | TV library automation | `sonarr.${SECRET_DOMAIN}` |
 
-The entire download stack now lives in the `downloads` namespace so VolSync movers and Kopia ownership stay aligned (`app@downloads:/data`) and restores remain consistent.
+The entire download stack now lives in the `downloads` namespace so kopiur movers and Kopia ownership stay aligned (`app@downloads:/data`) and restores remain consistent.
 
 ### Automation & Workflows (automation namespace)
 
 | Application | Purpose | Access |
 |-------------|---------|--------|
+| [Home Assistant](https://github.com/home-assistant/core) | Home automation | `home-assistant.${SECRET_DOMAIN}` |
 | [n8n](https://github.com/n8n-io/n8n) | Workflow automation & integrations | `n8n.${SECRET_DOMAIN}` |
 
-Automation workloads run in the `automation` namespace so VolSync restores and Kopia ownership continue to match `app@automation:/data`.
+### Identity (auth namespace)
+
+| Application | Purpose | Access |
+|-------------|---------|--------|
+| [Pocket ID](https://github.com/pocket-id/pocket-id) | OIDC identity provider (passkeys) | `id.${SECRET_DOMAIN}` |
+
+Automation workloads run in the `automation` namespace so kopiur restores and Kopia ownership continue to match `app@automation:/data`.
 
 ### Observability Stack (observability namespace)
 
@@ -380,7 +386,9 @@ Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single ve
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [scale-csi](https://github.com/GizmoTickler/scale-csi) | Primary storage — TrueNAS NVMe-oF/iSCSI/NFS CSI driver | Internal only |
-| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner (ZFS RAID10 scratch) | Internal only |
+| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner (NVMe ZFS scratch) | Internal only |
+| [kopiur](https://github.com/home-operations/kopiur) | Kopia-based PVC backup/restore operator | Internal only |
+| [Kopia](https://github.com/kopia/kopia) | Repository browser UI | `kopia.${SECRET_DOMAIN}` |
 
 All applications use kgateway (Gateway API) for ingress with automatic TLS certificates from Google Trust Services via cert-manager.
 
@@ -395,10 +403,10 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 | Tier | Provider | StorageClass | Use Case |
 |------|----------|--------------|----------|
 | **NVMe-oF Block** | scale-csi | `scale-nvmeof` (default) | Application PVCs — highest IOPS, sub-ms commit latency |
-| **iSCSI Block** | scale-csi | `scale-iscsi` | Block volumes over iSCSI |
-| **NFS Filesystem** | scale-csi | `scale-nfs` | Shared (RWX-capable) storage |
-| **Local Scratch** | OpenEBS | `openebs-hostpath` | Download landing zones + VolSync caches on node-local ZFS RAID10 |
-| **Backup** | VolSync + Kopia | — | Automated PVC backup and restore |
+| **Local Scratch** | OpenEBS | `openebs-hostpath` | Download landing zones + CI runner work volumes on the node-local `nvme-scratch` zvol |
+| **Backup** | kopiur + Kopia | — | Automated PVC backup and restore |
+
+The driver also supports iSCSI and NFS, but no StorageClass for either is currently deployed.
 
 ### scale-csi Configuration
 
@@ -412,10 +420,10 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 
 ### Backup Strategy
 
-[VolSync](https://github.com/backube/volsync) with [Kopia](https://github.com/kopia/kopia) provides automated backup:
+[kopiur](https://github.com/home-operations/kopiur) with [Kopia](https://github.com/kopia/kopia) provides automated backup (wired per app by the `kubernetes/components/kopiur/backup` component):
 
-- **ReplicationSource**: Scheduled backups of PVCs to S3-compatible storage
-- **ReplicationDestination**: Point-in-time recovery with dataSource references
+- **SnapshotPolicy + SnapshotSchedule**: Hourly snapshots of PVCs (from a `scale-snapshot` VolumeSnapshot) to the S3-backed `nas-s3` ClusterRepository; keeps 24 hourly + 7 daily
+- **Restore**: Point-in-time recovery — the app PVC's `dataSourceRef` points at a kopiur `Restore`, so data restores on (re)creation
 - **Identity Alignment**: Namespace-based identity (`app@namespace:/data`) for consistent restores
 
 ---
@@ -430,7 +438,7 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
-| └─ **Storage**              | 2x NVMe SSDs (ZFS RAID1 mirror — VM boot, 30GB/drive over-provisioned) + 4x 1TB SSD (ZFS RAID10 `openebs-ssd`, 50GB/drive over-provisioned) | VM boot mirror + local scratch zvols |
+| └─ **Storage**              | 2x SSD (ZFS mirror `vm-ssd` — VM boot) + 2x NVMe (ZFS pool `nvme-scratch`, no redundancy) | VM boot mirror + local scratch zvols |
 | **Storage Server**          | TrueNAS Scale                                       | iSCSI, NVMe-oF & NFS storage     |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
 | ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
@@ -455,18 +463,18 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 96GB   | 100GB boot (nvme-mirror RAID1) + 700GB local scratch (openebs-ssd RAID10 zvol) | Flatcar Container Linux + kubeadm (k8s v1.36.1) |
+| **Kubernetes Control Plane** | 3     | 16     | 80GB   | 100GB boot (`vm-ssd` mirror) + 451GB local scratch (`nvme-scratch` zvol) | Fedora CoreOS 44 + kubeadm (k8s v1.36.2) |
 
 **Storage Details**:
-- **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `nvme-mirror` ZFS RAID1 for the Flatcar OS
-- **Local Scratch** (`scsi3`, `/dev/sdc`): 700GB VirtIO SCSI zvol from the `openebs-ssd` ZFS RAID10 pool (ext4, `LABEL=openebs-local`), mounted at `/var/mnt/local-hostpath` for OpenEBS hostPath workloads
+- **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `vm-ssd` ZFS mirror for the FCOS OS
+- **Local Scratch** (`scsi4`, `/dev/sdb`): 451GB VirtIO SCSI zvol from the `nvme-scratch` ZFS pool (ext4, `LABEL=openebs-nvme`), mounted at `/var/mnt/nvme-hostpath` for OpenEBS hostPath workloads
 - **App Volumes**: attached dynamically by scale-csi as NVMe-oF/TCP (or iSCSI) devices from TrueNAS — no static data disks
 
 **VM Configuration**:
-- **Provisioning**: Ignition via qemu **fw_cfg** (`opt/org.flatcar-linux/config`) — the rendered Ignition is attached at VM create; the disk imports a Flatcar image (no install ISO)
+- **Provisioning**: Ignition via qemu **fw_cfg** (`opt/com.coreos/config`) — the rendered Ignition is attached at VM create; the disk imports the Fedora CoreOS qemu image (no install ISO)
 - **BIOS**: OVMF (UEFI)
 - **CPU Type**: `host,flags=+pdpe1gb;-spec-ctrl`
-- **Network**: VirtIO on `vmbr0`; primary `net0` uses MTU 9000, VLAN 999, and 16 queues; VLAN 20 `net1` uses MTU 1500 with no queues key; VLAN 90 `net2` uses MTU 1500 and 8 queues; storage `net3`-`net6` use MTU 9000 and 8 queues
+- **Network**: VirtIO on `vmbr0`; primary `net0` uses MTU 9000, VLAN 999, and 16 queues; VLAN 20 `net1` uses MTU 1500 with no queues key; VLAN 90 `net2` uses MTU 1500 and 8 queues; the four storage-fabric NICs are SR-IOV VFs (`hostpci0`-`hostpci3`)
 - **Guest Agent**: QEMU Guest Agent for enhanced management
 - **Machine Type**: Q35 chipset
 
@@ -475,9 +483,9 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
   - k8s-0 (VMID 200): Cores 0-7,32-39 (Socket 0, NUMA 0)
   - k8s-1 (VMID 201): Cores 16-23,48-55 (Socket 1, NUMA 1)
   - k8s-2 (VMID 202): Cores 8-15,40-47 (Socket 0, NUMA 0)
-- **Memory**: 96GB (98304 MB) per VM, no overcommit
+- **Memory**: 80GB (81920 MB) per VM, NUMA-bound, no overcommit
 
-**Total VM Resources**: 48 vCPUs, 288GB RAM allocated from the 64-thread, 512GB host system.
+**Total VM Resources**: 48 vCPUs, 240GB RAM allocated from the 64-thread, 512GB host system.
 
 ---
 
