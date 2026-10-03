@@ -84,4 +84,5 @@ spec:
         globalMounts:
           - path: /media/torrents
             subPath: torrents
-            readOnly: true
+            # Read-write: cross-seed hardlinks into /media/torrents and orphan
+            # cleanup both write here (qui runs as uid 1000, same as qBittorrent).
