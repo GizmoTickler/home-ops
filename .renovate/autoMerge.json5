@@ -100,6 +100,15 @@
       ignoreTests: false,
     },
     {
+      description: "NEVER auto-merge Fedora CoreOS releases — merging IS the rollout trigger (SUC stage + kured rolling reboot)",
+      matchDatasources: ["custom.fcos"],
+      // 44.20260913.3.2: numeric per-segment compare (semver would truncate it)
+      versioning: "loose",
+      automerge: false,
+      automergeType: "pr",
+      ignoreTests: false,
+    },
+    {
       description: "Auto-merge GitHub Releases",
       matchDatasources: ["github-releases"],
       automerge: true,

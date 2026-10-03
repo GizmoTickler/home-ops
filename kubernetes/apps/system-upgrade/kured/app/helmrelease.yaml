@@ -12,7 +12,8 @@ spec:
   values:
     configuration:
       # Use the command sentinel (run on the host via nsenter) rather than the
-      # mounted /sentinel hostPath file checker, so it can also see update_engine.
+      # mounted /sentinel hostPath file checker, so it can also see rpm-ostree /
+      # update_engine.
       # The chart only emits --reboot-sentinel-command when this is false.
       useRebootSentinelHostPath: false
       # Check for pending reboots every 10 minutes.
@@ -25,10 +26,14 @@ spec:
       # kills etcd quorum. A stuck lock blocks further reboots (safe) and is
       # released manually: kubectl -n system-upgrade annotate ds kured weave.works/kured-node-lock-
       lockTtl: 0
-      # Reboot when EITHER the Kubernetes systemd-sysext update flagged a reboot
-      # (/run/reboot-required, touched by systemd-sysupdate) OR Flatcar's update_engine
-      # has staged an OS update (locksmithd is masked, so nothing else reboots).
+      # Reboot when ANY of:
+      #   - /run/reboot-required exists (touched by systemd-sysupdate on Flatcar);
+      #   - Fedora CoreOS: rpm-ostree has a pending deployment (staged by the fcos-os
+      #     Plan; Zincati is disabled) — deployments[0] is the next boot, so it is
+      #     not the booted one. `jq -e` fails closed: an rpm-ostree error is NOT a
+      #     reboot request;
+      #   - Flatcar: update_engine has staged an OS update (locksmithd is masked).
       # kured prepends `nsenter -m/proc/1/ns/mnt --`, so this runs in the host mount ns.
-      rebootSentinelCommand: '/usr/bin/sh -c "test -f /run/reboot-required || /usr/bin/update_engine_client -status | /usr/bin/grep -q UPDATE_STATUS_UPDATED_NEED_REBOOT"'
+      rebootSentinelCommand: '/usr/bin/sh -c "test -f /run/reboot-required || { test -x /usr/bin/rpm-ostree && /usr/bin/rpm-ostree status --json | /usr/bin/jq -e ''.deployments[0].booted == false'' >/dev/null; } || { test -x /usr/bin/update_engine_client && /usr/bin/update_engine_client -status | /usr/bin/grep -q UPDATE_STATUS_UPDATED_NEED_REBOOT; }"'
       rebootMethod: command
       rebootCommand: /usr/bin/systemctl reboot

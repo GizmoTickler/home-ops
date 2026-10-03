@@ -1,0 +1,83 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/upgrade.cattle.io/plan_v1.json
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata:
+  name: fcos-os
+  namespace: system-upgrade
+  labels:
+    app.kubernetes.io/name: fcos-upgrade
+  annotations:
+    # CRITICAL: Flux post-build substitution (cluster-secret component) runs envsubst
+    # over manifests and would mangle every ${...} in the embedded bash script.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  # ── HOW TO UPGRADE FEDORA CORE OS (merge-gated) ───────────────────────────────────
+  #   Bump `version` to the target FCOS stable release
+  #   (https://fedoraproject.org/coreos/release-notes?stream=stable) and merge.
+  #   SUC runs a staging Job per node (one at a time): `rpm-ostree rebase` pulls the
+  #   signed quay.io/fedora/fedora-coreos:<version> image and STAGES it as the next
+  #   deployment (layered greenboot/qemu-guest-agent are carried over). Kured sees
+  #   the pending deployment (`rpm-ostree status --pending-exit-77`), then
+  #   cordons/drains/reboots one node at a time; greenboot rolls back a bad boot.
+  #
+  #   Zincati auto-updates are DISABLED on the nodes (/etc/zincati/config.d/
+  #   90-disable-auto-updates.toml, set via Butane), so this Plan is the ONLY way the
+  #   OS moves. No label gate: the script no-ops when the node is already at (or has
+  #   staged) the target, so the SUC baseline run is harmless.
+  # renovate: datasource=custom.fcos depName=fedora-coreos
+  version: 44.20260829.3.1
+  concurrency: 1
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      # FCOS only (kubeadm node-labels set homeops.io/os=fcos); Flatcar nodes are
+      # handled by the flatcar-os Plan.
+      - key: homeops.io/os
+        operator: In
+        values: ["fcos"]
+  serviceAccountName: system-upgrade
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: CriticalAddonsOnly
+      operator: Exists
+  # Staging only — the new deployment is written alongside the booted one while
+  # workloads keep running. Kured owns cordon/drain/reboot, so SUC must not cordon
+  # here (a cordoned node would deadlock waiting for kured).
+  cordon: false
+  upgrade:
+    # busybox only provides `chroot`; the real work runs against the HOST (FCOS)
+    # via `chroot /host`, using the host's rpm-ostree and jq.
+    image: docker.io/library/busybox:1.38.0
+    command: ["/bin/sh", "-c"]
+    args:
+      - |
+        chroot /host /usr/bin/bash -euo pipefail <<'HOSTEOF'
+        TARGET="${SYSTEM_UPGRADE_PLAN_LATEST_VERSION:?missing target version}"
+        STATUS="$(rpm-ostree status --json)"
+        BOOTED="$(jq -r '.deployments[] | select(.booted) | .version' <<<"${STATUS}")"
+        STAGED="$(jq -r '.deployments[] | select(.staged == true) | .version' <<<"${STATUS}")"
+        echo "[fcos-upgrade] node=$(hostname) current=${BOOTED} staged=${STAGED:-none} target=${TARGET}"
+        if [ "${BOOTED}" = "${TARGET}" ]; then
+          echo "[fcos-upgrade] already at ${TARGET}; nothing to do"
+          exit 0
+        fi
+        # Idempotent retry: the target is already staged, just wait for kured.
+        if [ "${STAGED}" = "${TARGET}" ]; then
+          echo "[fcos-upgrade] ${TARGET} already staged; awaiting kured reboot"
+          exit 0
+        fi
+        # Stage the pinned, signature-verified release. --bypass-driver: Zincati is
+        # installed (updates disabled) and may still register as the update driver.
+        rpm-ostree rebase --bypass-driver \
+          "ostree-image-signed:docker://quay.io/fedora/fedora-coreos:${TARGET}"
+        STAGED="$(rpm-ostree status --json | jq -r '.deployments[] | select(.staged == true) | .version')"
+        if [ "${STAGED}" != "${TARGET}" ]; then
+          echo "[fcos-upgrade] FATAL: staged deployment is '${STAGED}', expected ${TARGET}"
+          exit 1
+        fi
+        echo "[fcos-upgrade] staged ${TARGET}; kured will reboot this node"
+        HOSTEOF

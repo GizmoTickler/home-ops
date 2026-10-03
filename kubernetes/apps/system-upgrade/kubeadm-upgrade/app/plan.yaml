@@ -48,8 +48,8 @@ spec:
     deleteEmptydirData: true
     skipWaitForDeleteTimeout: 60
   upgrade:
-    # busybox only provides `chroot`; the real work runs against the HOST (Flatcar) via
-    # `chroot /host`, using the host's kubeadm/kubectl/systemctl/systemd-sysupdate.
+    # busybox only provides `chroot`; the real work runs against the HOST (FCOS or Flatcar)
+    # via `chroot /host`, using the host's kubeadm/kubectl/systemctl and sysext tooling.
     image: docker.io/library/busybox:1.38.0
     command: ["/bin/sh", "-c"]
     args:
@@ -60,17 +60,25 @@ spec:
         export KUBECONFIG=/etc/kubernetes/admin.conf
         echo "[kubeadm-upgrade] node=$(hostname) target=${TARGET} minor=${MINOR}"
 
-        # 1) Repoint the Kubernetes systemd-sysext at the new minor and pull it.
-        curl --fail --location --retry 6 --retry-delay 5 \
-          -o "/etc/sysupdate.kubernetes.d/kubernetes-${MINOR}.conf" \
-          "https://extensions.flatcar.org/extensions/kubernetes/kubernetes-${MINOR}.conf"
-        find /etc/sysupdate.kubernetes.d -maxdepth 1 -name 'kubernetes-v*.conf' \
-          ! -name "kubernetes-${MINOR}.conf" -delete
-        # Update only the kubernetes sysext (its own definitions dir), then merge it.
-        # Full path: systemd-sysupdate is not on Flatcar's PATH (proven live on the
-        # first run of this Plan — the job failed here with command not found).
-        /usr/lib/systemd/systemd-sysupdate --definitions=/etc/sysupdate.kubernetes.d update
-        systemd-sysext refresh
+        # 1) Swap the Kubernetes sysext to the target version.
+        if [ -x /usr/local/bin/homeops-install-k8s-sysext ]; then
+          # Fedora CoreOS: no systemd-sysupdate definitions; the node's directory
+          # sysext is rebuilt from sha256-verified dl.k8s.io binaries (installed by
+          # the FCOS Butane template). It unmerges, swaps and refreshes atomically.
+          /usr/local/bin/homeops-install-k8s-sysext "${TARGET}"
+        else
+          # Flatcar: repoint the sysext-bakery image at the new minor and pull it.
+          curl --fail --location --retry 6 --retry-delay 5 \
+            -o "/etc/sysupdate.kubernetes.d/kubernetes-${MINOR}.conf" \
+            "https://extensions.flatcar.org/extensions/kubernetes/kubernetes-${MINOR}.conf"
+          find /etc/sysupdate.kubernetes.d -maxdepth 1 -name 'kubernetes-v*.conf' \
+            ! -name "kubernetes-${MINOR}.conf" -delete
+          # Update only the kubernetes sysext (its own definitions dir), then merge it.
+          # Full path: systemd-sysupdate is not on Flatcar's PATH (proven live on the
+          # first run of this Plan — the job failed here with command not found).
+          /usr/lib/systemd/systemd-sysupdate --definitions=/etc/sysupdate.kubernetes.d update
+          systemd-sysext refresh
+        fi
 
         # FAIL-SAFE: if the new kubeadm isn't active, stop BEFORE touching the cluster.
         # The node is drained but otherwise intact + recoverable (fix + uncordon/retry).
