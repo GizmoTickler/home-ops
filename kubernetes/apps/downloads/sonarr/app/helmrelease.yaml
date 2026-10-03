@@ -24,6 +24,9 @@ spec:
               SONARR__APP__THEME: dark
               SONARR__AUTH__METHOD: External
               SONARR__AUTH__REQUIRED: DisabledForLocalAddresses
+              # Reject requests for any other Host (DNS-rebinding guard). Callers use the
+              # gateway hostname or the in-cluster Service name; probes send Host: localhost.
+              SONARR__SERVER__ALLOWEDHOSTS: sonarr.${SECRET_DOMAIN},sonarr.downloads.svc.cluster.local,sonarr.downloads.svc,sonarr.downloads,sonarr
               SONARR__LOG__DBENABLED: "False"
               SONARR__LOG__LEVEL: info
               SONARR__SERVER__PORT: &port 80
@@ -40,6 +43,10 @@ spec:
                   httpGet:
                     path: /ping
                     port: *port
+                    # kubelet probes the pod IP, which Allowed Hosts rejects; loopback is always allowed
+                    httpHeaders:
+                      - name: Host
+                        value: localhost
                   initialDelaySeconds: 20
                   periodSeconds: 10
                   timeoutSeconds: 1
