@@ -199,8 +199,11 @@ spec:
             severity: warning
             component: security
         - alert: GeoIPUpdaterFailing
+          # -1 = no update log since boot (/tmp is cleared on reboot and the update
+          # only runs weekly), i.e. unknown, not failed. Only a real non-zero exit
+          # fires; data that is actually old is caught by GeoIPDatabaseStale.
           expr: |-
-            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_update_last_exit"} != 0
+            nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_update_last_exit"} > 0
           for: 1h
           keep_firing_for: 30m
           annotations:
