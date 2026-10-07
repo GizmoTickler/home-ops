@@ -26,7 +26,7 @@ spec:
   #   OS moves. No label gate: the script no-ops when the node is already at (or has
   #   staged) the target, so the SUC baseline run is harmless.
   # renovate: datasource=custom.fcos depName=fedora-coreos
-  version: 44.20260829.3.1
+  version: 44.20260913.3.2
   concurrency: 1
   nodeSelector:
     matchExpressions:
