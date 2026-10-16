@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,18 +18,12 @@ cluster:
       ip: 192.168.122.10
       vm:
         storage_nics:
-          - vlan: 1204
-            mac: "BC:24:11:FB:16:76"
-            ip: 192.168.204.20/24
-          - vlan: 1201
-            mac: "BC:24:11:3B:E0:50"
-            ip: 192.168.201.20/24
-          - vlan: 1203
-            mac: "BC:24:11:FF:50:81"
-            ip: 192.168.203.20/24
           - vlan: 1202
             mac: "BC:24:11:ED:F6:B6"
             ip: 192.168.202.20/24
+          - vlan: 1201
+            mac: "BC:24:11:3B:E0:50"
+            ip: 192.168.201.20/24
 `
 
 func TestLoadFileParsesAndRoundTripsStorageNICs(t *testing.T) {
@@ -39,8 +34,8 @@ func TestLoadFileParsesAndRoundTripsStorageNICs(t *testing.T) {
 	require.NoError(t, err)
 	node, ok := cfg.NodeByName("k8s-0")
 	require.True(t, ok)
-	require.Len(t, node.VM.StorageNICs, 4)
-	assert.Equal(t, StorageNIC{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"}, node.VM.StorageNICs[0])
+	require.Len(t, node.VM.StorageNICs, 2)
+	assert.Equal(t, StorageNIC{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"}, node.VM.StorageNICs[0])
 
 	rendered, err := yaml.Marshal(node.VM)
 	require.NoError(t, err)
@@ -57,12 +52,12 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
           - vlan: 1202
             mac: "BC:24:11:ED:F6:B6"
             ip: 192.168.202.20/24
-          - vlan: 1203
+`
+	// VLANs 1203/1204 were retired 2026-10-16 (their nas01 addresses are gone
+	// and NFS trunk anchors to them hung the shared session).
+	retiredEntry := `          - vlan: 1203
             mac: "BC:24:11:FF:50:81"
             ip: 192.168.203.20/24
-          - vlan: 1204
-            mac: "BC:24:11:FB:16:76"
-            ip: 192.168.204.20/24
 `
 	cases := []struct {
 		name        string
@@ -74,10 +69,12 @@ func TestLoadFileRejectsInvalidStorageNICs(t *testing.T) {
 		{name: "malformed MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "not-a-mac", wantErr: "not a valid 6-byte MAC"},
 		{name: "Cisco dot MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "bc24.113b.e050", wantErr: "colon-separated 6-octet MAC"},
 		{name: "dash-separated MAC", entries: validEntries, old: "BC:24:11:3B:E0:50", replacement: "BC-24-11-3B-E0-50", wantErr: "colon-separated 6-octet MAC"},
-		{name: "wrong VLAN octet", entries: validEntries, old: "192.168.203.20/24", replacement: "192.168.202.20/24", wantErr: "must be within 192.168.203.0/24"},
-		{name: "inconsistent host octet", entries: validEntries, old: "192.168.203.20/24", replacement: "192.168.203.21/24", wantErr: "must use one host octet across all storage VLANs"},
-		{name: "missing VLAN", entries: validEntries[:len(validEntries)-len("          - vlan: 1204\n            mac: \"BC:24:11:FB:16:76\"\n            ip: 192.168.204.20/24\n")], wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
-		{name: "duplicate VLAN", entries: validEntries, old: "vlan: 1204", replacement: "vlan: 1203", wantErr: "must contain exactly VLANs 1201, 1202, 1203, and 1204"},
+		{name: "wrong VLAN octet", entries: validEntries, old: "192.168.202.20/24", replacement: "192.168.201.20/24", wantErr: "must be within 192.168.202.0/24"},
+		{name: "inconsistent host octet", entries: validEntries, old: "192.168.202.20/24", replacement: "192.168.202.21/24", wantErr: "must use one host octet across all storage VLANs"},
+		{name: "missing VLAN", entries: validEntries[:len(validEntries)-len("          - vlan: 1202\n            mac: \"BC:24:11:ED:F6:B6\"\n            ip: 192.168.202.20/24\n")], wantErr: "must contain exactly VLANs 1201 and 1202"},
+		{name: "duplicate VLAN", entries: validEntries, old: "vlan: 1202", replacement: "vlan: 1201", wantErr: "must contain exactly VLANs 1201 and 1202"},
+		{name: "retired VLAN 1203 added", entries: validEntries + retiredEntry, wantErr: "must contain exactly VLANs 1201 and 1202"},
+		{name: "retired VLAN 1204 in place of 1202", entries: validEntries, old: "vlan: 1202\n            mac: \"BC:24:11:ED:F6:B6\"\n            ip: 192.168.202.20/24", replacement: "vlan: 1204\n            mac: \"BC:24:11:ED:F6:B6\"\n            ip: 192.168.204.20/24", wantErr: "must contain exactly VLANs 1201 and 1202"},
 		{name: "duplicate MAC within node", entries: validEntries, old: "BC:24:11:ED:F6:B6", replacement: "bc:24:11:3b:e0:50", wantErr: "duplicates cluster.nodes[k8s-0].vm.storage_nics[0].mac"},
 		{name: "pf without vf", entries: validEntries, old: "ip: 192.168.201.20/24\n", replacement: "ip: 192.168.201.20/24\n            pf: nic7\n", wantErr: "pf and vf must be set together"},
 		{name: "vf out of range", entries: validEntries, old: "ip: 192.168.201.20/24\n", replacement: "ip: 192.168.201.20/24\n            pf: nic7\n            vf: 64\n", wantErr: "must be between 0 and 63"},
@@ -114,8 +111,6 @@ cluster:
         storage_nics:
           - {vlan: 1201, mac: "02:00:00:00:12:01", ip: 192.168.201.20/24}
           - {vlan: 1202, mac: "02:00:00:00:12:02", ip: 192.168.202.20/24}
-          - {vlan: 1203, mac: "02:00:00:00:12:03", ip: 192.168.203.20/24}
-          - {vlan: 1204, mac: "02:00:00:00:12:04", ip: 192.168.204.20/24}
 `
 	cases := []struct {
 		name        string
@@ -150,8 +145,6 @@ cluster:
         storage_nics:
           - {vlan: 1201, mac: "00:a0:98:1a:f3:72", ip: 192.168.201.20/24}
           - {vlan: 1202, mac: "02:00:00:00:12:02", ip: 192.168.202.20/24}
-          - {vlan: 1203, mac: "02:00:00:00:12:03", ip: 192.168.203.20/24}
-          - {vlan: 1204, mac: "02:00:00:00:12:04", ip: 192.168.204.20/24}
 `), 0o600))
 
 		_, err := LoadFile(path)
@@ -307,15 +300,11 @@ cluster:
         storage_nics:
           - {vlan: 1201, mac: "02:00:00:00:10:01", ip: 192.168.201.20/24}
           - {vlan: 1202, mac: "02:00:00:00:10:02", ip: 192.168.202.20/24}
-          - {vlan: 1203, mac: "02:00:00:00:10:03", ip: 192.168.203.20/24}
-          - {vlan: 1204, mac: "02:00:00:00:10:04", ip: 192.168.204.20/24}
     - name: k8s-1
       vm:
         storage_nics:
           - {vlan: 1201, mac: "02:00:00:00:11:01", ip: 192.168.201.21/24}
           - {vlan: 1202, mac: "02:00:00:00:11:02", ip: 192.168.202.21/24}
-          - {vlan: 1203, mac: "02:00:00:00:11:03", ip: 192.168.203.21/24}
-          - {vlan: 1204, mac: "02:00:00:00:11:04", ip: 192.168.204.21/24}
 `
 	t.Run("duplicate MAC", func(t *testing.T) {
 		content := replaceOnce(base, "02:00:00:00:11:01", "02:00:00:00:10:01")
@@ -330,8 +319,6 @@ cluster:
 	t.Run("duplicate host octet", func(t *testing.T) {
 		content := replaceOnce(base, ".201.21/24", ".201.20/24")
 		content = replaceOnce(content, ".202.21/24", ".202.20/24")
-		content = replaceOnce(content, ".203.21/24", ".203.20/24")
-		content = replaceOnce(content, ".204.21/24", ".204.20/24")
 		path := filepath.Join(t.TempDir(), "homeops.yaml")
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
@@ -347,7 +334,23 @@ func TestLoadFileRejectsPresentButEmptyStorageNICBlock(t *testing.T) {
 
 	_, err := LoadFile(path)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must contain exactly VLANs 1201, 1202, 1203, and 1204")
+	assert.Contains(t, err.Error(), "must contain exactly VLANs 1201 and 1202")
+}
+
+// The 1203/1204 trunk anchors pointed at nas01 addresses that no longer exist
+// and hung the shared NFS session (2026-10-16); they must not validate again.
+func TestLoadFileRejectsRetiredNFSTrunkVLANs(t *testing.T) {
+	for _, vlan := range []int{1203, 1204} {
+		t.Run(strconv.Itoa(vlan), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "homeops.yaml")
+			content := "cluster:\n  nfs_trunk:\n    export: /mnt/flashstor/data\n    vlans: [1201, 1202, " + strconv.Itoa(vlan) + "]\n"
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+			_, err := LoadFile(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "cluster.nfs_trunk.vlans[2]: "+strconv.Itoa(vlan)+" is not a supported storage VLAN (use 1201 and 1202)")
+		})
+	}
 }
 
 func TestLoadFileWithoutStorageNICsKeepsBlockAbsent(t *testing.T) {
@@ -370,30 +373,31 @@ func TestRepositoryHomeopsStorageNICMatrix(t *testing.T) {
 
 	// The live fabric: each storage VLAN is its own untagged PVE bridge, and
 	// each node passes through its own SR-IOV VF (index = node) on that port.
+	// Only nic7/nic6 carry VFs; nic4/nic5 (1203/1204) were retired 2026-10-16.
 	want := map[string][]StorageNIC{
 		"k8s-0": {
 			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24", Bridge: "vmbr201", PF: "nic7", VF: vfIndex(1)},
 			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24", Bridge: "vmbr202", PF: "nic6", VF: vfIndex(1)},
-			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24", Bridge: "vmbr203", PF: "nic4", VF: vfIndex(1)},
-			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24", Bridge: "vmbr204", PF: "nic5", VF: vfIndex(1)},
 		},
 		"k8s-1": {
 			{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24", Bridge: "vmbr201", PF: "nic7", VF: vfIndex(2)},
 			{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24", Bridge: "vmbr202", PF: "nic6", VF: vfIndex(2)},
-			{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24", Bridge: "vmbr203", PF: "nic4", VF: vfIndex(2)},
-			{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24", Bridge: "vmbr204", PF: "nic5", VF: vfIndex(2)},
 		},
 		"k8s-2": {
 			{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24", Bridge: "vmbr201", PF: "nic7", VF: vfIndex(3)},
 			{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24", Bridge: "vmbr202", PF: "nic6", VF: vfIndex(3)},
-			{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24", Bridge: "vmbr203", PF: "nic4", VF: vfIndex(3)},
-			{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24", Bridge: "vmbr204", PF: "nic5", VF: vfIndex(3)},
 		},
 	}
 	for name, expected := range want {
 		node, ok := cfg.NodeByName(name)
 		require.True(t, ok, name)
 		assert.Equal(t, expected, node.VM.StorageNICs, name)
+	}
+	assert.Equal(t, []int{1201, 1202}, cfg.Cluster.NFSTrunk.VLANs)
+	require.NotNil(t, cfg.Cluster.TestNode)
+	require.Len(t, cfg.Cluster.TestNode.VM.StorageNICs, 2)
+	for _, nic := range cfg.Cluster.TestNode.VM.StorageNICs {
+		assert.Contains(t, []string{"nic6", "nic7"}, nic.PF, "rehearsal node VF on a retired port")
 	}
 }
 
@@ -417,16 +421,12 @@ func TestStorageVFAssignedToTwoNodesIsRejected(t *testing.T) {
         storage_nics:
           - { vlan: 1201, mac: "BC:24:11:00:00:01", ip: 192.168.201.20/24, pf: nic7, vf: 1 }
           - { vlan: 1202, mac: "BC:24:11:00:00:02", ip: 192.168.202.20/24 }
-          - { vlan: 1203, mac: "BC:24:11:00:00:03", ip: 192.168.203.20/24 }
-          - { vlan: 1204, mac: "BC:24:11:00:00:04", ip: 192.168.204.20/24 }
     - name: k8s-1
       ip: 192.168.122.11
       vm:
         storage_nics:
           - { vlan: 1201, mac: "BC:24:11:00:01:01", ip: 192.168.201.21/24, pf: nic7, vf: 1 }
           - { vlan: 1202, mac: "BC:24:11:00:01:02", ip: 192.168.202.21/24 }
-          - { vlan: 1203, mac: "BC:24:11:00:01:03", ip: 192.168.203.21/24 }
-          - { vlan: 1204, mac: "BC:24:11:00:01:04", ip: 192.168.204.21/24 }
 `
 	path := filepath.Join(t.TempDir(), "homeops.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))

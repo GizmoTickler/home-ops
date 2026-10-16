@@ -110,8 +110,6 @@ func TestNodeConfigAccessorsApplySharedAndProviderSpecificConfig(t *testing.T) {
 						StorageNICs: []homeopscfg.StorageNIC{
 							{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.50/24"},
 							{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.50/24"},
-							{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.50/24"},
-							{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.50/24"},
 						},
 						BootStorage:    "shared-boot",
 						OpenEBSStorage: "shared-openebs",
@@ -158,8 +156,6 @@ func TestNodeConfigAccessorsApplySharedAndProviderSpecificConfig(t *testing.T) {
 	assert.Equal(t, []homeopscfg.StorageNIC{
 		{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.50/24"},
 		{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.50/24"},
-		{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.50/24"},
-		{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.50/24"},
 	}, flatcar.StorageNICs)
 
 	newNode, ok := GetFlatcarNodeConfig("k8s-9")

@@ -24,10 +24,8 @@ func TestBuildFlatcarStorageNICOptionsExactAndStable(t *testing.T) {
 		NetworkMTU:    9000,
 		NetworkQueues: 8,
 		StorageNICs: []homeopscfg.StorageNIC{
-			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
 			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
 			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
-			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
 		},
 	}
 
@@ -38,8 +36,8 @@ func TestBuildFlatcarStorageNICOptionsExactAndStable(t *testing.T) {
 	}
 	assert.Equal(t, "virtio=BC:24:11:3B:E0:50,bridge=vmbr0,tag=1201,mtu=9000,queues=8", options["net3"])
 	assert.Equal(t, "virtio=BC:24:11:ED:F6:B6,bridge=vmbr0,tag=1202,mtu=9000,queues=8", options["net4"])
-	assert.Equal(t, "virtio=BC:24:11:FF:50:81,bridge=vmbr0,tag=1203,mtu=9000,queues=8", options["net5"])
-	assert.Equal(t, "virtio=BC:24:11:FB:16:76,bridge=vmbr0,tag=1204,mtu=9000,queues=8", options["net6"])
+	assert.NotContains(t, options, "net5")
+	assert.NotContains(t, options, "net6")
 
 	for i := 0; i < 20; i++ {
 		require.Equal(t, first, manager.buildFlatcarVMOptions(config), "render %d", i)

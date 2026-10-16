@@ -247,15 +247,18 @@ func formatNFSTrunkUnits(storageNICs []config.StorageNIC, trunk config.NFSTrunkC
         What=192.168.%d.10:%s
         Where=/var/mnt/stor-trunk-%d
         Type=nfs4
-        # nconnect=1 is deliberate and measured. The kernel applies nconnect to
-        # the session PRIMARY only and adds exactly one transport per additional
-        # trunked address, so nconnect=4 across 4 addresses gave 4:1:1:1 and
-        # saturated one link while the others ran at ~36%%. Measured on this
-        # fabric: nconnect=1 beat nconnect=4 by +17.9%% read / +22.4%% write.
-        # Correct ONLY because trunking supplies one address per link; against a
-        # single-address server nconnect is the only parallelism knob and this
-        # must go back up. max_connect must stay >= the address count (kernel
-        # default 1 forbids trunking outright). See files/nfsmount.conf.
+        # nconnect=1 is deliberate. The kernel applies nconnect to the session
+        # PRIMARY only and adds exactly one transport per additional trunked
+        # address, so nconnect>1 always overloads the primary link (4:1:1:1 on
+        # the old four-link fabric, 2:1 on today's two). nconnect=1 beat
+        # nconnect=4 by +17.9%% read / +22.4%% write on four links; not yet
+        # re-measured on two. Correct ONLY because trunking supplies one
+        # address per link; against a single-address server nconnect is the
+        # only parallelism knob and this must go back up. max_connect must stay
+        # >= the address count (kernel default 1 forbids trunking outright).
+        # Every anchor's address must be live: a dead one adds a transport that
+        # never answers and hangs the whole shared session (2026-10-16, .203/.204).
+        # See files/nfsmount.conf.
         Options=vers=4.2,ro,noatime,nconnect=1,max_connect=16
         [Install]
         WantedBy=multi-user.target

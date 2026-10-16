@@ -33,20 +33,14 @@ var charStorageNICs = map[string][]config.StorageNIC{
 	"k8s-0": {
 		{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
 		{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
-		{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
-		{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
 	},
 	"k8s-1": {
 		{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24"},
 		{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24"},
-		{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24"},
-		{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24"},
 	},
 	"k8s-2": {
 		{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24"},
 		{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24"},
-		{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24"},
-		{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24"},
 	},
 }
 
@@ -96,7 +90,7 @@ func TestFCOSRenderCharacterization(t *testing.T) {
 		Name: "home-ops-cluster",
 		NFSTrunk: config.NFSTrunkConfig{
 			Export: "/mnt/flashstor/data",
-			VLANs:  []int{1202, 1203, 1204},
+			VLANs:  []int{1201, 1202},
 		},
 	}})
 	defer restore()
@@ -126,7 +120,7 @@ func TestFCOSGoldenStorageFabricMatchesFlatcar(t *testing.T) {
 			fcosFiles := ignitionFiles(t, fcosIgn)
 			flatcarFiles := ignitionFiles(t, flatcarIgnDecompressed(t, flatcarIgn))
 
-			require.Len(t, env.StorageNICs, 4)
+			require.Len(t, env.StorageNICs, 2)
 			for _, nic := range env.StorageNICs {
 				networkd := flatcarFiles[fmt.Sprintf("/etc/systemd/network/30-stor%d.network", nic.VLAN)].Contents
 				require.Contains(t, networkd, "Address="+nic.IP+"\n", "Flatcar reference render")
