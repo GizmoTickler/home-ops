@@ -592,15 +592,18 @@ spec:
 
         - alert: Nas01StorageInterfaceMtuDegraded
           expr: |-
-            node_network_mtu_bytes{instance=~"nas01.*", device=~"bond0|eno1|eno2|ens802f0|ens802f1"} != 9000
+            node_network_mtu_bytes{instance=~"nas01.*", device=~"ens786f0|ens786f1|bond0|eno1|eno2|ens787f0|ens787f1"} != 9000
           for: 10m
           keep_firing_for: 5m
           annotations:
             summary: "nas01 {{ $labels.device }} MTU is {{ $value }}, expected 9000"
             description: |-
-              A member of nas01's storage fabric has left jumbo. bond0 and its four
-              10G slaves must all sit at 9000 or the NVMe-oF paths to pve
-              (VLANs 1201-1204) and the k8s storage path silently lose jumbo frames.
+              A member of nas01's storage fabric has left jumbo. The storage ports
+              ens786f0 (VLAN 1201, 192.168.201.10) and ens786f1 (VLAN 1202,
+              192.168.202.10), plus bond0 and its four 10G slaves (MGMT NFS on
+              192.168.120.10), must all sit at 9000 or the NVMe-oF/NFS paths to
+              pve and the k8s nodes silently lose jumbo frames. VLANs 1203/1204
+              were retired 2026-10-16.
             runbook_url: https://docs.victoriametrics.com/
           labels:
             severity: warning
