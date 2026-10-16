@@ -108,27 +108,23 @@ spec:
         - 192.168.122.10/32
         - 192.168.122.11/32
         - 192.168.122.12/32
-        # Node storage-fabric addresses, VLAN 1201-1204 (eth3-eth6 on the k8s
-        # VMs). Host octet: k8s-0=.20, k8s-1=.21, k8s-2=.22.
+        # Node storage-fabric addresses, VLAN 1201-1202 (BCM57810 links on the
+        # k8s VMs). Host octet: k8s-0=.20, k8s-1=.21, k8s-2=.22.
+        # 2026-10-16: the 1203/1204 (82599) links were taken out of storage
+        # service; nas01's 82599 ports now belong to the XFP lab router VM.
         - 192.168.201.20/32
         - 192.168.201.21/32
         - 192.168.201.22/32
         - 192.168.202.20/32
         - 192.168.202.21/32
         - 192.168.202.22/32
-        - 192.168.203.20/32
-        - 192.168.203.21/32
-        - 192.168.203.22/32
-        - 192.168.204.20/32
-        - 192.168.204.21/32
-        - 192.168.204.22/32
     iscsi:
       enabled: false
       # 2026-08-26: portal moved off MGMT onto the fabric. The driver resolves
       # this to a TrueNAS portal by exact ip:port match against portal.listen
-      # (resolveISCSIPortalIDsForEndpoints); nas01 portal id=3 already listens
-      # on all four of 192.168.20{1,2,3,4}.10:3260, so no portal had to be
-      # created. Portal id=2 (MGMT-only, 192.168.120.10:3260) is now unused by
+      # (resolveISCSIPortalIDsForEndpoints); nas01 portal id=3 listens on
+      # 192.168.20{1,2}.10:3260 (203/204 removed 2026-10-16), so no portal had
+      # to be created. Portal id=2 (MGMT-only, 192.168.120.10:3260) is now unused by
       # this driver.
       #
       # NOTE: there are zero iSCSI PVs, zero targets and zero extents on the
@@ -154,11 +150,12 @@ spec:
       # port_subsys rows for the MGMT port are deleted -- that is a data-plane
       # migration, not a Helm value.
       multipath: true
+      # 2026-10-16: 192.168.203.10/204.10 removed. nas01's 82599 ports were
+      # passed through to the XFP lab router VM; those nvmet ports (7/8) are
+      # disabled and the remaining two paths are the BCM57810 links.
       addresses:
         - "192.168.201.10"
         - "192.168.202.10"
-        - "192.168.203.10"
-        - "192.168.204.10"
       # Secure-by-default: only these Kubernetes node NQNs may connect
       # (nvme show-hostnqn per node; machine-id-derived, stable on Flatcar).
       subsystemAllowAnyHost: false
