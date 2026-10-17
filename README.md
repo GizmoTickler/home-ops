@@ -110,7 +110,7 @@ The Kubernetes cluster is deployed using [Fedora CoreOS](https://fedoraproject.o
 - **Networking**:
   - Cilium CNI with eBPF datapath
   - kgateway (Gateway API) for ingress with L2/BGP announcements
-  - VirtIO network adapters: 16 queues on the primary NIC, 8 on VLAN 90, and no queues key on VLAN 20; the four storage-fabric NICs are SR-IOV VFs passed through from the Proxmox host
+  - VirtIO network adapters: 16 queues on the primary NIC, 8 on VLAN 90, and no queues key on VLAN 20; the two storage-fabric NICs (VLANs 1201/1202) are SR-IOV VFs passed through from the Proxmox host
   - Network interface: `eth0` (the primary NIC name is pinned by a udev `.link` file, not `ens18`)
 - **Guest Integration**: QEMU Guest Agent for enhanced VM management
 - **Ingress**: kgateway (Gateway API) with Cilium L2/BGP LoadBalancer services
@@ -294,7 +294,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
   - TCP Congestion Control: BBR
   - TCP Buffer Sizes: 64MB max
   - Socket Buffers: 128MB (rcvbuf/sndbuf)
-  - NFS: session trunking across the four storage VLANs (`nconnect=1`, `max_connect=16`)
+  - NFS: session trunking across the two storage VLANs 1201/1202 (`nconnect=1`, `max_connect=16`); VLANs 1203/1204 were retired 2026-10-16
 
 ---
 
@@ -474,7 +474,7 @@ The driver also supports iSCSI and NFS, but no StorageClass for either is curren
 - **Provisioning**: Ignition via qemu **fw_cfg** (`opt/com.coreos/config`) — the rendered Ignition is attached at VM create; the disk imports the Fedora CoreOS qemu image (no install ISO)
 - **BIOS**: OVMF (UEFI)
 - **CPU Type**: `host,flags=+pdpe1gb;-spec-ctrl`
-- **Network**: VirtIO on `vmbr0`; primary `net0` uses MTU 9000, VLAN 999, and 16 queues; VLAN 20 `net1` uses MTU 1500 with no queues key; VLAN 90 `net2` uses MTU 1500 and 8 queues; the four storage-fabric NICs are SR-IOV VFs (`hostpci0`-`hostpci3`)
+- **Network**: VirtIO on `vmbr0`; primary `net0` uses MTU 9000, VLAN 999, and 16 queues; VLAN 20 `net1` uses MTU 1500 with no queues key; VLAN 90 `net2` uses MTU 1500 and 8 queues; the two storage-fabric NICs (VLANs 1201/1202) are SR-IOV VFs (`hostpci0`-`hostpci1`) on pve `nic7`/`nic6`
 - **Guest Agent**: QEMU Guest Agent for enhanced management
 - **Machine Type**: Q35 chipset
 

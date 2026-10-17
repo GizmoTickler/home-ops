@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,7 +45,7 @@ type VMProfile struct {
 	Mac            string       `yaml:"mac,omitempty"`             // static MAC address
 	MacIoT         string       `yaml:"mac_iot,omitempty"`         // net1 MAC, VLAN 20 (Multus macvlan master eth1)
 	MacVPN         string       `yaml:"mac_vpn,omitempty"`         // net2 MAC, VLAN 90 (Multus macvlan master eth2)
-	StorageNICs    []StorageNIC `yaml:"storage_nics,omitempty"`    // optional NVMe-oF storage fabric NICs (net3-net6)
+	StorageNICs    []StorageNIC `yaml:"storage_nics,omitempty"`    // optional NVMe-oF storage fabric NICs (VLANs 1201-1202)
 	BootStorage    string       `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
 	OpenEBSStorage string       `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
 	ScratchStorage string       `yaml:"scratch_storage,omitempty"` // pool for the NVMe download-scratch disk (Flatcar scsi4)
@@ -64,14 +65,15 @@ type VMProfile struct {
 }
 
 // StorageNIC describes one MAC-pinned, statically addressed storage-fabric
-// interface. The supported fabric is VLANs 1201-1204, assigned to Proxmox
-// net3-net6 in VLAN order.
+// interface. The supported fabric is VLANs 1201-1202 (see StorageVLANs); a
+// virtio NIC becomes Proxmox net3/net4 and an SR-IOV VF hostpci0/hostpci1, in
+// VLAN order.
 type StorageNIC struct {
 	VLAN int    `yaml:"vlan"`
 	MAC  string `yaml:"mac"`
 	IP   string `yaml:"ip"`
 	// Bridge, when set, attaches the NIC untagged to this dedicated Proxmox
-	// bridge (the live fabric: vmbr201-vmbr204, one physical port each).
+	// bridge (vmbr201/vmbr202, one physical port each).
 	// Empty keeps the tagged attach on the VM's network bridge.
 	Bridge string `yaml:"bridge,omitempty"`
 	// PF and VF select an SR-IOV virtual function on the hypervisor's storage
@@ -86,8 +88,41 @@ type StorageNIC struct {
 // IsVF reports whether the NIC is an SR-IOV virtual function passthrough.
 func (n StorageNIC) IsVF() bool { return n.PF != "" && n.VF != nil }
 
+// StorageVLANs is the supported storage fabric, in order. Each VLAN N carries
+// 192.168.<N-1000>.0/24 with nas01 at .10.
+//
+// VLANs 1203/1204 (192.168.203.0/24, 192.168.204.0/24) were retired on
+// 2026-10-16: nas01's 82599 ports that carried .203.10/.204.10 and the pve
+// nic4/nic5 ports that carried the node VFs were reassigned to lab VMs. NFS
+// session-trunking anchors still pointing at those dead addresses added
+// transports that never answered and hung the shared nas01 NFS session
+// (kubelet statfs threads and media pods stuck). They are rejected here so a
+// re-provisioned node cannot bring those paths back.
+var StorageVLANs = []int{1201, 1202}
+
+func isStorageVLAN(vlan int) bool {
+	for _, supported := range StorageVLANs {
+		if vlan == supported {
+			return true
+		}
+	}
+	return false
+}
+
+// storageVLANList renders StorageVLANs for validation messages ("1201 and 1202").
+func storageVLANList() string {
+	parts := make([]string, len(StorageVLANs))
+	for i, vlan := range StorageVLANs {
+		parts[i] = strconv.Itoa(vlan)
+	}
+	if len(parts) <= 1 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
 // NFSTrunkConfig enables read-only NFS mount anchors on storage-bearing
-// Flatcar nodes. Each VLAN is one of the storage_nics VLANs; its NFS server
+// Flatcar/FCOS nodes. Each VLAN must be one of StorageVLANs; its NFS server
 // address is derived as 192.168.<vlan-1000>.10.
 type NFSTrunkConfig struct {
 	Export string `yaml:"export,omitempty"`
@@ -757,8 +792,8 @@ func validate(c *Config) error {
 		}
 		seenVLANs := make(map[int]int, len(c.Cluster.NFSTrunk.VLANs))
 		for index, vlan := range c.Cluster.NFSTrunk.VLANs {
-			if vlan < 1201 || vlan > 1204 {
-				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d is not a supported storage VLAN (use 1201-1204)", index, vlan))
+			if !isStorageVLAN(vlan) {
+				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d is not a supported storage VLAN (use %s)", index, vlan, storageVLANList()))
 			}
 			if firstIndex, duplicate := seenVLANs[vlan]; duplicate {
 				problems = append(problems, fmt.Sprintf("cluster.nfs_trunk.vlans[%d]: %d duplicates cluster.nfs_trunk.vlans[%d]", index, vlan, firstIndex))
@@ -1003,7 +1038,10 @@ func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 	}
 
 	path := nodePath + ".vm.storage_nics"
-	expectedVLANs := map[int]struct{}{1201: {}, 1202: {}, 1203: {}, 1204: {}}
+	expectedVLANs := make(map[int]struct{}, len(StorageVLANs))
+	for _, vlan := range StorageVLANs {
+		expectedVLANs[vlan] = struct{}{}
+	}
 	seenVLANs := make(map[int]struct{}, len(nics))
 	validSet := len(nics) == len(expectedVLANs)
 	var hostOctet byte
@@ -1060,7 +1098,7 @@ func validateStorageNICs(node Node, nodePath string) ([]string, byte, bool) {
 		validSet = false
 	}
 	if !validSet {
-		problems = append(problems, path+": must contain exactly VLANs 1201, 1202, 1203, and 1204")
+		problems = append(problems, path+": must contain exactly VLANs "+storageVLANList())
 	}
 	if hostOctetMismatch {
 		problems = append(problems, path+": must use one host octet across all storage VLANs")

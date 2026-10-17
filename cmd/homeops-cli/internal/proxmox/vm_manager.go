@@ -163,7 +163,7 @@ type VMConfig struct {
 	VLANIDIoT     int                     // net1 VLAN tag
 	VLANIDVPN     int                     // net2 VLAN tag
 	SecondaryMTU  int                     // MTU for net1/net2 (1500: these VLANs carry standard-MTU devices)
-	StorageNICs   []homeopscfg.StorageNIC // net3-net6, ordered by storage VLAN during rendering
+	StorageNICs   []homeopscfg.StorageNIC // virtio NICs become net3+, SR-IOV VFs hostpci0+, both in storage VLAN order
 
 	// SCSI Configuration
 	SCSIController string // e.g., "virtio-scsi-single"
@@ -262,7 +262,7 @@ type FlatcarNodeConfig struct {
 	MacAddress     string                  // Static MAC address
 	MacAddressIoT  string                  // net1 MAC, VLAN 20 (Multus macvlan master eth1)
 	MacAddressVPN  string                  // net2 MAC, VLAN 90 (Multus macvlan master eth2)
-	StorageNICs    []homeopscfg.StorageNIC // net3-net6 NVMe-oF fabric interfaces
+	StorageNICs    []homeopscfg.StorageNIC // NVMe-oF fabric interfaces (virtio net3+ or SR-IOV VFs)
 }
 
 // FlatcarNodeConfigs contains the embedded default Flatcar node configurations.

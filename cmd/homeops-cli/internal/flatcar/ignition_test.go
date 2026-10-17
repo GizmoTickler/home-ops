@@ -101,7 +101,7 @@ func TestRenderIgnitionPersistsNFSTrunking(t *testing.T) {
 cluster:
   nfs_trunk:
     export: /mnt/flashstor/data
-    vlans: [1202, 1203, 1204]
+    vlans: [1201, 1202]
 `), 0o600))
 	cfg, err := config.LoadFile(path)
 	require.NoError(t, err)
@@ -112,8 +112,6 @@ cluster:
 	env.StorageNICs = []config.StorageNIC{
 		{VLAN: 1201, MAC: "02:00:00:00:10:01", IP: "192.168.201.20/24"},
 		{VLAN: 1202, MAC: "02:00:00:00:10:02", IP: "192.168.202.20/24"},
-		{VLAN: 1203, MAC: "02:00:00:00:10:03", IP: "192.168.203.20/24"},
-		{VLAN: 1204, MAC: "02:00:00:00:10:04", IP: "192.168.204.20/24"},
 	}
 	ign, err := RenderIgnition(env)
 	require.NoError(t, err)
@@ -222,20 +220,14 @@ func TestRenderIgnitionIncludesStorageNetworkdUnits(t *testing.T) {
 		{name: "k8s-0", hostOctet: "20", storageNICs: []config.StorageNIC{
 			{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
 			{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
-			{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24"},
-			{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
 		}},
 		{name: "k8s-1", hostOctet: "21", storageNICs: []config.StorageNIC{
 			{VLAN: 1201, MAC: "BC:24:11:6B:64:25", IP: "192.168.201.21/24"},
 			{VLAN: 1202, MAC: "BC:24:11:A4:6E:42", IP: "192.168.202.21/24"},
-			{VLAN: 1203, MAC: "BC:24:11:8C:C8:43", IP: "192.168.203.21/24"},
-			{VLAN: 1204, MAC: "BC:24:11:D1:C4:BE", IP: "192.168.204.21/24"},
 		}},
 		{name: "k8s-2", hostOctet: "22", storageNICs: []config.StorageNIC{
 			{VLAN: 1201, MAC: "BC:24:11:B3:CD:67", IP: "192.168.201.22/24"},
 			{VLAN: 1202, MAC: "BC:24:11:41:2D:40", IP: "192.168.202.22/24"},
-			{VLAN: 1203, MAC: "BC:24:11:F6:D9:1D", IP: "192.168.203.22/24"},
-			{VLAN: 1204, MAC: "BC:24:11:63:50:11", IP: "192.168.204.22/24"},
 		}},
 	}
 

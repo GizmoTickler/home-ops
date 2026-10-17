@@ -139,12 +139,13 @@ spec:
       port: 4420
       # GF-5 node-half multipath (v1.7.0): each address below gets an nvmet port
       # association; NodeStage connects every advertised path and native NVMe
-      # multipath aggregates them (queue-depth iopolicy). VLANs 1201-1204 are
-      # L2-direct storage links on the k8s VMs (net3-net6, mtu 9000), verified
-      # 12/12 jumbo + TCP/4420 from all nodes 2026-08-16.
+      # multipath aggregates them (queue-depth iopolicy). VLANs 1201/1202 are
+      # L2-direct storage links on the k8s VMs (SR-IOV VFs, mtu 9000); the
+      # then-four 1201-1204 links verified 12/12 jumbo + TCP/4420 from all
+      # nodes 2026-08-16 (1203/1204 retired 2026-10-16).
       # 2026-08-26: `address` flipped off MGMT (192.168.120.10) to the fabric.
       # multipathAddresses() is TransportAddress-first then Addresses, dedup'd,
-      # so this yields exactly the four 1201-1204 paths and no MGMT path. The
+      # so this yields exactly the two 1201/1202 paths and no MGMT path. The
       # MGMT portal was carrying ~100 GiB/day across SC01 and onto the SPAN.
       # Existing subsystems keep their old port association until the nvmet
       # port_subsys rows for the MGMT port are deleted -- that is a data-plane

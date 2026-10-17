@@ -151,13 +151,20 @@ the Proxmox snippets store over SSH, and creates the VM; kubeadm init/join runs
 on first boot and Cilium is then installed.
 
 For Proxmox nodes, `cluster.nodes[].vm.storage_nics` optionally defines the
-MAC-pinned NVMe-oF fabric. When present it must contain exactly VLANs 1201-1204;
-all storage MACs must use the six-octet colon form and be unique across the
+MAC-pinned NVMe-oF fabric. When present it must contain exactly VLANs 1201 and
+1202; all storage MACs must use the six-octet colon form and be unique across the
 fabric and every node's base NICs. Each node uses one storage host octet across
-all four VLANs, and that octet must be unique per node. The CLI assigns the NICs
-deterministically to `net3`-`net6` on `vmbr0`, using the provider's
-`network_mtu` and `network_queues`, and renders matching
-`/etc/systemd/network/30-stor<vlan>.network` units with each static address.
+both VLANs, and that octet must be unique per node. Virtio storage NICs are
+assigned deterministically to `net3`/`net4` (on the NIC's `bridge`, or tagged
+on `vmbr0`), using the provider's `network_mtu` and `network_queues`; NICs with
+`pf`/`vf` are SR-IOV VFs passed through as `hostpci0`/`hostpci1` instead. The
+CLI renders matching storage interface config with each static address
+(`30-stor<vlan>.network` on Flatcar, `30-stor<vlan>.nmconnection` on FCOS).
+`cluster.nfs_trunk.vlans` accepts the same two VLANs.
+
+VLANs 1203/1204 (192.168.203.0/24, 192.168.204.0/24; pve `nic4`/`nic5`) were
+retired on 2026-10-16 and are rejected by validation: their nas01 addresses no
+longer exist, and NFS trunk anchors to them hung the shared nas01 NFS session.
 Omitting `storage_nics` preserves the previous VM and Ignition NIC layout.
 
 Proxmox base-NIC multiqueue can be overridden without changing legacy configs:

@@ -258,7 +258,7 @@ func TestRenderIgnitionStorageNICsBecomeNMKeyfiles(t *testing.T) {
 	env := sampleEnv()
 	env.StorageNICs = []config.StorageNIC{
 		// Deliberately unsorted: output order must follow the VLAN.
-		{VLAN: 1204, MAC: "BC:24:11:FB:16:76", IP: "192.168.204.20/24"},
+		{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24"},
 		{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24"},
 	}
 	first, err := RenderIgnition(env)

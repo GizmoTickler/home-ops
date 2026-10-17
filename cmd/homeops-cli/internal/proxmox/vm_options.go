@@ -325,9 +325,9 @@ func secondaryNICs(config VMConfig) []secondaryNIC {
 	return out
 }
 
-// storageNICs builds the optional NVMe-oF fabric as net3-net6. Sorting a copy
-// makes slot assignment stable regardless of the order used in homeops.yaml:
-// VLAN 1201 -> net3 through VLAN 1204 -> net6.
+// storageNICs builds the optional virtio NVMe-oF fabric NICs as net3 onward.
+// Sorting a copy makes slot assignment stable regardless of the order used in
+// homeops.yaml: VLAN 1201 -> net3, VLAN 1202 -> net4.
 func storageNICs(config VMConfig) []secondaryNIC {
 	if len(config.StorageNICs) == 0 {
 		return nil

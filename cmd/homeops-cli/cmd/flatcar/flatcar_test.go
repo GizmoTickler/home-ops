@@ -384,8 +384,6 @@ func TestBuildNodeEnvIncludesStorageNICs(t *testing.T) {
 	want := []versionconfig.StorageNIC{
 		{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.20/24"},
 		{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.20/24"},
-		{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.20/24"},
-		{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.20/24"},
 	}
 	testutil.Swap(t, &getFlatcarNodeConfigFn, func(name string) (proxmox.FlatcarNodeConfig, bool) {
 		return proxmox.FlatcarNodeConfig{Name: name, NodeIP: "192.168.122.10", StorageNICs: want}, true
@@ -534,8 +532,6 @@ func TestDeployVMRealPath(t *testing.T) {
 			StorageNICs: []versionconfig.StorageNIC{
 				{VLAN: 1201, MAC: "02:00:00:00:12:01", IP: "192.168.201.20/24"},
 				{VLAN: 1202, MAC: "02:00:00:00:12:02", IP: "192.168.202.20/24"},
-				{VLAN: 1203, MAC: "02:00:00:00:12:03", IP: "192.168.203.20/24"},
-				{VLAN: 1204, MAC: "02:00:00:00:12:04", IP: "192.168.204.20/24"},
 			},
 		}, true
 	})
@@ -572,7 +568,7 @@ func TestDeployVMRealPath(t *testing.T) {
 	// no OpenEBS disk is attached (live VMs carry only scsi0 + scsi4).
 	assert.Zero(t, mgr.deployed[0].OpenEBSSize)
 	assert.Empty(t, mgr.deployed[0].OpenEBSStorage)
-	require.Len(t, mgr.deployed[0].StorageNICs, 4)
+	require.Len(t, mgr.deployed[0].StorageNICs, 2)
 	assert.Equal(t, 1201, mgr.deployed[0].StorageNICs[0].VLAN)
 	assert.Equal(t, "scsi4", mgr.deployed[0].ScratchSlot)
 	// Ignition is uploaded to the Proxmox API host (default) at the snippets path.
@@ -1176,15 +1172,19 @@ var _ = cobra.Command{}
 // a port's VF count (that resets the port).
 func TestPVEStorageVFScript(t *testing.T) {
 	one, four := 1, 4
+	// A virtio storage NIC (no pf/vf) is not a VF and never reaches the script.
+	require.Len(t, storageVFs([]versionconfig.StorageNIC{
+		{VLAN: 1201, MAC: "02:00:00:00:02:a1", IP: "192.168.201.20/24"},
+		{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.20/24", PF: "nic6", VF: &one},
+	}), 1)
 	vfs := storageVFs([]versionconfig.StorageNIC{
-		{VLAN: 1203, MAC: "BC:24:11:FF:50:81", IP: "192.168.203.20/24", PF: "nic4", VF: &one},
-		{VLAN: 1202, MAC: "02:00:00:00:02:a2", IP: "192.168.202.20/24"},
+		{VLAN: 1202, MAC: "BC:24:11:ED:F6:B6", IP: "192.168.202.20/24", PF: "nic6", VF: &one},
 		{VLAN: 1201, MAC: "BC:24:11:3B:E0:50", IP: "192.168.201.20/24", PF: "nic7", VF: &four},
 	})
 	require.Len(t, vfs, 2)
 	script := pveStorageVFScript(200, vfs)
 	assert.Contains(t, script, "attach 0 'nic7' 4 'bc:24:11:3b:e0:50'\n")
-	assert.Contains(t, script, "attach 1 'nic4' 1 'bc:24:11:ff:50:81'\n")
+	assert.Contains(t, script, "attach 1 'nic6' 1 'bc:24:11:ed:f6:b6'\n")
 	assert.Contains(t, script, `qm set 200 --hostpci$slot "$pci,pcie=1"`)
 	assert.Contains(t, script, "/etc/storage-vfs.conf")
 	assert.NotContains(t, script, "sriov_numvfs\" >", "the VF count is never changed here")
@@ -1192,6 +1192,28 @@ func TestPVEStorageVFScript(t *testing.T) {
 	parse.Stdin = strings.NewReader(script)
 	out, err := parse.CombinedOutput()
 	require.NoError(t, err, string(out))
+}
+
+// The repo's own homeops.yaml must only ask pve for VFs on the live storage
+// ports. nic4/nic5 (VLANs 1203/1204) were retired 2026-10-16 and now have 0
+// VFs (passed whole to lab VMs), so an attach against them would fail every
+// deploy with "has no VF"; their nas01 addresses are gone as well.
+func TestRepositoryStorageVFScriptsUseLivePortsOnly(t *testing.T) {
+	cfg, err := versionconfig.LoadFile(filepath.Join("..", "..", "..", "..", "homeops.yaml"))
+	require.NoError(t, err)
+	nodes := append([]versionconfig.Node(nil), cfg.Cluster.Nodes...)
+	if cfg.Cluster.TestNode != nil {
+		nodes = append(nodes, *cfg.Cluster.TestNode)
+	}
+	require.NotEmpty(t, nodes)
+	for _, node := range nodes {
+		vfs := storageVFs(node.VM.StorageNICs)
+		require.Len(t, vfs, 2, node.Name)
+		script := pveStorageVFScript(node.VM.VMID, vfs)
+		assert.Regexp(t, `(?m)^attach 0 'nic7' [0-9]+ '`, script, node.Name)
+		assert.Regexp(t, `(?m)^attach 1 'nic6' [0-9]+ '`, script, node.Name)
+		assert.NotRegexp(t, `(?m)^attach 2 `, script, node.Name)
+	}
 }
 
 // A node's memory_mb overrides the provider default and is what the NUMA
