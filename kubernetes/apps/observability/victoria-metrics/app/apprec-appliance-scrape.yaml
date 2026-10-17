@@ -1,0 +1,56 @@
+---
+# apprec native appliance: the single Prometheus endpoint, GET /v1/metrics on
+# apprec-configd's TLS listener (vyos-app-recognition docs/native/n2b-product-api.md).
+# It needs a viewer bearer token, one per appliance, created on the box with
+#   apprecctl token create prometheus viewer
+# and stored in the 1Password item "apprec-api" as PROMETHEUS_TOKEN_<DEV>.
+#
+# Not in kustomization.yaml yet: gateway0 and the cell gateways still run VyOS,
+# where this path is nginx's and the scrape would only report the target down.
+# Enable it, with the appliance's targets, at each router's cutover.
+#
+# What the appliance exports: config core and API (apprec_config_*,
+# apprec_api_requests_total), apprecd and verdicts, the loader's bpf.prom
+# passed through (the apprec_bpf_* series the VyOS textfile mirror carried
+# under job=node-exporter), flows, links/WAN members/WireGuard, certificates
+# (apprec_cert_*), and apprec_metrics_source_up{source} per section.
+# Host metrics are not in it: node-exporter listens on loopback only on the
+# appliance, so the gateway-node-exporter scrape on :9100 goes away at cutover.
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/external-secrets.io/externalsecret_v1.json
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: apprec-appliance-scrape
+spec:
+  refreshInterval: 5m
+  secretStoreRef:
+    kind: ClusterSecretStore
+    name: onepassword
+  target:
+    name: apprec-appliance-scrape-secret
+  data:
+    - secretKey: gateway0
+      remoteRef:
+        key: apprec-api
+        property: PROMETHEUS_TOKEN_GW0
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMStaticScrape
+metadata:
+  name: apprec-appliance
+spec:
+  jobName: apprec-appliance
+  targetEndpoints:
+    # One endpoint per appliance: each has its own token. Add the cell
+    # gateways (and their secret keys above) at their cutovers.
+    - targets:
+        - gateway0.${SECRET_DOMAIN}:443
+      scheme: https
+      path: /v1/metrics
+      scrapeTimeout: 10s
+      bearerTokenSecret:
+        name: apprec-appliance-scrape-secret
+        key: gateway0
+      labels:
+        job: apprec-appliance

@@ -27,6 +27,8 @@ resources:
   - ./gateway0-ngfw-dashboard.yaml
   - ./stream-aggr-config.yaml
   - ./trustsec-sgacl-exporter.yaml
+  # Enable at the first router's cutover to the apprec appliance (see the file).
+  # - ./apprec-appliance-scrape.yaml
 configMapGenerator:
   - name: flux-metrics-configmap
     files:
