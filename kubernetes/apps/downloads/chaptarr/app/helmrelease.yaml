@@ -24,10 +24,10 @@ spec:
               # Config binds from the Chaptarr:<Section> keys, so CHAPTARR__AUTH__APIKEY etc.
               CHAPTARR__APP__INSTANCENAME: Chaptarr
               CHAPTARR__APP__THEME: dark
-              # Built-in login until a pocket-id client exists; Chaptarr also supports
-              # native OIDC (Settings > General) as an alternative to a gateway TrafficPolicy.
-              CHAPTARR__AUTH__METHOD: Forms
-              CHAPTARR__AUTH__REQUIRED: Enabled
+              # pocket-id OIDC at the gateway (securitypolicy.yaml), same as radarr. Prowlarr
+              # reaches the in-cluster Service directly with the API key.
+              CHAPTARR__AUTH__METHOD: External
+              CHAPTARR__AUTH__REQUIRED: DisabledForLocalAddresses
               CHAPTARR__LOG__LEVEL: info
               CHAPTARR__SERVER__PORT: &port 80
               CHAPTARR__UPDATE__BRANCH: develop
