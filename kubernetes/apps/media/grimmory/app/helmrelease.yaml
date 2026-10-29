@@ -100,6 +100,49 @@ spec:
                 memory: 1Gi
               limits:
                 memory: 3Gi
+      # Grimmory finds new files through inotify, which never fires for writes Chaptarr
+      # makes over NFS from another node. Refresh the library on a schedule instead, as a
+      # least-privilege user (manage-library on the Ebooks library only).
+      library-sync:
+        type: cronjob
+        cronjob:
+          schedule: "*/15 * * * *"
+          backoffLimit: 0
+          concurrencyPolicy: Forbid
+          successfulJobsHistory: 1
+          failedJobsHistory: 1
+          ttlSecondsAfterFinished: 86400
+        containers:
+          app:
+            image:
+              repository: docker.io/curlimages/curl
+              tag: 8.23.0@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
+            env:
+              GRIMMORY_URL: http://grimmory.media.svc.cluster.local:6060
+              GRIMMORY_LIBRARY_ID: "1"
+            envFrom:
+              - secretRef:
+                  name: grimmory-sync-secret
+            command: ["/bin/sh", "-ec"]
+            args:
+              - |
+                token=$(curl -fsS -H 'Content-Type: application/json' \
+                  -d "{\"username\":\"$GRIMMORY_SYNC_USERNAME\",\"password\":\"$GRIMMORY_SYNC_PASSWORD\"}" \
+                  "$GRIMMORY_URL/api/v1/auth/login" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')
+                [ -n "$token" ] || { echo "login failed"; exit 1; }
+                curl -fsS -X PUT -H "Authorization: Bearer $token" \
+                  "$GRIMMORY_URL/api/v1/libraries/$GRIMMORY_LIBRARY_ID/refresh"
+                echo "refreshed library $GRIMMORY_LIBRARY_ID"
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+            resources:
+              requests:
+                cpu: 10m
+                memory: 16Mi
+              limits:
+                memory: 64Mi
     defaultPodOptions:
       securityContext:
         runAsNonRoot: true
@@ -109,6 +152,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
     service:
       app:
+        controller: grimmory
         ports:
           http:
             port: *port
