@@ -1,0 +1,104 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/main/charts/other/app-template/schemas/helmrelease-helm-v2.schema.json
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: chaptarr
+spec:
+  chartRef:
+    kind: OCIRepository
+    name: chaptarr
+  interval: 1h
+  values:
+    controllers:
+      chaptarr:
+        annotations:
+          reloader.stakater.com/auto: "true"
+        containers:
+          app:
+            image:
+              repository: docker.io/chaptarr/chaptarr
+              tag: 0.9.965@sha256:bb00d67cbe1485d1cd61ef178362a29b42aa08f86b290841aab4b115ad2647a6
+            env:
+              # Readarr fork: one instance manages both eBooks and audiobooks.
+              # Config binds from the Chaptarr:<Section> keys, so CHAPTARR__AUTH__APIKEY etc.
+              CHAPTARR__APP__INSTANCENAME: Chaptarr
+              CHAPTARR__APP__THEME: dark
+              # Built-in login until a pocket-id client exists; Chaptarr also supports
+              # native OIDC (Settings > General) as an alternative to a gateway TrafficPolicy.
+              CHAPTARR__AUTH__METHOD: Forms
+              CHAPTARR__AUTH__REQUIRED: Enabled
+              CHAPTARR__LOG__LEVEL: info
+              CHAPTARR__SERVER__PORT: &port 80
+              CHAPTARR__UPDATE__BRANCH: develop
+              TZ: America/New_York
+            envFrom:
+              - secretRef:
+                  name: chaptarr-secret
+            probes:
+              liveness: &probes
+                enabled: true
+                custom: true
+                spec:
+                  httpGet:
+                    path: /ping
+                    port: *port
+                  initialDelaySeconds: 30
+                  periodSeconds: 10
+                  timeoutSeconds: 5
+                  failureThreshold: 6
+              readiness: *probes
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities: {drop: ["ALL"]}
+            resources:
+              requests:
+                cpu: 50m
+                memory: 512Mi
+              limits:
+                memory: 4Gi
+    defaultPodOptions:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+    service:
+      app:
+        ports:
+          http:
+            port: *port
+    route:
+      app:
+        hostnames:
+          - "{{ .Release.Name }}.${SECRET_DOMAIN}"
+        parentRefs:
+          - name: kgateway-internal
+            namespace: network
+            sectionName: https
+        rules:
+          - backendRefs:
+              - identifier: app
+            timeouts:
+              request: 120s
+              backendRequest: 120s
+    persistence:
+      config:
+        existingClaim: "{{ .Release.Name }}"
+      config-cache:
+        existingClaim: chaptarr-cache
+        globalMounts:
+          - path: /config/MediaCover
+      # Whole share at /media, same as radarr/sonarr: qbittorrent (/media/torrents) and
+      # nzbget (/media/usenet) report identical paths, and imports into
+      # /media/media/books/{ebooks,audiobooks} hardlink on the same filesystem.
+      media:
+        type: nfs
+        server: 192.168.201.10
+        path: /mnt/flashstor/data
+        globalMounts:
+          - path: /media
+      tmp:
+        type: emptyDir

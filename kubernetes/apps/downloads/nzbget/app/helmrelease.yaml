@@ -262,6 +262,14 @@ spec:
             Category4.Name=software
             Category4.DestDir=
             Category4.Aliases=software*
+
+            Category5.Name=books
+            Category5.DestDir=
+            Category5.Aliases=books*, ebooks*
+
+            Category6.Name=audiobooks
+            Category6.DestDir=
+            Category6.Aliases=audiobooks*
     defaultPodOptions:
       affinity:
         podAntiAffinity:
