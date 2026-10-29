@@ -72,6 +72,10 @@ spec:
               # Library lives on NFS and Chaptarr owns the file layout: NETWORK disables
               # move/rename/delete from the Grimmory UI so the two never fight over files.
               DISK_TYPE: NETWORK
+              # pocket-id (id.${SECRET_DOMAIN}) resolves to a private gateway IP, which the
+              # OIDC client's SSRF filter rejects. Scoped to the OIDC RestTemplate only; the
+              # issuer URL itself is admin-only configuration.
+              OIDC_ALLOW_UNSAFE_HOSTS: "true"
               SERVER_PORT: &port 6060
               TZ: America/New_York
             envFrom:
