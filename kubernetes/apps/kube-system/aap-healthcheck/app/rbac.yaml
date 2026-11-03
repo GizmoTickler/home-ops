@@ -1,0 +1,48 @@
+---
+# Read-only identity for AAP (credential 34 "Kubernetes API Token", JT 29 hourly report).
+# Its long-lived token lives in the kube-system/aap-healthcheck-token Secret, which stays
+# out of Git. Grant only what infrastructure-automation reads; never Secrets, never "*":
+#   roles/infra_report/tasks/flux.yml    Kustomizations, HelmReleases (cluster-wide list)
+#   roles/infra_report/tasks/kopiur.yml  SnapshotSchedules, Snapshots
+#   roles/infra_report/tasks/certs.yml   cert-manager Certificates
+#   playbooks/security/credential-check.yml  GET /api/v1/namespaces?limit=1 (token probe)
+# kubernetes.core.k8s_info lists without a name and does not watch, so get+list is enough.
+# The names match the objects first created by hand, so Flux takes them over in place.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aap-healthcheck
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: aap-healthcheck-readonly
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["helmreleases"]
+    verbs: ["get", "list"]
+  - apiGroups: ["kopiur.home-operations.com"]
+    resources: ["snapshotschedules", "snapshots"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aap-healthcheck-readonly
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: aap-healthcheck-readonly
+subjects:
+  - kind: ServiceAccount
+    name: aap-healthcheck
+    namespace: kube-system

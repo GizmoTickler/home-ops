@@ -8,6 +8,7 @@ components:
   - ../../components/cluster-secret
 resources:
   - ./namespace.yaml
+  - ./aap-healthcheck/ks.yaml
   - ./cilium/ks.yaml
   - ./coredns/ks.yaml
   - ./descheduler/ks.yaml
