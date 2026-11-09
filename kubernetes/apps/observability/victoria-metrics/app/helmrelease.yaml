@@ -228,9 +228,9 @@ spec:
           # carried continue: true and still falls through to the pushover routes.
           # Only severity=info had no other destination; it now sinks to "null".
           #
-          # The mTLS material (friday3-client.crt/.key/-ca.crt) is deliberately
-          # LEFT in externalsecret.yaml so a replacement can be wired up without
-          # re-minting certs. Remove it too if the redesign drops mTLS.
+          # 2026-11-08: friday3 (OpenClaw + Caddy + its client CA) is fully
+          # decommissioned, so the friday3 mTLS material was removed from
+          # externalsecret.yaml too. A replacement receiver starts from scratch.
           - name: pushover
             pushover_configs:
               - html: true
