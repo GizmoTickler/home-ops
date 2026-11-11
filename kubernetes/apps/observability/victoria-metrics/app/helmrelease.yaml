@@ -73,14 +73,14 @@ spec:
         kubePrometheusGeneral:
           create: false
 
-    # VMSingle configuration - 100Gi storage, 14d retention
+    # VMSingle configuration - 14d -> 90d retention (2026-11-11: right-sizing needs longer history; 7.7 of 300Gi used)
     vmsingle:
       enabled: true
       labels: {}
       annotations: {}
       spec:
         port: "8429"
-        retentionPeriod: "14d"
+        retentionPeriod: "90d"
         replicaCount: 1
         extraArgs:
           maxLabelsPerTimeseries: "50"
