@@ -1,4 +1,4 @@
-# qBittorrent on nas01 (TrueNAS custom app). Applied by truenas/apps/deploy-qbittorrent.sh.
+# qBittorrent on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
 # Moved from k8s 2026-11-11. Two networks, nothing else:
 #   vpn  - macvlan on vlan90 with the pinned IP/MAC gateway0 DNATs the forwarded port to. It is the
 #          ONLY default route (via gateway0 .90.1 into the VPN): the kill-switch is structural, there is

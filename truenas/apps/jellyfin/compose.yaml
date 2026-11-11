@@ -1,0 +1,244 @@
+# Jellyfin on nas01 (TrueNAS custom app; originally the catalog app, converted). Reconciled from git by
+# truenas/reconciler (see truenas/README.md). Exported verbatim from nas01 2026-11-11; only the domain is a 1Password ref.
+# GPU: NVIDIA T600 (device id below). Data still on the ix-apps mounts (/mnt/.ix-apps/app_mounts/jellyfin/*).
+configs:
+  permissions_actions_data:
+    content: '[{"mount_path": "/mnt/permission/config", "is_temporary": false, "identifier": "config", "recursive": false, "mode": "check", "uid": 568, "gid": 568, "chmod": null}, {"mount_path": "/mnt/permission/cache",
+      "is_temporary": false, "identifier": "cache", "recursive": false, "mode": "check", "uid": 568, "gid": 568, "chmod": null}, {"mount_path": "/mnt/permission/certs", "is_temporary": false, "identifier":
+      "certs", "recursive": false, "mode": "check", "uid": 568, "gid": 568, "chmod": null}]'
+  permissions_run_script:
+    content: "#!/usr/bin/env python3\n\nimport os\nimport json\nimport time\nimport shutil\n\nwith open(\"/script/actions.json\", \"r\") as f:\n    actions_data = json.load(f)\n\nif not actions_data:\n\
+      \    # If this script is called, there should be actions data\n    raise ValueError(\"No actions data found\")\n\ndef fix_perms(path, chmod, recursive=False):\n    print(f\"Changing permissions{'\
+      \ recursively ' if recursive else ' '}to {chmod} on: [{path}]\")\n    os.chmod(path, int(chmod, 8))\n    if recursive:\n        for root, dirs, files in os.walk(path):\n            for f in files:\n\
+      \                os.chmod(os.path.join(root, f), int(chmod, 8))\n    print(\"Permissions after changes:\")\n    print_chmod_stat()\n\ndef fix_owner(path, uid, gid, recursive=False):\n    print(f\"\
+      Changing ownership{' recursively ' if recursive else ' '}to {uid}:{gid} on: [{path}]\")\n    os.chown(path, uid, gid)\n    if recursive:\n        for root, dirs, files in os.walk(path):\n        \
+      \    for f in files:\n                os.chown(os.path.join(root, f), uid, gid)\n    print(\"Ownership after changes:\")\n    print_chown_stat()\n\ndef print_chown_stat():\n    curr_stat = os.stat(action[\"\
+      mount_path\"])\n    print(f\"Ownership: [{curr_stat.st_uid}:{curr_stat.st_gid}]\")\n\ndef print_chmod_stat():\n    curr_stat = os.stat(action[\"mount_path\"])\n    print(f\"Permissions: [{oct(curr_stat.st_mode)[3:]}]\"\
+      )\n\ndef print_chown_diff(curr_stat, uid, gid):\n    print(f\"Ownership: wanted [{uid}:{gid}], got [{curr_stat.st_uid}:{curr_stat.st_gid}].\")\n\ndef print_chmod_diff(curr_stat, mode):\n    print(f\"\
+      Permissions: wanted [{mode}], got [{oct(curr_stat.st_mode)[3:]}].\")\n\ndef perform_action(action):\n    start_time = time.time()\n    print(f\"=== Applying configuration on volume with identifier\
+      \ [{action['identifier']}] ===\")\n\n    if not os.path.isdir(action[\"mount_path\"]):\n        print(f\"Path [{action['mount_path']}] is not a directory, skipping...\")\n        return\n\n    if\
+      \ action[\"is_temporary\"]:\n        print(f\"Path [{action['mount_path']}] is a temporary directory, ensuring it is empty...\")\n        for item in os.listdir(action[\"mount_path\"]):\n        \
+      \    item_path = os.path.join(action[\"mount_path\"], item)\n\n            # Exclude the safe directory, where we can use to mount files temporarily\n            if os.path.basename(item_path) ==\
+      \ \"ix-safe\":\n                continue\n            if os.path.isdir(item_path):\n                shutil.rmtree(item_path)\n            else:\n                os.remove(item_path)\n\n    if not\
+      \ action[\"is_temporary\"] and os.listdir(action[\"mount_path\"]):\n        print(f\"Path [{action['mount_path']}] is not empty, skipping...\")\n        return\n\n    print(f\"Current Ownership and\
+      \ Permissions on [{action['mount_path']}]:\")\n    curr_stat = os.stat(action[\"mount_path\"])\n    print_chown_diff(curr_stat, action[\"uid\"], action[\"gid\"])\n    print_chmod_diff(curr_stat, action[\"\
+      chmod\"])\n    print(\"---\")\n\n    if action[\"mode\"] == \"always\":\n        fix_owner(action[\"mount_path\"], action[\"uid\"], action[\"gid\"], action[\"recursive\"])\n        if not action[\"\
+      chmod\"]:\n            print(\"Skipping permissions check, chmod is falsy\")\n        else:\n            fix_perms(action[\"mount_path\"], action[\"chmod\"], action[\"recursive\"])\n        return\n\
+      \n    elif action[\"mode\"] == \"check\":\n        if curr_stat.st_uid != action[\"uid\"] or curr_stat.st_gid != action[\"gid\"]:\n            print(\"Ownership is incorrect. Fixing...\")\n      \
+      \      fix_owner(action[\"mount_path\"], action[\"uid\"], action[\"gid\"], action[\"recursive\"])\n        else:\n            print(\"Ownership is correct. Skipping...\")\n\n        if not action[\"\
+      chmod\"]:\n            print(\"Skipping permissions check, chmod is falsy\")\n        else:\n            if oct(curr_stat.st_mode)[3:] != action[\"chmod\"]:\n                print(\"Permissions are\
+      \ incorrect. Fixing...\")\n                fix_perms(action[\"mount_path\"], action[\"chmod\"], action[\"recursive\"])\n            else:\n                print(\"Permissions are correct. Skipping...\"\
+      )\n\n    print(f\"Time taken: {(time.time() - start_time) * 1000:.2f}ms\")\n    print(f\"=== Finished applying configuration on volume with identifier [{action['identifier']}] ==\")\n    print()\n\
+      \nif __name__ == \"__main__\":\n    start_time = time.time()\n    for action in actions_data:\n        perform_action(action)\n    print(f\"Total time taken: {(time.time() - start_time) * 1000:.2f}ms\"\
+      )\n"
+services:
+  jellyfin:
+    cap_drop:
+    - ALL
+    depends_on:
+      permissions:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 32768M
+        reservations:
+          devices:
+          - capabilities:
+            - gpu
+            device_ids:
+            - GPU-134d897f-3351-f76d-104f-82a6825b5fb4
+            driver: nvidia
+    environment:
+      GID: '568'
+      GROUP_ID: '568'
+      JELLYFIN_CACHE_DIR: /cache
+      JELLYFIN_PublishedServerUrl: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: GPU-134d897f-3351-f76d-104f-82a6825b5fb4
+      PGID: '568'
+      PUID: '568'
+      TZ: America/New_York
+      UID: '568'
+      UMASK: '002'
+      UMASK_SET: '002'
+      USER_ID: '568'
+    group_add:
+    - 44
+    - 107
+    - 568
+    healthcheck:
+      interval: 30s
+      retries: 5
+      start_interval: 2s
+      start_period: 15s
+      test: curl --request GET --silent --output /dev/null --show-error --fail http://127.0.0.1:80/health
+      timeout: 5s
+    image: jellyfin/jellyfin:latest
+    platform: linux/amd64
+    ports:
+    - host_ip: 192.168.123.151
+      mode: ingress
+      protocol: tcp
+      published: 443
+      target: 443
+    - host_ip: 192.168.123.151
+      mode: ingress
+      protocol: udp
+      published: 7359
+      target: 7359
+    - host_ip: 192.168.123.151
+      mode: ingress
+      protocol: tcp
+      published: 80
+      target: 80
+    privileged: false
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges=true
+    stdin_open: false
+    tmpfs:
+    - /cache/transcodes:mode=0777
+    - /config/transcodes:mode=0777
+    tty: false
+    user: 568:568
+    volumes:
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/cache
+      target: /cache
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/certs
+      target: /certs
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/config
+      target: /config
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/flashstor/data/media/movies
+      target: /movies
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/flashstor/data/media/tv
+      target: /tv
+      type: bind
+  permissions:
+    cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+    cap_drop:
+    - ALL
+    configs:
+    - mode: 320
+      source: permissions_actions_data
+      target: /script/actions.json
+    - mode: 448
+      source: permissions_run_script
+      target: /script/run.py
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1024M
+    entrypoint:
+    - python3
+    - /script/run.py
+    environment:
+      GID: '568'
+      GROUP_ID: '568'
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: GPU-134d897f-3351-f76d-104f-82a6825b5fb4
+      PGID: '568'
+      PUID: '568'
+      TZ: America/New_York
+      UID: '568'
+      UMASK: '002'
+      UMASK_SET: '002'
+      USER_ID: '568'
+    group_add:
+    - 568
+    healthcheck:
+      disable: true
+    image: python:3.13.0-slim-bookworm
+    network_mode: none
+    platform: linux/amd64
+    privileged: false
+    restart: on-failure:1
+    security_opt:
+    - no-new-privileges=true
+    stdin_open: false
+    tty: false
+    user: 0:0
+    volumes:
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/cache
+      target: /mnt/permission/cache
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/certs
+      target: /mnt/permission/certs
+      type: bind
+    - bind:
+        create_host_path: false
+        propagation: rprivate
+      read_only: false
+      source: /mnt/.ix-apps/app_mounts/jellyfin/config
+      target: /mnt/permission/config
+      type: bind
+volumes: {}
+x-notes: '# Jellyfin
+
+
+  ## Security
+
+
+  ### Container: [permissions]
+
+
+  **This container is short-lived.**
+
+
+  - Is running as root user
+
+  - Is running as root group
+
+
+  ## Bug Reports and Feature Requests
+
+
+  If you find a bug in this app or have an idea for a new feature, please file an issue at
+
+  https://github.com/truenas/apps
+
+
+  '
+x-portals:
+- host: 192.168.123.151
+  name: Web UI
+  path: /
+  port: 443
+  scheme: http2

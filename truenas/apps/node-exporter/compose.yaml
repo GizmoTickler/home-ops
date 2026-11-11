@@ -1,0 +1,22 @@
+# node-exporter on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
+# Converted 2026-11-11 from an `include:` of /mnt/flashstor/observability/node-exporter/compose.yaml.
+# Textfile collector: the reconciler writes truenas_apps_gitops_* metrics into .../node-exporter/textfile.
+services:
+  node-exporter:
+    command:
+      - '--path.rootfs=/host/root'
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.udev.data=/host/root/run/udev/data'
+      - '--web.listen-address=0.0.0.0:9100'
+      - >-
+        --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - '--collector.textfile.directory=/host/root/mnt/flashstor/observability/node-exporter/textfile'
+    image: quay.io/prometheus/node-exporter:v1.9.0
+    ports:
+      - '192.168.120.10:9100:9100'
+    restart: always
+    volumes:
+      - /:/host/root:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro

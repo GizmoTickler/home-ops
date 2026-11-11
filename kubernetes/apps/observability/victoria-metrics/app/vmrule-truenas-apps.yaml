@@ -1,0 +1,47 @@
+---
+# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: truenas-apps-gitops
+spec:
+  # nas01 app reconciler (truenas/reconciler/reconcile.py, cron every 10 min on nas01) writes
+  # truenas_apps_gitops_* into node-exporter's textfile collector; scraped as job="node-exporter".
+  groups:
+    - name: truenas-apps-gitops.rules
+      rules:
+        - alert: TrueNASAppsReconcilerStale
+          expr: time() - max(truenas_apps_gitops_last_run_timestamp_seconds) > 1800
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: nas01 app reconciler has not run for {{ $value | humanizeDuration }}
+            description: >-
+              Cron job "apps-gitops reconcile" on nas01 is not running (or node-exporter's textfile collector
+              is broken). Merged changes under truenas/apps/ are not being deployed. Check
+              /mnt/flashstor/secure-scripts/apps-gitops/state/reconcile.log on nas01.
+        - alert: TrueNASAppsReconcilerMissing
+          expr: absent(truenas_apps_gitops_last_run_timestamp_seconds)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: nas01 app reconciler metrics are missing
+        - alert: TrueNASAppNotConverged
+          expr: truenas_apps_gitops_app_ok == 0
+          for: 20m
+          labels:
+            severity: warning
+          annotations:
+            summary: nas01 app {{ $labels.app }} does not match git
+            description: >-
+              The reconciler failed to converge {{ $labels.app }} (deploy failed and was rolled back, a secret
+              reference could not be resolved, or the app is a catalog app). See reconcile.log on nas01.
+        - alert: TrueNASAppsUnmanaged
+          expr: truenas_apps_gitops_unmanaged_apps > 0
+          for: 1h
+          labels:
+            severity: info
+          annotations:
+            summary: "{{ $value }} app(s) on nas01 are not in git (truenas/apps/)"

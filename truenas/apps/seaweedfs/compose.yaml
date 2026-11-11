@@ -1,0 +1,20 @@
+# SeaweedFS S3 on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
+# Image pinned 2026-11-11 to the exact digest that was running as :latest (4.53). Renovate bumps it.
+services:
+  seaweedfs:
+    container_name: seaweedfs
+    dns:
+    - 192.168.123.250
+    - 192.168.123.251
+    entrypoint:
+    - /bin/sh
+    - /config/start.sh
+    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    ports:
+    - 192.168.123.152:443:8443
+    restart: unless-stopped
+    volumes:
+    - /mnt/flashstor/seaweedfs/data:/data
+    - /mnt/flashstor/seaweedfs/config:/config:ro
+    - /mnt/flashstor/secure-scripts/.lego/certificates/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.crt:/certs/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.crt:ro
+    - /mnt/flashstor/secure-scripts/.lego/certificates/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.key:/certs/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.key:ro

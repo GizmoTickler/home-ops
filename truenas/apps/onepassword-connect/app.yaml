@@ -1,0 +1,4 @@
+# Probe the API itself: if a deploy leaves Connect unhealthy the reconciler rolls back (ESO depends on it).
+health:
+  http: https://192.168.123.150/heartbeat
+  insecure: true      # cert is for passwords.<domain>; probing by IP

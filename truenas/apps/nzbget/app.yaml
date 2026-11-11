@@ -1,0 +1,12 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/nzbget-config/queue, owner: "1000:1000", mode: "2775"}
+  - {path: /mnt/flashstor/apps/nzbget-config/nzb, owner: "1000:1000", mode: "2775"}
+  - {path: /mnt/flashstor/apps/nzbget-config/scripts, owner: "1000:1000", mode: "2775"}
+files:
+  - template: nzbget.conf.tmpl          # secrets from 1Password item Infrastructure/nzbget
+    dest: /mnt/flashstor/apps/nzbget-config/nzbget.conf
+    owner: "1000:1000"
+    mode: "0600"
+health:
+  tcp: 192.168.123.154:6789

@@ -1,0 +1,12 @@
+# smartctl-exporter on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
+# Converted 2026-11-11 from an `include:` of /mnt/flashstor/observability/smartctl-exporter/compose.yaml.
+services:
+  smartctl-exporter:
+    command:
+      - '--smartctl.device-exclude=nvme0'
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.13.0
+    ports:
+      - '192.168.120.10:9633:9633'
+    privileged: true
+    restart: always
+    user: root

@@ -1,0 +1,15 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+# nas01-specific settings pinned in the app-owned config (existing keys only; the app is stopped while patching).
+ini:
+  - path: /mnt/flashstor/apps/qbittorrent-config/qBittorrent/qBittorrent.conf
+    set:
+      'WebUI\Port': "8080"
+      'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
+      'WebUI\AuthSubnetWhitelistEnabled': "true"
+      # Bind torrent traffic to the VPN leg by interface (eth0 = vpn macvlan, 192.168.90.20; eth1 = mgmt).
+      # Interface binding is the stronger kill-switch; matches the live config qBittorrent wrote 2026-11-11.
+      'Session\Interface': "eth0"
+      'Session\InterfaceName': "eth0"
+      'Session\InterfaceAddress': ""
+health:
+  tcp: 192.168.123.155:8080

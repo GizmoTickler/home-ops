@@ -24,10 +24,10 @@ LogFile=/config/nzbget.log
 # Server Control
 ControlPort=6789
 ControlUsername=nzbget
-ControlPassword=__CONTROL_PASS__
+ControlPassword={{ op://Infrastructure/nzbget/CONTROL_PASS }}
 AuthorizedIP=192.168.122.10,192.168.122.11,192.168.122.12
-RestrictedUsername=__RESTRICTED_USER__
-RestrictedPassword=__RESTRICTED_PASS__
+RestrictedUsername={{ op://Infrastructure/nzbget/RESTRICTED_USER }}
+RestrictedPassword={{ op://Infrastructure/nzbget/RESTRICTED_PASS }}
 DaemonUsername=root
 
 # Performance — Download
@@ -82,52 +82,52 @@ RotateLog=3
 
 # Server 1 (primary)
 Server1.Active=yes
-Server1.Name=__SERVER1_NAME__
-Server1.Host=__SERVER1_HOST__
+Server1.Name={{ op://Infrastructure/nzbget/SERVER1_NAME }}
+Server1.Host={{ op://Infrastructure/nzbget/SERVER1_HOST }}
 Server1.Port=563
 Server1.Encryption=yes
 Server1.Connections=50
-Server1.Username=__SERVER1_USER__
-Server1.Password=__SERVER1_PASS__
+Server1.Username={{ op://Infrastructure/nzbget/SERVER1_USER }}
+Server1.Password={{ op://Infrastructure/nzbget/SERVER1_PASS }}
 Server1.Level=0
 Server1.Group=0
 Server1.Cipher=TLS_AES_128_GCM_SHA256
 
 # Server 2 (primary)
 Server2.Active=yes
-Server2.Name=__SERVER2_NAME__
-Server2.Host=__SERVER2_HOST__
+Server2.Name={{ op://Infrastructure/nzbget/SERVER2_NAME }}
+Server2.Host={{ op://Infrastructure/nzbget/SERVER2_HOST }}
 Server2.Port=563
 Server2.Encryption=yes
 Server2.Connections=50
-Server2.Username=__SERVER2_USER__
-Server2.Password=__SERVER2_PASS__
+Server2.Username={{ op://Infrastructure/nzbget/SERVER2_USER }}
+Server2.Password={{ op://Infrastructure/nzbget/SERVER2_PASS }}
 Server2.Level=0
 Server2.Group=1
 Server2.Cipher=TLS_AES_128_GCM_SHA256
 
 # Server 3 (fill)
 Server3.Active=yes
-Server3.Name=__SERVER3_NAME__
-Server3.Host=__SERVER3_HOST__
+Server3.Name={{ op://Infrastructure/nzbget/SERVER3_NAME }}
+Server3.Host={{ op://Infrastructure/nzbget/SERVER3_HOST }}
 Server3.Port=563
 Server3.Encryption=yes
 Server3.Connections=50
-Server3.Username=__SERVER3_USER__
-Server3.Password=__SERVER3_PASS__
+Server3.Username={{ op://Infrastructure/nzbget/SERVER3_USER }}
+Server3.Password={{ op://Infrastructure/nzbget/SERVER3_PASS }}
 Server3.Level=0
 Server3.Group=2
 Server3.Cipher=TLS_AES_128_GCM_SHA256
 
 # Server 4 (block/fill)
 Server4.Active=yes
-Server4.Name=__SERVER4_NAME__
-Server4.Host=__SERVER4_HOST__
+Server4.Name={{ op://Infrastructure/nzbget/SERVER4_NAME }}
+Server4.Host={{ op://Infrastructure/nzbget/SERVER4_HOST }}
 Server4.Port=563
 Server4.Encryption=yes
 Server4.Connections=10
-Server4.Username=__SERVER4_USER__
-Server4.Password=__SERVER4_PASS__
+Server4.Username={{ op://Infrastructure/nzbget/SERVER4_USER }}
+Server4.Password={{ op://Infrastructure/nzbget/SERVER4_PASS }}
 Server4.Level=1
 Server4.Group=0
 Server4.Cipher=TLS_AES_128_GCM_SHA256

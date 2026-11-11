@@ -1,4 +1,4 @@
-# nzbget on nas01 (TrueNAS custom app). Applied by truenas/apps/deploy-nzbget.sh.
+# nzbget on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
 # Moved from k8s 2026-11-11: downloads/unpacks write straight to the flashstor/data dataset (no NFS).
 # Web UI stays behind Pocket ID on kgateway-internal (k8s Service -> EndpointSlice -> this IP).
 services:
