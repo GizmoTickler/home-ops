@@ -29,6 +29,11 @@ spec:
       namespace: actions-runner-system
     template:
       spec:
+        # The scale-nvmeof work volume is a fresh ext4 fs owned by root (openebs-hostpath dirs were 0777): without
+        # fsGroup the runner (uid/gid 1001) cannot write _work and every job fails before its first step (2026-11-11).
+        securityContext:
+          fsGroup: 1001
+          fsGroupChangePolicy: OnRootMismatch
         containers:
           - name: runner
             image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
