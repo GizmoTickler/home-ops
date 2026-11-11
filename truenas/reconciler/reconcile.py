@@ -146,7 +146,19 @@ def wait_running(name, ctx):
     return False
 
 
+def container_pid(app, service):
+    out = subprocess.run(["docker", "ps", "-q", "--filter", f"label=com.docker.compose.project=ix-{app}",
+                          "--filter", f"label=com.docker.compose.service={service}"],
+                         capture_output=True, text=True, timeout=30).stdout.split()
+    if not out:
+        raise RuntimeError(f"no running container for {app}/{service}")
+    return subprocess.run(["docker", "inspect", "-f", "{{.State.Pid}}", out[0]], capture_output=True, text=True,
+                          check=True, timeout=30).stdout.strip()
+
+
 def healthy(meta, name, ctx):
+    """Probe after RUNNING. `netns: <service>` runs a tcp probe inside that container's network namespace -- needed
+    for macvlan-attached apps, which the host itself can never reach (macvlan parent/child isolation)."""
     h = meta.get("health")
     if not h:
         return True
@@ -154,7 +166,15 @@ def healthy(meta, name, ctx):
     deadline, err = time.time() + 120, None
     while time.time() < deadline:
         try:
-            if "tcp" in h:
+            if "tcp" in h and h.get("netns"):
+                host, port = h["tcp"].rsplit(":", 1)
+                pid = container_pid(name, h["netns"])
+                r = subprocess.run(["nsenter", f"--net=/proc/{pid}/ns/net", sys.executable, "-c",
+                                    "import socket,sys;socket.create_connection((sys.argv[1],int(sys.argv[2])),5).close()",
+                                    host, port], capture_output=True, text=True, timeout=20)
+                if r.returncode != 0:
+                    raise RuntimeError((r.stderr.strip().splitlines() or ["probe failed"])[-1])
+            elif "tcp" in h:
                 host, port = h["tcp"].rsplit(":", 1)
                 socket.create_connection((host, int(port)), timeout=5).close()
             else:
@@ -536,7 +556,14 @@ def main():
         print("another reconcile is running", file=sys.stderr)
         return 0
     ctx = Ctx(cfg, a.dry_run)
+    me = os.path.realpath(__file__)
+    before = open(me, "rb").read()
     head = "nopull" if a.no_pull else git_pull(cfg, ctx)
+    if not a.no_pull and os.path.exists(me) and open(me, "rb").read() != before:
+        # the pull updated this very script: re-exec the new code (release the lock first) for this run
+        ctx.log("reconciler updated by git -- re-executing new version")
+        lockf.close()
+        os.execv(sys.executable, [sys.executable, me, *sys.argv[1:], "--no-pull"])
     root = os.path.join(cfg["checkout"], "truenas", "apps")
     apps = sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "compose.yaml")))
     if a.app:

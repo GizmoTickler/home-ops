@@ -12,7 +12,8 @@ ini:
       'Session\InterfaceName': "eth0"
       'Session\InterfaceAddress': ""
 health:
-  tcp: 192.168.123.155:8080
+  tcp: 127.0.0.1:8080      # probed inside the container (netns): the host can't reach its own macvlan IPs
+  netns: qbittorrent
 ui:
   title: qBittorrent
   description: "Torrent client — VPN-only egress on VLAN 90"
