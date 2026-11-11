@@ -151,8 +151,8 @@ hypervisors:
     snippets_dir: /var/lib/vz/snippets
     image_cache_dir: /var/lib/vz/template/cache
     vm:
-      memory_mb: 81920  # 80 GB (2026-09-26): SR-IOV pins all guest RAM; 96 GB left ~12 GB free per NUMA node and OOM-killed k8s-1/k8s-2
-      cores: 16
+      memory_mb: 32768  # 32 GiB (2026-11-11 right-sizing; was 80 GB): nodes peaked ~18 GiB used in 14 d, downloaders moved to nas01; SR-IOV pins all guest RAM
+      cores: 10         # 2026-11-11 (was 16 in this file, 12 live): 9 allocatable after kubelet reservations; N-1 fits 13.3 cores of requests
       boot_disk_gb: 100
       openebs_disk_gb: 700
       scratch_disk_gb: 400  # NVMe download-scratch disk (scsi4, nvme-scratch stripe)
