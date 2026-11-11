@@ -25,7 +25,9 @@ truenas/
 5. Metrics → node-exporter textfile (`truenas_apps_gitops_*`), alerts in
    `kubernetes/apps/observability/victoria-metrics/app/vmrule-truenas-apps.yaml`.
 
-Secrets never touch git or the reconciler's logs (rendered values are masked in diffs). The Connect token and
+Secrets never touch git or the reconciler's logs: compose diffs are logged as changed key paths only and
+templated files as "N changed lines" (never values, old or new). File writes into app-owned directories are
+symlink/FIFO-safe (random O_EXCL temp + fchown on the descriptor); backups go to the root-only state dir. The Connect token and
 config live in `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 0600, not in git).
 
 ## Rules

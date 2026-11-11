@@ -204,16 +204,32 @@ def ensure_dir(d, ctx, name):
     return True
 
 
-def read_file(path):
-    """Read a file without following a symlink at the leaf; None if absent."""
+MAX_FILE = 4 * 1024 * 1024
+
+
+def read_file_st(path):
+    """(content, stat) of a regular file, never following a symlink and never blocking on a FIFO/device node
+    planted by the (app-owned) directory's owner. (None, None) if absent."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
-        return None
+        return None, None
     except OSError as e:
         raise RuntimeError(f"{path}: refusing to read ({e}); symlink?") from e
-    with os.fdopen(fd) as f:
-        return f.read()
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"{path} is not a regular file -- refusing")
+        if st.st_size > MAX_FILE:
+            raise RuntimeError(f"{path} is larger than {MAX_FILE} bytes -- refusing")
+        data = os.read(fd, MAX_FILE + 1)
+    finally:
+        os.close(fd)
+    return data.decode(), st
+
+
+def read_file(path):
+    return read_file_st(path)[0]
 
 
 def write_file(dest, content, owner, mode, backup_dir=None):
@@ -269,7 +285,10 @@ def ini_changes(spec):
 
 def ini_apply(spec, backup_dir):
     path = spec["path"]
-    lines = (read_file(path) or "").splitlines()
+    text, st = read_file_st(path)
+    if text is None:
+        raise RuntimeError(f"{path} vanished")
+    lines = text.splitlines()
     want = {k: str(v) for k, v in spec["set"].items()}
     new = []
     for ln in lines:
@@ -278,8 +297,8 @@ def ini_apply(spec, backup_dir):
             if k in want:
                 ln = f"{k}={want[k]}"
         new.append(ln)
-    st = os.lstat(path)
-    write_file(path, "\n".join(new) + "\n", f"{st.st_uid}:{st.st_gid}", st.st_mode & 0o7777, backup_dir)
+    mode = st.st_mode & 0o777  # never carry setuid/setgid/sticky from an app-owned file
+    write_file(path, "\n".join(new) + "\n", f"{st.st_uid}:{st.st_gid}", mode, backup_dir)
 
 
 # ---- one app ---------------------------------------------------------------------------------------------
@@ -287,16 +306,20 @@ def yaml_dump(o):
     return yaml.safe_dump(o, sort_keys=True, default_flow_style=False, width=200)
 
 
-def mask_ref_paths(src, doc):
-    """Copy of doc with every leaf whose counterpart in the git source holds an op:// ref replaced by a marker,
-    so neither the new nor the OLD (rotated) secret value can reach a diff."""
-    if isinstance(src, dict) and isinstance(doc, dict):
-        return {k: (mask_ref_paths(src[k], v) if k in src else v) for k, v in doc.items()}
-    if isinstance(src, list) and isinstance(doc, list):
-        return [mask_ref_paths(src[i], v) if i < len(src) else v for i, v in enumerate(doc)]
-    if isinstance(src, str) and REF.search(src):
-        return "<from 1Password>"
-    return doc
+def changed_paths(a, b, path=""):
+    """Leaf paths where a and b differ (no values: either side may hold a current or rotated secret)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = []
+        for k in sorted(set(a) | set(b), key=str):
+            out += changed_paths(a.get(k), b.get(k), f"{path}.{k}" if path else str(k)) if (k in a and k in b) \
+                else [f"{path}.{k}" if path else str(k)]
+        return out
+    if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+        out = []
+        for i, (x, y) in enumerate(zip(a, b)):
+            out += changed_paths(x, y, f"{path}[{i}]")
+        return out
+    return [] if a == b else [path or "(root)"]
 
 
 def reconcile_app(appdir, ctx):
@@ -348,10 +371,9 @@ def reconcile_app(appdir, ctx):
 
     # ---- report ----
     if compose_diff:
-        a = ctx.mask(yaml_dump(mask_ref_paths(src, live)) if live is not None else "")
-        b = ctx.mask(yaml_dump(mask_ref_paths(src, desired)))
-        diff = "".join(difflib.unified_diff(a.splitlines(True), b.splitlines(True), "live", "git", n=2))
-        ctx.log(f"{name}: compose differs{' (app absent: create)' if not app else ''}\n{diff}")
+        paths = changed_paths(live, desired) if live is not None else ["(app absent: create)"]
+        ctx.log(f"{name}: compose differs at: " + ", ".join(paths[:40]) + (" ..." if len(paths) > 40 else "")
+                + " (values not logged)")
     for fs, content, cur in file_changes:
         # never print file contents: templated files carry secrets, and the OLD values are not maskable
         old_l, new_l = (cur or "").splitlines(), content.splitlines()
