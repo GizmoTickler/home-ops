@@ -10,7 +10,6 @@ components:
 resources:
   - ./namespace.yaml
   - ./backendconfigpolicy.yaml
-  - ./vpn-egress-killswitch.yaml
   - ./autobrr/ks.yaml
   - ./bazarr/ks.yaml
   - ./chaptarr/ks.yaml

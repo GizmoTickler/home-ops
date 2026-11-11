@@ -1,0 +1,59 @@
+# qBittorrent on nas01 (TrueNAS custom app). Applied by truenas/apps/deploy-qbittorrent.sh.
+# Moved from k8s 2026-11-11. Two networks, nothing else:
+#   vpn  - macvlan on vlan90 with the pinned IP/MAC gateway0 DNATs the forwarded port to. It is the
+#          ONLY default route (via gateway0 .90.1 into the VPN): the kill-switch is structural, there is
+#          no other path to the internet.
+#   mgmt - internal macvlan on br0 (192.168.123.155, no default route). The k8s nodes (Pocket ID gateway,
+#          *arr apps, qui; Cilium masquerades to node IPs) are on-link in 192.168.120.0/22.
+# WebUI is on 8080: SC01 lets Trusted reach storage hosts on 80 but not 8080, so Pocket ID can't be bypassed.
+services:
+  qbittorrent:
+    image: ghcr.io/home-operations/qbittorrent-libtorrentv1:5.2.4@sha256:6c303adb93d995ba33dcdce45ee89181a370b6ad745b4148e7f73bde43e5d482
+    user: "1000:1000"
+    environment:
+      UMASK: "022"
+      QBT_WEBUI_PORT: "8080"
+      TZ: America/New_York
+    volumes:
+      - /mnt/flashstor/apps/qbittorrent-config:/config
+      - /mnt/flashstor/apps/qbittorrent-inter:/inter
+      - /mnt/flashstor/data/torrents:/media/torrents
+    tmpfs:
+      - /tmp:size=1g
+      - /config/qBittorrent/logs:size=256m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    dns: [192.168.123.249]          # MGMT DNS VIP, on-link via the mgmt leg (same resolver as before via CoreDNS)
+    networks:
+      vpn:
+        ipv4_address: 192.168.90.20
+        mac_address: "bc:24:11:90:00:20"
+        gw_priority: 100
+      mgmt:
+        ipv4_address: 192.168.123.155
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 20480M         # MemoryWorkingSetLimit=16384 in qBittorrent.conf + headroom
+    restart: unless-stopped
+networks:
+  vpn:
+    driver: macvlan
+    driver_opts:
+      parent: vlan90
+      com.docker.network.driver.mtu: "1420"
+    ipam:
+      config:
+        - subnet: 192.168.90.0/24
+          gateway: 192.168.90.1
+  mgmt:
+    driver: macvlan
+    internal: true                 # never a default route
+    driver_opts:
+      parent: br0
+    ipam:
+      config:
+        - subnet: 192.168.120.0/22
+          gateway: 192.168.123.254

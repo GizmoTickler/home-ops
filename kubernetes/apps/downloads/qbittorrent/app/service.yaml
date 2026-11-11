@@ -1,0 +1,29 @@
+---
+# qBittorrent runs on nas01 as a TrueNAS app since 2026-11-11 (truenas/apps/qbittorrent).
+# Selector-less Service keeps qbittorrent.downloads.svc:80 for qui and the *arr apps; the
+# EndpointSlice points at the app's internal MGMT leg, WebUI on 8080.
+apiVersion: v1
+kind: Service
+metadata:
+  name: qbittorrent
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: qbittorrent-nas01
+  labels:
+    kubernetes.io/service-name: qbittorrent
+addressType: IPv4
+ports:
+  - name: http
+    port: 8080
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 192.168.123.155   # nas01 macvlan MGMT leg; SC01 SGT 15, k8s nodes reach 8080 via RBACL_K8S_NODES_TO_STORAGE_APPS
