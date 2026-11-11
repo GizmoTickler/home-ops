@@ -23,7 +23,7 @@ spec:
         create: false  # We'll add dashboards separately via grafana-operator
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 120m
+        memory: 80Mi
       limits:
-        memory: 512Mi
+        memory: 208Mi

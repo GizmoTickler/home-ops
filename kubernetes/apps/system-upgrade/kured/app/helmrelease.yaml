@@ -37,3 +37,9 @@ spec:
       rebootSentinelCommand: '/usr/bin/sh -c "test -f /run/reboot-required || { test -x /usr/bin/rpm-ostree && /usr/bin/rpm-ostree status --json | /usr/bin/jq -e ''.deployments[0].booted == false'' >/dev/null; } || { test -x /usr/bin/update_engine_client && /usr/bin/update_engine_client -status | /usr/bin/grep -q UPDATE_STATUS_UPDATED_NEED_REBOOT; }"'
       rebootMethod: command
       rebootCommand: /usr/bin/systemctl reboot
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 192Mi

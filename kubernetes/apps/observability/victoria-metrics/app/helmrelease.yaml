@@ -46,14 +46,14 @@ spec:
         disable_prometheus_converter: false
         # Use custom config reloader for predictable sync times
         useCustomConfigReloader: true
-        resources:
-          requests:
-            cpu: 60m
-            memory: 128Mi
-          limits:
-            memory: 1Gi
       serviceMonitor:
         enabled: true # Enable operator self-monitoring
+      resources:
+        requests:
+          cpu: 130m
+          memory: 112Mi
+        limits:
+          memory: 240Mi
 
     # Disable default dashboards (we use grafana-operator)
     defaultDashboards:
@@ -105,10 +105,10 @@ spec:
               storage: 300Gi
         resources:
           requests:
-            cpu: 2250m
-            memory: 2Gi
+            cpu: 840m
+            memory: 3024Mi
           limits:
-            memory: 6Gi
+            memory: 4128Mi
       ingress:
         enabled: false
       route:
@@ -141,6 +141,13 @@ spec:
               resources:
                 requests:
                   storage: 2Gi
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: null
+            memory: 192Mi
       useManagedConfig: true
       config:
         route:
@@ -306,10 +313,10 @@ spec:
                   replacement: vmalert-stack
         resources:
           requests:
-            cpu: 165m
-            memory: 128Mi
+            cpu: 60m
+            memory: 112Mi
           limits:
-            memory: 512Mi
+            memory: 240Mi
 
     # VMAgent configuration
     vmagent:
@@ -342,10 +349,10 @@ spec:
           - vmagent-stream-aggr
         resources:
           requests:
-            cpu: 1250m
-            memory: 256Mi
+            cpu: 380m
+            memory: 1104Mi
           limits:
-            memory: 1Gi
+            memory: 1504Mi
 
     # Disable Grafana (we use grafana-operator)
     grafana:
@@ -367,10 +374,10 @@ spec:
         - persistentvolumeclaims=[*]
       resources:
         requests:
-          cpu: 50m
-          memory: 256Mi
+          cpu: 40m
+          memory: 288Mi
         limits:
-          memory: 1Gi
+          memory: 416Mi
       vmScrape:
         enabled: true
         spec:
@@ -396,10 +403,10 @@ spec:
       fullnameOverride: node-exporter
       resources:
         requests:
-          cpu: 80m
-          memory: 128Mi
+          cpu: 20m
+          memory: 64Mi
         limits:
-          memory: 512Mi
+          memory: 192Mi
       vmScrape:
         enabled: true
         spec:

@@ -55,10 +55,10 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 25m
-                memory: 256Mi
+                cpu: 30m
+                memory: 144Mi
               limits:
-                memory: 1Gi
+                memory: 272Mi
             restartPolicy: Always
         containers:
           app:
@@ -100,10 +100,10 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 100m
-                memory: 1Gi
+                cpu: 840m
+                memory: 544Mi
               limits:
-                memory: 3Gi
+                memory: 736Mi
       # Grimmory finds new files through inotify, which never fires for writes Chaptarr
       # makes over NFS from another node. Refresh the library on a schedule instead, as a
       # least-privilege user (manage-library on the Ebooks library only).

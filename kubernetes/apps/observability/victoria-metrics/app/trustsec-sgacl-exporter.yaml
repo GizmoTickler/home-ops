@@ -181,7 +181,7 @@ spec:
               cpu: 20m
               memory: 64Mi
             limits:
-              memory: 128Mi
+              memory: 192Mi
           volumeMounts:
             - name: exporter
               mountPath: /app

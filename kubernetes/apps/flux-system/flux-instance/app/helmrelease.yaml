@@ -46,12 +46,54 @@ spec:
             target:
               kind: Deployment
               name: (kustomize-controller|helm-controller|source-controller)
-          - # Increase the memory limits
+          - # kustomize-controller: requests from 14d p95 (rightsizing 2026-11-11), no CPU limit, keep the raised 2Gi memory limit
             patch: |-
               apiVersion: apps/v1
               kind: Deployment
               metadata:
-                name: all
+                name: kustomize-controller
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: manager
+                        resources:
+                          requests:
+                            cpu: 280m
+                            memory: 112Mi
+                          limits:
+                            cpu: null
+                            memory: 2Gi
+            target:
+              kind: Deployment
+              name: kustomize-controller
+          - # helm-controller: requests from 14d p95 (rightsizing 2026-11-11), no CPU limit, keep the raised 2Gi memory limit
+            patch: |-
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: helm-controller
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: manager
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 80Mi
+                          limits:
+                            cpu: null
+                            memory: 2Gi
+            target:
+              kind: Deployment
+              name: helm-controller
+          - # source-controller: requests from 14d p95 (rightsizing 2026-11-11), no CPU limit, keep the raised 2Gi memory limit
+            patch: |-
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: source-controller
               spec:
                 template:
                   spec:
@@ -60,12 +102,34 @@ spec:
                         resources:
                           requests:
                             cpu: 50m
-                            memory: 614Mi
+                            memory: 80Mi
                           limits:
+                            cpu: null
                             memory: 2Gi
             target:
               kind: Deployment
-              name: (kustomize-controller|helm-controller|source-controller)
+              name: source-controller
+          - # notification-controller: requests from 14d p95, limit 1.5x 14d max (rightsizing 2026-11-11), no CPU limit
+            patch: |-
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: notification-controller
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: manager
+                        resources:
+                          requests:
+                            cpu: 20m
+                            memory: 64Mi
+                          limits:
+                            cpu: null
+                            memory: 192Mi
+            target:
+              kind: Deployment
+              name: notification-controller
           - # Enable in-memory kustomize builds
             patch: |-
               - op: add

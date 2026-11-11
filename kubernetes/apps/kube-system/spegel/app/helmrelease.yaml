@@ -15,10 +15,10 @@ spec:
       containerdRegistryConfigPath: /etc/cri/conf.d/hosts
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 20m
+        memory: 64Mi
       limits:
-        memory: 512Mi
+        memory: 192Mi
     service:
       registry:
         hostPort: 29999

@@ -18,10 +18,10 @@ spec:
         logLevel: info
       resources:
         requests:
-          cpu: 80m
-          memory: 512Mi
+          cpu: 20m
+          memory: 80Mi
         limits:
-          memory: 1Gi
+          memory: 208Mi
     deployment:
       replicas: 2
     service:

@@ -55,10 +55,10 @@ spec:
               capabilities: {drop: ["ALL"]}
             resources:
               requests:
-                cpu: 50m
-                memory: 307Mi
+                cpu: 30m
+                memory: 288Mi
               limits:
-                memory: 1Gi
+                memory: 416Mi
     defaultPodOptions:
       securityContext:
         runAsNonRoot: true

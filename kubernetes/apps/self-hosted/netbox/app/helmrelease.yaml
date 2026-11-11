@@ -56,10 +56,10 @@ spec:
         resourcesPreset: none
         resources:
           requests:
-            cpu: 50m
-            memory: 256Mi
+            cpu: 60m
+            memory: 64Mi
           limits:
-            memory: 1Gi
+            memory: 192Mi
 
     # Task/cache Redis configuration (uses bundled Valkey)
     tasksRedis:
@@ -132,10 +132,10 @@ spec:
 
     resources:
       requests:
-        cpu: 50m
-        memory: 512Mi
+        cpu: 1080m
+        memory: 1920Mi
       limits:
-        memory: 2Gi
+        memory: 2400Mi
 
     # Persistence disabled - all data lives in PostgreSQL
     # Media uploads can be added later if needed

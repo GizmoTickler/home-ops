@@ -285,6 +285,12 @@ spec:
           readOnly: true
         - mountPath: /tmp
           name: tmp
+        resources:
+          requests:
+            cpu: 20m
+            memory: 112Mi
+          limits:
+            memory: 240Mi
       serviceAccountName: system-upgrade
       tolerations:
       - key: CriticalAddonsOnly

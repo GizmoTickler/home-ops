@@ -25,18 +25,21 @@ spec:
       operator:
         requests:
           cpu: 50m
-          memory: 256Mi
+          memory: 208Mi
         limits:
-          memory: 1Gi
+          cpu: null
+          memory: 336Mi
       metricServer:
         requests:
           cpu: 50m
-          memory: 256Mi
+          memory: 64Mi
         limits:
-          memory: 1Gi
+          cpu: null
+          memory: 192Mi
       webhooks:
         requests:
-          cpu: 50m
-          memory: 128Mi
+          cpu: 10m
+          memory: 64Mi
         limits:
-          memory: 512Mi
+          cpu: null
+          memory: 192Mi

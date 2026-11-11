@@ -65,10 +65,10 @@ spec:
       rollOutPods: true
       resources:
         requests:
-          cpu: 50m
-          memory: 128Mi
+          cpu: 30m
+          memory: 176Mi
         limits:
-          memory: 512Mi
+          memory: 304Mi
     pmtuDiscovery:
       enabled: true
     prometheus:
@@ -80,10 +80,10 @@ spec:
     routingMode: native
     resources:
       requests:
-        cpu: 400m
-        memory: 256Mi
+        cpu: 110m
+        memory: 784Mi
       limits:
-        memory: 1Gi
+        memory: 1024Mi
     securityContext:
       capabilities:
         ciliumAgent:

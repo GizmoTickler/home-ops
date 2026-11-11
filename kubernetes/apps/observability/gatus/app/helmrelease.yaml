@@ -26,10 +26,10 @@ spec:
               - --enable-service
             resources:
               requests:
-                cpu: 50m
-                memory: 128Mi
+                cpu: 10m
+                memory: 64Mi
               limits:
-                memory: 256Mi
+                memory: 192Mi
             restartPolicy: Always
         containers:
           app:
@@ -64,10 +64,10 @@ spec:
               capabilities: {add: ["NET_RAW"], drop: ["ALL"]}
             resources:
               requests:
-                cpu: 50m
-                memory: 128Mi
+                cpu: 10m
+                memory: 64Mi
               limits:
-                memory: 512Mi
+                memory: 192Mi
         statefulset:
           volumeClaimTemplates:
             - name: config

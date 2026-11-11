@@ -20,7 +20,7 @@ spec:
           cpu: 10m
           memory: 64Mi
         limits:
-          memory: 256Mi
+          memory: 192Mi
     # The Rust node agent (scale-csi-node) on every node, one DaemonSet: canary on
     # k8s-2 from 2026-10-01, all nodes from 2026-10-02 (chart 1.20.0). Data path
     # is the kernel initiator; the nvmeublk userspace path (nvmeublkd and the
@@ -29,6 +29,12 @@ spec:
     # what the agent staged).
     node:
       implementation: rust
+      resources:
+        requests:
+          cpu: 30m
+          memory: 64Mi
+        limits:
+          memory: 192Mi
     # Backend publication fencing. strict = backend allowlists converge to CSI
     # publications only (static subsystemHosts ignored for fenced volumes);
     # flipped 2026-07-22 after additive verification (27/27 converged,
@@ -257,3 +263,46 @@ spec:
         enabled: true
         schedule: "20 4,10,16,22 * * *"
         maxPerRun: 1000
+    sidecars:
+      provisioner:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi
+      attacher:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi
+      resizer:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi
+      snapshotter:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi
+      nodeDriverRegistrar:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi
+      livenessProbe:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            memory: 192Mi

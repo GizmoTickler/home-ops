@@ -22,3 +22,10 @@ spec:
               - flux-admin
       networkPolicy:
         create: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: null
+        memory: 384Mi
