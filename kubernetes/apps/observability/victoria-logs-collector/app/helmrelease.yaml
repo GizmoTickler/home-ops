@@ -22,7 +22,6 @@ spec:
     # Disk buffer for reliability during VictoriaLogs unavailability
     persistence:
       enabled: true
-      storageClassName: openebs-hostpath
       size: 2Gi
     resources:
       requests:

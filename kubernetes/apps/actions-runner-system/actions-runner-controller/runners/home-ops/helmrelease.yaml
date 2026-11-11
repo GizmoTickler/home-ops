@@ -19,7 +19,8 @@ spec:
       kubernetesModeWorkVolumeClaim:
         accessModes:
           - "ReadWriteOnce"
-        storageClassName: openebs-hostpath
+        # Per-job work volume on nas01 (NVMe-oF); the node-local openebs-hostpath tier was retired 2026-11-11.
+        storageClassName: scale-nvmeof
         resources:
           requests:
             storage: 25Gi
