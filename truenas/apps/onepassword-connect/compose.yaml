@@ -1,52 +1,55 @@
-# 1Password Connect on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
-# Serves External Secrets (k8s) and the nas01 app reconciler itself, so this compose must contain NO op:// refs:
-# the session credential stays on the encrypted dataset (.env next to the TLS material), never in git.
-# Converted 2026-11-11 from an `include:` of /mnt/flashstor/secure-scripts/onepassword-connect/compose.yaml
-# (same services/ports/limits; relative paths made absolute; images pinned to the running 1.8.4 digests).
+# 1Password Connect — secret provider for External Secrets (k8s) and for this reconciler.
+# Listens: 192.168.123.150:443 (passwords.<domain>; TLS material in secure-scripts/onepassword-connect/secrets)
+# Data:    session credential in /mnt/flashstor/secure-scripts/onepassword-connect/.env (root 0600, never in git);
+#          cache on a tmpfs volume (re-synced on start)
+# MUST NOT contain {{ op:// }} refs: it is what resolves them. app.yaml probes /heartbeat so a bad deploy rolls back.
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
 services:
   onepassword-connect-api:
-    container_name: onepassword-connect-api
     image: docker.io/1password/connect-api:1.8.4@sha256:0f74924c55c9156b8116f59f485223b2c2d30a5148d362562aa27838159bdffa
-    env_file:
-      - /mnt/flashstor/secure-scripts/onepassword-connect/.env   # OP_SESSION (root 0600)
+    container_name: onepassword-connect-api
+    restart: unless-stopped
+    env_file: [/mnt/flashstor/secure-scripts/onepassword-connect/.env]   # OP_SESSION
     environment:
+      TZ: America/New_York
       OP_HTTPS_PORT: "443"
       OP_TLS_CERT_FILE: secrets/cert.pem
       OP_TLS_KEY_FILE: secrets/key.pem
       XDG_DATA_HOME: /config
     ports:
-      - "192.168.123.150:443:443"
-    restart: unless-stopped
+      - {host_ip: 192.168.123.150, target: 443, published: 443, protocol: tcp}
     volumes:
       - data:/config
       - /mnt/flashstor/secure-scripts/onepassword-connect/secrets:/secrets:ro
+    security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
         limits: {cpus: "1.0", memory: 512M}
         reservations: {cpus: "0.25", memory: 128M}
-    logging:
-      driver: json-file
-      options: {max-size: 10m, max-file: "3"}
-    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
   onepassword-connect-sync:
-    container_name: onepassword-connect-sync
     image: docker.io/1password/connect-sync:1.8.4@sha256:ca34850f2a20ca302e688a9347cdb696f29ce3bfc011d2554eff338e315c9089
-    env_file:
-      - /mnt/flashstor/secure-scripts/onepassword-connect/.env
-    environment:
-      XDG_DATA_HOME: /config
+    container_name: onepassword-connect-sync
     restart: unless-stopped
+    env_file: [/mnt/flashstor/secure-scripts/onepassword-connect/.env]
+    environment:
+      TZ: America/New_York
+      XDG_DATA_HOME: /config
     volumes:
       - data:/config
+    security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
         limits: {cpus: "0.5", memory: 256M}
         reservations: {cpus: "0.1", memory: 64M}
-    logging:
-      driver: json-file
-      options: {max-size: 10m, max-file: "3"}
-    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
 volumes:
   data:
     driver: local
-    driver_opts: {device: tmpfs, o: "uid=999,gid=999,mode=700", type: tmpfs}
+    driver_opts: {type: tmpfs, device: tmpfs, o: "uid=999,gid=999,mode=700"}

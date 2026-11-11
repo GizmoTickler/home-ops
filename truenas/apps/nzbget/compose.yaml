@@ -1,27 +1,34 @@
-# nzbget on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
-# Moved from k8s 2026-11-11: downloads/unpacks write straight to the flashstor/data dataset (no NFS).
-# Web UI stays behind Pocket ID on kgateway-internal (k8s Service -> EndpointSlice -> this IP).
+# NZBGet — Usenet downloader.
+# Listens: 192.168.123.154:6789 (web UI/API; behind Pocket ID via k8s Service nzbget.downloads -> this IP)
+# Data:    config /mnt/flashstor/apps/nzbget-config (nzbget.conf rendered from nzbget.conf.tmpl + 1Password)
+#          scratch /mnt/flashstor/apps/nzbget-incomplete, completed -> /mnt/flashstor/data/usenet (no NFS)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
 services:
   nzbget:
     image: ghcr.io/nzbgetcom/nzbget:v26.3@sha256:f451d98066cbc0c108146420a61a60f7638de50e067738951461e0105eeaa56d
+    restart: unless-stopped
     environment:
-      PUID: "1000"            # owner of flashstor/data (kubernetesapps); matches the k8s deployment
-      PGID: "1000"
       TZ: America/New_York
+      PUID: "1000"              # owner of flashstor/data (kubernetesapps), as in k8s
+      PGID: "1000"
+    ports:
+      - {host_ip: 192.168.123.154, target: 6789, published: "6789", protocol: tcp}   # SGT 15 on SC01
     volumes:
       - /mnt/flashstor/apps/nzbget-config:/config
       - /mnt/flashstor/apps/nzbget-incomplete:/incomplete
       - /mnt/flashstor/data/usenet:/media/usenet
     tmpfs:
       - /tmp:size=1g
-    ports:
-      - host_ip: 192.168.123.154   # SC01 maps this alias to SGT 15; k8s pods reach 6789 via RBACL_K8S_TO_STORAGE_APPS
-        target: 6789
-        published: "6789"
-        protocol: tcp
     deploy:
       resources:
         limits:
-          cpus: "8"              # par2/unrar must not starve NFS + NVMe-oF serving
-          memory: 20480M         # ArticleCache 12000 MB + ParBuffer 1024 MB + write buffers + unrar
-    restart: unless-stopped
+          cpus: "8"             # par2/unrar must not starve NFS + NVMe-oF serving
+          memory: 20480M        # ArticleCache 12000 MB + ParBuffer 1024 MB + write buffers + unrar
+    logging: *logging
+
+x-portals:
+  - {name: Web UI, scheme: http, host: 192.168.123.154, port: 6789, path: /}

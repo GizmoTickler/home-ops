@@ -1,12 +1,23 @@
-# smartctl-exporter on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
-# Converted 2026-11-11 from an `include:` of /mnt/flashstor/observability/smartctl-exporter/compose.yaml.
+# smartctl-exporter — SMART metrics for nas01's disks (scraped as job="smartctl-exporter").
+# Listens: 192.168.120.10:9633. Privileged root: required to issue SMART commands to the host's devices.
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
 services:
   smartctl-exporter:
-    command:
-      - '--smartctl.device-exclude=nvme0'
-    image: quay.io/prometheuscommunity/smartctl-exporter:v0.13.0
-    ports:
-      - '192.168.120.10:9633:9633'
-    privileged: true
-    restart: always
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.13.0@sha256:0eb6b1613e23ea59c4bd6e95720dabcdcdfc0387f89a61925587b62ebc2b71f1
+    restart: unless-stopped
     user: root
+    privileged: true
+    environment:
+      TZ: America/New_York
+    command:
+      - --smartctl.device-exclude=nvme0
+    ports:
+      - {host_ip: 192.168.120.10, target: 9633, published: 9633, protocol: tcp}
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    logging: *logging

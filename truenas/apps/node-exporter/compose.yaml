@@ -1,22 +1,32 @@
-# node-exporter on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler (see truenas/README.md).
-# Converted 2026-11-11 from an `include:` of /mnt/flashstor/observability/node-exporter/compose.yaml.
-# Textfile collector: the reconciler writes truenas_apps_gitops_* metrics into .../node-exporter/textfile.
+# node-exporter — nas01 host metrics (scraped as job="node-exporter").
+# Listens: 192.168.120.10:9100
+# Textfile collector: /mnt/flashstor/observability/node-exporter/textfile (truenas_apps_gitops_* from the reconciler)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
 services:
   node-exporter:
+    image: quay.io/prometheus/node-exporter:v1.9.0@sha256:c99d7ee4d12a38661788f60d9eca493f08584e2e544bbd3b3fca64749f86b848
+    restart: unless-stopped
+    environment:
+      TZ: America/New_York
     command:
-      - '--path.rootfs=/host/root'
-      - '--path.procfs=/host/proc'
-      - '--path.sysfs=/host/sys'
-      - '--path.udev.data=/host/root/run/udev/data'
-      - '--web.listen-address=0.0.0.0:9100'
-      - >-
-        --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
-      - '--collector.textfile.directory=/host/root/mnt/flashstor/observability/node-exporter/textfile'
-    image: quay.io/prometheus/node-exporter:v1.9.0
+      - --path.rootfs=/host/root
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.udev.data=/host/root/run/udev/data
+      - --web.listen-address=0.0.0.0:9100
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --collector.textfile.directory=/host/root/mnt/flashstor/observability/node-exporter/textfile
     ports:
-      - '192.168.120.10:9100:9100'
-    restart: always
+      - {host_ip: 192.168.120.10, target: 9100, published: 9100, protocol: tcp}
     volumes:
       - /:/host/root:ro
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    logging: *logging

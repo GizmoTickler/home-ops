@@ -14,6 +14,9 @@ Per app directory truenas/apps/<app>/:
                                                                              (app stopped, patched, started)
                    health: {http: URL, insecure: true} | {tcp: "host:port"}  probed after RUNNING (120 s);
                                                                              failure -> rollback
+                   ui:    {title, description, icon: URL, home: URL}         shown in the TrueNAS Apps UI (custom
+                                                                             apps have no icon support; the
+                                                                             reconciler patches their metadata)
   *.tmpl         templates referenced by app.yaml.
 
 Behaviour per run, per app (one failing app never blocks the others):
@@ -37,6 +40,7 @@ class Ctx:
         self.secrets = {}  # ref -> value (this run only)
         self._vaults, self._items = {}, {}
         self.log_lines = []
+        self.ui_changed = False
 
     def log(self, msg):
         line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
@@ -301,6 +305,45 @@ def ini_apply(spec, backup_dir):
     write_file(path, "\n".join(new) + "\n", f"{st.st_uid}:{st.st_gid}", mode, backup_dir)
 
 
+# ---- TrueNAS UI metadata (custom apps are always "Custom App" with no icon; patch the per-app metadata) ----
+IX_APP_CONFIGS = "/mnt/.ix-apps/app_configs"
+
+
+def image_tag(compose):
+    for svc in (compose.get("services") or {}).values():
+        img = (svc or {}).get("image", "")
+        ref = img.split("@", 1)[0]
+        if ":" in ref.rsplit("/", 1)[-1]:
+            return ref.rsplit(":", 1)[1]
+    return None
+
+
+def apply_ui(name, meta, compose, ctx):
+    """Return True if the app's metadata.yaml was (or would be) changed."""
+    ui = meta.get("ui")
+    if not ui:
+        return False
+    path = os.path.join(IX_APP_CONFIGS, name, "metadata.yaml")
+    text, _ = read_file_st(path)
+    if text is None:
+        return False
+    doc = yaml.safe_load(text) or {}
+    md = doc.setdefault("metadata", {})
+    want = {k: ui[k] for k in ("title", "description", "icon", "home") if k in ui}
+    tag = image_tag(compose)
+    if tag:
+        want["app_version"] = tag
+    top = {"human_version": f"{tag}_custom"} if tag else {}
+    if all(md.get(k) == v for k, v in want.items()) and all(doc.get(k) == v for k, v in top.items()):
+        return False
+    ctx.log(f"{name}: UI metadata -> {', '.join(sorted(want))}" + (" (dry-run)" if ctx.dry else ""))
+    if not ctx.dry:
+        md.update(want)
+        doc.update(top)
+        write_file(path, yaml.safe_dump(doc, sort_keys=False, default_flow_style=False), "0:0", 0o600)
+    return True
+
+
 # ---- one app ---------------------------------------------------------------------------------------------
 def yaml_dump(o):
     return yaml.safe_dump(o, sort_keys=True, default_flow_style=False, width=200)
@@ -367,6 +410,7 @@ def reconcile_app(appdir, ctx):
     if not (compose_diff or file_changes or ini_todo):
         state = app.get("state") if app else None
         ctx.log(f"{name}: in sync ({state})")
+        ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
         return True
 
     # ---- report ----
@@ -407,6 +451,7 @@ def reconcile_app(appdir, ctx):
             midclt("app.start", name, job=True)
         if wait_running(name, ctx) and healthy(meta, name, ctx):
             ctx.log(f"{name}: converged (RUNNING{', healthy' if meta.get('health') else ''})")
+            ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
             return True
         raise RuntimeError("not RUNNING/healthy")
     except Exception as e:
@@ -508,6 +553,12 @@ def main():
         for extra in sorted(live_names - set(apps)):
             ctx.log(f"{extra}: on nas01 but NOT in git (unmanaged)")
             unmanaged += 1
+    if ctx.ui_changed and not a.dry_run:
+        try:
+            midclt("app.metadata.generate", job=True)
+            ctx.log("UI metadata regenerated")
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"UI metadata regenerate failed: {e}")
     ok_all = all(results.values())
     if not a.dry_run and not a.app:
         write_metrics(cfg, results, unmanaged, ok_all)

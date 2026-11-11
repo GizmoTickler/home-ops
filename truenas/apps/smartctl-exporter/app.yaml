@@ -1,2 +1,7 @@
 health:
   tcp: 192.168.120.10:9633
+ui:
+  title: smartctl Exporter
+  description: "Prometheus SMART metrics for nas01's disks"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prometheus.png
+  home: https://github.com/prometheus-community/smartctl_exporter

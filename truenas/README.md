@@ -43,10 +43,43 @@ config live in `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 060
 - New app: write `apps/<app>/compose.yaml` (+ `app.yaml`), merge; the reconciler creates it.
   Adopting an existing app: `export_app.py <app>` on nas01, commit the output, dry-run must show "in sync".
 
+## Compose standard (enforced by `truenas/reconciler/lint.py` in CI)
+```yaml
+# <App> — <one-line purpose>.
+# Listens: <ip:port ...>        Data: <host paths>
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging                       # same block in every file
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  <svc>:
+    image: repo/name:<version>@sha256:<digest>   # pinned; never latest/untagged
+    restart: unless-stopped
+    user: "uid:gid"                              # when the image supports non-root
+    environment:                                 # map form, TZ always
+      TZ: America/New_York
+    ports:                                       # long form, always bound to a specific host_ip
+      - {host_ip: 192.168.123.x, target: 80, published: 80, protocol: tcp}
+    volumes:                                     # short form
+      - /mnt/flashstor/apps/<app>-config:/config
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 2048M}       # always both
+    logging: *logging
+
+x-portals:                                       # "Web UI" button in the TrueNAS Apps page
+  - {name: Web UI, scheme: http, host: 192.168.123.x, port: 80, path: /}
+```
+Every `app.yaml` has a `health` probe and a `ui` block (`title`, `description`, `icon` https URL, `home`). TrueNAS
+custom apps have no icon/title support of their own, so the reconciler writes `ui` (and the image tag as the app
+version) into the app's TrueNAS metadata after each deploy. Icons: homarr-labs dashboard-icons via jsDelivr.
+
 ## app.yaml
 ```yaml
 dirs:   [{path: /mnt/flashstor/apps/x-config, owner: "1000:1000", mode: "0755"}]
 files:  [{template: x.conf.tmpl, dest: /mnt/flashstor/apps/x-config/x.conf, owner: "1000:1000", mode: "0600"}]
 ini:    [{path: /mnt/flashstor/apps/x-config/x.conf, set: {'Section\Key': "value"}}]   # existing keys only
 health: {tcp: "192.168.123.154:6789"}        # or {http: https://..., insecure: true}
+ui:     {title: NZBGet, description: "...", icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/nzbget.png, home: https://nzbget.com}
 ```

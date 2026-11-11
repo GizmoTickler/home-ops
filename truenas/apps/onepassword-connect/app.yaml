@@ -2,3 +2,8 @@
 health:
   http: https://192.168.123.150/heartbeat
   insecure: true      # cert is for passwords.<domain>; probing by IP
+ui:
+  title: 1Password Connect
+  description: "Secret provider for External Secrets and the nas01 app reconciler"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/1password.png
+  home: https://developer.1password.com/docs/connect/

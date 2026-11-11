@@ -1,2 +1,7 @@
 health:
   tcp: 192.168.123.152:443
+ui:
+  title: SeaweedFS
+  description: "S3-compatible object store"
+  icon: https://raw.githubusercontent.com/seaweedfs/seaweedfs/master/note/seaweedfs.png
+  home: https://github.com/seaweedfs/seaweedfs

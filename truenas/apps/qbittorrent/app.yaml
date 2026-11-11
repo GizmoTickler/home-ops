@@ -13,3 +13,8 @@ ini:
       'Session\InterfaceAddress': ""
 health:
   tcp: 192.168.123.155:8080
+ui:
+  title: qBittorrent
+  description: "Torrent client — VPN-only egress on VLAN 90"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png
+  home: https://www.qbittorrent.org
