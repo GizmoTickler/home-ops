@@ -1,0 +1,7 @@
+health:
+  tcp: 192.168.123.151:443
+ui:
+  title: Jellyfin
+  description: "Media server with NVIDIA T600 transcoding"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/jellyfin.png
+  home: https://jellyfin.org

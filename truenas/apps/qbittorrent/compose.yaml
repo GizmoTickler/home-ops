@@ -1,11 +1,16 @@
-# qBittorrent on nas01 (TrueNAS custom app). Applied by truenas/apps/deploy-qbittorrent.sh.
-# Moved from k8s 2026-11-11. Two networks, nothing else:
-#   vpn  - macvlan on vlan90 with the pinned IP/MAC gateway0 DNATs the forwarded port to. It is the
-#          ONLY default route (via gateway0 .90.1 into the VPN): the kill-switch is structural, there is
-#          no other path to the internet.
-#   mgmt - internal macvlan on br0 (192.168.123.155, no default route). The k8s nodes (Pocket ID gateway,
-#          *arr apps, qui; Cilium masquerades to node IPs) are on-link in 192.168.120.0/22.
-# WebUI is on 8080: SC01 lets Trusted reach storage hosts on 80 but not 8080, so Pocket ID can't be bypassed.
+# qBittorrent — torrent client, VPN-only egress.
+# Listens: 192.168.123.155:8080 (web UI, mgmt leg; behind Pocket ID via k8s Service qbittorrent.downloads)
+#          192.168.90.20 / bc:24:11:90:00:20 on VLAN 90 = the ONLY default route (gateway0 VPN policy + DNAT 29867)
+# Data:    config /mnt/flashstor/apps/qbittorrent-config, scratch /mnt/flashstor/apps/qbittorrent-inter,
+#          completed -> /mnt/flashstor/data/torrents
+# Kill-switch: no route to the internet except via vpn; mgmt network is `internal: true`. app.yaml binds torrents
+# to interface vpn0 AND address 192.168.90.20 in qBittorrent.conf (interface names pinned via interface_name;
+# without pinning Docker may attach mgmt as eth0 on a recreate).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
 services:
   qbittorrent:
     image: ghcr.io/home-operations/qbittorrent-libtorrentv1:5.2.4@sha256:6c303adb93d995ba33dcdce45ee89181a370b6ad745b4148e7f73bde43e5d482
@@ -27,10 +32,12 @@ services:
     dns: [192.168.123.249]          # MGMT DNS VIP, on-link via the mgmt leg (same resolver as before via CoreDNS)
     networks:
       vpn:
+        interface_name: vpn0            # pinned (Engine >= 28.1): never depends on attach order
         ipv4_address: 192.168.90.20
         mac_address: "bc:24:11:90:00:20"
         gw_priority: 100
       mgmt:
+        interface_name: mgmt0
         ipv4_address: 192.168.123.155
     deploy:
       resources:
@@ -38,6 +45,7 @@ services:
           cpus: "4"
           memory: 20480M         # MemoryWorkingSetLimit=16384 in qBittorrent.conf + headroom
     restart: unless-stopped
+    logging: *logging
 networks:
   vpn:
     driver: macvlan
@@ -57,3 +65,6 @@ networks:
       config:
         - subnet: 192.168.120.0/22
           gateway: 192.168.123.254
+
+x-portals:
+  - {name: Web UI, scheme: http, host: 192.168.123.155, port: 8080, path: /}

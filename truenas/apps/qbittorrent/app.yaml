@@ -1,0 +1,23 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+# nas01-specific settings pinned in the app-owned config (existing keys only; the app is stopped while patching).
+ini:
+  - path: /mnt/flashstor/apps/qbittorrent-config/qBittorrent/qBittorrent.conf
+    set:
+      'WebUI\Port': "8080"
+      'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
+      'WebUI\AuthSubnetWhitelistEnabled': "true"
+      # Bind torrent traffic to the VPN leg by interface AND address: vpn0 is pinned in compose (interface_name)
+      # and 192.168.90.20 exists only on it. If the vpn leg is missing qBittorrent cannot bind at all (kill-switch).
+      # (Unpinned eth0 binding broke on 2026-11-11: Docker attached mgmt as eth0 on a recreate.)
+      'Session\Interface': "vpn0"
+      'Session\InterfaceName': "vpn0"
+      'Session\InterfaceAddress': "192.168.90.20"
+health:
+  tcp: 127.0.0.1:8080      # probed inside the container (netns): the host can't reach its own macvlan IPs
+  netns: qbittorrent
+  timeout: 300            # large torrent sets load fastresume before the WebUI listens
+ui:
+  title: qBittorrent
+  description: "Torrent client — VPN-only egress on VLAN 90"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png
+  home: https://www.qbittorrent.org

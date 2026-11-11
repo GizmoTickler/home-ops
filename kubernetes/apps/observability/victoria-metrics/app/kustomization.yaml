@@ -12,6 +12,7 @@ resources:
   - ./snmp-exporter-scrape.yaml
   - ./vmservicescrape-stack.yaml
   - ./vmrule-stack.yaml
+  - ./vmrule-truenas-apps.yaml
   - ./vmrule-infrastructure.yaml
   - ./vmrule-network-infra.yaml
   - ./vmrule-apprec.yaml

@@ -38,6 +38,12 @@
   ],
   packageRules: [
     {
+      description: "nas01 apps (truenas/apps): a merge is deployed within 10 min by the nas01 reconciler, so only digest/patch auto-merge",
+      matchFileNames: ["truenas/apps/**"],
+      matchUpdateTypes: ["minor", "major"],
+      automerge: false,
+    },
+    {
       description: "Ignore unpinnable claude-code-action beta tag",
       matchManagers: [
         "github-actions"

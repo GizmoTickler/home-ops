@@ -1,0 +1,28 @@
+# SeaweedFS — S3-compatible object store (s3.<domain>).
+# Listens: 192.168.123.152:443 -> 8443 (S3 over TLS; cert from the lego store in secure-scripts)
+# Data:    /mnt/flashstor/seaweedfs/{data,config}; entrypoint /config/start.sh lives in the config dir
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.53@sha256:ccad23e18639c8b98cee17e7100b95830a06077b56d8e5b006d6dcf8ec5e94a0
+    container_name: seaweedfs
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /config/start.sh]
+    environment:
+      TZ: America/New_York
+    dns: [192.168.123.250, 192.168.123.251]
+    ports:
+      - {host_ip: 192.168.123.152, target: 8443, published: 443, protocol: tcp}
+    volumes:
+      - /mnt/flashstor/seaweedfs/data:/data
+      - /mnt/flashstor/seaweedfs/config:/config:ro
+      - /mnt/flashstor/secure-scripts/.lego/certificates/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.crt:/certs/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.crt:ro
+      - /mnt/flashstor/secure-scripts/.lego/certificates/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.key:/certs/s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}.key:ro
+    deploy:
+      resources:
+        limits: {cpus: "4", memory: 4096M}
+    logging: *logging

@@ -1,0 +1,55 @@
+# Jellyfin — media server, NVIDIA T600 transcoding.
+# Listens: 192.168.123.151:443 (https) / :80 / udp 7359 (discovery); published URL https://jellyfin.<domain>
+# Data:    config/cache/certs on the former catalog ix-volume paths (/mnt/.ix-apps/app_mounts/jellyfin/*),
+#          media read from /mnt/flashstor/data/media/{movies,tv}
+# Standardized 2026-11-11 from the TrueNAS-generated compose: dropped the no-op `permissions` sidecar (it only acts
+# on empty dirs), unused linuxserver-style UID/GID/UMASK env, and explicit defaults. Image :latest pinned (= 12.4).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+    restart: unless-stopped
+    user: "568:568"
+    group_add: [44, 107, 568]           # video, render, apps
+    environment:
+      TZ: America/New_York
+      JELLYFIN_CACHE_DIR: /cache
+      JELLYFIN_PublishedServerUrl: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      NVIDIA_DRIVER_CAPABILITIES: all
+      NVIDIA_VISIBLE_DEVICES: GPU-134d897f-3351-f76d-104f-82a6825b5fb4
+    ports:
+      - {host_ip: 192.168.123.151, target: 443, published: 443, protocol: tcp}
+      - {host_ip: 192.168.123.151, target: 80, published: 80, protocol: tcp}
+      - {host_ip: 192.168.123.151, target: 7359, published: 7359, protocol: udp}
+    volumes:
+      - /mnt/.ix-apps/app_mounts/jellyfin/config:/config
+      - /mnt/.ix-apps/app_mounts/jellyfin/cache:/cache
+      - /mnt/.ix-apps/app_mounts/jellyfin/certs:/certs
+      - /mnt/flashstor/data/media/movies:/movies
+      - /mnt/flashstor/data/media/tv:/tv
+    tmpfs:
+      - /cache/transcodes:mode=0777
+      - /config/transcodes:mode=0777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges=true"]
+    deploy:
+      resources:
+        limits: {cpus: "8", memory: 32768M}
+        reservations:
+          devices:
+            - {driver: nvidia, device_ids: [GPU-134d897f-3351-f76d-104f-82a6825b5fb4], capabilities: [gpu]}
+    healthcheck:
+      test: curl --silent --output /dev/null --show-error --fail http://127.0.0.1:80/health
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+      start_interval: 2s
+    logging: *logging
+
+x-portals:
+  - {name: Web UI, scheme: https, host: 192.168.123.151, port: 443, path: /}
