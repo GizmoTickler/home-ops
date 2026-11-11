@@ -7,7 +7,7 @@ x-logging: &logging
 
 services:
   smartctl-exporter:
-    image: quay.io/prometheuscommunity/smartctl-exporter:v0.13.0@sha256:0eb6b1613e23ea59c4bd6e95720dabcdcdfc0387f89a61925587b62ebc2b71f1
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.15.0@sha256:a76e08dbf5db4781fefd1ed81c65ad46ae8d2849dae6b6d3acebcde2fc4e59d6
     restart: unless-stopped
     user: root
     privileged: true
