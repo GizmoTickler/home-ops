@@ -23,7 +23,7 @@ Behaviour per run, per app (one failing app never blocks the others):
 Usage: reconcile.py [--dry-run] [--app NAME] [--config PATH] [--no-pull]
 Config (root 0600 JSON, NOT in git): see DEFAULT_CONFIG. Exit 0 if every app converged, 1 otherwise.
 """
-import argparse, copy, difflib, fcntl, hashlib, json, os, re, subprocess, sys, time, urllib.parse, urllib.request
+import argparse, difflib, fcntl, json, os, re, stat, subprocess, sys, tempfile, time, urllib.parse, urllib.request
 import yaml
 
 DEFAULT_CONFIG = "/mnt/flashstor/secure-scripts/apps-gitops/config.json"
@@ -180,42 +180,78 @@ def parse_owner(o):
 
 
 def ensure_dir(d, ctx, name):
+    """Create/own a directory without following symlinks (parents are root-owned; the leaf may be app-owned)."""
     path, mode = d["path"], int(str(d.get("mode", "0755")), 8)
     uid, gid = parse_owner(d.get("owner"))
-    if os.path.isdir(path):
-        st = os.stat(path)
+    try:
+        st = os.lstat(path)
+        if not stat.S_ISDIR(st.st_mode):
+            raise RuntimeError(f"{path} exists and is not a directory (symlink?) -- refusing")
         if (st.st_uid, st.st_gid, st.st_mode & 0o7777) == (uid, gid, mode):
             return False
+    except FileNotFoundError:
+        st = None
     ctx.log(f"{name}: ensure dir {path} {uid}:{gid} {oct(mode)}" + (" (dry-run)" if ctx.dry else ""))
     if not ctx.dry:
-        os.makedirs(path, exist_ok=True)
-        os.chown(path, uid, gid)
-        os.chmod(path, mode)
+        if st is None:
+            os.mkdir(path, 0o700)
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchown(fd, uid, gid)
+            os.fchmod(fd, mode)
+        finally:
+            os.close(fd)
     return True
 
 
-def write_file(dest, content, owner, mode):
+def read_file(path):
+    """Read a file without following a symlink at the leaf; None if absent."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise RuntimeError(f"{path}: refusing to read ({e}); symlink?") from e
+    with os.fdopen(fd) as f:
+        return f.read()
+
+
+def write_file(dest, content, owner, mode, backup_dir=None):
+    """Atomically replace dest. The temp file gets a random name (O_EXCL) in dest's directory and is chowned
+    through its descriptor, so a symlink planted by the (app-owned) directory's owner is never followed.
+    The previous content is backed up into backup_dir (root-only state dir), not next to dest."""
     uid, gid = parse_owner(owner)
-    if os.path.exists(dest):
-        prev = dest + ".prev"
-        with open(dest, "rb") as s, open(prev, "wb") as d:
-            d.write(s.read())
-        os.chown(prev, uid, gid)
-        os.chmod(prev, mode)
-    tmp = dest + ".new"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w") as f:
-        f.write(content)
-    os.chown(tmp, uid, gid)
-    os.chmod(tmp, mode)
-    os.replace(tmp, dest)
+    ddir = os.path.dirname(dest)
+    if os.path.islink(dest):
+        raise RuntimeError(f"{dest} is a symlink -- refusing")
+    if backup_dir:
+        cur = read_file(dest)
+        if cur is not None:
+            os.makedirs(backup_dir, mode=0o700, exist_ok=True)
+            bfd = os.open(os.path.join(backup_dir, dest.strip("/").replace("/", "__") + ".prev"),
+                          os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(bfd, "w") as b:
+                b.write(cur)
+    fd, tmp = tempfile.mkstemp(dir=ddir, prefix=".reconcile-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fchown(f.fileno(), uid, gid)
+            os.fchmod(f.fileno(), mode)
+        os.replace(tmp, dest)  # rename never follows a symlink at dest
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def ini_changes(spec):
     """Return {key: (old, new)} for keys whose existing line differs; missing keys are reported, not added."""
     path = spec["path"]
-    with open(path) as f:
-        lines = f.read().splitlines()
+    lines = (read_file(path) or "").splitlines()
     have = {}
     for ln in lines:
         if "=" in ln and not ln.lstrip().startswith(("#", ";", "[")):
@@ -231,10 +267,9 @@ def ini_changes(spec):
     return out, missing
 
 
-def ini_apply(spec):
+def ini_apply(spec, backup_dir):
     path = spec["path"]
-    with open(path) as f:
-        lines = f.read().splitlines()
+    lines = (read_file(path) or "").splitlines()
     want = {k: str(v) for k, v in spec["set"].items()}
     new = []
     for ln in lines:
@@ -243,13 +278,25 @@ def ini_apply(spec):
             if k in want:
                 ln = f"{k}={want[k]}"
         new.append(ln)
-    st = os.stat(path)
-    write_file(path, "\n".join(new) + "\n", f"{st.st_uid}:{st.st_gid}", st.st_mode & 0o7777)
+    st = os.lstat(path)
+    write_file(path, "\n".join(new) + "\n", f"{st.st_uid}:{st.st_gid}", st.st_mode & 0o7777, backup_dir)
 
 
 # ---- one app ---------------------------------------------------------------------------------------------
 def yaml_dump(o):
     return yaml.safe_dump(o, sort_keys=True, default_flow_style=False, width=200)
+
+
+def mask_ref_paths(src, doc):
+    """Copy of doc with every leaf whose counterpart in the git source holds an op:// ref replaced by a marker,
+    so neither the new nor the OLD (rotated) secret value can reach a diff."""
+    if isinstance(src, dict) and isinstance(doc, dict):
+        return {k: (mask_ref_paths(src[k], v) if k in src else v) for k, v in doc.items()}
+    if isinstance(src, list) and isinstance(doc, list):
+        return [mask_ref_paths(src[i], v) if i < len(src) else v for i, v in enumerate(doc)]
+    if isinstance(src, str) and REF.search(src):
+        return "<from 1Password>"
+    return doc
 
 
 def reconcile_app(appdir, ctx):
@@ -279,16 +326,13 @@ def reconcile_app(appdir, ctx):
 
     file_changes = []
     for fs, content in rendered_files:
-        cur = None
-        if os.path.exists(fs["dest"]):
-            with open(fs["dest"]) as f:
-                cur = f.read()
+        cur = read_file(fs["dest"])
         if cur != content:
             file_changes.append((fs, content, cur))
 
     ini_todo = []
     for spec in meta.get("ini", []):
-        if not os.path.exists(spec["path"]):
+        if not os.path.lexists(spec["path"]):
             ctx.log(f"{name}: ini file {spec['path']} missing (app not initialised yet?) -- skipped")
             continue
         ch, missing = ini_changes(spec)
@@ -304,14 +348,16 @@ def reconcile_app(appdir, ctx):
 
     # ---- report ----
     if compose_diff:
-        a = ctx.mask(yaml_dump(live) if live is not None else "")
-        b = ctx.mask(yaml_dump(desired))
+        a = ctx.mask(yaml_dump(mask_ref_paths(src, live)) if live is not None else "")
+        b = ctx.mask(yaml_dump(mask_ref_paths(src, desired)))
         diff = "".join(difflib.unified_diff(a.splitlines(True), b.splitlines(True), "live", "git", n=2))
         ctx.log(f"{name}: compose differs{' (app absent: create)' if not app else ''}\n{diff}")
     for fs, content, cur in file_changes:
-        a, b = ctx.mask(cur or ""), ctx.mask(content)
-        diff = "".join(difflib.unified_diff(a.splitlines(True), b.splitlines(True), "live", "git", n=1))
-        ctx.log(f"{name}: file {fs['dest']} differs\n{diff}")
+        # never print file contents: templated files carry secrets, and the OLD values are not maskable
+        old_l, new_l = (cur or "").splitlines(), content.splitlines()
+        changed = sum(1 for x in difflib.ndiff(old_l, new_l) if x[:2] in ("+ ", "- "))
+        ctx.log(f"{name}: file {fs['dest']} differs ({'absent' if cur is None else f'{changed} changed lines'};"
+                f" contents not logged)")
     for spec, ch in ini_todo:
         ctx.log(f"{name}: ini {spec['path']}: " + ", ".join(f"{k}: {o!r} -> {n!r}" for k, (o, n) in ch.items()))
     if ctx.dry:
@@ -323,11 +369,12 @@ def reconcile_app(appdir, ctx):
         if ini_todo and app:
             ctx.log(f"{name}: stopping to patch ini")
             midclt("app.stop", name, job=True)
+        bdir = os.path.join(ctx.cfg["state_dir"], "backup", name)
         for spec, _ in ini_todo:
-            ini_apply(spec)
+            ini_apply(spec, bdir)
         for fs, content, cur in file_changes:
             prev_files.append((fs, cur))
-            write_file(fs["dest"], content, fs.get("owner"), int(str(fs.get("mode", "0600")), 8))
+            write_file(fs["dest"], content, fs.get("owner"), int(str(fs.get("mode", "0600")), 8), bdir)
         if compose_diff:
             deploy_compose(name, desired, exists=bool(app))
             ctx.log(f"{name}: compose {'updated' if app else 'created'}")

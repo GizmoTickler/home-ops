@@ -1,6 +1,8 @@
 # Scrutiny (SMART dashboard) on nas01 (TrueNAS custom app). Reconciled from git by truenas/reconciler
 # (see truenas/README.md). Migrated 2026-11-11 from the TrueNAS catalog app 1.3.19: same image digest, ports,
 # env; data moved from ix-volumes to flashstor/apps/scrutiny-{config,influxdb}.
+# InfluxDB (8086) is NOT published: scrutiny reaches it on 127.0.0.1 inside the container; the catalog app
+# exposed it on every nas01 interface as host port 31055 with default credentials (removed 2026-11-11).
 services:
   scrutiny:
     cap_add:
@@ -58,10 +60,6 @@ services:
     image: ghcr.io/analogj/scrutiny:v0.10.0-omnibus@sha256:90062edac57a2bd891d641344184f5f730f19394b1124f6fc53904a3d8cb21c2
     platform: linux/amd64
     ports:
-    - mode: ingress
-      protocol: tcp
-      published: 31055
-      target: 8086
     - host_ip: 192.168.123.153
       mode: ingress
       protocol: tcp
