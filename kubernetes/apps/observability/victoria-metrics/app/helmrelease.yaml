@@ -108,7 +108,7 @@ spec:
             cpu: 840m
             memory: 3024Mi
           limits:
-            memory: 4128Mi
+            memory: 6Gi
       ingress:
         enabled: false
       route:

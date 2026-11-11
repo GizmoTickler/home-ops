@@ -29,14 +29,7 @@ spec:
       fsGroupChangePolicy: OnRootMismatch
     resources:
       requests:
-        cpu: 10m
-        memory: 208Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        memory: 336Mi
-    webhook:
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          memory: 192Mi
+        memory: 1Gi

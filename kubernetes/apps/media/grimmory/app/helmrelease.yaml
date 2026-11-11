@@ -103,7 +103,7 @@ spec:
                 cpu: 840m
                 memory: 544Mi
               limits:
-                memory: 736Mi
+                memory: 1536Mi
       # Grimmory finds new files through inotify, which never fires for writes Chaptarr
       # makes over NFS from another node. Refresh the library on a schedule instead, as a
       # least-privilege user (manage-library on the Ebooks library only).

@@ -17,22 +17,22 @@ spec:
       enabled: true
     resources:
       requests:
-        cpu: 10m
-        memory: 80Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        memory: 208Mi
+        memory: 512Mi
     webhook:
       replicaCount: 2
       resources:
         requests:
-          cpu: 10m
-          memory: 64Mi
+          cpu: 50m
+          memory: 128Mi
         limits:
-          memory: 192Mi
+          memory: 512Mi
     certController:
       resources:
         requests:
-          cpu: 10m
-          memory: 80Mi
+          cpu: 50m
+          memory: 256Mi
         limits:
-          memory: 208Mi
+          memory: 1Gi
