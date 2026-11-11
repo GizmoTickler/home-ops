@@ -21,7 +21,7 @@
     "mirror.gcr.io": "docker.io",
   },
   platformAutomerge: true,
-  prConcurrentLimit: 5,
+  prConcurrentLimit: 10,
   dependencyDashboardTitle: "Renovate Dashboard 🤖",
   suppressNotifications: [
     "prEditedNotification",
@@ -42,6 +42,11 @@
       matchFileNames: ["truenas/apps/**"],
       matchUpdateTypes: ["minor", "major"],
       automerge: false,
+    },
+    {
+      description: "nas01 apps (truenas/apps) take free PR slots first: the nas01 reconciler deploys them on merge",
+      matchFileNames: ["truenas/apps/**"],
+      prPriority: 5,
     },
     {
       description: "Ignore unpinnable claude-code-action beta tag",
