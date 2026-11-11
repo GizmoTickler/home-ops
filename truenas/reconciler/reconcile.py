@@ -131,6 +131,13 @@ def app_state(name):
     return r[0] if r else None
 
 
+def ensure_started(name, ctx):
+    a = app_state(name)
+    if a and a.get("state") in ("STOPPED", "CRASHED"):
+        ctx.log(f"{name}: state {a.get('state')} after deploy -- starting")
+        midclt("app.start", name, job=True)
+
+
 def wait_running(name, ctx):
     deadline = time.time() + RUN_TIMEOUT
     st = None
@@ -452,13 +459,18 @@ def reconcile_app(appdir, ctx):
         return True
 
     # ---- apply, with rollback ----
-    prev_files = []
+    # Every change -- compose, templated files AND ini patches -- is captured first so a rollback restores all of
+    # them, and the app is explicitly (re)started at the end of both paths: on TrueNAS `app.update` does NOT start
+    # an app that is stopped (2026-11-11: qbittorrent was left STOPPED after an ini patch + update).
+    prev_files, prev_ini = [], []
+    bdir = os.path.join(ctx.cfg["state_dir"], "backup", name)
     try:
         if ini_todo and app:
             ctx.log(f"{name}: stopping to patch ini")
             midclt("app.stop", name, job=True)
-        bdir = os.path.join(ctx.cfg["state_dir"], "backup", name)
         for spec, _ in ini_todo:
+            text, st = read_file_st(spec["path"])
+            prev_ini.append((spec["path"], text, st))
             ini_apply(spec, bdir)
         for fs, content, cur in file_changes:
             prev_files.append((fs, cur))
@@ -469,8 +481,7 @@ def reconcile_app(appdir, ctx):
         elif file_changes or dirs_changed:
             midclt("app.redeploy", name, job=True)
             ctx.log(f"{name}: redeployed for file changes")
-        if ini_todo and not compose_diff and not file_changes:
-            midclt("app.start", name, job=True)
+        ensure_started(name, ctx)
         if wait_running(name, ctx) and healthy(meta, name, ctx):
             ctx.log(f"{name}: converged (RUNNING{', healthy' if meta.get('health') else ''})")
             ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
@@ -479,6 +490,11 @@ def reconcile_app(appdir, ctx):
     except Exception as e:
         ctx.log(f"{name}: deploy FAILED: {ctx.mask(str(e))} -- rolling back")
         try:
+            if prev_ini:
+                midclt("app.stop", name, job=True)
+            for path, text, st in prev_ini:
+                write_file(path, text, f"{st.st_uid}:{st.st_gid}", st.st_mode & 0o777)
+                ctx.log(f"{name}: restored {path}")
             for fs, cur in prev_files:
                 if cur is not None:
                     write_file(fs["dest"], cur, fs.get("owner"), int(str(fs.get("mode", "0600")), 8))
@@ -487,7 +503,9 @@ def reconcile_app(appdir, ctx):
                 ctx.log(f"{name}: rolled back to previous compose")
             elif prev_files:
                 midclt("app.redeploy", name, job=True)
-            wait_running(name, ctx)
+            ensure_started(name, ctx)
+            ok = wait_running(name, ctx)
+            ctx.log(f"{name}: after rollback: {'RUNNING' if ok else 'NOT RUNNING -- needs attention'}")
         except Exception as e2:
             ctx.log(f"{name}: ROLLBACK FAILED: {ctx.mask(str(e2))}")
         return False
