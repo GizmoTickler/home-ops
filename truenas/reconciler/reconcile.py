@@ -163,7 +163,7 @@ def healthy(meta, name, ctx):
     if not h:
         return True
     import socket, ssl
-    deadline, err = time.time() + 120, None
+    deadline, err = time.time() + int(h.get("timeout", 120)), None
     while time.time() < deadline:
         try:
             if "tcp" in h and h.get("netns"):
@@ -186,7 +186,9 @@ def healthy(meta, name, ctx):
         except Exception as e:  # noqa: BLE001
             err = e
             time.sleep(5)
-    ctx.log(f"{name}: health probe failed: {err}")
+    ps = subprocess.run(["docker", "ps", "-a", "--filter", f"label=com.docker.compose.project=ix-{name}",
+                         "--format", "{{.Names}} {{.Status}}"], capture_output=True, text=True, timeout=30).stdout
+    ctx.log(f"{name}: health probe failed: {err}; containers: {ps.strip().replace(chr(10), '; ')}")
     return False
 
 

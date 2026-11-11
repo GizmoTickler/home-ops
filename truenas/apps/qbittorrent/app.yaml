@@ -6,14 +6,16 @@ ini:
       'WebUI\Port': "8080"
       'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
       'WebUI\AuthSubnetWhitelistEnabled': "true"
-      # Bind torrent traffic to the VPN leg by interface (eth0 = vpn macvlan, 192.168.90.20; eth1 = mgmt).
-      # Interface binding is the stronger kill-switch; matches the live config qBittorrent wrote 2026-11-11.
-      'Session\Interface': "eth0"
-      'Session\InterfaceName': "eth0"
-      'Session\InterfaceAddress': ""
+      # Bind torrent traffic to the VPN leg by ADDRESS: 192.168.90.20 exists only on the vpn macvlan. Binding by
+      # interface name is NOT stable -- Docker may attach mgmt as eth0 on a recreate (seen 2026-11-11: torrents bound
+      # to the internal mgmt leg = disconnected; no leak, since mgmt is internal and the default route is vpn).
+      'Session\Interface': ""
+      'Session\InterfaceName': ""
+      'Session\InterfaceAddress': "192.168.90.20"
 health:
   tcp: 127.0.0.1:8080      # probed inside the container (netns): the host can't reach its own macvlan IPs
   netns: qbittorrent
+  timeout: 300            # large torrent sets load fastresume before the WebUI listens
 ui:
   title: qBittorrent
   description: "Torrent client — VPN-only egress on VLAN 90"
