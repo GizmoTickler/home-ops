@@ -101,9 +101,9 @@ cluster:
         storage_nics:
           - { vlan: 1201, mac: "BC:24:11:3B:E0:50", ip: 192.168.201.20/24, bridge: vmbr201, pf: nic7, vf: 1 } # net3
           - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24, bridge: vmbr202, pf: nic6, vf: 1 } # net4
-        boot_storage: vm-ssd
-        cpu_affinity: "0-7,32-39"
-        numa_node: 0
+        boot_storage: nvme-fast  # P3700 mirror, 2026-11-11
+        cpu_affinity: "0,15,24-32,47,56-63"  # shared k8s/infra pool, 2026-11-11
+        numa_node: 1
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV6484011X1P2DGN
     - name: k8s-1
@@ -117,8 +117,8 @@ cluster:
         storage_nics:
           - { vlan: 1201, mac: "BC:24:11:6B:64:25", ip: 192.168.201.21/24, bridge: vmbr201, pf: nic7, vf: 2 } # net3
           - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24, bridge: vmbr202, pf: nic6, vf: 2 } # net4
-        boot_storage: vm-ssd
-        cpu_affinity: "16-23,48-55"
+        boot_storage: nvme-fast  # P3700 mirror, 2026-11-11
+        cpu_affinity: "0,15,24-32,47,56-63"  # shared k8s/infra pool, 2026-11-11
         numa_node: 1
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101691P2DGN
@@ -133,9 +133,9 @@ cluster:
         storage_nics:
           - { vlan: 1201, mac: "BC:24:11:B3:CD:67", ip: 192.168.201.22/24, bridge: vmbr201, pf: nic7, vf: 3 } # net3
           - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24, bridge: vmbr202, pf: nic6, vf: 3 } # net4
-        boot_storage: vm-ssd
-        cpu_affinity: "8-15,40-47"
-        numa_node: 0
+        boot_storage: nvme-fast  # P3700 mirror, 2026-11-11
+        cpu_affinity: "0,15,24-32,47,56-63"  # shared k8s/infra pool, 2026-11-11
+        numa_node: 1
         ceph:
           mode: none  # Rook decommissioned 2026-07-21; former OSD disk: ata-INTEL_SSDSC2BB012T7_PHDV650101LU1P2DGN
 
