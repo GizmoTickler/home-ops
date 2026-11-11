@@ -113,3 +113,18 @@ maxPods: 250
 # thresholds so kubelet garbage collection starts before workloads are affected.
 imageGCHighThresholdPercent: 60
 imageGCLowThresholdPercent: 50
+# Reserve node resources for the OS and kubelet/containerd so pods cannot starve them
+# (allocatable was equal to capacity). evictionHard replaces kubelet's defaults wholesale,
+# so the default disk/inode thresholds are restated alongside the memory one.
+systemReserved:
+  cpu: 500m
+  memory: 2Gi
+kubeReserved:
+  cpu: 500m
+  memory: 1Gi
+evictionHard:
+  memory.available: 500Mi
+  nodefs.available: 10%
+  nodefs.inodesFree: 5%
+  imagefs.available: 15%
+  imagefs.inodesFree: 5%
