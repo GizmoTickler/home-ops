@@ -48,7 +48,6 @@ type VMProfile struct {
 	StorageNICs    []StorageNIC `yaml:"storage_nics,omitempty"`    // optional NVMe-oF storage fabric NICs (VLANs 1201-1202)
 	BootStorage    string       `yaml:"boot_storage,omitempty"`    // pool/datastore for the boot disk
 	OpenEBSStorage string       `yaml:"openebs_storage,omitempty"` // pool/datastore for the OpenEBS/data disk
-	ScratchStorage string       `yaml:"scratch_storage,omitempty"` // pool for the NVMe download-scratch disk (Flatcar scsi4)
 	CPUAffinity    string       `yaml:"cpu_affinity,omitempty"`    // host core pinning (e.g. "0-7,32-39")
 	NUMANode       *int         `yaml:"numa_node,omitempty"`       // host NUMA node
 	MemoryMB       int          `yaml:"memory_mb,omitempty"`       // per-node memory override (NUMA binding sizes to it); 0 = provider default
@@ -163,7 +162,6 @@ type ProviderVMProfile struct {
 	MacVPN         string   `yaml:"mac_vpn,omitempty"`
 	BootStorage    string   `yaml:"boot_storage,omitempty"`
 	OpenEBSStorage string   `yaml:"openebs_storage,omitempty"`
-	ScratchStorage string   `yaml:"scratch_storage,omitempty"`
 	CPUAffinity    string   `yaml:"cpu_affinity,omitempty"`
 	NUMANode       *int     `yaml:"numa_node,omitempty"`
 	MemoryMB       int      `yaml:"memory_mb,omitempty"`
@@ -188,10 +186,8 @@ type VMDefaults struct {
 	CoresPerSocket int    `yaml:"cores_per_socket,omitempty"`
 	BootDiskGB     int    `yaml:"boot_disk_gb,omitempty"`
 	OpenEBSDiskGB  int    `yaml:"openebs_disk_gb,omitempty"`
-	ScratchDiskGB  int    `yaml:"scratch_disk_gb,omitempty"` // NVMe download-scratch disk size (0 disables)
 	BootStorage    string `yaml:"boot_storage,omitempty"`    // default pool/datastore for boot disks
 	OpenEBSStorage string `yaml:"openebs_storage,omitempty"` // default pool/datastore for data disks
-	ScratchStorage string `yaml:"scratch_storage,omitempty"` // default pool for the NVMe scratch disk
 	// Ceph retains the default legacy OSD-disk passthrough configuration for
 	// the nodes[].vm.ceph compatibility key. Per-node configuration overrides it.
 	Ceph                  CephDisk              `yaml:"ceph,omitempty"`
@@ -847,7 +843,6 @@ func validate(c *Config) error {
 		{"hypervisors.proxmox.vm.cores", c.Hypervisors.Proxmox.VM.Cores},
 		{"hypervisors.proxmox.vm.boot_disk_gb", c.Hypervisors.Proxmox.VM.BootDiskGB},
 		{"hypervisors.proxmox.vm.openebs_disk_gb", c.Hypervisors.Proxmox.VM.OpenEBSDiskGB},
-		{"hypervisors.proxmox.vm.scratch_disk_gb", c.Hypervisors.Proxmox.VM.ScratchDiskGB},
 		{"hypervisors.proxmox.vm.network_mtu", c.Hypervisors.Proxmox.VM.NetworkMTU},
 		{"hypervisors.proxmox.vm.network_queues", c.Hypervisors.Proxmox.VM.NetworkQueues},
 		{"hypervisors.proxmox.vm.network_queue_overrides.net0", c.Hypervisors.Proxmox.VM.NetworkQueueOverrides.Net0},

@@ -71,8 +71,6 @@ func defaultNode(name, ip string, vmid int, mac, affinity string, numa int, lega
 	talosProfile.BootStorage = talosBootStorage
 	flatcarProfile := defaultProviderVMProfile(vmid, mac, affinity, numa, legacyOSDDiskByID)
 	flatcarProfile.BootStorage = flatcarBootStorage
-	// Local NVMe download-scratch stripe (pve nvme-scratch pool, scsi4).
-	flatcarProfile.ScratchStorage = "nvme-scratch"
 	vsphereProfile := defaultVSphereProviderVMProfile(name, mac)
 	return Node{
 		Name: name,
@@ -365,9 +363,6 @@ func applyProxmoxVMDefaults(vm *VMDefaults) {
 	if vm.OpenEBSDiskGB == 0 {
 		vm.OpenEBSDiskGB = 800
 	}
-	if vm.ScratchDiskGB == 0 {
-		vm.ScratchDiskGB = 400
-	}
 	if vm.BootStorage == "" {
 		vm.BootStorage = "nvme1"
 	}
@@ -522,9 +517,6 @@ func applyVMProfile(out *VMProfile, override VMProfile) {
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
 	}
-	if override.ScratchStorage != "" {
-		out.ScratchStorage = override.ScratchStorage
-	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity
 	}
@@ -555,9 +547,6 @@ func applyProviderProfile(out *ProviderVMProfile, override ProviderVMProfile) {
 	}
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
-	}
-	if override.ScratchStorage != "" {
-		out.ScratchStorage = override.ScratchStorage
 	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity
@@ -604,9 +593,6 @@ func applyProviderVMProfile(out *VMProfile, override ProviderVMProfile) {
 	}
 	if override.OpenEBSStorage != "" {
 		out.OpenEBSStorage = override.OpenEBSStorage
-	}
-	if override.ScratchStorage != "" {
-		out.ScratchStorage = override.ScratchStorage
 	}
 	if override.CPUAffinity != "" {
 		out.CPUAffinity = override.CPUAffinity

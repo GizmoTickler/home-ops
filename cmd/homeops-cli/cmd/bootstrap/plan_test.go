@@ -171,3 +171,9 @@ func TestBootstrapPlanRejectsUnknownProviderAndOutput(t *testing.T) {
 	_, err = renderBootstrapPlan(bootstrapPlan{}, "yaml")
 	require.Error(t, err)
 }
+
+func TestInitialBootstrapNamespacesExcludeRetiredOpenEBS(t *testing.T) {
+	namespaces := initialBootstrapNamespaces()
+	assert.NotContains(t, namespaces, "openebs-system", "OpenEBS was removed from the cluster")
+	assert.Contains(t, namespaces, "scale-csi")
+}

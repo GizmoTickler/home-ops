@@ -222,20 +222,16 @@ cleanup commands.
 
 `cluster replace-node --node <name>` rebuilds one existing production control
 plane (a `cluster.nodes` entry; never the test node) in place onto its
-configured OS, keeping its name, IPs, MACs, VMID, SR-IOV VFs and its `scsi4`
-scratch volume. It refuses a node whose configured OS is flatcar unless
+configured OS, keeping its name, IPs, MACs, VMID and SR-IOV VFs. It refuses a node whose configured OS is flatcar unless
 `--allow-same-os`, and requires a pinned image (`--image-path`/`--image-volume`)
 unless `--image-stream-latest`. Sequence: preconditions (target is a node and a
 `cluster.nodes` entry, every other node Ready, all etcd members healthy with at
-least 3 besides the target, VM/VMID match, placeholder VMID 9000+vmid free);
-cordon + drain; remove its etcd member and Node object; park `scsi4` on a
-placeholder VM (`qm move-disk ... --target-vmid`) and destroy the old VM;
-`ssh-keygen -R`; mint join material on the first other control plane; deploy
-powered off, swap the new empty `scsi4` for the preserved one (verified by ZFS
-guid), destroy the placeholder, start, join; wait Ready; smoke test; uncordon;
-post-checks (etcd count restored and healthy, expected osImage, Cilium agent
-Ready); invalidate the token. A failure after the volume left the VM prints
-manual recovery commands; the preserved volume is never deleted.
+least 3 besides the target, VM/VMID match); cordon + drain; remove its etcd
+member and Node object; `qm stop` + `qm destroy` the old VM (with every disk
+attached to it; nothing is preserved); `ssh-keygen -R`; mint join material on
+the first other control plane; deploy and start the new VM, join; wait Ready;
+smoke test; uncordon; post-checks (etcd count restored and healthy, expected
+osImage, Cilium agent Ready); invalidate the token (also on failure).
 
 ```bash
 homeops-cli cluster replace-node --node k8s-2 --plan
@@ -447,8 +443,9 @@ failure. `flatcar os-status` skips `os: fcos` nodes with a warning.
   passes only when containerd (and, once joined, kubelet) is active.
 - **Other:** chronyd instead of timesyncd (same NTP servers), an empty
   `/etc/systemd/zram-generator.conf` (no zram swap), and `ublk_drv` + `nvme_tcp`
-  added to the module list. The scratch disk (`scsi4`, label `openebs-nvme`) is
-  reused, never wiped, exactly as on Flatcar.
+  added to the module list. Neither OS provisions a node-local data disk: the
+  NVMe download-scratch disk (`scsi4`, label `openebs-nvme`) was retired on
+  2026-11-11.
 
 Allow for one extra reboot on first boot (greenboot layering) before
 `kubeadm` becomes available.

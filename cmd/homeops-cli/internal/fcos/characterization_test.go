@@ -144,12 +144,11 @@ func TestFCOSGoldenStorageFabricMatchesFlatcar(t *testing.T) {
 	}
 }
 
-// TestFCOSGoldenKeepsScratchDiskFilesystem pins the node-local NVMe scratch
-// disk handling to the Flatcar template byte-for-byte: the disk carries live
-// OpenEBS hostpath PVs across a boot-disk rebuild, so it must never be wiped,
-// and it must be mounted at /var/mnt/nvme-hostpath on every boot by the
-// explicit mount unit (the Flatcar template does not use with_mount_unit).
-func TestFCOSGoldenKeepsScratchDiskFilesystem(t *testing.T) {
+// TestIgnitionHasNoScratchDisk pins the retirement of the node-local NVMe
+// download-scratch disk (Proxmox scsi4, ext4 label openebs-nvme, mounted at
+// /var/mnt/nvme-hostpath) on 2026-11-11: neither the FCOS nor the Flatcar
+// Ignition formats, mounts or tunes it, so a node with no scsi4 boots clean.
+func TestIgnitionHasNoScratchDisk(t *testing.T) {
 	restore := config.SetForTesting(&config.Config{})
 	defer restore()
 	env := charEnv("k8s-0", "192.168.122.10", "00:a0:98:28:c8:83")
@@ -164,25 +163,19 @@ func TestFCOSGoldenKeepsScratchDiskFilesystem(t *testing.T) {
 			Directories []map[string]any `json:"directories"`
 		} `json:"storage"`
 	}
-	var fcosDoc, flatcarDoc storageDoc
-	require.NoError(t, json.Unmarshal(fcosIgn, &fcosDoc))
-	require.NoError(t, json.Unmarshal(flatcarIgn, &flatcarDoc))
-	assert.Equal(t, flatcarDoc.Storage.Filesystems, fcosDoc.Storage.Filesystems)
-	assert.Equal(t, flatcarDoc.Storage.Directories, fcosDoc.Storage.Directories)
-	require.Len(t, fcosDoc.Storage.Filesystems, 1)
-	fs := fcosDoc.Storage.Filesystems[0]
-	assert.Equal(t, "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi4", fs["device"])
-	assert.Equal(t, "ext4", fs["format"])
-	assert.Equal(t, "openebs-nvme", fs["label"])
-	assert.Equal(t, false, fs["wipeFilesystem"], "the scratch disk must never be reformatted")
-
-	mount := ignitionSystemdUnits(t, fcosIgn)[`var-mnt-nvme\x2dhostpath.mount`]
-	require.NotNil(t, mount.Enabled)
-	assert.True(t, *mount.Enabled)
-	assert.Equal(t, ignitionSystemdUnits(t, flatcarIgn)[`var-mnt-nvme\x2dhostpath.mount`].Contents, mount.Contents)
-	assert.Contains(t, mount.Contents, "What=/dev/disk/by-label/openebs-nvme\n")
-	assert.Contains(t, mount.Contents, "Where=/var/mnt/nvme-hostpath\n")
-	assert.Contains(t, mount.Contents, "WantedBy=local-fs.target\n")
+	for name, ign := range map[string][]byte{"fcos": fcosIgn, "flatcar": flatcarIgnDecompressed(t, flatcarIgn)} {
+		var doc storageDoc
+		require.NoError(t, json.Unmarshal(ign, &doc), name)
+		assert.Empty(t, doc.Storage.Filesystems, "%s: no data filesystem is formatted", name)
+		assert.Empty(t, doc.Storage.Directories, "%s: no scratch mount point is created", name)
+		_, hasMount := ignitionSystemdUnits(t, ign)[`var-mnt-nvme\x2dhostpath.mount`]
+		assert.False(t, hasMount, "%s: no scratch mount unit", name)
+		_, hasWBT := ignitionFiles(t, ign)["/etc/udev/rules.d/99-scratch-wbt.rules"]
+		assert.False(t, hasWBT, "%s: no scratch WBT udev rule", name)
+		for _, needle := range []string{"scsi4", "nvme-hostpath", "openebs-nvme", "99-scratch-wbt.rules", "wbt_lat_usec"} {
+			assert.NotContains(t, string(ign), needle, "%s Ignition must not reference %s", name, needle)
+		}
+	}
 	assert.Equal(t, "k8s-0", ignitionFileContent(t, fcosIgn, "/etc/hostname"), "node names are unchanged")
 }
 

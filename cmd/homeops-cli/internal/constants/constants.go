@@ -95,7 +95,6 @@ const (
 	NSSelfHosted     = "self-hosted"
 	NSAutomation     = "automation"
 	NSAuth           = "auth"
-	NSOpenEBSSystem  = "openebs-system"
 	NSScaleCSI       = "scale-csi"
 	NSActionsRunner  = "actions-runner-system"
 	NSSystemUpgrade  = "system-upgrade"

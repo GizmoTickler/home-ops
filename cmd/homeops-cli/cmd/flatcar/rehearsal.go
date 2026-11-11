@@ -29,8 +29,7 @@ type RehearsalDeployOptions struct {
 	Timeout     time.Duration
 	// Boot, when set, creates the VM powered off and hands it to Boot before
 	// its first start. Boot does any pre-boot disk work and must power the VM
-	// on; the kubeadm wait and join follow. Proxmox only (replace-node swaps
-	// the preserved scratch disk in here).
+	// on; the kubeadm wait and join follow. Proxmox only.
 	Boot func(context.Context) error
 }
 

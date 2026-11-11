@@ -189,8 +189,7 @@ func TestReplacePreconditionsQuorum(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, 4, pre.EtcdMembers, "expected membership after the rejoin: the others plus the rebuilt node")
-			assert.Equal(t, "nvme-scratch:vm-202-disk-0", pre.ScratchVolume)
-			assert.Equal(t, "111", pre.ScratchGUID)
+			assert.Empty(t, pve.commands, "preconditions never touch pve directly (no scratch disk to inspect)")
 		})
 	}
 }
@@ -204,7 +203,7 @@ func TestReplaceNodeChecks(t *testing.T) {
 	nodes[1].Ready = false
 	require.ErrorContains(t, checkReplaceNodes(nodes, spec), "k8s-1 is not Ready")
 
-	require.ErrorContains(t, checkReplaceVMs([]vmprov.VMSummary{{Name: "k8s-2", ID: "202"}, {Name: "x", ID: "9202"}}, spec), "placeholder VMID 9202 already exists")
+	require.NoError(t, checkReplaceVMs([]vmprov.VMSummary{{Name: "k8s-2", ID: "202"}, {Name: "x", ID: "9202"}}, spec))
 	require.ErrorContains(t, checkReplaceVMs([]vmprov.VMSummary{{Name: "other", ID: "202"}}, spec), "expected k8s-2")
 	require.ErrorContains(t, checkReplaceVMs(nil, spec), "does not exist")
 }
@@ -226,7 +225,7 @@ func (f *fakeReplaceOperations) record(name string) error {
 }
 
 func (f *fakeReplaceOperations) Preconditions(context.Context, rehearseNodeSpec) (replacePreflight, error) {
-	return replacePreflight{EtcdMembers: 4, ScratchVolume: "nvme-scratch:vm-202-disk-0", ScratchGUID: "111"}, f.record("preconditions")
+	return replacePreflight{EtcdMembers: 4}, f.record("preconditions")
 }
 func (f *fakeReplaceOperations) Drain(context.Context, rehearseNodeSpec, time.Duration) error {
 	return f.record("drain")
@@ -234,8 +233,8 @@ func (f *fakeReplaceOperations) Drain(context.Context, rehearseNodeSpec, time.Du
 func (f *fakeReplaceOperations) RemoveFromCluster(context.Context, rehearseNodeSpec) error {
 	return f.record("remove-member")
 }
-func (f *fakeReplaceOperations) PreserveScratch(context.Context, rehearseNodeSpec, replacePreflight) (*scratchHold, error) {
-	return &scratchHold{PlaceholderVMID: 9202, Volume: "nvme-scratch:vm-9202-disk-0", GUID: "111"}, f.record("preserve-scratch")
+func (f *fakeReplaceOperations) DestroyVM(context.Context, rehearseNodeSpec) error {
+	return f.record("destroy-vm")
 }
 func (f *fakeReplaceOperations) ForgetHostKey(context.Context, rehearseNodeSpec) {
 	_ = f.record("forget-host-key")
@@ -246,17 +245,11 @@ func (f *fakeReplaceOperations) CreateJoinMaterial(context.Context, rehearseNode
 	}
 	return &flatcarinternal.KubeadmResult{BootstrapToken: testBootstrapToken}, nil
 }
-func (f *fakeReplaceOperations) Deploy(ctx context.Context, _ rehearseNodeSpec, _ replaceNodeOptions, _ flatcarinternal.KubeadmResult, boot func(context.Context) error) error {
+func (f *fakeReplaceOperations) Deploy(context.Context, rehearseNodeSpec, replaceNodeOptions, flatcarinternal.KubeadmResult) error {
 	if err := f.record("deploy"); err != nil {
 		return err
 	}
-	if err := boot(ctx); err != nil {
-		return err
-	}
 	return f.record("join")
-}
-func (f *fakeReplaceOperations) RestoreScratch(context.Context, rehearseNodeSpec, scratchHold) error {
-	return f.record("restore-scratch")
 }
 func (f *fakeReplaceOperations) WaitReady(context.Context, rehearseNodeSpec, time.Duration) (rehearseNodeReady, error) {
 	return rehearseNodeReady{KubeletVersion: "v1.36.2", CNIReady: true}, f.record("wait-ready")
@@ -280,8 +273,8 @@ func TestRunReplaceNodeStepOrder(t *testing.T) {
 	fake := &fakeReplaceOperations{}
 	report, err := runReplaceNode(context.Background(), testReplaceSpec(t, "k8s-2"), replaceNodeOptions{Timeout: time.Minute}, fake)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"preconditions", "drain", "remove-member", "preserve-scratch", "forget-host-key",
-		"join-material", "deploy", "restore-scratch", "join", "wait-ready", "smoke-test", "uncordon", "post-checks", "invalidate-token"}, fake.calls)
+	assert.Equal(t, []string{"preconditions", "drain", "remove-member", "destroy-vm", "forget-host-key",
+		"join-material", "deploy", "join", "wait-ready", "smoke-test", "uncordon", "post-checks", "invalidate-token"}, fake.calls)
 	assert.Equal(t, testBootstrapToken, fake.token)
 	assert.Equal(t, "PASS", report.Verdict)
 	for _, step := range report.Steps {
@@ -297,48 +290,33 @@ func TestRunReplaceNodeStopsAtFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, []string{"preconditions"}, fake.calls, "a failed precondition mutates nothing")
 
-	fake = &fakeReplaceOperations{failAt: "restore-scratch"}
+	fake = &fakeReplaceOperations{failAt: "destroy-vm"}
+	_, err = runReplaceNode(context.Background(), testReplaceSpec(t, "k8s-2"), replaceNodeOptions{Timeout: time.Minute}, fake)
+	require.ErrorContains(t, err, "destroy-vm failed")
+	assert.Equal(t, []string{"preconditions", "drain", "remove-member", "destroy-vm"}, fake.calls, "nothing is deployed after a failed teardown")
+
+	fake = &fakeReplaceOperations{failAt: "deploy"}
 	report, err := runReplaceNode(context.Background(), testReplaceSpec(t, "k8s-2"), replaceNodeOptions{Timeout: time.Minute}, fake)
-	require.ErrorContains(t, err, "restore-scratch failed")
-	assert.Equal(t, []string{"preconditions", "drain", "remove-member", "preserve-scratch", "forget-host-key",
-		"join-material", "deploy", "restore-scratch", "invalidate-token"}, fake.calls)
-	joined := strings.Join(report.RecoveryCommands, "\n")
-	assert.Contains(t, joined, "qm move-disk 9202 scsi4 --target-vmid 202 --target-disk scsi4")
-	assert.Contains(t, joined, "zfs guid 111")
-	assert.NotContains(t, joined, "qm destroy 202", "recovery never destroys the node VM")
+	require.ErrorContains(t, err, "deploy failed")
+	assert.Equal(t, []string{"preconditions", "drain", "remove-member", "destroy-vm", "forget-host-key",
+		"join-material", "deploy", "invalidate-token"}, fake.calls, "the bootstrap token is invalidated even on failure")
+	assert.Empty(t, report.RecoveryCommands)
 
 	var out bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 	require.NoError(t, writeReplaceReport(cmd, report, "table"))
-	assert.Contains(t, out.String(), "Manual recovery")
-	assert.Contains(t, out.String(), "qm move-disk 9202 scsi4 --target-vmid 202")
+	assert.NotContains(t, out.String(), "Manual recovery")
 }
 
-// --- scratch-disk swap against a simulated Proxmox host ---
+// --- VM teardown against a simulated Proxmox host ---
 
 type fakePVE struct {
-	vms       map[int]bool
-	running   map[int]bool
-	scsi4     map[int]string
-	guids     map[string]string
-	destroyed []string // guids of volumes destroyed
-	commands  []string
-	failOn    string
-	// copyOnMove simulates a move that leaves the source still attached.
-	copyOnMove bool
-	next       int
+	commands []string
+	failOn   string
 }
 
-func newFakePVE() *fakePVE {
-	return &fakePVE{
-		vms:     map[int]bool{202: true},
-		running: map[int]bool{202: true},
-		scsi4:   map[int]string{202: "nvme-scratch:vm-202-disk-0"},
-		guids:   map[string]string{"nvme-scratch:vm-202-disk-0": "111"},
-		next:    1,
-	}
-}
+func newFakePVE() *fakePVE { return &fakePVE{} }
 
 func swapPVE(t *testing.T, pve *fakePVE) {
 	t.Helper()
@@ -347,185 +325,29 @@ func swapPVE(t *testing.T, pve *fakePVE) {
 	t.Cleanup(func() { replacePVECommandFn = old })
 }
 
-func (f *fakePVE) destroyVolume(volume string) {
-	if volume == "" {
-		return
-	}
-	f.destroyed = append(f.destroyed, f.guids[volume])
-	delete(f.guids, volume)
-}
-
 func (f *fakePVE) run(_ context.Context, command string) (string, error) {
 	f.commands = append(f.commands, command)
 	if command == f.failOn {
 		return "", errors.New("simulated failure")
 	}
-	fields := strings.Fields(command)
-	id := func(i int) int { n, _ := strconv.Atoi(fields[i]); return n }
-	unquote := func(s string) string { return strings.Trim(s, "'") }
-	switch {
-	case strings.HasPrefix(command, "qm config "):
-		if !f.vms[id(2)] {
-			return "", fmt.Errorf("VM %d does not exist", id(2))
-		}
-		out := "name: vm\n"
-		if vol := f.scsi4[id(2)]; vol != "" {
-			out += "scsi4: " + vol + ",size=400G,ssd=1\n"
-		}
-		return out, nil
-	case strings.HasPrefix(command, "qm status "):
-		if f.running[id(2)] {
-			return "status: running\n", nil
-		}
-		return "status: stopped\n", nil
-	case strings.HasPrefix(command, "qm stop "):
-		f.running[id(2)] = false
-	case strings.HasPrefix(command, "qm start "):
-		f.running[id(2)] = true
-	case strings.HasPrefix(command, "qm create "):
-		if f.vms[id(2)] {
-			return "", fmt.Errorf("VM %d already exists", id(2))
-		}
-		f.vms[id(2)] = true
-	case strings.HasPrefix(command, "qm move-disk "):
-		from, to := id(2), id(5)
-		vol := f.scsi4[from]
-		moved := fmt.Sprintf("nvme-scratch:vm-%d-disk-%d", to, f.next)
-		f.next++
-		f.guids[moved] = f.guids[vol]
-		f.scsi4[to] = moved
-		if !f.copyOnMove {
-			delete(f.guids, vol)
-			delete(f.scsi4, from)
-		}
-	case strings.HasPrefix(command, "qm disk unlink "):
-		f.destroyVolume(f.scsi4[id(3)])
-		delete(f.scsi4, id(3))
-	case strings.HasPrefix(command, "qm destroy "):
-		f.destroyVolume(f.scsi4[id(2)])
-		delete(f.scsi4, id(2))
-		delete(f.vms, id(2))
-	case strings.HasPrefix(command, "pvesm path "):
-		_, name, _ := strings.Cut(unquote(fields[2]), ":")
-		return "/dev/zvol/nvme-scratch/" + name + "\n", nil
-	case strings.HasPrefix(command, "zfs get "):
-		ds := unquote(fields[len(fields)-1])
-		guid, ok := f.guids["nvme-scratch:"+strings.TrimPrefix(ds, "nvme-scratch/")]
-		if !ok {
-			return "", fmt.Errorf("dataset %s does not exist", ds)
-		}
-		return guid + "\n", nil
-	default:
-		return "", fmt.Errorf("unexpected command %q", command)
-	}
 	return "", nil
 }
 
-// mutations filters out the read-only probes.
-func (f *fakePVE) mutations() []string {
-	var out []string
-	for _, c := range f.commands {
-		if strings.HasPrefix(c, "qm config") || strings.HasPrefix(c, "qm status") || strings.HasPrefix(c, "pvesm path") || strings.HasPrefix(c, "zfs get") {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-// deployFresh simulates DeployRehearsalNode creating VM 202 powered off with
-// a new, empty scratch volume.
-func (f *fakePVE) deployFresh() {
-	f.vms[202] = true
-	f.running[202] = false
-	f.scsi4[202] = "nvme-scratch:vm-202-disk-7"
-	f.guids["nvme-scratch:vm-202-disk-7"] = "222"
-}
-
-func TestScratchSwapCommands(t *testing.T) {
+func TestReplaceDestroyVMCommands(t *testing.T) {
+	spec := testReplaceSpec(t, "k8s-2")
 	pve := newFakePVE()
 	swapPVE(t, pve)
-	spec := testReplaceSpec(t, "k8s-2")
-	ops := realReplaceOperations{}
-	pre := replacePreflight{ScratchVolume: "nvme-scratch:vm-202-disk-0", ScratchGUID: "111"}
-
-	hold, err := ops.PreserveScratch(context.Background(), spec, pre)
-	require.NoError(t, err)
-	assert.Equal(t, scratchHold{PlaceholderVMID: 9202, Volume: "nvme-scratch:vm-9202-disk-1", GUID: "111"}, *hold)
-	assert.Equal(t, []string{
-		"qm stop 202",
-		"qm create 9202 --name k8s-2-scratch-hold --memory 64 --cores 1",
-		"qm move-disk 202 scsi4 --target-vmid 9202 --target-disk scsi4",
-		"qm destroy 202 --destroy-unreferenced-disks 0",
-	}, pve.mutations())
-	assert.Empty(t, pve.destroyed, "destroying the old VM deletes no volume: scratch is parked")
-
-	pve.commands = nil
-	pve.deployFresh()
-	require.NoError(t, ops.RestoreScratch(context.Background(), spec, *hold))
-	assert.Equal(t, []string{
-		"qm disk unlink 202 --idlist scsi4 --force 1",
-		"qm move-disk 9202 scsi4 --target-vmid 202 --target-disk scsi4",
-		"qm destroy 9202 --destroy-unreferenced-disks 0",
-		"qm start 202",
-	}, pve.mutations())
-	assert.Equal(t, []string{"222"}, pve.destroyed, "only the new empty volume is deleted")
-	assert.Equal(t, "111", pve.guids[pve.scsi4[202]], "VM 202 boots with the preserved volume")
-	assert.True(t, pve.running[202])
-	assert.False(t, pve.vms[9202])
-	// The guid is verified on 202 after the move and before power-on.
-	start := slices.Index(pve.commands, "qm start 202")
-	moveBack := slices.Index(pve.commands, "qm move-disk 9202 scsi4 --target-vmid 202 --target-disk scsi4")
-	assert.Contains(t, pve.commands[moveBack+1:start], "qm config 202")
-}
-
-func TestScratchSwapFailuresNeverDeletePreservedVolume(t *testing.T) {
-	spec := testReplaceSpec(t, "k8s-2")
-	pre := replacePreflight{ScratchVolume: "nvme-scratch:vm-202-disk-0", ScratchGUID: "111"}
-	for _, tc := range []struct {
-		name  string
-		setup func(*fakePVE)
-		want  string
-		never []string
-	}{
-		{name: "move back fails", setup: func(p *fakePVE) {
-			p.failOn = "qm move-disk 9202 scsi4 --target-vmid 202 --target-disk scsi4"
-		}, want: "simulated failure", never: []string{"qm destroy 9202 --destroy-unreferenced-disks 0", "qm start 202"}},
-		{name: "new VM already carries the preserved volume", setup: func(p *fakePVE) {
-			p.scsi4[202] = "nvme-scratch:vm-202-disk-9"
-			p.guids["nvme-scratch:vm-202-disk-9"] = "111"
-		}, want: "refusing to unlink", never: []string{"qm disk unlink 202 --idlist scsi4 --force 1"}},
-		{name: "placeholder still holds a disk after the move", setup: func(p *fakePVE) {
-			p.copyOnMove = true
-		}, want: "not destroying it", never: []string{"qm destroy 9202 --destroy-unreferenced-disks 0", "qm start 202"}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			pve := newFakePVE()
-			swapPVE(t, pve)
-			ops := realReplaceOperations{}
-			hold, err := ops.PreserveScratch(context.Background(), spec, pre)
-			require.NoError(t, err)
-			pve.deployFresh()
-			tc.setup(pve)
-			pve.commands = nil
-			err = ops.RestoreScratch(context.Background(), spec, *hold)
-			require.ErrorContains(t, err, tc.want)
-			for _, never := range tc.never {
-				assert.NotContains(t, pve.commands, never)
-			}
-			assert.NotContains(t, pve.destroyed, "111", "the preserved volume is never deleted")
-		})
+	require.NoError(t, (realReplaceOperations{}).DestroyVM(context.Background(), spec))
+	assert.Equal(t, []string{"qm stop 202", "qm destroy 202 --destroy-unreferenced-disks 0"}, pve.commands)
+	for _, c := range pve.commands {
+		assert.NotContains(t, c, "scsi4", "no scratch-disk handling remains")
 	}
 
-	// A move away that leaves the disk on the old VM stops before destroying it.
-	pve := newFakePVE()
-	pve.copyOnMove = true
+	pve = newFakePVE()
+	pve.failOn = "qm stop 202"
 	swapPVE(t, pve)
-	hold, err := (realReplaceOperations{}).PreserveScratch(context.Background(), spec, pre)
-	require.ErrorContains(t, err, "VM 202 still lists scsi4")
-	require.NotNil(t, hold, "a hold is returned once the move ran, so recovery is printed")
-	assert.NotContains(t, pve.commands, "qm destroy 202 --destroy-unreferenced-disks 0")
-	assert.NotContains(t, pve.destroyed, "111")
+	require.ErrorContains(t, (realReplaceOperations{}).DestroyVM(context.Background(), spec), "simulated failure")
+	assert.Equal(t, []string{"qm stop 202"}, pve.commands, "a VM that did not stop is never destroyed")
 }
 
 // --- command layer ---
@@ -556,8 +378,10 @@ func TestReplaceNodePlanExecutesNothing(t *testing.T) {
 	assert.Empty(t, pve.commands)
 	text := out.String()
 	assert.Contains(t, text, "PLAN")
-	assert.Contains(t, text, "qm move-disk 202 scsi4 --target-vmid 9202 --target-disk scsi4")
-	assert.Contains(t, text, "qm move-disk 9202 scsi4 --target-vmid 202 --target-disk scsi4")
+	assert.Contains(t, text, "qm stop 202; qm destroy 202 --destroy-unreferenced-disks 0")
+	assert.NotContains(t, text, "scsi4")
+	assert.NotContains(t, text, "scratch")
+	assert.NotContains(t, text, "9202")
 	assert.Contains(t, text, "required at execution: --image-path or --image-volume")
 	for _, name := range replaceStepNames {
 		assert.Contains(t, text, name)
@@ -596,20 +420,21 @@ func TestReplaceNodeRequiresPinnedImage(t *testing.T) {
 	assert.Empty(t, fake.calls)
 }
 
-func TestReplaceDeployPassesImageAndBoot(t *testing.T) {
+func TestReplaceDeployPassesImageAndPowersOn(t *testing.T) {
 	swapRehearseRuntime(t)
 	spec := testReplaceSpec(t, "k8s-2")
-	booted := false
-	rehearseDeployNodeFn = func(ctx context.Context, options cmdflatcar.RehearsalDeployOptions) error {
+	called := false
+	rehearseDeployNodeFn = func(_ context.Context, options cmdflatcar.RehearsalDeployOptions) error {
+		called = true
 		assert.Equal(t, "k8s-2", options.Node.Name)
 		assert.Equal(t, "vm-ssd:vm-900-disk-0", options.ImageVolume)
-		require.NotNil(t, options.Boot, "production deploys are powered off until the scratch swap")
-		return options.Boot(ctx)
+		assert.Nil(t, options.Boot, "no pre-boot disk work: the VM is created powered on")
+		return nil
 	}
 	err := (realReplaceOperations{}).Deploy(context.Background(), spec, replaceNodeOptions{Timeout: time.Minute, ImageVolume: "vm-ssd:vm-900-disk-0"},
-		flatcarinternal.KubeadmResult{}, func(context.Context) error { booted = true; return nil })
+		flatcarinternal.KubeadmResult{})
 	require.NoError(t, err)
-	assert.True(t, booted)
+	assert.True(t, called)
 }
 
 func TestReplacePostChecks(t *testing.T) {

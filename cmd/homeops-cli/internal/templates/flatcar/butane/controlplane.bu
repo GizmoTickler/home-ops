@@ -29,19 +29,6 @@ storage:
       path: /etc/extensions/kubernetes.raw
       hard: false
       overwrite: true
-  directories:
-    # Mount point for the NVMe download-scratch hostpath filesystem
-    # (openebs-hostpath-nvme StorageClass; nzbget /incomplete).
-    - path: /var/mnt/nvme-hostpath
-      mode: 0755
-  filesystems:
-    # scsi4 is the node-local NVMe download-scratch disk (thin zvol on the pve
-    # nvme-scratch stripe). Contents are disposable, but preserving the
-    # filesystem keeps reprovisioning from racing an in-flight PVC cleanup.
-    - device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi4
-      format: ext4
-      label: openebs-nvme
-      wipe_filesystem: false
   files:
 {{ ENV.STORAGE_NETWORK_FILES }}
     # NOTE: the Kubernetes sysext .raw + sysupdate .conf files are intentionally NOT fetched
@@ -57,20 +44,6 @@ storage:
       overwrite: true
       contents:
         inline: "{{ ENV.NODE_NAME }}"
-
-    # Disable writeback throttling (WBT) on the NVMe scratch disk (Proxmox
-    # scsi4 — always enumerates at SCSI target *:0:0:4 even though the host
-    # adapter number varies per boot). WBT targets 2ms completion latency and
-    # clamped writeback to ~QD15 against the ZFS zvol backend, capping
-    # qbittorrent scratch writes at 279 MB/s with the disk 93% busy; with WBT
-    # off the same workload ran 347+ MB/s at 14% busy (validated live
-    # 2026-08-12). Scratch is bulk-throughput, not latency-sensitive.
-    # The scsi3 rule was dropped on 2026-08-24 with the SATA tier.
-    - path: /etc/udev/rules.d/99-scratch-wbt.rules
-      mode: 0644
-      contents:
-        inline: |
-          ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", KERNELS=="*:0:0:4", ATTR{queue/wbt_lat_usec}="0"
 
     # kube-vip resolves the apiserver via the hostname "kubernetes" for its leader-election
     # client; map it to the LOCAL apiserver so the control-plane VIP comes up during bootstrap
@@ -245,20 +218,6 @@ storage:
 
 systemd:
   units:
-    # Mount the OpenEBS scratch filesystem by label so the unit is independent
-    # of kernel /dev/sdX enumeration.
-    - name: var-mnt-nvme\x2dhostpath.mount
-      enabled: true
-      contents: |
-        [Unit]
-        Description=OpenEBS nvme-hostpath download scratch
-        [Mount]
-        What=/dev/disk/by-label/openebs-nvme
-        Where=/var/mnt/nvme-hostpath
-        Type=ext4
-        Options=defaults,noatime
-        [Install]
-        WantedBy=local-fs.target
     # These anchors best-effort seed nas01 transports across the storage VLANs.
     # nfsmount.conf guarantees max_connect=16 for every mount.nfs invocation.
     # No anchor-to-kubelet ordering is needed or wanted; none should delay kubelet.

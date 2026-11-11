@@ -13,7 +13,6 @@ import (
 	"time"
 
 	cmdflatcar "homeops-cli/cmd/flatcar"
-	"homeops-cli/internal/common"
 	"homeops-cli/internal/config"
 	flatcarinternal "homeops-cli/internal/flatcar"
 	vmprov "homeops-cli/internal/provider"
@@ -25,13 +24,9 @@ import (
 
 const (
 	replaceDefaultTimeout = 20 * time.Minute
-	// The placeholder that holds the preserved scratch volume while the node's
-	// VM is rebuilt gets VMID placeholderOffset + the node's VMID.
-	replacePlaceholderOffset = 9000
 	// Healthy etcd members, not counting the node being replaced, that must
 	// exist before its member is removed.
 	replaceMinOtherHealthyMembers = 3
-	replaceScratchSlot            = "scsi4"
 )
 
 // replacePVECommandFn runs one command on the Proxmox host as root. Swappable
@@ -56,25 +51,13 @@ type replaceNodeOptions struct {
 // replacePreflight is what the preconditions measured; the post-checks compare
 // against it.
 type replacePreflight struct {
-	EtcdMembers   int
-	ScratchVolume string
-	ScratchGUID   string
-}
-
-// scratchHold locates the preserved scratch volume while it is parked on the
-// placeholder VM. GUID is the ZFS guid, which survives the rename qm move-disk
-// performs, so it identifies the volume wherever it is attached.
-type scratchHold struct {
-	PlaceholderVMID int
-	Volume          string
-	GUID            string
+	EtcdMembers int
 }
 
 type replaceReport struct {
 	Node             string         `json:"node"`
 	IP               string         `json:"ip"`
 	VMID             int            `json:"vmid"`
-	PlaceholderVMID  int            `json:"placeholder_vmid"`
 	OS               string         `json:"os"`
 	InitNode         string         `json:"init_node"`
 	Image            string         `json:"image"`
@@ -89,11 +72,10 @@ type replaceOperations interface {
 	Preconditions(context.Context, rehearseNodeSpec) (replacePreflight, error)
 	Drain(context.Context, rehearseNodeSpec, time.Duration) error
 	RemoveFromCluster(context.Context, rehearseNodeSpec) error
-	PreserveScratch(context.Context, rehearseNodeSpec, replacePreflight) (*scratchHold, error)
+	DestroyVM(context.Context, rehearseNodeSpec) error
 	ForgetHostKey(context.Context, rehearseNodeSpec)
 	CreateJoinMaterial(context.Context, rehearseNodeSpec) (*flatcarinternal.KubeadmResult, error)
-	Deploy(context.Context, rehearseNodeSpec, replaceNodeOptions, flatcarinternal.KubeadmResult, func(context.Context) error) error
-	RestoreScratch(context.Context, rehearseNodeSpec, scratchHold) error
+	Deploy(context.Context, rehearseNodeSpec, replaceNodeOptions, flatcarinternal.KubeadmResult) error
 	WaitReady(context.Context, rehearseNodeSpec, time.Duration) (rehearseNodeReady, error)
 	SmokeTest(context.Context, rehearseNodeSpec, time.Duration) error
 	Uncordon(context.Context, rehearseNodeSpec) error
@@ -116,10 +98,10 @@ func newReplaceNodeCommand() *cobra.Command {
 		Long: `Rebuild an existing production control-plane node (a cluster.nodes entry)
 in place: same name, IPs, MACs, VMID and SR-IOV VFs, on the OS configured for
 it (nodes[].os / cluster.os). The node is drained, its etcd member and Node
-object removed, and its VM destroyed; the node-local scratch disk (scsi4) is
-parked on a placeholder VM (VMID 9000+vmid) and reattached to the new VM before
-its first boot. The new VM joins with fresh join material minted on another
-healthy control plane.
+object removed, and its VM destroyed together with every disk attached to it
+(nothing is preserved: the node carries no data beyond what it rejoins with).
+The new VM joins with fresh join material minted on another healthy control
+plane.
 
 It refuses the rehearsal test node and any name outside cluster.nodes, and
 requires every other node Ready and at least 3 healthy etcd members besides the
@@ -166,7 +148,7 @@ func executeReplaceNodeCommand(cmd *cobra.Command, opts replaceNodeOptions, oper
 		return err
 	}
 	confirmed, err := rehearseConfirmFn(fmt.Sprintf(
-		"Rebuild PRODUCTION control-plane node %s (VMID %d, IP %s) onto %s? It is drained, removed from etcd, and its VM destroyed (scratch disk preserved)",
+		"Rebuild PRODUCTION control-plane node %s (VMID %d, IP %s) onto %s? It is drained, removed from etcd, and its VM destroyed with all of its disks",
 		spec.Node.Name, spec.VMID, spec.Node.IP, cfg.OSForNode(spec.Node)), false)
 	if err != nil {
 		return fmt.Errorf("confirm node replacement: %w", err)
@@ -214,16 +196,6 @@ func buildReplaceNodeSpec(cfg *config.Config, opts replaceNodeOptions) (rehearse
 	if _, err := net.ParseMAC(profile.Mac); err != nil {
 		return rehearseNodeSpec{}, fmt.Errorf("cluster.nodes %s vm.mac %q is invalid: %w", node.Name, profile.Mac, err)
 	}
-	placeholder := replacePlaceholderOffset + profile.VMID
-	for _, other := range cfg.Cluster.Nodes {
-		if slices.Contains(productionVMIDs(other), placeholder) {
-			return rehearseNodeSpec{}, fmt.Errorf("placeholder VMID %d collides with production node %s", placeholder, other.Name)
-		}
-	}
-	if test := cfg.Cluster.TestNode; test != nil && test.VM.ForProvider("flatcar").VMID == placeholder {
-		return rehearseNodeSpec{}, fmt.Errorf("placeholder VMID %d collides with the test node", placeholder)
-	}
-
 	// The join material (and the etcd pod used for membership changes) must
 	// come from a control plane that survives the replacement.
 	initIdx := slices.IndexFunc(cfg.Cluster.Nodes, func(n config.Node) bool {
@@ -246,7 +218,7 @@ func buildReplaceNodeSpec(cfg *config.Config, opts replaceNodeOptions) (rehearse
 		return rehearseNodeSpec{}, err
 	}
 	if providerName != "proxmox" {
-		return rehearseNodeSpec{}, fmt.Errorf("cluster replace-node supports Proxmox only (the scratch-disk swap uses qm); hypervisors.default is %s", providerName)
+		return rehearseNodeSpec{}, fmt.Errorf("cluster replace-node supports Proxmox only (the VM teardown uses qm); hypervisors.default is %s", providerName)
 	}
 	if strings.TrimSpace(cfg.Volsync.CheckImage) == "" {
 		return rehearseNodeSpec{}, fmt.Errorf("volsync.check_image is required")
@@ -286,27 +258,11 @@ func replaceImageDescription(opts replaceNodeOptions) string {
 	return "<required at execution: --image-path or --image-volume (or --image-stream-latest)>"
 }
 
-func replacePlaceholderVMID(spec rehearseNodeSpec) int {
-	return replacePlaceholderOffset + spec.VMID
-}
-
-// The qm commands of the scratch-disk swap. Plan and execution share them so
-// --plan prints exactly what runs.
-func qmStopCommand(vmid int) string   { return fmt.Sprintf("qm stop %d", vmid) }
-func qmStartCommand(vmid int) string  { return fmt.Sprintf("qm start %d", vmid) }
-func qmStatusCommand(vmid int) string { return fmt.Sprintf("qm status %d", vmid) }
-func qmConfigCommand(vmid int) string { return fmt.Sprintf("qm config %d", vmid) }
-func qmCreatePlaceholderCommand(spec rehearseNodeSpec) string {
-	return fmt.Sprintf("qm create %d --name %s-scratch-hold --memory 64 --cores 1", replacePlaceholderVMID(spec), spec.Node.Name)
-}
-func qmMoveScratchCommand(from, to int) string {
-	return fmt.Sprintf("qm move-disk %d %s --target-vmid %d --target-disk %s", from, replaceScratchSlot, to, replaceScratchSlot)
-}
+// The qm commands of the VM teardown. Plan and execution share them so --plan
+// prints exactly what runs.
+func qmStopCommand(vmid int) string { return fmt.Sprintf("qm stop %d", vmid) }
 func qmDestroyCommand(vmid int) string {
 	return fmt.Sprintf("qm destroy %d --destroy-unreferenced-disks 0", vmid)
-}
-func qmUnlinkScratchCommand(vmid int) string {
-	return fmt.Sprintf("qm disk unlink %d --idlist %s --force 1", vmid, replaceScratchSlot)
 }
 
 func replaceDrainArgs(spec rehearseNodeSpec, timeout time.Duration) []string {
@@ -321,8 +277,8 @@ func expectedOSImage(osFamily string) string {
 }
 
 var replaceStepNames = []string{
-	"preconditions", "drain", "remove-member", "preserve-scratch", "forget-host-key",
-	"join-material", "deploy", "restore-scratch", "wait-ready", "smoke-test",
+	"preconditions", "drain", "remove-member", "destroy-vm", "forget-host-key",
+	"join-material", "deploy", "wait-ready", "smoke-test",
 	"uncordon", "post-checks", "invalidate-token",
 }
 
@@ -336,7 +292,7 @@ func newReplaceSteps(detail string) []rehearseStep {
 
 func newReplaceReport(cfg *config.Config, spec rehearseNodeSpec, opts replaceNodeOptions) replaceReport {
 	return replaceReport{
-		Node: spec.Node.Name, IP: spec.Node.IP, VMID: spec.VMID, PlaceholderVMID: replacePlaceholderVMID(spec),
+		Node: spec.Node.Name, IP: spec.Node.IP, VMID: spec.VMID,
 		OS: cfg.OSForNode(spec.Node), InitNode: spec.InitNode.Name, Image: replaceImageDescription(opts),
 	}
 }
@@ -347,20 +303,17 @@ func plannedReplaceReport(cfg *config.Config, spec rehearseNodeSpec, opts replac
 	report.Verdict = "PLAN"
 	report.TotalDuration = "0s"
 	report.Steps = newReplaceSteps("")
-	v, p, n := spec.VMID, replacePlaceholderVMID(spec), spec.Node.Name
+	v, n := spec.VMID, spec.Node.Name
 	details := []string{
-		fmt.Sprintf("node %s exists in Kubernetes and cluster.nodes; every other node Ready; all etcd members healthy with >=%d healthy besides %s; VM %d named %s exists with %s; VMID %d unused",
-			n, replaceMinOtherHealthyMembers, n, v, n, replaceScratchSlot, p),
+		fmt.Sprintf("node %s exists in Kubernetes and cluster.nodes; every other node Ready; all etcd members healthy with >=%d healthy besides %s; VM %d named %s exists",
+			n, replaceMinOtherHealthyMembers, n, v, n),
 		fmt.Sprintf("kubectl cordon %s; kubectl %s", n, strings.Join(replaceDrainArgs(spec, opts.Timeout), " ")),
 		fmt.Sprintf("remove the etcd member named %s / peer %s via etcd-%s; kubectl delete node %s",
 			n, "https://"+net.JoinHostPort(spec.Node.IP, "2380"), spec.InitNode.Name, n),
-		fmt.Sprintf("%s; %s; %s; verify zfs guid on %d; %s",
-			qmStopCommand(v), qmCreatePlaceholderCommand(spec), qmMoveScratchCommand(v, p), p, qmDestroyCommand(v)),
+		fmt.Sprintf("%s; %s (deletes every disk attached to VM %d)", qmStopCommand(v), qmDestroyCommand(v), v),
 		fmt.Sprintf("ssh-keygen -R %s", spec.Node.IP),
 		fmt.Sprintf("mint 30m bootstrap token + certificate key on %s (%s)", spec.InitNode.Name, spec.InitNode.IP),
-		fmt.Sprintf("render %s Ignition/join config; create VM %d powered off via %s (image: %s)", report.OS, v, spec.Provider, report.Image),
-		fmt.Sprintf("%s (new empty disk, guid-checked); %s; verify zfs guid on %d; %s; %s; then kubeadm join control plane",
-			qmUnlinkScratchCommand(v), qmMoveScratchCommand(p, v), v, qmDestroyCommand(p), qmStartCommand(v)),
+		fmt.Sprintf("render %s Ignition/join config; create and start VM %d via %s (image: %s); then kubeadm join control plane", report.OS, v, spec.Provider, report.Image),
 		fmt.Sprintf("wait up to %s for %s Ready and CNI", opts.Timeout, n),
 		fmt.Sprintf("run %s on %s and resolve %s", spec.CheckImage, n, rehearseKubernetesFQDN()),
 		fmt.Sprintf("kubectl uncordon %s", n),
@@ -375,9 +328,7 @@ func plannedReplaceReport(cfg *config.Config, spec rehearseNodeSpec, opts replac
 }
 
 // runReplaceNode executes the replacement in order and stops at the first
-// failure. Once the scratch volume has left the node's VM, any failure before
-// it is reattached leaves recovery commands in the report; the volume is never
-// deleted by this workflow.
+// failure.
 func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNodeOptions, ops replaceOperations) (replaceReport, error) {
 	started := rehearseNowFn()
 	cfg := rehearseConfigFn()
@@ -402,7 +353,7 @@ func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNode
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("%d etcd members healthy; others Ready; VM %d holds %s (zfs guid %s); init node %s", pre.EtcdMembers, spec.VMID, pre.ScratchVolume, pre.ScratchGUID, spec.InitNode.Name), nil
+		return fmt.Sprintf("%d etcd members healthy; others Ready; VM %d present; init node %s", pre.EtcdMembers, spec.VMID, spec.InitNode.Name), nil
 	}); err != nil {
 		return finish(err)
 	}
@@ -418,22 +369,9 @@ func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNode
 		return finish(err)
 	}
 
-	var hold *scratchHold
-	restored := false
-	recovery := func() {
-		if hold != nil && !restored {
-			report.RecoveryCommands = append(report.RecoveryCommands, scratchRecoveryCommands(spec, *hold)...)
-		}
-	}
-	if _, err := timedRehearseStep(step("preserve-scratch"), func() (string, error) {
-		var err error
-		hold, err = ops.PreserveScratch(ctx, spec, pre)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("scratch volume parked as %s on placeholder %d; VM %d destroyed", hold.Volume, hold.PlaceholderVMID, spec.VMID), nil
+	if _, err := timedRehearseStep(step("destroy-vm"), func() (string, error) {
+		return fmt.Sprintf("VM %d stopped and destroyed", spec.VMID), ops.DestroyVM(ctx, spec)
 	}); err != nil {
-		recovery()
 		return finish(err)
 	}
 	_, _ = timedRehearseStep(step("forget-host-key"), func() (string, error) {
@@ -454,18 +392,8 @@ func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNode
 		if err != nil {
 			return err
 		}
-		boot := func(bootCtx context.Context) error {
-			_, err := timedRehearseStep(step("restore-scratch"), func() (string, error) {
-				if err := ops.RestoreScratch(bootCtx, spec, *hold); err != nil {
-					return "", err
-				}
-				restored = true
-				return fmt.Sprintf("empty scsi4 deleted; preserved volume (zfs guid %s) reattached; placeholder %d destroyed; VM %d started", hold.GUID, hold.PlaceholderVMID, spec.VMID), nil
-			})
-			return err
-		}
 		if _, err := timedRehearseStep(step("deploy"), func() (string, error) {
-			return "Ignition staged; VM created powered off; scratch restored; booted; kubeadm join completed", ops.Deploy(ctx, spec, opts, *material, boot)
+			return "Ignition staged; VM created and booted; kubeadm join completed", ops.Deploy(ctx, spec, opts, *material)
 		}); err != nil {
 			return err
 		}
@@ -493,7 +421,6 @@ func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNode
 		})
 		return err
 	}()
-	recovery()
 
 	var tokenErr error
 	if material != nil {
@@ -509,23 +436,6 @@ func runReplaceNode(ctx context.Context, spec rehearseNodeSpec, opts replaceNode
 	return finish(errors.Join(runErr, tokenErr))
 }
 
-// scratchRecoveryCommands are the manual steps that return the preserved
-// scratch volume to the node's VM. None of them deletes it.
-func scratchRecoveryCommands(spec rehearseNodeSpec, hold scratchHold) []string {
-	v, p := spec.VMID, hold.PlaceholderVMID
-	return []string{
-		fmt.Sprintf("# on pve as root: the preserved scratch volume has zfs guid %s and is scsi4 of placeholder VM %d or VM %d. Never destroy a VM or unlink a disk that holds it.", hold.GUID, p, v),
-		fmt.Sprintf("%s; %s", qmConfigCommand(p), qmConfigCommand(v)),
-		fmt.Sprintf("# once VM %d exists again (stopped) and its scsi4 is NOT guid %s:", v, hold.GUID),
-		qmStopCommand(v),
-		qmUnlinkScratchCommand(v),
-		qmMoveScratchCommand(p, v),
-		fmt.Sprintf("zfs get -H -o value guid \"$(pvesm path \"$(qm config %d | sed -n 's/^scsi4: \\([^,]*\\).*/\\1/p')\" | sed 's#^/dev/zvol/##')\"   # must print %s", v, hold.GUID),
-		qmDestroyCommand(p),
-		qmStartCommand(v),
-	}
-}
-
 func writeReplaceReport(cmd *cobra.Command, report replaceReport, output string) error {
 	var rendered string
 	var err error
@@ -537,7 +447,7 @@ func writeReplaceReport(cmd *cobra.Command, report replaceReport, output string)
 			rows = append(rows, []string{s.Name, s.Status, s.Duration, s.Detail})
 		}
 		rows = append(rows, []string{"TOTAL", report.Verdict, report.TotalDuration,
-			fmt.Sprintf("%s VMID=%d IP=%s os=%s init=%s placeholder=%d", report.Node, report.VMID, report.IP, report.OS, report.InitNode, report.PlaceholderVMID)})
+			fmt.Sprintf("%s VMID=%d IP=%s os=%s init=%s", report.Node, report.VMID, report.IP, report.OS, report.InitNode)})
 		rendered = ui.Table([]string{"STEP", "STATUS", "DURATION", "DETAIL"}, rows)
 		if len(report.RecoveryCommands) > 0 {
 			rendered += "\n\nManual recovery (nothing below was run):\n  " + strings.Join(report.RecoveryCommands, "\n  ")
@@ -756,14 +666,6 @@ func (realReplaceOperations) Preconditions(ctx context.Context, spec rehearseNod
 	if err != nil {
 		return replacePreflight{}, fmt.Errorf("hypervisor inventory: %w", err)
 	}
-	volume, err := scratchVolumeOf(ctx, spec.VMID)
-	if err != nil {
-		return replacePreflight{}, err
-	}
-	guid, err := scratchVolumeGUID(ctx, volume)
-	if err != nil {
-		return replacePreflight{}, err
-	}
 	// Expected membership once the node rejoins: every other member plus the
 	// rebuilt node, whether or not an earlier attempt already removed it.
 	expected := 1
@@ -772,16 +674,12 @@ func (realReplaceOperations) Preconditions(ctx context.Context, spec rehearseNod
 			expected++
 		}
 	}
-	return replacePreflight{EtcdMembers: expected, ScratchVolume: volume, ScratchGUID: guid}, nil
+	return replacePreflight{EtcdMembers: expected}, nil
 }
 
 func checkReplaceVMs(summaries []vmprov.VMSummary, spec rehearseNodeSpec) error {
-	placeholder := strconv.Itoa(replacePlaceholderVMID(spec))
 	found := false
 	for _, vm := range summaries {
-		if vm.ID == placeholder {
-			return fmt.Errorf("placeholder VMID %s already exists (VM %q)", placeholder, vm.Name)
-		}
 		if vm.ID == strconv.Itoa(spec.VMID) {
 			if vm.Name != spec.Node.Name {
 				return fmt.Errorf("VMID %d is VM %q, expected %s", spec.VMID, vm.Name, spec.Node.Name)
@@ -801,56 +699,6 @@ func pveRun(ctx context.Context, command string) (string, error) {
 		return out, fmt.Errorf("pve: %s: %w", command, err)
 	}
 	return out, nil
-}
-
-// scratchVolumeOf returns the volume id attached as scsi4 ("" when none).
-func scratchVolumeOf(ctx context.Context, vmid int) (string, error) {
-	out, err := pveRun(ctx, qmConfigCommand(vmid))
-	if err != nil {
-		return "", err
-	}
-	volume := parseQMDisk(out, replaceScratchSlot)
-	if volume == "" {
-		return "", fmt.Errorf("VM %d has no %s scratch disk", vmid, replaceScratchSlot)
-	}
-	return volume, nil
-}
-
-// parseQMDisk returns the volume id of one disk slot in qm config output.
-func parseQMDisk(config, slot string) string {
-	for line := range strings.SplitSeq(config, "\n") {
-		value, ok := strings.CutPrefix(strings.TrimSpace(line), slot+":")
-		if !ok {
-			continue
-		}
-		volume, _, _ := strings.Cut(strings.TrimSpace(value), ",")
-		return volume
-	}
-	return ""
-}
-
-var zfsGUIDPattern = regexp.MustCompile(`^[0-9]+$`)
-
-// scratchVolumeGUID returns the ZFS guid behind a zfspool volume id; it is
-// stable across the rename qm move-disk performs.
-func scratchVolumeGUID(ctx context.Context, volume string) (string, error) {
-	path, err := pveRun(ctx, "pvesm path "+common.ShellQuote(volume))
-	if err != nil {
-		return "", err
-	}
-	dataset, ok := strings.CutPrefix(strings.TrimSpace(path), "/dev/zvol/")
-	if !ok || dataset == "" {
-		return "", fmt.Errorf("scratch volume %s is not a ZFS zvol (path %q)", volume, strings.TrimSpace(path))
-	}
-	out, err := pveRun(ctx, "zfs get -H -o value guid "+common.ShellQuote(dataset))
-	if err != nil {
-		return "", err
-	}
-	guid := strings.TrimSpace(out)
-	if !zfsGUIDPattern.MatchString(guid) {
-		return "", fmt.Errorf("unexpected zfs guid %q for %s", guid, dataset)
-	}
-	return guid, nil
 }
 
 func (realReplaceOperations) Drain(ctx context.Context, spec rehearseNodeSpec, timeout time.Duration) error {
@@ -890,124 +738,25 @@ func (realReplaceOperations) RemoveFromCluster(ctx context.Context, spec rehears
 	return fmt.Errorf("delete node: %w", err)
 }
 
-// PreserveScratch parks the node's scsi4 volume on a new placeholder VM and
-// destroys the old VM only once the volume has provably left it. The hold is
-// returned as soon as the move was attempted, so a failure after that point
-// still yields recovery commands.
-func (realReplaceOperations) PreserveScratch(ctx context.Context, spec rehearseNodeSpec, pre replacePreflight) (*scratchHold, error) {
-	v, p := spec.VMID, replacePlaceholderVMID(spec)
-	if _, err := pveRun(ctx, qmStopCommand(v)); err != nil {
-		return nil, err
+// DestroyVM stops the node's VM and destroys it with every disk attached to
+// it. Disks of other VMs are untouched (--destroy-unreferenced-disks 0).
+func (realReplaceOperations) DestroyVM(ctx context.Context, spec rehearseNodeSpec) error {
+	if _, err := pveRun(ctx, qmStopCommand(spec.VMID)); err != nil {
+		return err
 	}
-	volume, err := scratchVolumeOf(ctx, v)
-	if err != nil {
-		return nil, err
-	}
-	guid, err := scratchVolumeGUID(ctx, volume)
-	if err != nil {
-		return nil, err
-	}
-	if guid != pre.ScratchGUID {
-		return nil, fmt.Errorf("VM %d scsi4 is now %s (guid %s), not the volume seen in preconditions (guid %s)", v, volume, guid, pre.ScratchGUID)
-	}
-	if _, err := pveRun(ctx, qmCreatePlaceholderCommand(spec)); err != nil {
-		return nil, err
-	}
-	hold := &scratchHold{PlaceholderVMID: p, Volume: volume, GUID: guid}
-	if _, err := pveRun(ctx, qmMoveScratchCommand(v, p)); err != nil {
-		return hold, err
-	}
-	parked, err := scratchVolumeOf(ctx, p)
-	if err != nil {
-		return hold, err
-	}
-	parkedGUID, err := scratchVolumeGUID(ctx, parked)
-	if err != nil {
-		return hold, err
-	}
-	if parkedGUID != guid {
-		return hold, fmt.Errorf("placeholder %d scsi4 is guid %s, expected %s", p, parkedGUID, guid)
-	}
-	hold.Volume = parked
-	left, err := pveRun(ctx, qmConfigCommand(v))
-	if err != nil {
-		return hold, err
-	}
-	if still := parseQMDisk(left, replaceScratchSlot); still != "" {
-		return hold, fmt.Errorf("VM %d still lists scsi4 %s; not destroying it", v, still)
-	}
-	if _, err := pveRun(ctx, qmDestroyCommand(v)); err != nil {
-		return hold, err
-	}
-	return hold, nil
+	_, err := pveRun(ctx, qmDestroyCommand(spec.VMID))
+	return err
 }
 
 func (realReplaceOperations) ForgetHostKey(_ context.Context, spec rehearseNodeSpec) {
 	forgetRehearsalHostKey(spec.Node.IP)
 }
 
-func (realReplaceOperations) Deploy(ctx context.Context, spec rehearseNodeSpec, opts replaceNodeOptions, material flatcarinternal.KubeadmResult, boot func(context.Context) error) error {
+func (realReplaceOperations) Deploy(ctx context.Context, spec rehearseNodeSpec, opts replaceNodeOptions, material flatcarinternal.KubeadmResult) error {
 	return rehearseDeployNodeFn(ctx, cmdflatcar.RehearsalDeployOptions{
 		Node: spec.Node, Provider: spec.Provider, ImagePath: opts.ImagePath, ImageVolume: opts.ImageVolume,
-		Join: material, SSHUser: spec.SSHUser, Timeout: opts.Timeout, Boot: boot,
+		Join: material, SSHUser: spec.SSHUser, Timeout: opts.Timeout,
 	})
-}
-
-// RestoreScratch runs between VM creation and first boot: it deletes the new,
-// empty scsi4 (after proving it is not the preserved volume), moves the
-// preserved volume back, verifies it by ZFS guid, drops the empty placeholder
-// and starts the VM.
-func (realReplaceOperations) RestoreScratch(ctx context.Context, spec rehearseNodeSpec, hold scratchHold) error {
-	v, p := spec.VMID, hold.PlaceholderVMID
-	status, err := pveRun(ctx, qmStatusCommand(v))
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(status, "stopped") {
-		if _, err := pveRun(ctx, qmStopCommand(v)); err != nil {
-			return err
-		}
-	}
-	fresh, err := scratchVolumeOf(ctx, v)
-	if err != nil {
-		return err
-	}
-	freshGUID, err := scratchVolumeGUID(ctx, fresh)
-	if err != nil {
-		return err
-	}
-	if freshGUID == hold.GUID {
-		return fmt.Errorf("VM %d scsi4 %s already is the preserved volume (guid %s); refusing to unlink it", v, fresh, hold.GUID)
-	}
-	if _, err := pveRun(ctx, qmUnlinkScratchCommand(v)); err != nil {
-		return err
-	}
-	if _, err := pveRun(ctx, qmMoveScratchCommand(p, v)); err != nil {
-		return err
-	}
-	attached, err := scratchVolumeOf(ctx, v)
-	if err != nil {
-		return err
-	}
-	attachedGUID, err := scratchVolumeGUID(ctx, attached)
-	if err != nil {
-		return err
-	}
-	if attachedGUID != hold.GUID {
-		return fmt.Errorf("VM %d scsi4 is %s (guid %s), expected the preserved volume (guid %s)", v, attached, attachedGUID, hold.GUID)
-	}
-	placeholderConfig, err := pveRun(ctx, qmConfigCommand(p))
-	if err != nil {
-		return err
-	}
-	if still := parseQMDisk(placeholderConfig, replaceScratchSlot); still != "" {
-		return fmt.Errorf("placeholder %d still lists scsi4 %s; not destroying it", p, still)
-	}
-	if _, err := pveRun(ctx, qmDestroyCommand(p)); err != nil {
-		return err
-	}
-	_, err = pveRun(ctx, qmStartCommand(v))
-	return err
 }
 
 func (realReplaceOperations) Uncordon(ctx context.Context, spec rehearseNodeSpec) error {

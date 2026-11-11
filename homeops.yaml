@@ -54,7 +54,6 @@ cluster:
         - { vlan: 1201, mac: "02:00:00:00:02:a1", ip: 192.168.201.99/24, bridge: vmbr201, pf: nic7, vf: 4 }
         - { vlan: 1202, mac: "02:00:00:00:02:a2", ip: 192.168.202.99/24, bridge: vmbr202, pf: nic6, vf: 4 }
       boot_storage: vm-ssd
-      scratch_storage: nvme-scratch
       ceph:
         mode: none
   pod_cidr: 10.42.0.0/16
@@ -103,7 +102,6 @@ cluster:
           - { vlan: 1201, mac: "BC:24:11:3B:E0:50", ip: 192.168.201.20/24, bridge: vmbr201, pf: nic7, vf: 1 } # net3
           - { vlan: 1202, mac: "BC:24:11:ED:F6:B6", ip: 192.168.202.20/24, bridge: vmbr202, pf: nic6, vf: 1 } # net4
         boot_storage: vm-ssd
-        scratch_storage: nvme-scratch
         cpu_affinity: "0-7,32-39"
         numa_node: 0
         ceph:
@@ -120,7 +118,6 @@ cluster:
           - { vlan: 1201, mac: "BC:24:11:6B:64:25", ip: 192.168.201.21/24, bridge: vmbr201, pf: nic7, vf: 2 } # net3
           - { vlan: 1202, mac: "BC:24:11:A4:6E:42", ip: 192.168.202.21/24, bridge: vmbr202, pf: nic6, vf: 2 } # net4
         boot_storage: vm-ssd
-        scratch_storage: nvme-scratch
         cpu_affinity: "16-23,48-55"
         numa_node: 1
         ceph:
@@ -137,7 +134,6 @@ cluster:
           - { vlan: 1201, mac: "BC:24:11:B3:CD:67", ip: 192.168.201.22/24, bridge: vmbr201, pf: nic7, vf: 3 } # net3
           - { vlan: 1202, mac: "BC:24:11:41:2D:40", ip: 192.168.202.22/24, bridge: vmbr202, pf: nic6, vf: 3 } # net4
         boot_storage: vm-ssd
-        scratch_storage: nvme-scratch
         cpu_affinity: "8-15,40-47"
         numa_node: 0
         ceph:
@@ -155,7 +151,6 @@ hypervisors:
       cores: 10         # 2026-11-11 (was 16 in this file, 12 live): 9 allocatable after kubelet reservations; N-1 fits 13.3 cores of requests
       boot_disk_gb: 100
       openebs_disk_gb: 700
-      scratch_disk_gb: 400  # NVMe download-scratch disk (scsi4, nvme-scratch stripe)
       network_bridge: vmbr0
       network_mtu: 9000
       network_queues: 8  # storage fabric NICs and legacy net0 default

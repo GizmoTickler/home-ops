@@ -323,18 +323,11 @@ func (d *proxmoxFlatcarDeployer) DeployNode(node flatcarNode, ignitionHandle str
 	if nodeConfig.BootStorage != "" {
 		vmConfig.BootStorage = nodeConfig.BootStorage
 	}
-	// No OpenEBS data disk: the scsi3 SATA tier (and its openebs-ssd pool) was
-	// retired on 2026-08-24, and the live VMs carry only scsi0 + scsi4. OpenEBS
-	// hostpath PVs live on the scsi4 scratch disk below.
+	// Boot disk only: the scsi3 SATA OpenEBS tier was retired on 2026-08-24 and
+	// the scsi4 NVMe download-scratch disk on 2026-11-11, so k8s VMs carry no
+	// node-local data disk.
 	vmConfig.OpenEBSSize = 0
 	vmConfig.OpenEBSStorage = ""
-	// scsi4 carries the node-local NVMe download-scratch disk (thin zvol on
-	// the pve nvme-scratch stripe); Ignition formats and mounts it by label.
-	if nodeConfig.ScratchStorage != "" {
-		vmConfig.ScratchStorage = nodeConfig.ScratchStorage
-	}
-	vmConfig.ScratchSlot = "scsi4"
-	vmConfig.ScratchSSD = true
 	// Ceph* fields are the retained nodes[].vm.ceph legacy OSD-disk interface.
 	if nodeConfig.CephMode != "" {
 		vmConfig.CephMode = nodeConfig.CephMode

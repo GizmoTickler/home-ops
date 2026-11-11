@@ -329,7 +329,7 @@ func initialBootstrapNamespaces() []string {
 	return []string{
 		constants.NSActionsRunner, constants.NSAuth, constants.NSAutomation, constants.NSCertManager, constants.NSDatabase,
 		constants.NSDownloads, constants.NSExternalSecret, constants.NSFluxSystem, constants.NSKubeSystem, constants.NSMedia,
-		constants.NSNetwork, constants.NSObservability, constants.NSOpenEBSSystem, constants.NSScaleCSI, constants.NSSelfHosted,
+		constants.NSNetwork, constants.NSObservability, constants.NSScaleCSI, constants.NSSelfHosted,
 		constants.NSSystem, constants.NSSystemUpgrade, constants.NSVolsyncSystem,
 	}
 }

@@ -1028,8 +1028,8 @@ func TestApplyNamespaces(t *testing.T) {
 		if err != nil {
 			t.Fatalf("applyNamespaces returned error: %v", err)
 		}
-		if len(generated) != 18 {
-			t.Fatalf("expected 18 generated namespaces, got %d", len(generated))
+		if len(generated) != 17 {
+			t.Fatalf("expected 17 generated namespaces, got %d", len(generated))
 		}
 		if len(applied) != len(generated) {
 			t.Fatalf("expected %d applied manifests, got %d", len(generated), len(applied))
