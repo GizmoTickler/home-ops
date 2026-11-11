@@ -4,7 +4,8 @@
 # Data:    config /mnt/flashstor/apps/qbittorrent-config, scratch /mnt/flashstor/apps/qbittorrent-inter,
 #          completed -> /mnt/flashstor/data/torrents
 # Kill-switch: no route to the internet except via vpn; mgmt network is `internal: true`. app.yaml binds torrents
-# to 192.168.90.20 (vpn-only address; interface NAMES are not stable across recreates) in qBittorrent.conf.
+# to interface vpn0 AND address 192.168.90.20 in qBittorrent.conf (interface names pinned via interface_name;
+# without pinning Docker may attach mgmt as eth0 on a recreate).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -31,10 +32,12 @@ services:
     dns: [192.168.123.249]          # MGMT DNS VIP, on-link via the mgmt leg (same resolver as before via CoreDNS)
     networks:
       vpn:
+        interface_name: vpn0            # pinned (Engine >= 28.1): never depends on attach order
         ipv4_address: 192.168.90.20
         mac_address: "bc:24:11:90:00:20"
         gw_priority: 100
       mgmt:
+        interface_name: mgmt0
         ipv4_address: 192.168.123.155
     deploy:
       resources:
