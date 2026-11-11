@@ -2,7 +2,10 @@ package flatcar
 
 import (
 	"bytes"
+	"compress/gzip"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,9 +78,47 @@ func goldenCompare(t *testing.T, rel string, got []byte) {
 	}
 	want, err := os.ReadFile(path) // #nosec G304 -- fixed testdata path
 	require.NoError(t, err, "missing golden %s (run with UPDATE_GOLDEN=1)", path)
+	if strings.HasSuffix(rel, ".ign") {
+		got, want = normalizeIgnition(t, got), normalizeIgnition(t, want)
+	}
 	if string(got) != string(want) {
 		t.Fatalf("rendered output for %s drifted from golden (byte mismatch)", rel)
 	}
+}
+
+// normalizeIgnition decompresses every gzip'd storage.files[].contents data URL and re-marshals the document, so
+// goldens pin what lands on the node rather than how a given Go release's compress/flate encodes it. Butane picks
+// gzip for larger files and Go 1.27 produces different (equally valid) gzip bytes than Go 1.26, which made these
+// goldens toolchain-dependent: generated locally with 1.27, they failed CI on go.mod's 1.26.9 (2026-11-11).
+func normalizeIgnition(t *testing.T, b []byte) []byte {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return b
+	}
+	storage, _ := doc["storage"].(map[string]any)
+	files, _ := storage["files"].([]any)
+	for _, f := range files {
+		file, _ := f.(map[string]any)
+		contents, _ := file["contents"].(map[string]any)
+		if contents == nil || contents["compression"] != "gzip" {
+			continue
+		}
+		src, _ := contents["source"].(string)
+		const prefix = "data:;base64,"
+		require.True(t, strings.HasPrefix(src, prefix), "gzip'd ignition source is not a base64 data URL: %.40s", src)
+		raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(src, prefix))
+		require.NoError(t, err)
+		zr, err := gzip.NewReader(bytes.NewReader(raw))
+		require.NoError(t, err)
+		plain, err := io.ReadAll(zr)
+		require.NoError(t, err)
+		contents["source"] = prefix + base64.StdEncoding.EncodeToString(plain)
+		contents["compression"] = ""
+	}
+	out, err := json.Marshal(doc)
+	require.NoError(t, err)
+	return out
 }
 
 func goldenWithoutNFSTrunkAnchors(t *testing.T, rel string) []byte {
@@ -154,7 +195,7 @@ func TestFlatcarRenderCharacterizationWithoutConfig(t *testing.T) {
 	for _, n := range charNodes {
 		ign, err := RenderIgnition(charEnv(n.name, n.ip, n.mac))
 		require.NoError(t, err)
-		require.Equal(t, goldenWithoutNFSTrunkAnchors(t, "ignition/"+n.name+".ign"), ign)
+		require.Equal(t, normalizeIgnition(t, goldenWithoutNFSTrunkAnchors(t, "ignition/"+n.name+".ign")), normalizeIgnition(t, ign))
 	}
 
 	initCfg, err := RenderKubeadmInitConfig(charEnv("k8s-0", "192.168.122.10", "00:a0:98:28:c8:83"))
