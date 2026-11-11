@@ -146,7 +146,6 @@ spec:
             cpu: 10m
             memory: 64Mi
           limits:
-            cpu: null
             memory: 192Mi
       useManagedConfig: true
       config:
