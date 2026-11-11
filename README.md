@@ -46,7 +46,7 @@ _Kubernetes on Fedora CoreOS + kubeadm &middot; TrueNAS NVMe-oF storage (scale-c
 
 This repository contains the configuration for my homelab Kubernetes cluster built for learning, experimentation, and running self-hosted applications. The setup emphasizes Infrastructure as Code (IaC) and GitOps practices using [Fedora CoreOS](https://fedoraproject.org/coreos/) + [kubeadm](https://kubernetes.io/docs/reference/setup-tools/kubeadm/), [Kubernetes](https://kubernetes.io/), [Flux](https://github.com/fluxcd/flux2), [Renovate](https://github.com/renovatebot/renovate), and [GitHub Actions](https://github.com/features/actions).
 
-**Architecture**: The cluster runs on Proxmox VE 9.2 with [scale-csi](https://github.com/GizmoTickler/scale-csi) providing primary storage — NVMe-oF/TCP volumes served by a TrueNAS SCALE box over its WebSocket API — node-local scratch volumes via the OpenEBS hostpath provisioner backed by a dedicated NVMe ZFS pool (`nvme-scratch`) on the hypervisor, and [kopiur](https://github.com/home-operations/kopiur) (Kopia) for PVC backup and restore.
+**Architecture**: The cluster runs on Proxmox VE 9.2 with [scale-csi](https://github.com/GizmoTickler/scale-csi) providing primary storage — NVMe-oF/TCP volumes served by a TrueNAS SCALE box over its WebSocket API — and [kopiur](https://github.com/home-operations/kopiur) (Kopia) for PVC backup and restore.
 
 ---
 
@@ -95,17 +95,16 @@ The Kubernetes cluster is deployed using [Fedora CoreOS](https://fedoraproject.o
 
 - **Hypervisor**: Proxmox VE 9.2 with KVM/QEMU virtualization
 - **Primary Storage**: scale-csi (NVMe-oF/TCP; the driver also supports iSCSI and NFS) on TrueNAS SCALE — `scale-nvmeof` is the default (and only scale-csi) StorageClass; secure-by-default NVMe host-NQN allowlisting; driver-side orphan GC
-- **Local Storage**: OpenEBS hostpath provisioner on a dedicated 2x NVMe ZFS pool (`nvme-scratch`) on the Proxmox host — high-throughput scratch for download landing zones and CI runner work volumes
+- **Fast VM Tier**: 2x Intel P3700 NVMe in a ZFS mirror (`nvme-fast`) on the Proxmox host — k8s node boot disks (etcd WAL) and dns-1
 - **Network Infrastructure**:
   - 4x 10GbE Intel X540 NICs bonded via IEEE 802.3ad LACP (40Gbps) on the Proxmox host
   - Cisco switch providing high-speed interconnect
   - Jumbo frames (MTU 9000) enabled end-to-end
 - **OS / Distribution**: Fedora CoreOS 44 (immutable, rpm-ostree; Zincati auto-updates disabled, greenboot health checks layered) bootstrapped with **kubeadm** (v1beta4); Kubernetes **v1.36.2**, containerd 2.3. The kubelet/kubeadm/kubectl/crictl/CNI binaries are delivered as a **directory systemd-sysext** (`/var/lib/extensions/kubernetes`) built on first boot by `homeops-install-k8s-sysext`, which is also the documented Kubernetes binary upgrade path (no systemd-sysupdate on FCOS).
 - **Control-plane endpoint**: kube-vip (ARP/L2) VIP `192.168.123.253:6443` — CNI-independent, so it is usable as the `kubeadm` control-plane endpoint during init/join.
-- **VM Configuration**: 3 control plane nodes, each with 16 vCPUs, 80GB RAM, and NUMA-pinned CPU affinity
+- **VM Configuration**: 3 control plane nodes, each with 10 vCPUs, 32GB RAM, and NUMA-pinned CPU affinity
 - **Storage Strategy**: Multiple storage tiers per VM:
-  - **Boot Disk**: 100GB VirtIO SCSI disk on the `vm-ssd` ZFS mirror for the FCOS OS (`/dev/sda`)
-  - **Local Scratch**: 451GB VirtIO SCSI zvol from the `nvme-scratch` ZFS pool (ext4, `LABEL=openebs-nvme`), mounted at `/var/mnt/nvme-hostpath` for OpenEBS hostPath workloads (`/dev/sdb`)
+  - **Boot Disk**: 100GB VirtIO SCSI disk on the `nvme-fast` ZFS mirror (Intel P3700, power-loss protected) for the FCOS OS (`/dev/sda`)
   - **App Volumes**: attached on demand by scale-csi as NVMe-oF/TCP (or iSCSI) block devices from TrueNAS — no static data disks
 - **Networking**:
   - Cilium CNI with eBPF datapath
@@ -126,7 +125,6 @@ The Kubernetes cluster is deployed using [Fedora CoreOS](https://fedoraproject.o
 - [external-dns](https://github.com/kubernetes-sigs/external-dns): Automated DNS record management with Cloudflare and PowerDNS (RFC2136) integration.
 - [external-secrets](https://github.com/external-secrets/external-secrets): Kubernetes External Secrets Operator with 1Password Connect integration.
 - [flux](https://github.com/fluxcd/flux2): GitOps continuous delivery for Kubernetes with SOPS decryption support.
-- [openebs](https://github.com/openebs/openebs): Local persistent volume provisioner for hostPath scratch storage on the dedicated `nvme-scratch` NVMe ZFS pool.
 - [scale-csi](https://github.com/GizmoTickler/scale-csi): Primary storage — a purpose-built TrueNAS SCALE CSI driver (WebSocket API, zero SSH) providing NVMe-oF/TCP, iSCSI, and NFS StorageClasses with snapshots, detached clones, expansion, and a driver-side orphan reconciler.
 - [sops](https://github.com/getsops/sops): Managed secrets for Kubernetes using age encryption, committed to Git.
 - [spegel](https://github.com/spegel-org/spegel): Stateless cluster local OCI registry mirror for improved image pull performance.
@@ -171,7 +169,6 @@ This Git repository is organized for GitOps workflows and infrastructure managem
 │   │   ├── 📁 media          # Media serving applications
 │   │   ├── 📁 network        # Networking applications
 │   │   ├── 📁 observability  # Monitoring and logging
-│   │   ├── 📁 openebs-system # Local storage provisioner
 │   │   ├── 📁 scale-csi      # TrueNAS CSI driver (NVMe-oF/iSCSI/NFS)
 │   │   ├── 📁 self-hosted    # Productivity and tools
 │   │   ├── 📁 system         # Node device plugins
@@ -386,7 +383,6 @@ Fully native [VictoriaMetrics](https://victoriametrics.com/) stack — single ve
 | Application | Purpose | Access |
 |-------------|---------|--------|
 | [scale-csi](https://github.com/GizmoTickler/scale-csi) | Primary storage — TrueNAS NVMe-oF/iSCSI/NFS CSI driver | Internal only |
-| [OpenEBS](https://github.com/openebs/openebs) | Local persistent volume provisioner (NVMe ZFS scratch) | Internal only |
 | [kopiur](https://github.com/home-operations/kopiur) | Kopia-based PVC backup/restore operator | Internal only |
 | [Kopia](https://github.com/kopia/kopia) | Repository browser UI | `kopia.${SECRET_DOMAIN}` |
 
@@ -403,7 +399,6 @@ The cluster uses a multi-tier storage architecture with scale-csi (TrueNAS SCALE
 | Tier | Provider | StorageClass | Use Case |
 |------|----------|--------------|----------|
 | **NVMe-oF Block** | scale-csi | `scale-nvmeof` (default) | Application PVCs — highest IOPS, sub-ms commit latency |
-| **Local Scratch** | OpenEBS | `openebs-hostpath` | Download landing zones + CI runner work volumes on the node-local `nvme-scratch` zvol |
 | **Backup** | kopiur + Kopia | — | Automated PVC backup and restore |
 
 The driver also supports iSCSI and NFS, but no StorageClass for either is currently deployed.
@@ -438,7 +433,7 @@ The driver also supports iSCSI and NFS, but no StorageClass for either is curren
 | ├─ **CPU**                  | 2x Intel Xeon E5-2697A v4 @ 2.60GHz (32 cores / 64 threads) | VM compute resources     |
 | ├─ **Memory**               | 512GB DDR4-2400 ECC (16x 32GB)                     | VM memory allocation              |
 | ├─ **Network**              | 4x 10GbE Intel X540 NICs (40Gbps LACP to Cisco switch) | High-speed VM networking    |
-| └─ **Storage**              | 2x SSD (ZFS mirror `vm-ssd` — VM boot) + 2x NVMe (ZFS pool `nvme-scratch`, no redundancy) | VM boot mirror + local scratch zvols |
+| └─ **Storage**              | 2x SSD (ZFS mirror `vm-ssd` — VM boot) + 2x Intel P3700 NVMe (ZFS mirror `nvme-fast`) | VM boot mirrors (`nvme-fast`: k8s nodes + dns-1) |
 | **Storage Server**          | TrueNAS Scale                                       | iSCSI, NVMe-oF & NFS storage     |
 | ├─ **CPU**                  | 2x Intel Xeon E5-2690 v4 @ 2.60GHz (28 cores / 56 threads) | Storage processing       |
 | ├─ **Memory**               | 120GB DDR4-2400 ECC (8x 16GB, reduced for VM allocation) | ZFS ARC cache and services |
@@ -463,11 +458,10 @@ The driver also supports iSCSI and NFS, but no StorageClass for either is curren
 
 | VM Role                     | Count | vCPU | Memory | Storage Layout                                              | OS            |
 |-----------------------------|-------|------|--------|-------------------------------------------------------------|---------------|
-| **Kubernetes Control Plane** | 3     | 16     | 80GB   | 100GB boot (`vm-ssd` mirror) + 451GB local scratch (`nvme-scratch` zvol) | Fedora CoreOS 44 + kubeadm (k8s v1.36.2) |
+| **Kubernetes Control Plane** | 3     | 10     | 32GB   | 100GB boot (`nvme-fast` mirror) | Fedora CoreOS 44 + kubeadm (k8s v1.36.2) |
 
 **Storage Details**:
-- **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `vm-ssd` ZFS mirror for the FCOS OS
-- **Local Scratch** (`scsi4`, `/dev/sdb`): 451GB VirtIO SCSI zvol from the `nvme-scratch` ZFS pool (ext4, `LABEL=openebs-nvme`), mounted at `/var/mnt/nvme-hostpath` for OpenEBS hostPath workloads
+- **Boot Disk** (`scsi0`, `/dev/sda`): 100GB VirtIO SCSI disk on the `nvme-fast` ZFS mirror for the FCOS OS
 - **App Volumes**: attached dynamically by scale-csi as NVMe-oF/TCP (or iSCSI) devices from TrueNAS — no static data disks
 
 **VM Configuration**:
@@ -479,13 +473,12 @@ The driver also supports iSCSI and NFS, but no StorageClass for either is curren
 - **Machine Type**: Q35 chipset
 
 **CPU & Memory Optimization**:
-- **NUMA Pinning**: Each VM is pinned to specific CPU cores with HT siblings for optimal memory locality
-  - k8s-0 (VMID 200): Cores 0-7,32-39 (Socket 0, NUMA 0)
-  - k8s-1 (VMID 201): Cores 16-23,48-55 (Socket 1, NUMA 1)
-  - k8s-2 (VMID 202): Cores 8-15,40-47 (Socket 0, NUMA 0)
-- **Memory**: 80GB (81920 MB) per VM, NUMA-bound, no overcommit
+- **NUMA Pinning**: All three nodes share a CPU pool (`0,15,24-32,47,56-63`, mostly socket 1) with their memory bound
+  to NUMA 1, next to their SR-IOV storage VFs. Socket 0 cores 1-14,33-46 and socket 1 cores 16-23,48-55 are reserved
+  for lab VMs. Passthrough-NIC IRQs are pinned to each VM's own CPUs by a host timer.
+- **Memory**: 32GB (32768 MB) per VM, NUMA-bound (policy=bind), no overcommit
 
-**Total VM Resources**: 48 vCPUs, 240GB RAM allocated from the 64-thread, 512GB host system.
+**Total VM Resources**: 30 vCPUs, 96GB RAM allocated from the 64-thread, 512GB host system.
 
 ---
 
