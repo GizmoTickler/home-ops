@@ -6,7 +6,7 @@ metadata:
   name: nzbget
 spec:
   components:
-    - ../../../../components/nfs-scaler
+    # kopiur keeps the old k8s config PVC + backups for rollback until 2026-11-18, then remove.
     - ../../../../components/kopiur/backup
   interval: 1h
   path: ./kubernetes/apps/downloads/nzbget/app

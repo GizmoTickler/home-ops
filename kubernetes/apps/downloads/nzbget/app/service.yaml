@@ -1,0 +1,29 @@
+---
+# nzbget runs on nas01 as a TrueNAS app since 2026-11-11 (truenas/apps/nzbget).
+# Selector-less Service + manual EndpointSlice keep the in-cluster name
+# nzbget.downloads.svc used by the *arr apps, and give kgateway a backend.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nzbget
+spec:
+  ports:
+    - name: http
+      port: 6789
+      targetPort: 6789
+      protocol: TCP
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: nzbget-nas01
+  labels:
+    kubernetes.io/service-name: nzbget
+addressType: IPv4
+ports:
+  - name: http
+    port: 6789
+    protocol: TCP
+endpoints:
+  - addresses:
+      - 192.168.123.154   # nas01 br0 alias; SC01 SGT 15, RBACL_K8S_TO_STORAGE_APPS
