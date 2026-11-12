@@ -21,7 +21,7 @@ spec:
           mariadb:
             image:
               repository: docker.io/library/mariadb
-              tag: 11.4.13@sha256:d1891ede5a559f1086f55053bb8cc1569b0298338c4d72d71725a7f74f6ba620
+              tag: 11.4.13@sha256:5e73baf8179b29f115101bb102763a47a017361f3e9792daccba6646c3ab1532
             args:
               - --bind-address=127.0.0.1
               - --skip-name-resolve
