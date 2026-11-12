@@ -32,33 +32,6 @@ spec:
     request: 300s
     streamIdle: 300s
 ---
-# Listener-level settings: headers, timeouts, WebSocket support
-apiVersion: gateway.kgateway.dev/v1alpha1
-kind: HTTPListenerPolicy
-metadata:
-  name: default-listener
-spec:
-  targetRefs:
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: kgateway-internal
-    - group: gateway.networking.k8s.io
-      kind: Gateway
-      name: kgateway-external
-  useRemoteAddress: true
-  xffNumTrustedHops: 0
-  streamIdleTimeout: 300s
-  idleTimeout: 3600s
-  upgradeConfig:
-    enabledUpgrades:
-      - websocket
-  earlyRequestHeaderModifier:
-    set:
-      - name: X-Forwarded-Proto
-        value: https
-      - name: X-Real-IP
-        value: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
----
 # Listener-level settings (kgateway >= 2.5 form). Replaces the HTTPListenerPolicy above, whose CRD kgateway 2.5
 # removes (an un-migrated HTTPListenerPolicy is garbage-collected with its CRD on upgrade). Same values, moved under
 # spec.default.httpSettings. Added 2026-11-11 alongside the old policy; the old one is removed in the next commit.
