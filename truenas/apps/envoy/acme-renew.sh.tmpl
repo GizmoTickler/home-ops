@@ -1,6 +1,17 @@
 #!/bin/sh
 set -eu
 
+# Envoy's watched_directory reloads on a *move* into the directory, but lego writes files in place.
+# `acme-renew.sh --swap` (also lego's deploy hook) re-publishes the cert/key via copy + rename.
+if [ "${1:-}" = "--swap" ]; then
+  d=/certs/certificates
+  for f in "$d/${DOMAIN}.crt" "$d/${DOMAIN}.key"; do
+    cp -p "$f" "$f.swap" && mv -f "$f.swap" "$f"
+  done
+  echo "$(date -Iseconds) cert re-published for Envoy reload" >&2
+  exit 0
+fi
+
 # $1 = gts|le, remaining args passed through (e.g. --renew-force).
 run_lego() {
   ca=$1; shift
@@ -20,7 +31,8 @@ run_lego() {
     --domains "*.$DOMAIN" \
     --cert.name "$DOMAIN" \
     --key-type EC256 \
-    --renew-days 30
+    --renew-days 30 \
+    --deploy-hook "/bin/sh /etc/envoy/acme-renew.sh --swap"
 }
 
 # Google Trust Services first, Let's Encrypt only if GTS fails.
