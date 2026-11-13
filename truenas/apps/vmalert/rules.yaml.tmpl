@@ -241,12 +241,176 @@ groups:
 
         Immediate action required.'
       summary: All DHCP servers are down
-    expr: count(probe_success{job="probe/observability/devices",instance=~"dns-[01].*"} == 0) == 2
+    expr: count(probe_success{job="probe/observability/devices",instance=~"dns[01][.].*"} == 0) == 2
     for: 2m
     keep_firing_for: 5m
     labels:
       component: dhcp
       severity: critical
+  # Kea/DHCP health (Stork replacement, 2026-11-13). dns_* series come from the dns_ha_metrics textfile collector
+  # (infrastructure-automation roles/dns_ha_metrics); kea_dhcp4_* from kea-exporter on :9548.
+  - alert: KeaNotServing
+    annotations:
+      description: 'kea-dhcp4 does not answer its control socket on {{ $labels.instance }}. The HA partner should
+        serve every scope, but nothing is redundant now. Check: systemctl status kea-dhcp4; journalctl -u kea-dhcp4.'
+      summary: Kea DHCP is down on {{ $labels.instance }}
+    expr: dns_kea_up{job="node-exporter"} == 0
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaNotServingAnywhere
+    annotations:
+      description: 'Neither dns0 nor dns1 reports a working kea-dhcp4 (or neither reports at all). No leases can be
+        issued or renewed; existing clients keep theirs until expiry.'
+      summary: No Kea DHCP server is serving
+    expr: (sum(dns_kea_up{job="node-exporter"}) or vector(0)) == 0
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
+  - alert: KeaDHCPDisabled
+    annotations:
+      description: 'Kea on {{ $labels.instance }} is running but has DHCP service disabled (lost its lease database,
+        or an operator/partner command disabled it). Check status-get dhcp-state on the control socket.'
+      summary: Kea DHCP service disabled on {{ $labels.instance }}
+    expr: dns_kea_dhcp_disabled{job="node-exporter"} == 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaHAStateAbnormal
+    annotations:
+      description: 'Kea HA on {{ $labels.instance }} is in state {{ $labels.state }} (normal: load-balancing).
+        partner-down means this node serves every scope alone; waiting/syncing/terminated need attention.'
+      summary: Kea HA {{ $labels.state }} on {{ $labels.instance }}
+    expr: dns_kea_ha_state_info{job="node-exporter",state!="load-balancing"} == 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaHAPartnerUnreachable
+    annotations:
+      description: '{{ $labels.instance }} has lost its Kea HA heartbeat to the partner (port 8000). Leases issued
+        now are not mirrored until the link returns.'
+      summary: Kea HA partner unreachable from {{ $labels.instance }}
+    expr: dns_kea_ha_partner_reachable{job="node-exporter"} == 0 and on(instance) dns_kea_up{job="node-exporter"} == 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaHAClockSkew
+    annotations:
+      description: 'Kea HA partners disagree on time by {{ $value }}s. Kea stops HA at 60 s; check chrony on dns0/dns1.'
+      summary: Kea HA clock skew {{ $value }}s
+    expr: abs(dns_kea_ha_clock_skew_seconds{job="node-exporter"}) > 30
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaPoolUtilizationHigh
+    annotations:
+      description: 'Pool {{ $labels.pool }} in {{ $labels.subnet }} is {{ $value | humanizePercentage }} assigned.'
+      summary: DHCP pool {{ $labels.subnet }} above 80%
+    expr: max by (subnet, pool) (kea_dhcp4_addresses_assigned_total{job="kea-dhcp4",pool!=""} / kea_dhcp4_addresses_total{job="kea-dhcp4",pool!=""}) > 0.8
+    for: 30m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaPoolNearlyExhausted
+    annotations:
+      description: 'Pool {{ $labels.pool }} in {{ $labels.subnet }} is {{ $value | humanizePercentage }} assigned;
+        new clients on this VLAN will soon get no address.'
+      summary: DHCP pool {{ $labels.subnet }} above 95%
+    expr: max by (subnet, pool) (kea_dhcp4_addresses_assigned_total{job="kea-dhcp4",pool!=""} / kea_dhcp4_addresses_total{job="kea-dhcp4",pool!=""}) > 0.95
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
+  - alert: KeaAddressesDeclined
+    annotations:
+      description: '{{ $value }} addresses in {{ $labels.subnet }} were declined in the last hour: a client found the
+        offered IP already in use (static IP inside the pool, or a rogue device).'
+      summary: DHCP address conflicts in {{ $labels.subnet }}
+    expr: max by (subnet) (increase(kea_dhcp4_addresses_declined_total{job="kea-dhcp4",pool=""}[1h])) > 3
+    for: 0m
+    keep_firing_for: 30m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaNoLeasesIssued
+    annotations:
+      description: 'Neither Kea node sent a DHCPACK in 2 h (normal is dozens). Both may be up but not reachable by
+        clients: check SC01 ip helper-address on the SVIs and TrustSec for udp/67.'
+      summary: No DHCP leases issued in 2 h
+    expr: (sum(increase(kea_dhcp4_packets_sent_total{job="kea-dhcp4",operation="ack"}[2h])) or vector(0)) < 1
+    for: 30m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: KeaExporterDown
+    annotations:
+      description: 'kea-exporter on {{ $labels.instance }} cannot be scraped; pool and lease alerts are blind for this
+        node. Check: systemctl status kea-exporter.'
+      summary: kea-exporter down on {{ $labels.instance }}
+    expr: up{job="kea-dhcp4"} == 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: DNSDHCPServiceInactive
+    annotations:
+      description: 'systemd unit {{ $labels.unit }} is not active on {{ $labels.instance }}.'
+      summary: '{{ $labels.unit }} inactive on {{ $labels.instance }}'
+    expr: dns_service_active{job="node-exporter"} == 0
+    for: 3m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: SpockDatabaseUnhealthy
+    annotations:
+      description: 'Spock replication for database {{ $labels.db }} on {{ $labels.instance }} has a missing or
+        disabled subscription; the {{ $labels.db }} data on dns0/dns1 will diverge.'
+      summary: Spock {{ $labels.db }} replication unhealthy on {{ $labels.instance }}
+    expr: dns_pg_logical_db_healthy{job="node-exporter"} == 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: postgres
+      severity: warning
+  - alert: DNSHAMetricsStale
+    annotations:
+      description: 'The dns-ha-metrics collector on {{ $labels.instance }} has not completed for {{ $value | humanizeDuration }};
+        every Kea HA / Spock / unit alert for that node is blind. Check: systemctl status dns-ha-metrics.timer.'
+      summary: dns-ha-metrics stale on {{ $labels.instance }}
+    expr: time() - dns_ha_metrics_last_success_timestamp_seconds{job="node-exporter"} > 300
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSHAMetricsMissing
+    annotations:
+      description: 'Fewer than two dns nodes export dns_ha_metrics_last_success_timestamp_seconds, so Kea HA alerts
+        are blind for at least one node (collector removed, or node_exporter not scraped).'
+      summary: dns-ha-metrics missing on a dns node
+    expr: (count(dns_ha_metrics_last_success_timestamp_seconds{job="node-exporter"}) or vector(0)) < 2
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
   - alert: ReplicationSlotInactiveLong
     annotations:
       description: 'Multi-master replication has been down for 30+ minutes; DNS/DHCP
