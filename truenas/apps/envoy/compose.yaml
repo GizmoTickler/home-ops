@@ -118,6 +118,9 @@ services:
       DOMAIN: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
       ACME_EMAIL: "{{ op://Infrastructure/cert-manager/ACME_EMAIL }}"
       CF_DNS_API_TOKEN: "{{ op://Infrastructure/cloudflare/CLOUDFLARE_DNS_TOKEN }}"
+      # Google Trust Services EAB (primary CA); read by lego from env, never on argv. LE is the fallback.
+      LEGO_EAB_KID: "{{ op://Infrastructure/cert-manager/EAB_KEY_ID }}"
+      LEGO_EAB_HMAC: "{{ op://Infrastructure/cert-manager/EAB_HMAC_KEY }}"
       CLOUDFLARE_PROPAGATION_TIMEOUT: "120"
       CLOUDFLARE_POLLING_INTERVAL: "5"
     networks: [apps]

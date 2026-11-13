@@ -1,8 +1,15 @@
 #!/bin/sh
 set -eu
 
+# $1 = gts|le, remaining args passed through (e.g. --renew-force).
 run_lego() {
-  /lego run \
+  ca=$1; shift
+  if [ "$ca" = gts ]; then
+    set -- --server googletrust --eab "$@"
+  else
+    set -- --server letsencrypt "$@"
+  fi
+  /lego run "$@" \
     --accept-tos \
     --email "$ACME_EMAIL" \
     --path /certs \
@@ -16,12 +23,25 @@ run_lego() {
     --renew-days 30
 }
 
+# Google Trust Services first, Let's Encrypt only if GTS fails.
+issue() {
+  if run_lego gts "$@"; then
+    touch /certs/.ca-gts
+  else
+    echo "$(date -Iseconds) GTS issuance failed; falling back to Let's Encrypt" >&2
+    run_lego le "$@"
+  fi
+}
+
 if [ ! -f "/certs/certificates/${DOMAIN}.crt" ] || [ ! -f "/certs/certificates/${DOMAIN}.key" ]; then
-  run_lego
+  issue
+elif [ ! -f /certs/.ca-gts ]; then
+  # One-time move of an existing (Let's Encrypt) certificate to GTS.
+  issue --renew-force || echo "$(date -Iseconds) one-time GTS switch failed; keeping current cert, retry in 12h" >&2
 fi
 
 while :; do
   sleep 43200 &
   wait $!
-  run_lego || echo "$(date -Iseconds) lego renew failed; retrying in 12h" >&2
+  issue || echo "$(date -Iseconds) lego renew failed; retrying in 12h" >&2
 done
