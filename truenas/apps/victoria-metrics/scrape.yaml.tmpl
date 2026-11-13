@@ -356,6 +356,16 @@ scrape_configs:
   static_configs:
   - targets:
     - envoy:9180
+# cloudflared is not on the monitoring network (internet-facing, by design): Envoy proxies its :2000/metrics on the
+# monitoring-only listener envoy:9180 at /cloudflared/metrics.
+- job_name: cloudflared
+  metrics_path: /cloudflared/metrics
+  static_configs:
+  - targets:
+    - envoy:9180
+  relabel_configs:
+  - target_label: instance
+    replacement: cloudflared
 - job_name: kromgo
   static_configs:
   - targets:

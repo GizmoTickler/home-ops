@@ -1,5 +1,6 @@
 # cloudflared — Cloudflare tunnel connector for the public hostnames (replaces the k8s `kubernetes` tunnel pods).
-# Listens: nothing inbound; :2000 metrics on the `apps` network only (service name cloudflared).
+# Listens: nothing inbound; :2000 metrics on the `apps` network only (service name cloudflared). VictoriaMetrics
+#          scrapes it as job=cloudflared via Envoy's monitoring-only listener (envoy:9180/cloudflared/metrics).
 # Tunnel:  same tunnel as k8s (credentials from 1Password item `cloudflare`), wildcard ingress -> Envoy's external
 #          listener https://envoy:8443 (TLS verified against the wildcard via originServerName).
 # Config:  /mnt/flashstor/apps/cloudflared-config/{config.yaml,credentials.json} rendered by the reconciler.
@@ -18,7 +19,7 @@ services:
       NO_AUTOUPDATE: "true"
       TUNNEL_ORIGIN_ENABLE_HTTP2: "true"
     command: ["tunnel", "--config", "/etc/cloudflared/config.yaml", "run"]
-    networks: [apps]   # NOT monitoring: internet-facing; metrics to be scraped via an Envoy route (TODO)
+    networks: [apps]   # NOT monitoring: internet-facing; metrics are scraped via Envoy (see header)
     volumes:
       - /mnt/flashstor/apps/cloudflared-config:/etc/cloudflared:ro
     read_only: true
