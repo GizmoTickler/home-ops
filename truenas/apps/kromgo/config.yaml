@@ -105,10 +105,11 @@ metrics:
       - {color: "red", min: 0, max: 0}
     title: Fiber
 
-  # Cellular backup: still cell-gateway0's probes; repoint to the Route10 once it is built.
+  # Cellular backup: cell-gateway1's own WAN probes (the only modem; cell-gateway0 has no WAN). Repoint to the
+  # Route10 once it is built.
   - name: wan_cellular1
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw0-wan.*"} == 1) >= 5))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw1-wan.*"} == 1) >= 5))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:

@@ -20,6 +20,7 @@ scrape_configs:
     - sc01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - nas01-console.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - pve.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -46,12 +47,13 @@ scrape_configs:
   metrics_path: /probe
   params:
     module:
-    - tcp_connect
+    - dns_soa       # a real UDP query (zone SOA via dnsdist -> recursor -> auth), not just an open TCP port
   static_configs:
   - targets:
-    - 192.168.123.250:53
-    - 192.168.123.251:53
-    - 10.53.53.53:53
+    - 192.168.123.250:53   # dns0
+    - 192.168.123.251:53   # dns1
+    - 192.168.123.249:53   # keepalived VIP
+    - 10.53.53.53:53       # anycast
   relabel_configs:
   - source_labels:
     - __address__
@@ -313,24 +315,19 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
-- job_name: staticScrape/observability/nflo0-icmp-rtt/0
+# Internet reachability/RTT from nas01 (was nflo0-icmp-rtt via nflo0's blackbox; nflo0 is powered off).
+- job_name: probe/observability/internet
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - icmp
   static_configs:
   - targets:
     - 1.1.1.1
     - 8.8.8.8
     - 9.9.9.9
-    labels:
-      job: nflo0-icmp-rtt
-  honor_labels: false
-  scrape_interval: 30s
-  scrape_timeout: 10s
-  metrics_path: /probe
-  params:
-    module:
-    - icmp
   relabel_configs:
-  - target_label: job
-    replacement: nflo0-icmp-rtt
   - source_labels:
     - __address__
     target_label: __param_target
@@ -338,7 +335,7 @@ scrape_configs:
     - __param_target
     target_label: instance
   - target_label: __address__
-    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+    replacement: blackbox-exporter:9115
 - job_name: staticScrape/observability/onepassword-connect/0
   static_configs:
   - targets:

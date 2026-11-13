@@ -1,6 +1,6 @@
-# blackbox-exporter — ICMP/TCP/HTTP probes for VictoriaMetrics (device/DNS/NFS probes, Caddy cert expiry).
+# blackbox-exporter — ICMP/TCP/HTTP/DNS probes for VictoriaMetrics (devices, DNS, NFS, internet RTT, Envoy cert expiry).
 # Listens: blackbox-exporter:9115 on the `monitoring` network (scraped by victoria-metrics only).
-# Config:  blackbox.yml (same modules as the k8s chart values). Probes leave via nas01's NAT (192.168.120.10).
+# Config:  blackbox.yml (modules). Probes leave via nas01's NAT (192.168.120.10, SC01 TrustSec SGT 15).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file

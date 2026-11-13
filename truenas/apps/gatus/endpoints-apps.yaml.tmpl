@@ -1,159 +1,182 @@
-# Gatus endpoints for the web apps (truenas/apps/gatus). Frozen from what the k8s gatus-sidecar generated from the
-# HTTPRoutes on 2026-11-12 (k8s-only flux-web/kopia/echo/github-webhook/logs dropped). Rendered by the reconciler.
+# Gatus endpoints for the web apps (truenas/apps/gatus). Rendered by the reconciler.
+#
+# Apps that Envoy serves without its own OAuth2 filter are checked through Envoy (https://<host>.<domain>), which
+# tests DNS + Envoy + the app. Apps behind Envoy's Pocket ID OAuth2 filter would only show Pocket ID's login page
+# (always 200 while Pocket ID is up), so they are checked directly on the `apps` network instead (Gatus joins it
+# for that) -- the Envoy path itself is covered by the unprotected apps and the envoy-test certificate probe.
 endpoints:
-- name: actual
-  group: internal
-  url: https://actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: atuin
-  group: internal
-  url: https://atuin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: audiobookshelf
-  group: internal
-  url: https://audiobookshelf.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: autobrr
-  group: internal
-  url: https://autobrr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: bazarr
-  group: internal
-  url: https://bazarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: chaptarr
-  group: internal
-  url: https://chaptarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: freshrss
-  group: internal
-  url: https://rss.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 401'
-  interval: 1m0s
-- name: grafana
-  group: internal
-  url: https://grafana.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: grimmory
-  group: internal
-  url: https://grimmory.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: home-assistant
-  group: internal
-  url: https://home-assistant.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: it-tools
-  group: internal
-  url: https://it-tools.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: kromgo
-  group: external
-  url: https://kromgo.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: n8n-app
-  group: internal
-  url: https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: n8n-webhooks
-  group: external
-  url: https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/webhook
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: nzbget
-  group: internal
-  url: https://nzbget.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: pinchflat
-  group: internal
-  url: https://pinchflat.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: pocket-id
-  group: internal
-  url: https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: prowlarr
-  group: internal
-  url: https://prowlarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: qbittorrent
-  group: internal
-  url: https://qbittorrent.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: qui
-  group: internal
-  url: https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: radarr
-  group: internal
-  url: https://radarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: seerr
-  group: internal
-  url: https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: sonarr
-  group: internal
-  url: https://sonarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: vmauth-alertmanager
-  group: internal
-  url: https://alertmanager.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: vmauth-metrics
-  group: internal
-  url: https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
-- name: webhook
-  group: internal
-  url: https://webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-  conditions:
-  - '[STATUS] == 200'
-  interval: 1m0s
+  - name: Actual
+    group: Apps
+    url: https://actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Atuin
+    group: Apps
+    url: https://atuin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Audiobookshelf
+    group: Apps
+    url: https://audiobookshelf.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: autobrr
+    group: Apps
+    url: https://autobrr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Bazarr
+    group: Apps
+    url: http://bazarr:6767/api/system/ping
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Chaptarr
+    group: Apps
+    url: http://chaptarr:80/ping
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: FreshRSS
+    group: Apps
+    url: https://rss.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 401"
+  - name: Grimmory
+    group: Apps
+    url: https://grimmory.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Home Assistant
+    group: Apps
+    url: https://home-assistant.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: IT-Tools
+    group: Apps
+    url: http://it-tools:8080/
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Jellyfin
+    group: Apps
+    url: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: n8n
+    group: Apps
+    url: https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: NZBGet
+    group: Apps
+    url: http://nzbget:6789/
+    interval: 1m
+    conditions:
+    - "[STATUS] == 401"
+  - name: Pinchflat
+    group: Apps
+    url: http://pinchflat:80/healthcheck
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Pocket ID (SSO)
+    group: Apps
+    url: https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Prowlarr
+    group: Apps
+    url: http://prowlarr:80/ping
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: qBittorrent
+    group: Apps
+    url: http://qbittorrent:8080/
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: qui
+    group: Apps
+    url: https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Radarr
+    group: Apps
+    url: http://radarr:80/ping
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Seerr (requests)
+    group: Apps
+    url: http://seerr:80/api/v1/status
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Sonarr
+    group: Apps
+    url: http://sonarr:80/ping
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: webhook
+    group: Apps
+    url: https://webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+
+  # ---- Monitoring stack (alerted on by up-based rules, so not by GatusEndpointDown). ----
+  - name: Grafana
+    group: Monitoring
+    url: https://grafana.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/api/health
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: Alertmanager
+    group: Monitoring
+    url: http://alertmanager:9093/-/healthy
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: VictoriaMetrics
+    group: Monitoring
+    url: http://victoria-metrics:8428/health
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: vmalert
+    group: Monitoring
+    url: http://vmalert:8880/health
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+  - name: kromgo (badges)
+    group: Monitoring
+    url: https://kromgo.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+
+  # ---- External: the public path (Cloudflare -> cloudflared tunnel -> Envoy external -> app). Resolved through
+  # public DNS so the check does not take the internal shortcut to Envoy. ----
+  - name: n8n webhooks (via Cloudflare)
+    group: External
+    url: https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/webhook
+    client:
+      dns-resolver: tcp://1.1.1.1:53
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"

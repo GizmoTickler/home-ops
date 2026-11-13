@@ -1,7 +1,19 @@
-# Gatus main config (truenas/apps/gatus), ported from the k8s gatus-configmap. Rendered by the reconciler.
+# Gatus main config (truenas/apps/gatus). Rendered by the reconciler. Web-app checks are in endpoints-apps.yaml.
+#
+# Alerting: Gatus has NO alerting provider on purpose. vmalert alerts on Gatus' metrics (GatusEndpointDown in
+# truenas/apps/vmalert) and routes through Alertmanager -> Pushover, so there is one notification path.
+# GatusEndpointDown covers the groups Apps, Management and External; Internet, Network and Monitoring are covered by
+# blackbox/up-based rules (InternetUnreachable, BlackboxProbeFailed, BackupGatewayDown, DNS*, VM*Down, TargetDown)
+# and are not alerted on twice.
+#
+# Groups: Internet (WAN reachability) | Network (edge, core, backup WAN, DNS) | Management (TrueNAS, Proxmox, UniFi,
+# 1Password Connect) | Monitoring | Apps | External (the public path through Cloudflare).
+# Probes leave nas01 as SGT 15; a check that times out on a live device is usually SC01 TrustSec.
+# Gatus skips all checks while this target is unreachable (nas01 itself offline). The DNS VIP survives the loss of
+# either DNS server, so one DNS VM going down does not blank the whole page.
 connectivity:
   checker:
-    target: 192.168.123.250:53
+    target: 192.168.123.249:53
     interval: 1m
 
 metrics: true
@@ -32,101 +44,116 @@ web:
   port: 80
 
 endpoints:
-  - name: "Google"
-    group: "connectivity"
-    url: icmp://8.8.8.8
-    interval: 1m
-    conditions:
-      - "[CONNECTED] == true"
-
-  - name: "Cloudflare"
-    group: "connectivity"
+  # ---- Internet: can nas01 reach the internet (fiber, or cellular after failover)? ----
+  - name: Cloudflare DNS (1.1.1.1)
+    group: Internet
     url: icmp://1.1.1.1
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-
-  - name: Quad9
-    group: connectivity
+  - name: Google DNS (8.8.8.8)
+    group: Internet
+    url: icmp://8.8.8.8
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+  - name: Quad9 (9.9.9.9)
+    group: Internet
     url: icmp://9.9.9.9
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-
-  - name: Cisco Umbrella
-    group: connectivity
+  - name: Cisco Umbrella (208.67.220.220)
+    group: Internet
     url: icmp://208.67.220.220
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
 
-  - name: "Core Switch"
-    group: "infrastructure"
-    url: https://sc01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-    interval: 1m
-    conditions:
-      - "[STATUS] == 200"
-
-  - name: "Primary Gateway"
-    group: "infrastructure"
-    # UXG-Fiber (internet edge since 2026-11-12), SC01-Transit address
+  # ---- Network: the routers/switch and DNS. ----
+  - name: Internet edge (UXG-Fiber)
+    group: Network
     url: icmp://10.255.255.46
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-
-  - name: Secondary Gateway
-    group: "infrastructure"
+  - name: Core switch (SC01)
+    group: Network
+    url: icmp://10.255.255.253
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+  - name: Backup router (gateway1)
+    group: Network
     url: icmp://10.255.255.252
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-
-  - name: "5G Gateway Primary"
-    group: "infrastructure"
-    url: https://cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  - name: Cellular router (cell-gateway1)
+    group: Network
+    url: icmp://10.255.255.250
     interval: 1m
     conditions:
-      - "[STATUS] == 403"
-
-  - name: "5G Gateway Backuo"
-    group: "infrastructure"
-    url: https://cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      - "[CONNECTED] == true"
+  - name: DNS (VIP)
+    group: Network
+    url: 192.168.123.249
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
     interval: 1m
     conditions:
-      - "[STATUS] == 403"
-
-  - name: "unifi"
-    group: "infrastructure"
-    url: https://unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      - "[DNS_RCODE] == NOERROR"
+  - name: DNS (dns0)
+    group: Network
+    url: 192.168.123.250
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
     interval: 1m
     conditions:
-      - "[STATUS] == 200"
-
-  - name: "Proxmox"
-    group: "infrastructure"
-    url: https://pve.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      - "[DNS_RCODE] == NOERROR"
+  - name: DNS (dns1)
+    group: Network
+    url: 192.168.123.251
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
     interval: 1m
     conditions:
-      - "[STATUS] == 200"
+      - "[DNS_RCODE] == NOERROR"
+  - name: DNS (anycast 10.53.53.53)
+    group: Network
+    url: 10.53.53.53
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
+    interval: 1m
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
 
-  - name: "TrueNAS"
-    group: "infrastructure"
+  # ---- Management UIs. ----
+  - name: TrueNAS (nas01)
+    group: Management
     url: https://nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-
-  - name: "Jellyfin"
-    group: "internal"
-    url: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  - name: Proxmox (pve)
+    group: Management
+    url: https://pve.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8006
     interval: 1m
     conditions:
       - "[STATUS] == 200"
-
-  - name: "OP-Connect"
-    group: "internal"
-    url: https://passwords.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  - name: UniFi controller
+    group: Management
+    url: https://unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     interval: 1m
     conditions:
-      - "[STATUS] == 404"
+      - "[STATUS] == 200"
+  - name: 1Password Connect
+    group: Management
+    url: https://passwords.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/heartbeat
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"

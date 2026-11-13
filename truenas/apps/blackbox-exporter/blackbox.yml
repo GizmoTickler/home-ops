@@ -1,5 +1,7 @@
-# blackbox-exporter modules (truenas/apps/blackbox-exporter), same as the k8s chart values.
+# blackbox-exporter modules (truenas/apps/blackbox-exporter). Rendered by the reconciler (domain via 1Password).
 # ICMP needs no capability: Docker sets net.ipv4.ping_group_range for containers (unprivileged ICMP sockets).
+# Probes leave nas01 as 192.168.120.10 (SGT 15): what they may reach is set by SC01 TrustSec
+# (infrastructure-automation inventory/host_vars/sc01/trustsec.yml), so a timeout can be a policy block.
 modules:
   http_2xx:
     prober: http
@@ -18,3 +20,16 @@ modules:
     timeout: 5s
     tcp:
       preferred_ip_protocol: ip4
+  # A real DNS answer, not just an open port: the SOA of the home zone through dnsdist -> recursor -> auth.
+  # Works with no internet (the zone is served locally) and fails if any of the three is broken.
+  dns_soa:
+    prober: dns
+    timeout: 5s
+    dns:
+      transport_protocol: udp
+      preferred_ip_protocol: ip4
+      query_name: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      query_type: SOA
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_none_matches_regexp: ["IN\\s+SOA\\s"]

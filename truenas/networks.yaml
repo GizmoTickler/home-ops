@@ -11,6 +11,7 @@ networks:
   # Monitoring stack only (VictoriaMetrics, vmalert, Alertmanager, Grafana, blackbox, gatus, kromgo) + Envoy
   # (172.31.201.254: top of the range, dynamic allocation starts at .2; same hostname aliases as on `apps`). VictoriaMetrics/Alertmanager have no auth of their own, so
   # they are deliberately NOT on `apps`; egress (scrapes/probes) is NATed via nas01.
+  # Gatus (own OIDC login) is the one monitoring app that also joins `apps`, to health-check OAuth2-protected apps directly.
   - name: monitoring
     driver: bridge
     subnet: 172.31.201.0/24

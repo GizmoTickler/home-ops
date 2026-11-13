@@ -6,22 +6,56 @@
 groups:
 - name: prometheus-blackbox-exporter
   rules:
+  # Generic "probe failing" for nas01's blackbox-exporter. Targets that already have a dedicated, better-worded rule
+  # are excluded here so one failure pages once: the DNS job (DNSServerDown/DNSAllServersDown), dns0/dns1 device
+  # probes (DHCPPrimaryDown/DHCPAllServersDown), gateway1 (BackupGatewayDown), the internet RTT job
+  # (InternetUnreachable), the cell-gateway WAN probes (CellularWAN*) and the SSH probes (NetworkDeviceSSHDown).
   - alert: BlackboxProbeFailed
     annotations:
-      summary: The host {{ $labels.target }} is currently unreachable
-    expr: probe_success == 0
+      description: 'blackbox-exporter on nas01 gets no answer from {{ $labels.instance }} (job {{ $labels.job }}) for 15 minutes.
+
+        A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 15).'
+      summary: Probe {{ $labels.job }} -> {{ $labels.instance }} is failing
+    expr: probe_success{job!~"probe/observability/(dns|internet)|cgw[01]-wan-.*|network-ssh-probes", instance!~"(gateway1|dns[01])[.].*"} == 0
     for: 15m
     labels:
       severity: critical
-- name: gatus.rules
-  rules:
-  - alert: GatusEndpointDown
+  - alert: InternetUnreachable
     annotations:
-      summary: The {{ $labels.name }} endpoint is down
-    expr: gatus_results_endpoint_success{group="external"} == 0
+      description: 'nas01 cannot ping any of 1.1.1.1, 8.8.8.8, 9.9.9.9 for 5 minutes: neither the fiber (UXG) nor the
+        cellular backup is carrying traffic. This notification is delivered once the internet is back.'
+      summary: No internet from nas01 (all ICMP RTT probes failing)
+    expr: count(probe_success{job="probe/observability/internet"} == 0) == count(probe_success{job="probe/observability/internet"})
     for: 5m
     labels:
+      component: gateway
       severity: critical
+  # The wildcard *.<domain> served by Envoy (lego renews it at 30 days left, so < 14 days means renewal is broken).
+  - alert: TLSCertificateExpiringSoon
+    annotations:
+      description: 'The certificate presented by {{ $labels.instance }} expires in {{ $value | humanize }} days.
+
+        The lego sidecar in the envoy app renews at 30 days left; check its logs (ix-envoy-lego-1).'
+      summary: TLS certificate on {{ $labels.instance }} expires in {{ $value | humanize }} days
+    expr: (probe_ssl_earliest_cert_expiry - time()) / 86400 < 14
+    for: 1h
+    labels:
+      component: certificates
+      severity: warning
+- name: gatus.rules
+  rules:
+  # Gatus has no alerting provider of its own: vmalert alerts on its metrics, so Pushover is the only path.
+  # The "Network" group (device ICMP) is skipped here because blackbox already alerts on the same devices.
+  - alert: GatusEndpointDown
+    annotations:
+      description: 'Gatus check "{{ $labels.name }}" (group {{ $labels.group }}) has been failing for 5 minutes.
+
+        Details on the status page (status.<domain>).'
+      summary: '{{ $labels.group }} / {{ $labels.name }} is down'
+    expr: gatus_results_endpoint_success{group!~"Network|Internet"} == 0
+    for: 5m
+    labels:
+      severity: warning
   - alert: GatusEndpointExposed
     annotations:
       summary: The {{ $labels.name }} endpoint has a public DNS record and is exposed
@@ -1164,10 +1198,12 @@ groups:
   rules:
   - alert: TargetDown
     annotations:
-      description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }}/{{ $labels.service }} targets in {{ $labels.namespace }} namespace are down.'
+      description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }} targets are down. Jobs with their own up-rule
+        (node-exporter: ExternalHostDown, snmp-*: SNMPTargetDown, DNS exporters: DNSResolverTargetDown, kea-dhcp4:
+        KeaExporterDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up == 0) by(cluster,job,namespace,service) / count(up) by(cluster,job,namespace,service))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning
