@@ -75,6 +75,18 @@ Every `app.yaml` has a `health` probe and a `ui` block (`title`, `description`, 
 custom apps have no icon/title support of their own, so the reconciler writes `ui` (and the image tag as the app
 version) into the app's TrueNAS metadata after each deploy. Icons: homarr-labs dashboard-icons via jsDelivr.
 
+## Shared networks and ingress
+`truenas/networks.yaml` defines two shared Docker networks, created by the reconciler before any app:
+- `apps` (bridge 172.31.200.0/24): every web app joins it as `apps: {external: true}` and publishes no port;
+  **Caddy** (`apps/caddy`, 192.168.123.156 on the LAN) terminates TLS with its own wildcard cert and proxies to the
+  app by service name (service names must be unique across apps). Caddy carries a network alias for each hostname
+  it serves, so apps calling `https://<host>.<domain>` stay on the host. Pocket ID login for apps without their own
+  OIDC: an oauth2-proxy service `<app>-auth` in the app's compose + `import pocket_id <app>-auth <upstream>` in the
+  Caddyfile.
+- `mgmt` (macvlan on br0, 192.168.120.0/22): for apps that need their own LAN IP (Caddy, qBittorrent's gluetun,
+  Home Assistant). Only one macvlan per subnet is possible, hence shared. Each IP needs an SC01 TrustSec sgt-map.
+Public hostnames: `apps/cloudflared` (Cloudflare tunnel) -> Caddy's external listener (`:8443`, apps network only).
+
 ## app.yaml
 ```yaml
 dirs:   [{path: /mnt/flashstor/apps/x-config, owner: "1000:1000", mode: "0755"}]

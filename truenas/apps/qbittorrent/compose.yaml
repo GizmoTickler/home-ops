@@ -1,5 +1,6 @@
 # qBittorrent — torrent client, VPN-only egress through one AirVPN WireGuard tunnel (gluetun).
-# Listens: 192.168.123.155:8080 (web UI, mgmt leg; behind Pocket ID via k8s Service qbittorrent.downloads)
+# Listens: 192.168.123.155:8080 (web UI, shared `mgmt` macvlan) and qbittorrent:8080 on the shared `apps` network
+#          (Caddy -> https://qbittorrent.<domain> behind Pocket ID; *arr apps / qui talk to it there)
 #          AirVPN forwarded port 29867 inbound on the tunnel (FIREWALL_VPN_INPUT_PORTS)
 # Network: qbittorrent shares gluetun's netns. gluetun = AirVPN Chicago (Sadalsuud), kernel WireGuard; its outer UDP
 #          leaves via the `wan` bridge (NAT to nas01 -> UXG -> Frontier). One tunnel = one stable public IP, which is
@@ -9,7 +10,7 @@
 #          completed -> /mnt/flashstor/data/torrents
 # Kill-switch: gluetun's firewall drops everything outside the tunnel except local subnets; app.yaml also binds
 #          torrents to interface tun0 in qBittorrent.conf, so a missing tunnel means qBittorrent cannot bind at all.
-#          mgmt is `internal: true` (never a default route).
+#          wan carries gw_priority 100, so neither mgmt nor apps ever becomes the default route.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -45,6 +46,9 @@ services:
       mgmt:
         interface_name: mgmt0
         ipv4_address: 192.168.123.155
+      apps:
+        interface_name: apps0
+        aliases: [qbittorrent]
     deploy:
       resources:
         limits:
@@ -83,15 +87,8 @@ services:
 networks:
   wan:
     driver: bridge                 # NAT via nas01; carries only gluetun's outer WireGuard UDP (+ local subnets)
-  mgmt:
-    driver: macvlan
-    internal: true                 # never a default route
-    driver_opts:
-      parent: br0
-    ipam:
-      config:
-        - subnet: 192.168.120.0/22
-          gateway: 192.168.123.254
+  mgmt: {external: true}           # shared macvlan on br0 (truenas/networks.yaml)
+  apps: {external: true}           # shared bridge: Caddy, *arr, qui
 
 x-portals:
   - {name: Web UI, scheme: http, host: 192.168.123.155, port: 8080, path: /}

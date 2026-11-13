@@ -9,7 +9,14 @@ import yaml
 REF = re.compile(r"\{\{\s*op://")
 
 
-def lint_app(d):
+def shared_networks(apps_root):
+    p = os.path.join(apps_root, "..", "networks.yaml")
+    if not os.path.exists(p):
+        return set()
+    return {n["name"] for n in (yaml.safe_load(open(p)) or {}).get("networks") or []}
+
+
+def lint_app(d, shared=frozenset()):
     name, errs = os.path.basename(d), []
     e = lambda m: errs.append(f"{name}: {m}")
     path = os.path.join(d, "compose.yaml")
@@ -49,6 +56,9 @@ def lint_app(d):
         for v in s.get("volumes") or []:
             if not isinstance(v, str):
                 e(f"{p}.volumes must use the short 'src:dst[:ro]' form")
+    for nk, nv in (c.get("networks") or {}).items():
+        if (nv or {}).get("external") and (nv.get("name") or nk) not in shared:
+            e(f"networks.{nk}: external network {(nv.get('name') or nk)!r} is not defined in truenas/networks.yaml")
     meta_p = os.path.join(d, "app.yaml")
     meta = yaml.safe_load(open(meta_p)) if os.path.exists(meta_p) else {}
     ui = (meta or {}).get("ui") or {}
@@ -64,10 +74,10 @@ def lint_app(d):
 
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "apps")
-    errs = []
+    errs, shared = [], shared_networks(root)
     for a in sorted(os.listdir(root)):
         if os.path.isfile(os.path.join(root, a, "compose.yaml")):
-            errs += lint_app(os.path.join(root, a))
+            errs += lint_app(os.path.join(root, a), shared)
     for x in errs:
         print(f"::error::{x}" if os.environ.get("GITHUB_ACTIONS") else x)
     print(f"{'FAIL' if errs else 'OK'}: {len(errs)} violation(s)")

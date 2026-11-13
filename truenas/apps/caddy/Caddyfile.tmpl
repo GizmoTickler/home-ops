@@ -1,0 +1,102 @@
+# Caddyfile for the nas01 ingress (truenas/apps/caddy). Rendered by the reconciler; a change restarts Caddy.
+# No secrets or domain here: {$DOMAIN}, {$CF_API_TOKEN}, {$EAB_*} come from the container env (1Password refs).
+#
+# Layout:
+#   internal site  *.{$DOMAIN}       LAN 192.168.123.156:443 + apps network 172.31.200.2:443
+#   external site  *.{$DOMAIN}:8443  bound to 172.31.200.2 only; reached solely by cloudflared (Cloudflare tunnel)
+# A migrated app gets one `@name host ...` + `handle @name { ... }` block; anything not handled yet falls through
+# to the k8s gateways, so a hostname can be pointed at Caddy before (or without) its app moving.
+# Pocket ID forward-auth: `import pocket_id <app>-auth <upstream>` -- the app's compose runs an oauth2-proxy
+# (`<app>-auth`) with the app's existing Pocket ID client (same client id/secret/redirect URI as on k8s).
+
+{
+	email {$ACME_EMAIL}
+	# GTS first (EAB), Let's Encrypt as fallback. Propagation is checked against public resolvers: the internal
+	# resolvers serve the split-horizon zone and never see the _acme-challenge TXT records.
+	cert_issuer acme https://dv.acme-v02.api.pki.goog/directory {
+		eab {$EAB_KEY_ID} {$EAB_HMAC_KEY}
+		dns cloudflare {$CF_API_TOKEN}
+		resolvers 1.1.1.1 1.0.0.1
+	}
+	cert_issuer acme https://acme-v02.api.letsencrypt.org/directory {
+		dns cloudflare {$CF_API_TOKEN}
+		resolvers 1.1.1.1 1.0.0.1
+	}
+	admin localhost:2019
+	metrics
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+# ---- snippets ---------------------------------------------------------------------------------------------
+(k8s_internal) {
+	reverse_proxy https://192.168.255.11 {
+		header_up Host {host}
+		transport http {
+			tls_server_name {host}
+		}
+	}
+}
+
+(k8s_external) {
+	reverse_proxy https://192.168.255.12 {
+		header_up Host {host}
+		transport http {
+			tls_server_name {host}
+		}
+	}
+}
+
+# args: <oauth2-proxy service> <upstream host:port>
+(pocket_id) {
+	handle /oauth2/* {
+		reverse_proxy {args[0]}:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+	handle {
+		forward_auth {args[0]}:4180 {
+			uri /oauth2/auth
+			header_up X-Real-IP {remote_host}
+			copy_headers X-Auth-Request-User X-Auth-Request-Email X-Auth-Request-Preferred-Username
+			@unauth status 401
+			handle_response @unauth {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
+		reverse_proxy {args[1]}
+	}
+}
+
+# ---- metrics (apps network only) --------------------------------------------------------------------------
+http://:9180 {
+	bind 172.31.200.2
+	metrics /metrics
+}
+
+# ---- internal ---------------------------------------------------------------------------------------------
+*.{$DOMAIN}, {$DOMAIN} {
+	@caddy-test host caddy-test.{$DOMAIN}
+	handle @caddy-test {
+		respond "caddy on nas01: ok" 200
+	}
+
+	# ==== migrated apps (keep alphabetical) ====
+
+	handle {
+		import k8s_internal
+	}
+}
+
+# ---- external (Cloudflare tunnel) -------------------------------------------------------------------------
+https://*.{$DOMAIN}:8443, https://{$DOMAIN}:8443 {
+	bind 172.31.200.2
+
+	# ==== migrated external hostnames ====
+
+	handle {
+		import k8s_external
+	}
+}

@@ -1,5 +1,6 @@
 # NZBGet — Usenet downloader.
-# Listens: 192.168.123.154:6789 (web UI/API; behind Pocket ID via k8s Service nzbget.downloads -> this IP)
+# Listens: 192.168.123.154:6789 (web UI/API on the LAN) and nzbget:6789 on the shared `apps` network
+#          (Caddy -> https://nzbget.<domain> behind Pocket ID; *arr apps)
 # Data:    config /mnt/flashstor/apps/nzbget-config (nzbget.conf rendered from nzbget.conf.tmpl + 1Password)
 #          scratch /mnt/flashstor/apps/nzbget-incomplete, completed -> /mnt/flashstor/data/usenet (no NFS)
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -17,6 +18,10 @@ services:
       PGID: "1000"
     ports:
       - {host_ip: 192.168.123.154, target: 6789, published: "6789", protocol: tcp}   # SGT 15 on SC01
+    networks:
+      default:
+        gw_priority: 1          # egress + replies for the published port stay on the app's own bridge
+      apps: {}
     volumes:
       - /mnt/flashstor/apps/nzbget-config:/config
       - /mnt/flashstor/apps/nzbget-incomplete:/incomplete
@@ -29,6 +34,9 @@ services:
           cpus: "8"             # par2/unrar must not starve NFS + NVMe-oF serving
           memory: 20480M        # ArticleCache 12000 MB + ParBuffer 1024 MB + write buffers + unrar
     logging: *logging
+
+networks:
+  apps: {external: true}
 
 x-portals:
   - {name: Web UI, scheme: http, host: 192.168.123.154, port: 6789, path: /}

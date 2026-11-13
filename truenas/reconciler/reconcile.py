@@ -20,6 +20,10 @@ Per app directory truenas/apps/<app>/:
                                                                              reconciler patches their metadata)
   *.tmpl         templates referenced by app.yaml.
 
+truenas/networks.yaml: shared Docker networks (bridge `apps` for app<->app/Caddy traffic, macvlan `mgmt` on br0)
+  that several apps join as `external: true`. Created before any app is reconciled; never changed or deleted
+  (a spec mismatch with the live network is reported, not "fixed": recreating a network means stopping its apps).
+
 Behaviour per run, per app (one failing app never blocks the others):
   render -> compare with live (`app.config`, files, ini) -> if different: deploy -> wait RUNNING -> else roll back.
   Apps present on nas01 but absent from git are reported (never deleted).
@@ -202,6 +206,45 @@ def healthy(meta, name, ctx):
                          "--format", "{{.Names}} {{.Status}}"], capture_output=True, text=True, timeout=30).stdout
     ctx.log(f"{name}: health probe failed: {err}; containers: {ps.strip().replace(chr(10), '; ')}")
     return False
+
+
+def ensure_networks(path, ctx):
+    """Create the shared networks from truenas/networks.yaml that do not exist yet. Returns False on any problem."""
+    if not os.path.exists(path):
+        return True
+    with open(path) as f:
+        nets = (yaml.safe_load(f) or {}).get("networks") or []
+    ok = True
+    for n in nets:
+        name = n["name"]
+        r = subprocess.run(["docker", "network", "inspect", name], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            live = json.loads(r.stdout)[0]
+            subnets = [c.get("Subnet") for c in (live.get("IPAM") or {}).get("Config") or []]
+            parent = (live.get("Options") or {}).get("parent")
+            if live.get("Driver") != n["driver"] or n["subnet"] not in subnets or parent != n.get("parent"):
+                ctx.log(f"network {name}: live spec differs from networks.yaml (driver={live.get('Driver')} "
+                        f"subnets={subnets} parent={parent}) -- not changed")
+                ok = False
+            continue
+        cmd = ["docker", "network", "create", "--driver", n["driver"], "--subnet", n["subnet"],
+               "--ipv6=false", "--label", "managed-by=truenas-reconciler"]
+        if n.get("gateway"):
+            cmd += ["--gateway", n["gateway"]]
+        if n.get("parent"):
+            cmd += ["-o", f"parent={n['parent']}"]
+        if n.get("internal"):
+            cmd.append("--internal")
+        if ctx.dry:
+            ctx.log(f"network {name}: absent -- would create ({n['driver']} {n['subnet']})")
+            continue
+        r = subprocess.run(cmd + [name], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            ctx.log(f"network {name}: create FAILED: {r.stderr.strip()[-300:]}")
+            ok = False
+        else:
+            ctx.log(f"network {name}: created ({n['driver']} {n['subnet']})")
+    return ok
 
 
 def deploy_compose(name, compose, exists):
@@ -594,6 +637,8 @@ def main():
     if a.app:
         apps = [x for x in apps if x in a.app]
     results, unmanaged = {}, 0
+    if not ensure_networks(os.path.join(cfg["checkout"], "truenas", "networks.yaml"), ctx):
+        results["_networks"] = False
     for name in apps:
         try:
             results[name] = reconcile_app(os.path.join(root, name), ctx)

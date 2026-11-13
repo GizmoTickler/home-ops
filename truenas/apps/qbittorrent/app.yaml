@@ -4,7 +4,8 @@ ini:
   - path: /mnt/flashstor/apps/qbittorrent-config/qBittorrent/qBittorrent.conf
     set:
       'WebUI\Port': "8080"
-      'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
+      # apps network (Caddy behind Pocket ID, *arr, qui) + k8s nodes until the cluster is gone
+      'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 172.31.200.0/24, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
       'WebUI\AuthSubnetWhitelistEnabled': "true"
       # Bind torrent traffic to the AirVPN tunnel: tun0 (gluetun default VPN_INTERFACE) exists only inside gluetun's netns (shared with qbittorrent).
       # If the tunnel is down qBittorrent cannot bind at all (kill-switch, on top of gluetun's firewall).
