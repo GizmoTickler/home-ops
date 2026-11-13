@@ -78,6 +78,22 @@ def lint_app(d, shared=frozenset()):
         e("app.yaml ui.icon must be an https URL")
     if not (meta or {}).get("health"):
         e("app.yaml health probe is required")
+    meta = meta or {}
+    known = {"dirs", "files", "ini", "health", "ui", "critical", "order", "deploy_timeout", "validate"}
+    for k in sorted(set(meta) - known):
+        e(f"app.yaml: unknown key {k!r}")
+    if "critical" in meta and not isinstance(meta["critical"], bool):
+        e("app.yaml critical must be true/false")
+    if "order" in meta and (not isinstance(meta["order"], int) or not meta.get("critical")):
+        e("app.yaml order must be an integer and only set on critical apps")
+    if "deploy_timeout" in meta and not (isinstance(meta["deploy_timeout"], int) and 30 <= meta["deploy_timeout"] <= 3600):
+        e("app.yaml deploy_timeout must be an integer between 30 and 3600 (seconds)")
+    v = meta.get("validate")
+    if v is not None:
+        if not isinstance(v, dict) or v.get("service") not in (c.get("services") or {}):
+            e("app.yaml validate.service must name a service in compose.yaml")
+        elif not isinstance(v.get("args", []), list):
+            e("app.yaml validate.args must be a list")
     return errs
 
 

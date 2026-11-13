@@ -7,3 +7,6 @@ ui:
   description: OIDC/passkey SSO for all apps (issuer https://id.<domain>, unchanged)
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/pocket-id.png
   home: https://pocket-id.org
+# Critical: deployed after all other apps, one at a time; a failure aborts the rest of the run.
+critical: true
+order: 10
