@@ -34,6 +34,7 @@ services:
       WIREGUARD_MTU: "1320"                   # AirVPN default
       FIREWALL_VPN_INPUT_PORTS: "29867"       # AirVPN forwarded port -> qBittorrent Session\Port
       HEALTH_TARGET_ADDRESSES: 1.1.1.1:443
+      HTTP_CONTROL_SERVER_ADDRESS: 127.0.0.1:8000   # control API (can stop the VPN) never exposed on mgmt0
     sysctls:                        # per-netns (qbittorrent shares this netns): host bbr/fq does not carry over
       net.ipv4.tcp_congestion_control: bbr
       net.ipv4.tcp_mtu_probing: "1"
