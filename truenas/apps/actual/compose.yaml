@@ -1,5 +1,5 @@
 # Actual Budget — Personal budgeting (Pocket ID login via its own OIDC)
-# Listens: actual:5006 on the shared `apps` network; https://actual.<domain> via Caddy.
+# Listens: actual:5006 on the shared `apps` network; https://actual.<domain> via Envoy.
 # Data:    /mnt/flashstor/apps/actual-data
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
@@ -13,6 +13,7 @@ services:
     user: "1000:1000"
     environment:
       TZ: "America/New_York"
+      NODE_OPTIONS: "--import /config/openid-dedup.mjs"
       ACTUAL_PORT: "5006"
       ACTUAL_ALLOWED_LOGIN_METHODS: "openid"
       ACTUAL_OPENID_DISCOVERY_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/.well-known/openid-configuration"
@@ -22,6 +23,7 @@ services:
     networks: [apps]
     volumes:
       - /mnt/flashstor/apps/actual-data:/data
+      - /mnt/flashstor/apps/actual-config:/config:ro
     tmpfs:
       - /tmp:size=64m,uid=1000,gid=1000
     read_only: true

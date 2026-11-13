@@ -149,6 +149,15 @@ static_resources:
             - name: actual
               domains:
               - actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+              response_headers_to_add:
+              - header:
+                  key: Cross-Origin-Opener-Policy
+                  value: same-origin
+                append_action: OVERWRITE_IF_EXISTS_OR_ADD
+              - header:
+                  key: Cross-Origin-Embedder-Policy
+                  value: require-corp
+                append_action: OVERWRITE_IF_EXISTS_OR_ADD
               routes:
               - match:
                   prefix: /

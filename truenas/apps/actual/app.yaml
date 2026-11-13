@@ -1,4 +1,8 @@
 # Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/actual-config, owner: "0:1000", mode: "0750"}
+files:
+  - {template: openid-dedup.mjs.tmpl, dest: /mnt/flashstor/apps/actual-config/openid-dedup.mjs, owner: "0:1000", mode: "0640"}
 health:
   tcp: 127.0.0.1:5006
   netns: actual
