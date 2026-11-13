@@ -15,7 +15,7 @@ run_lego() {
     --path /certs \
     --dns cloudflare \
     --dns.resolvers 192.168.123.250:53 \
-    --dns.propagation.disable-ans \
+    --dns.propagation.wait 90s \
     --domains "$DOMAIN" \
     --domains "*.$DOMAIN" \
     --cert.name "$DOMAIN" \
