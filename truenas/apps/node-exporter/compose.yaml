@@ -13,6 +13,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: America/New_York
+    hostname: nas01
     command:
       - --path.rootfs=/host/root
       - --path.procfs=/host/proc

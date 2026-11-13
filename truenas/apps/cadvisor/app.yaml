@@ -1,6 +1,6 @@
 # Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
 health:
-  http: http://127.0.0.1:8080/healthz
+  tcp: 127.0.0.1:8080
   netns: cadvisor
 ui:
   title: cAdvisor

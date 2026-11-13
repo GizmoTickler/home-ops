@@ -27,6 +27,8 @@ services:
     volumes:
       - /:/rootfs:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock
+      - /var/lib/containerd:/var/lib/containerd:ro
       - /sys:/sys:ro
       - /mnt/.ix-apps/docker:/var/lib/docker:ro
       - /dev/disk:/dev/disk:ro
@@ -35,7 +37,7 @@ services:
       - /dev/kmsg:/dev/kmsg:r
     read_only: true
     cap_drop: [ALL]
-    cap_add: [DAC_READ_SEARCH, SYS_PTRACE]
+    cap_add: [DAC_READ_SEARCH, SYS_PTRACE, SYSLOG]
     security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
