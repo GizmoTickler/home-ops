@@ -9,7 +9,7 @@ networks:
     subnet: 172.31.200.0/24
     gateway: 172.31.200.1
   # Monitoring stack only (VictoriaMetrics, vmalert, Alertmanager, Grafana, blackbox, gatus, kromgo) + Caddy
-  # (172.31.201.2, same hostname aliases as on `apps`). VictoriaMetrics/Alertmanager have no auth of their own, so
+  # (172.31.201.254: top of the range, dynamic allocation starts at .2; same hostname aliases as on `apps`). VictoriaMetrics/Alertmanager have no auth of their own, so
   # they are deliberately NOT on `apps`; egress (scrapes/probes) is NATed via nas01.
   - name: monitoring
     driver: bridge

@@ -2,7 +2,7 @@
 # Listens: 192.168.123.156:443/80 on the shared `mgmt` macvlan (LAN; SC01 sgt-map 192.168.123.156 sgt 15)
 #          172.31.200.2:443 on the shared `apps` network (apps reach <host>.<domain> here via the aliases below)
 #          172.31.200.2:8443 external sites only -- the cloudflared tunnel connector is its only client
-#          172.31.201.2:9180 /metrics (monitoring network only) and 172.31.201.2:443 for the monitoring stack
+#          172.31.201.254:9180 /metrics (monitoring network only) and 172.31.201.254:443 for the monitoring stack
 # Certs:   wildcard *.<domain> issued by Caddy itself, ACME DNS-01 via Cloudflare: Google Trust Services (EAB)
 #          first, Let's Encrypt as fallback. Data: /mnt/flashstor/apps/caddy-data (ACME accounts + certs).
 # Config:  Caddyfile (rendered by the reconciler to /mnt/flashstor/apps/caddy-config/Caddyfile; a change restarts
@@ -63,7 +63,7 @@ services:
           - "vmalert.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
           - "webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
       monitoring:
-        ipv4_address: 172.31.201.2
+        ipv4_address: 172.31.201.254
         aliases:
           - "actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
           - "alertmanager.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
