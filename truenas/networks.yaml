@@ -2,7 +2,7 @@
 # Created by the reconciler before any app is reconciled; never changed or deleted by it.
 networks:
   # app <-> app and Envoy -> app traffic. Apps join it as `apps: {external: true}` and are reached by service
-  # name (service names must therefore be unique across apps). Envoy is 172.31.200.2 here and carries network
+  # name (service names must therefore be unique across apps). Envoy is 172.31.200.254 here and carries network
   # aliases for every hostname it serves, so apps resolve <host>.<domain> to Envoy without leaving the host.
   - name: apps
     driver: bridge

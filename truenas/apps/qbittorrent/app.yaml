@@ -5,9 +5,9 @@
 ini:
   - path: /mnt/flashstor/apps/qbittorrent-config/qBittorrent/qBittorrent.conf
     set:
-      # Envoy only (fixed 172.31.200.2; every Envoy route to qBittorrent is behind Pocket ID OAuth2).
+      # Envoy only (fixed 172.31.200.254; every Envoy route to qBittorrent is behind Pocket ID OAuth2).
       # *arr/qui authenticate with op://Infrastructure/qbittorrent/QBITTORRENT_USERNAME/PASSWORD.
-      'AuthSubnetWhitelist': "127.0.0.1/32, 172.31.200.2/32"
+      'AuthSubnetWhitelist': "127.0.0.1/32, 172.31.200.254/32"
       'AuthSubnetWhitelistEnabled': "true"
       # Bind torrent traffic to the AirVPN tunnel: tun0 (gluetun default VPN_INTERFACE) exists only inside gluetun's netns (shared with qbittorrent).
       # If the tunnel is down qBittorrent cannot bind at all (kill-switch, on top of gluetun's firewall).
