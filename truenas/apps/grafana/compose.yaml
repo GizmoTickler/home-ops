@@ -3,6 +3,7 @@
 # Data:    /mnt/flashstor/apps/grafana-data (grafana.db with all dashboards/folders + plugins, copied from k8s; the
 #          grafana-operator that used to push dashboards is gone with the cluster, so edit dashboards in Grafana).
 #          Datasources are provisioned from datasources.yaml (same uids as on k8s, so dashboards keep working).
+# dashboards/: versioned JSON exports of dashboards built on nas01 (record only, not provisioned; re-import via the API).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
