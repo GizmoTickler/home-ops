@@ -1,5 +1,6 @@
 # Gatus — status page: internet, network devices, DNS, management UIs, monitoring, every web app; Pocket ID login (own OIDC).
 # Listens: gatus:80 on the `monitoring` network only; https://status.<domain> via Envoy.
+# Egress:  checks leave via the `egress` bridge, SNAT to 192.168.123.157 (SC01 TrustSec SGT 25, monitoring only).
 # Config:  /mnt/flashstor/apps/gatus-config/{config.yaml,endpoints-apps.yaml} rendered by the reconciler. No alerting
 #          provider: vmalert alerts on Gatus metrics (GatusEndpointDown) -> Alertmanager -> Pushover.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -17,7 +18,10 @@ services:
       GATUS_CONFIG_PATH: /config
       GATUS_DELAY_START_SECONDS: "5"
       GATUS_WEB_PORT: "80"
-    networks: [monitoring]
+    networks:
+      monitoring: {}
+      egress:
+        gw_priority: 100          # default route: everything off-host leaves as 192.168.123.157 (SGT 25)
     volumes:
       - /mnt/flashstor/apps/gatus-config:/config:ro
     read_only: true
@@ -30,3 +34,10 @@ services:
 
 networks:
   monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Envoy is its ingress
+  # Off-host egress (scrapes/probes) SNATs to 192.168.123.157 = SC01 TrustSec SGT 25 (monitoring), not nas01's
+  # SGT 15. .157 is a host alias on nas01 br0 (TrueNAS network config, not this repo). A bridge + SNAT, not the mgmt
+  # macvlan: a macvlan child cannot reach its parent host, and the stack probes/scrapes nas01's own IPs.
+  egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.host_ipv4: 192.168.123.157

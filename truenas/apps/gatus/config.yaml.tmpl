@@ -8,7 +8,8 @@
 #
 # Groups: Internet (WAN reachability) | Network (edge, core, backup WAN, DNS) | Management (TrueNAS, Proxmox, UniFi,
 # 1Password Connect) | Monitoring | Apps.
-# Probes leave nas01 as SGT 15; a check that times out on a live device is usually SC01 TrustSec.
+# Probes leave nas01 as 192.168.123.157 = SGT 25 (monitoring); a check that times out on a live device is usually
+# SC01 TrustSec (cells from 25 in infrastructure-automation trustsec.yml).
 # Gatus skips all checks while this target is unreachable (nas01 itself offline). The DNS VIP survives the loss of
 # either DNS server, so one DNS VM going down does not blank the whole page.
 connectivity:

@@ -1,7 +1,8 @@
 # VictoriaMetrics — single-node TSDB + scraper for the home network (replaces the k8s vmsingle + vmagent).
 # Listens: victoria-metrics:8428 on the `monitoring` network; https://metrics.<domain> via Envoy (Pocket ID OAuth2).
 # Data:    /mnt/flashstor/apps/victoria-metrics-data (history copied from the k8s vmsingle on 2026-11-12), 90 d.
-# Scrape:  scrape.yaml (rendered by the reconciler; static jobs ported 1:1 from the k8s vmagent).
+# Scrape:  scrape.yaml (rendered by the reconciler; static jobs ported 1:1 from the k8s vmagent). Scrapes leave via
+#          the `egress` bridge, SNAT to 192.168.123.157 (SC01 TrustSec SGT 25, monitoring only).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -27,7 +28,10 @@ services:
       - -search.maxMemoryPerQuery=536870912
       - -search.cacheTimestampOffset=5m
       - -search.maxUniqueTimeseries=300000
-    networks: [monitoring]
+    networks:
+      monitoring: {}
+      egress:
+        gw_priority: 100          # default route: everything off-host leaves as 192.168.123.157 (SGT 25)
     volumes:
       - /mnt/flashstor/apps/victoria-metrics-data:/storage
       - /mnt/flashstor/apps/victoria-metrics-config:/etc/vm:ro
@@ -41,3 +45,10 @@ services:
 
 networks:
   monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress
+  # Off-host egress (scrapes/probes) SNATs to 192.168.123.157 = SC01 TrustSec SGT 25 (monitoring), not nas01's
+  # SGT 15. .157 is a host alias on nas01 br0 (TrueNAS network config, not this repo). A bridge + SNAT, not the mgmt
+  # macvlan: a macvlan child cannot reach its parent host, and the stack probes/scrapes nas01's own IPs.
+  egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.host_ipv4: 192.168.123.157
