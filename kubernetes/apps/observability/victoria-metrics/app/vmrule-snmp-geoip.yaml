@@ -1,5 +1,5 @@
 ---
-# Alerts for the SNMP fabric telemetry + gateway0 GeoIP/threat-feed health.
+# Alerts for the SNMP fabric telemetry + VyOS GeoIP/threat-feed health (cell gateways).
 # Metric source: nflo0 snmp_exporter. The `job` label is the per-target jobName
 # (snmp-cisco, snmp-vyos, snmp-geoip) — NOT a flat "snmp" — so every rule selects
 # job=~"snmp.*". 2026-06-26: fixed a dead-selector bug where all rules below used
@@ -9,6 +9,8 @@
 # refresh, updater logs to /tmp/geoip-update.log) — the day-one GeoIP alerts cleared.
 # Same date: cell-gateways now export the same NET-SNMP-EXTEND metrics as gateway0,
 # plus new bgp_default_in_frr/in_config drift metrics and SSH tcp_connect probes.
+# 2026-11-12: gateway0 is no longer the edge (UXG-Fiber is; gw0 is a lab box) and is no
+# longer scraped; the VyOS extend rules below now cover cell-gateway0/1 only.
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmrule_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
@@ -154,10 +156,15 @@ spec:
           # matching the non-established series ==1 would reset `for:` on every FSM
           # transition of a flapping peer), but drop the bgpPeerState label so the
           # alert doesn't carry the contradictory bgpPeerState="established".
+          # Only admin-enabled peers: SC01 keeps gateway0's sessions (10.255.255.2/.10)
+          # configured but `shutdown` since the 2026-11-12 UXG cutover, and an
+          # intentionally shut peer must not page (bgpPeerAdminStatus="stop").
           expr: |-
             min without (bgpPeerState) (
               bgpPeerState{job=~"snmp.*",bgpPeerState="established"}
             ) == 0
+            and on (instance, bgpPeerRemoteAddr)
+            bgpPeerAdminStatus{job=~"snmp.*",bgpPeerAdminStatus="start"} == 1
           for: 5m
           keep_firing_for: 5m
           annotations:
@@ -180,7 +187,7 @@ spec:
             severity: warning
             component: network
 
-    # ── gateway0 GeoIP + threat-feed health (NET-SNMP-EXTEND-MIB) ──────────
+    # ── VyOS GeoIP + threat-feed health (NET-SNMP-EXTEND-MIB) ──────────────
     - name: geoip-feed-health.rules
       interval: 60s
       rules:
@@ -192,7 +199,7 @@ spec:
           annotations:
             summary: "GeoIP country-block set empty ({{ $labels.nsExtendCommand }})"
             description: |-
-              gateway0 GeoIP nft set {{ $labels.nsExtendCommand }} has 0 elements — the
+              {{ $labels.instance }} GeoIP nft set {{ $labels.nsExtendCommand }} has 0 elements — the
               cn/ru/kp/ir/by country-block is providing NO protection. Apply proposal B1
               (configure firewall global-options geoip + run geoip-update.py --init).
           labels:
@@ -207,7 +214,7 @@ spec:
           for: 1h
           keep_firing_for: 30m
           annotations:
-            summary: "gateway0 GeoIP updater failing"
+            summary: "GeoIP updater failing on {{ $labels.instance }}"
             description: "geoip-update.py last run returned non-zero — GeoIP DB not refreshing."
           labels:
             severity: warning
@@ -218,7 +225,7 @@ spec:
           for: 1h
           keep_firing_for: 30m
           annotations:
-            summary: "gateway0 GeoIP database stale"
+            summary: "GeoIP database stale on {{ $labels.instance }}"
             description: "nftables-geoip.conf is {{ $value | humanizeDuration }} old (>14d) — GeoIP not refreshing."
           labels:
             severity: warning
@@ -273,19 +280,17 @@ spec:
             severity: critical
             component: network
         - alert: WANHealthWithdrawn
-          # SLOW PATH (2026-08-12): this SNMP extend refreshes only every ~15min,
-          # so it misses short withdraw/restore events entirely. The fast path is
-          # WANHealthWithdrawnLive in vmrule-network-infra.yaml (gateway0 textfile
-          # metric wan_health_withdrawn, ~5s refresh). Kept as an independent
-          # cross-check via a different transport (SNMP vs node-exporter textfile)
-          # and because it covers gateways the textfile daemon may not run on.
+          # SLOW PATH: this SNMP extend refreshes only every ~15min, so it misses
+          # short withdraw/restore events. The gateway0 textfile fast path
+          # (WANHealthWithdrawnLive) was removed 2026-11-12 with gw0's edge role;
+          # this now covers the VyOS cell gateways.
           expr: |-
             nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="wan_health_state"} == 0
           for: 2m
           keep_firing_for: 10m
           annotations:
             summary: "wan-health daemon withdrew the default on {{ $labels.instance }} (slow SNMP path)"
-            description: "{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design. NOTE: this SNMP signal refreshes ~15min; WANHealthWithdrawnLive is the fast (~5s) gateway0 signal."
+            description: "{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design. NOTE: this SNMP signal refreshes ~15min."
           labels:
             severity: warning
             component: network

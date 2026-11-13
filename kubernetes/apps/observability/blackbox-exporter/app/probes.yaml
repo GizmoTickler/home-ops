@@ -21,9 +21,11 @@ spec:
         - edge1.${SECRET_DOMAIN}
         - dns0.${SECRET_DOMAIN}
         - dns1.${SECRET_DOMAIN}
-        - gateway0.${SECRET_DOMAIN}
+        # UXG-Fiber, the internet edge since 2026-11-12 (SC01-Transit VLAN 3044 side;
+        # its mgmt transit address 10.255.255.42 does not answer ICMP from the cluster).
+        # gateway0 is a lab box now and is not probed.
+        - 10.255.255.46
         - gateway1.${SECRET_DOMAIN}
-        - mgateway0.${SECRET_DOMAIN}
         - mgateway1.${SECRET_DOMAIN}
         - cell-gateway0.${SECRET_DOMAIN}
         - cell-gateway1.${SECRET_DOMAIN}

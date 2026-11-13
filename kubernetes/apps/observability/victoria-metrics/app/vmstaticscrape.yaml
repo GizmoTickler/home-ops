@@ -17,20 +17,6 @@ spec:
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
 metadata:
-  name: gateway-node-exporter
-spec:
-  jobName: node-exporter
-  targetEndpoints:
-    - targets:
-        - gateway0.${SECRET_DOMAIN}:9100
-      scrapeTimeout: 10s
-      labels:
-        job: node-exporter
----
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMStaticScrape
-metadata:
   name: rhel-node-exporter
 spec:
   jobName: node-exporter
@@ -78,35 +64,6 @@ spec:
         insecureSkipVerify: true
       labels:
         job: onepassword-connect
----
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMStaticScrape
-metadata:
-  name: gateway-wan-probes
-spec:
-  jobName: gateway-wan-probes
-  targetEndpoints:
-    - targets:
-        - "8.8.8.8"
-        - "9.9.9.9"
-        - "208.67.222.222"
-      path: /probe
-      scrapeTimeout: 10s
-      params:
-        module:
-          - wan_reachability
-      labels:
-        job: gateway-wan-probes
-      relabelConfigs:
-        - sourceLabels:
-            - "__address__"
-          targetLabel: __param_target
-        - sourceLabels:
-            - "__param_target"
-          targetLabel: instance
-        - targetLabel: __address__
-          replacement: "gateway0.${SECRET_DOMAIN}:9115"
 ---
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -166,35 +123,6 @@ spec:
         - targetLabel: __address__
           replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
 ---
-# WAN HTTP probes — gateway0 (Frontier fiber)
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMStaticScrape
-metadata:
-  name: gateway-wan-http
-spec:
-  jobName: gateway-wan-http
-  targetEndpoints:
-    - targets:
-        - "http://www.google.com"
-        - "http://www.amazon.com"
-      path: /probe
-      scrapeTimeout: 10s
-      params:
-        module:
-          - http_2xx
-      labels:
-        job: gateway-wan-http
-      relabelConfigs:
-        - sourceLabels:
-            - "__address__"
-          targetLabel: __param_target
-        - sourceLabels:
-            - "__param_target"
-          targetLabel: instance
-        - targetLabel: __address__
-          replacement: "gateway0.${SECRET_DOMAIN}:9115"
----
 # WAN HTTP probes — cell-gateway0
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -252,35 +180,6 @@ spec:
           targetLabel: instance
         - targetLabel: __address__
           replacement: "cell-gateway1.${SECRET_DOMAIN}:9115"
----
-# WAN TCP probes — gateway0 (Frontier fiber)
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMStaticScrape
-metadata:
-  name: gateway-wan-tcp
-spec:
-  jobName: gateway-wan-tcp
-  targetEndpoints:
-    - targets:
-        - "www.apple.com:80"
-        - "www.microsoft.com:80"
-      path: /probe
-      scrapeTimeout: 10s
-      params:
-        module:
-          - tcp_connect
-      labels:
-        job: gateway-wan-tcp
-      relabelConfigs:
-        - sourceLabels:
-            - "__address__"
-          targetLabel: __param_target
-        - sourceLabels:
-            - "__param_target"
-          targetLabel: instance
-        - targetLabel: __address__
-          replacement: "gateway0.${SECRET_DOMAIN}:9115"
 ---
 # WAN TCP probes — cell-gateway0
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json

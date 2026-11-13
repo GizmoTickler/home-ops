@@ -5,9 +5,11 @@
 #   apprecctl token create prometheus viewer
 # and stored in the 1Password item "apprec-api" as PROMETHEUS_TOKEN_<DEV>.
 #
-# Not in kustomization.yaml yet: gateway0 and the cell gateways still run VyOS,
-# where this path is nginx's and the scrape would only report the target down.
-# Enable it, with the appliance's targets, at each router's cutover.
+# Not in kustomization.yaml: no production router runs the appliance. Since
+# 2026-11-12 the internet edge is the UXG-Fiber and gateway0 is a lab /
+# product-qualification box; the cell gateways still run VyOS (this path is
+# nginx's there). Enable it, with the appliance's targets, if a production
+# router is cut over to the appliance.
 #
 # What the appliance exports: config core and API (apprec_config_*,
 # apprec_api_requests_total), apprecd and verdicts, the loader's bpf.prom
@@ -15,7 +17,7 @@
 # under job=node-exporter), flows, links/WAN members/WireGuard, certificates
 # (apprec_cert_*), and apprec_metrics_source_up{source} per section.
 # Host metrics are not in it: node-exporter listens on loopback only on the
-# appliance, so the gateway-node-exporter scrape on :9100 goes away at cutover.
+# appliance (gateway0's :9100 node-exporter scrape was removed 2026-11-12).
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/external-secrets.io/externalsecret_v1.json
 apiVersion: external-secrets.io/v1
 kind: ExternalSecret

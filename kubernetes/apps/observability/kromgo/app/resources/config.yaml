@@ -128,9 +128,12 @@ metrics:
       - {color: "green", min: 0, max: 9999}
     title: Containers
 
+  # Primary edge = UXG-Fiber since 2026-11-12. It runs no blackbox prober (gateway0's
+  # on-box WAN probes are gone), so this reflects the UXG answering the in-cluster
+  # ICMP device probe, not an end-to-end Frontier path test.
   - name: wan_primary
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"gateway-wan.*"} == 1) >= 5))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job="probe/observability/devices",instance="10.255.255.46"} == 1) >= 1))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:

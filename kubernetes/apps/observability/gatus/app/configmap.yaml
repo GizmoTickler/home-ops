@@ -76,10 +76,11 @@ data:
 
       - name: "Primary Gateway"
         group: "infrastructure"
-        url: https://gateway0.${SECRET_DOMAIN}
+        # UXG-Fiber (internet edge since 2026-11-12), SC01-Transit address
+        url: icmp://10.255.255.46
         interval: 1m
         conditions:
-          - "[STATUS] == 403"
+          - "[CONNECTED] == true"
 
       - name: Secondary Gateway
         group: "infrastructure"

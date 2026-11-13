@@ -38,7 +38,7 @@ spec:
 ---
 # VyOS cell-gateways: IF-MIB + GeoIP/threat-feed/BGP-drift health via
 # NET-SNMP-EXTEND-MIB (script-extensions deployed 2026-07-04, same
-# materializer pattern as gateway0).
+# materializer pattern formerly used on gateway0).
 # yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMStaticScrape
@@ -50,37 +50,6 @@ spec:
     - targets:
         - "10.255.255.251" # cell-gateway0
         - "10.255.255.250" # cell-gateway1
-      path: /snmp
-      interval: 60s
-      scrapeTimeout: 30s
-      params:
-        auth:
-          - ntopng_v3
-        module:
-          - if_mib
-          - net_snmp_extend
-      labels:
-        job: snmp
-      relabelConfigs:
-        - sourceLabels: ["__address__"]
-          targetLabel: __param_target
-        - sourceLabels: ["__param_target"]
-          targetLabel: instance
-        - targetLabel: __address__
-          replacement: "netflow.${SECRET_DOMAIN}:9116"
----
-# gateway0 (primary edge): IF-MIB + GeoIP/threat-feed health via NET-SNMP-EXTEND-MIB
-# (script-extensions backed by a root task-scheduler materializer; snmpd is non-root).
-# yaml-language-server: $schema=https://kubernetes-schema.pages.dev/operator.victoriametrics.com/vmstaticscrape_v1beta1.json
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMStaticScrape
-metadata:
-  name: snmp-gateway0
-spec:
-  jobName: snmp-geoip
-  targetEndpoints:
-    - targets:
-        - "10.255.255.254" # gateway0
       path: /snmp
       interval: 60s
       scrapeTimeout: 30s
@@ -112,7 +81,6 @@ spec:
   jobName: network-ssh-probes
   targetEndpoints:
     - targets:
-        - "10.255.255.254:22" # gateway0
         - "10.255.255.253:22" # SC01
         - "10.255.255.252:22" # gateway1 (ISR)
         - "10.255.255.251:22" # cell-gateway0
