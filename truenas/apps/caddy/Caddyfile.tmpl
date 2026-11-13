@@ -11,16 +11,20 @@
 
 {
 	email {$ACME_EMAIL}
-	# GTS first (EAB), Let's Encrypt as fallback. Propagation is checked against public resolvers: the internal
-	# resolvers serve the split-horizon zone and never see the _acme-challenge TXT records.
+	# GTS first (EAB), Let's Encrypt as fallback. No propagation check (it timed out from nas01: direct queries to the
+	# authoritative servers do not get through); a fixed 45 s delay is ample for Cloudflare.
 	cert_issuer acme https://dv.acme-v02.api.pki.goog/directory {
 		eab {$EAB_KEY_ID} {$EAB_HMAC_KEY}
 		dns cloudflare {$CF_API_TOKEN}
 		resolvers 1.1.1.1 1.0.0.1
+		propagation_delay 45s
+		propagation_timeout -1
 	}
 	cert_issuer acme https://acme-v02.api.letsencrypt.org/directory {
 		dns cloudflare {$CF_API_TOKEN}
 		resolvers 1.1.1.1 1.0.0.1
+		propagation_delay 45s
+		propagation_timeout -1
 	}
 	admin localhost:2019
 	metrics
