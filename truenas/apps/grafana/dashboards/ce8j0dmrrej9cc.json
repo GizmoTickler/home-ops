@@ -75,6 +75,7 @@
   "fiscalYearStartMonth": 0,
   "gnetId": 22604,
   "graphTooltip": 0,
+  "id": null,
   "links": [],
   "panels": [
     {
@@ -82,7 +83,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "If DOWN, every panel below is empty. nas01 smartctl-exporter v0.15.0 answers /metrics with HTTP 500 ('collected metric smartctl_verify_* with unregistered descriptor', upstream issue #406) for the SAS drives; pin v0.14.0 or wait for the fix (PR #397).",
+      "description": "If DOWN, panels below are empty. Pinned at smartctl-exporter v0.14.0 for SAS compatibility; MegaRAID exposes JBOD disks via both /dev/sd* and megaraid,N paths (45 paths across 24 physical drives), so drive counts, wear level, and error tables below deduplicate by serial_number.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -398,10 +399,10 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "editorMode": "code",
-          "exemplar": false,
-          "expr": "sum(smartctl_device{instance=~\"$node\", device=~\"$disk\", interface=~\"$type\",serial_number=~\"$serial_number\",model_name=~\"$device_model\"})",
-          "instant": false,
-          "range": true,
+          "expr": "count(max by (instance, serial_number) (smartctl_device{instance=~\"$node\", device=~\"$disk\", interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"}))",
+          "instant": true,
+          "legendFormat": "Physical Drives",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -563,6 +564,7 @@
           },
           "links": [],
           "mappings": [],
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -686,11 +688,10 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "editorMode": "code",
-          "expr": "count((smartctl_device_smart_status{instance=~\"$node\",device=~\"$disk\"} * on(instance, device) group_left(interface,serial_number,model_family,model_name) smartctl_device) == 0)",
-          "format": "table",
+          "expr": "count((max by (instance, serial_number) (smartctl_device_smart_status{instance=~\"$node\", device=~\"$disk\"} * on(instance, device) group_left(interface,serial_number,model_family,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})) == 0) or vector(0)",
           "instant": true,
-          "intervalFactor": 1,
-          "legendFormat": "__auto",
+          "legendFormat": "Unhealthy",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -752,6 +753,7 @@
           "links": [],
           "mappings": [],
           "min": 0,
+          "noValue": "0",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1538,12 +1540,10 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "editorMode": "code",
-          "expr": "sort_desc(100 - smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=\"Wear_Leveling_Count\",attribute_value_type=\"value\"} * on(instance, device) group_left(interface,serial_number,model_family,model_name) smartctl_device{interface=~\"sat\",serial_number=~\"$serial_number\",model_name=~\"$device_model\"})",
-          "format": "time_series",
+          "expr": "sort_desc(max by (instance, serial_number, model_name) (100 - smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=~\"Wear_Leveling_Count|Percent_Lifetime_Remain\", attribute_value_type=\"value\"} * on(instance, device) group_left(interface,serial_number,model_family,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"}))",
           "instant": true,
-          "interval": "",
-          "intervalFactor": 1,
-          "legendFormat": "{{instance}}:{{device}}",
+          "legendFormat": "{{model_name}} ({{serial_number}})",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1626,6 +1626,189 @@
       ],
       "title": "Wear Level on NVMe Devices",
       "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Raw SMART error/defect counters deduplicated per physical drive serial_number.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(Reallocated Sectors|Pending Sectors|Offline Uncorrectable|CRC Errors|Reported Uncorrect)$"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 102,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Reallocated Sectors"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max by (serial_number, model_name) (smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=\"Reallocated_Sector_Ct\", attribute_value_type=\"raw\"} * on(instance, device) group_left(serial_number,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max by (serial_number, model_name) (smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=\"Current_Pending_Sector\", attribute_value_type=\"raw\"} * on(instance, device) group_left(serial_number,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max by (serial_number, model_name) (smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=\"Offline_Uncorrectable\", attribute_value_type=\"raw\"} * on(instance, device) group_left(serial_number,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max by (serial_number, model_name) (smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=~\"UDMA_CRC_Error_Count|CRC_Error_Count\", attribute_value_type=\"raw\"} * on(instance, device) group_left(serial_number,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max by (serial_number, model_name) (smartctl_device_attribute{instance=~\"$node\", device=~\"$disk\", attribute_name=\"Reported_Uncorrect\", attribute_value_type=\"raw\"} * on(instance, device) group_left(serial_number,model_name) smartctl_device{interface=~\"$type\", serial_number=~\"$serial_number\", model_name=~\"$device_model\"})",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E"
+        }
+      ],
+      "title": "Physical Drive Defect, Reallocation & CRC Counters (by Serial)",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "serial_number",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "model_name 2": true,
+              "model_name 3": true,
+              "model_name 4": true,
+              "model_name 5": true
+            },
+            "renameByName": {
+              "Value #A": "Reallocated Sectors",
+              "Value #B": "Pending Sectors",
+              "Value #C": "Offline Uncorrectable",
+              "Value #D": "CRC Errors",
+              "Value #E": "Reported Uncorrect",
+              "model_name 1": "Model",
+              "serial_number": "Serial"
+            }
+          }
+        }
+      ],
+      "type": "table"
     }
   ],
   "refresh": "1m",
@@ -1762,6 +1945,6 @@
   "timezone": "browser",
   "title": "SMARTctl Exporter Dashboard",
   "uid": "ce8j0dmrrej9cc",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

@@ -5,8 +5,9 @@
     "list": []
   },
   "description": "Detailed downstream connection monitoring for Envoy proxy. Tracks client-facing metrics including request rates, latency percentiles (P50/P95/P99), success rates, active connections, connection lifecycle events, bandwidth usage, and request reset patterns for each HTTP connection manager. Use this dashboard to analyze client behavior, diagnose connection issues, monitor ingress traffic patterns, and identify potential DDoS or abuse scenarios. Supports multi-prefix selection for comparative analysis. The dashboards were generated using [envoy-mixin](https://github.com/adinhodovic/envoy-mixin). Open issues and create feature requests in the repository.",
-  "editable": false,
+  "editable": true,
   "gnetId": 24458,
+  "id": null,
   "links": [
     {
       "asDropdown": true,
@@ -303,7 +304,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_http_conn_manager_prefix)\n",
           "legendFormat": "{{ envoy_http_conn_manager_prefix }}"
         }
       ],
@@ -356,7 +357,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P50"
         },
         {
@@ -365,7 +366,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P95"
         },
         {
@@ -374,7 +375,7 @@
             "uid": "$datasource"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P99"
         }
       ],
@@ -433,7 +434,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
           "legendFormat": "Success Rate"
         }
       ],
@@ -492,7 +493,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
           "legendFormat": "Success Rate"
         }
       ],
@@ -603,7 +604,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Active Connections"
         },
         {
@@ -612,7 +613,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Destroyed Connections"
         },
         {
@@ -621,7 +622,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_idle_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_idle_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Idle Timeout"
         }
       ],
@@ -674,7 +675,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_rx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_rx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Received"
         },
         {
@@ -683,7 +684,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_tx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_tx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Transmitted"
         }
       ],
@@ -741,7 +742,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_rx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_rx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "RX Reset"
         },
         {
@@ -750,7 +751,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_tx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_tx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "TX Reset"
         },
         {
@@ -759,7 +760,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "Timeout"
         }
       ],
@@ -817,7 +818,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "{{instance}}"
         }
       ],
@@ -875,7 +876,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (instance, envoy_http_conn_manager_prefix)\n",
+          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (instance, envoy_http_conn_manager_prefix)\n",
           "legendFormat": "{{instance}}"
         }
       ],
@@ -904,13 +905,14 @@
         "type": "datasource"
       },
       {
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
-            "envoy"
+            "All"
           ],
           "value": [
-            "envoy"
+            "$__all"
           ]
         },
         "datasource": {
@@ -927,11 +929,21 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "includeAll": false,
+        "includeAll": true,
         "label": "Envoy HTTP Conn Manager Prefix",
         "multi": true,
         "name": "envoy_http_conn_manager_prefix",
@@ -941,6 +953,16 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
@@ -949,7 +971,7 @@
         "label": "instance",
         "multi": true,
         "name": "instance",
-        "query": "label_values(envoy_listener_http_downstream_rq_xx{job=~\"$job\", envoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"}, instance)",
+        "query": "label_values(envoy_http_downstream_rq_xx{job=~\"$job\", envoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"}, instance)",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -963,5 +985,5 @@
   "timezone": "utc",
   "title": "Envoy / Downstream",
   "uid": "envoy-downstream-skj2",
-  "version": 2
+  "version": 3
 }

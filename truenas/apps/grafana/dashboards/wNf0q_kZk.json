@@ -62,6 +62,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
+  "id": null,
   "links": [
     {
       "icon": "doc",
@@ -1952,7 +1953,7 @@
             "type": "prometheus",
             "uid": "$ds"
           },
-          "description": "CPU pressure based on [Pressure Stall Information](https://docs.kernel.org/accounting/psi.html).\n\n**Lower is better.**\n\nPressure is measured as amount of time within 1sec time window the process was:\n- waiting: at least one task in the process was ready to run (runnable) but couldn't get scheduled on the CPU.\n- stalled: all tasks in the process (except idle ones) were unable to get CPU time — a full CPU stall.\n\nIf there's a CPU burst, it's normal to see waiting or stalled > 100ms. It only becomes a concern if it consistently climbs above 50-100ms and aligns with latency spikes or GC slowdowns.",
+          "description": "CPU pressure based on [Pressure Stall Information](https://docs.kernel.org/accounting/psi.html).\n\n**Lower is better.**\n\nPressure is measured as amount of time within 1sec time window the process was:\n- waiting: at least one task in the process was ready to run (runnable) but couldn't get scheduled on the CPU.\n- stalled: all tasks in the process (except idle ones) were unable to get CPU time \u2014 a full CPU stall.\n\nIf there's a CPU burst, it's normal to see waiting or stalled > 100ms. It only becomes a concern if it consistently climbs above 50-100ms and aligns with latency spikes or GC slowdowns.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -7857,7 +7858,7 @@
             "type": "prometheus",
             "uid": "$ds"
           },
-          "description": "This panel breaks down memory usage by type. It’s intended for inspecting a single instance.\n\nHow to use:\n- Start from the high-level RSS panel.\n- Identify an instance with unexpected or abnormal memory growth.\n- Filter to that instance to inspect the detailed breakdown.\n\nInterpretation\n- A steadily rising Go Heap usually indicates a memory leak. Collect pprof memory profile.\n- A growing Go Stack commonly points to a goroutine leak.",
+          "description": "This panel breaks down memory usage by type. It\u2019s intended for inspecting a single instance.\n\nHow to use:\n- Start from the high-level RSS panel.\n- Identify an instance with unexpected or abnormal memory growth.\n- Filter to that instance to inspect the detailed breakdown.\n\nInterpretation\n- A steadily rising Go Heap usually indicates a memory leak. Collect pprof memory profile.\n- A growing Go Stack commonly points to a goroutine leak.",
           "fieldConfig": {
             "defaults": {
               "color": {
@@ -8816,7 +8817,11 @@
         "type": "datasource"
       },
       {
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "vmsingle-stack",
+          "value": "vmsingle-stack"
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "$ds"
@@ -8830,32 +8835,20 @@
           "refId": "VictoriaMetrics-job-Variable-Query"
         },
         "refresh": 1,
-        "regex": "",
-        "type": "query"
-      },
-      {
-        "current": {},
-        "datasource": {
-          "type": "prometheus",
-          "uid": "$ds"
-        },
-        "definition": "label_values(vm_app_version{job=~\"$job\", instance=~\"$instance\"},  version)",
-        "hide": 2,
-        "includeAll": false,
-        "name": "version",
-        "options": [],
-        "query": {
-          "query": "label_values(vm_app_version{job=~\"$job\", instance=~\"$instance\"},  version)",
-          "refId": "VictoriaMetrics-version-Variable-Query"
-        },
-        "refresh": 1,
-        "regex": "/.*-(?:tags|heads)-(.*)-(?:0|dirty)-.*/",
-        "sort": 2,
+        "regex": "/^vmsingle-stack$/",
         "type": "query"
       },
       {
         "allValue": ".*",
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "$ds"
@@ -8870,7 +8863,27 @@
           "refId": "VictoriaMetrics-instance-Variable-Query"
         },
         "refresh": 1,
-        "regex": "",
+        "regex": "/^(?!10\\.42\\.).+/",
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "$ds"
+        },
+        "definition": "label_values(vm_app_version{job=~\"$job\", instance=~\"$instance\"}, version)",
+        "hide": 2,
+        "includeAll": false,
+        "name": "version",
+        "options": [],
+        "query": {
+          "query": "label_values(vm_app_version{job=~\"$job\", instance=~\"$instance\"}, version)",
+          "refId": "VictoriaMetrics-version-Variable-Query"
+        },
+        "refresh": 1,
+        "regex": "/.*-(?:tags|heads)-(v[^-]+).*/",
+        "sort": 2,
         "type": "query"
       },
       {
@@ -8905,6 +8918,6 @@
   "timezone": "browser",
   "title": "VictoriaMetrics - single-node",
   "uid": "wNf0q_kZk",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

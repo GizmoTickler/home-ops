@@ -52,6 +52,7 @@
   "editable": true,
   "gnetId": 7587,
   "graphTooltip": 0,
+  "id": null,
   "iteration": 1534695504413,
   "links": [],
   "panels": [
@@ -702,7 +703,6 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Probes run by blackbox-exporter on cell-gateway0 itself (http/icmp/tcp to internet targets).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -745,92 +745,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 12,
+        "w": 24,
         "x": 0,
-        "y": 13
-      },
-      "id": 15,
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showPercentChange": false,
-        "textMode": "name",
-        "wideLayout": true
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "min by (job) (probe_success{job=~\"cgw0-wan-.*\"})",
-          "instant": true,
-          "legendFormat": "{{job}}",
-          "range": false,
-          "refId": "A"
-        }
-      ],
-      "title": "Backup WAN via cell-gateway0",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "red",
-                  "index": 0,
-                  "text": "DOWN"
-                },
-                "1": {
-                  "color": "green",
-                  "index": 1,
-                  "text": "UP"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "noValue": "no data",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
-          "unit": "none"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 12,
-        "x": 12,
         "y": 13
       },
       "id": 16,
@@ -1100,16 +1016,6 @@
           "legendFormat": "primary (UXG-Fiber)",
           "range": true,
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "avg(probe_icmp_duration_seconds{job=\"cgw0-wan-probes\",phase=\"rtt\"})",
-          "legendFormat": "cell-gateway0",
-          "range": true,
-          "refId": "B"
         },
         {
           "datasource": {
@@ -1469,5 +1375,5 @@
   "timezone": "",
   "title": "Probes & Scrape Targets",
   "uid": "xtkCtBkiz",
-  "version": 2
+  "version": 3
 }

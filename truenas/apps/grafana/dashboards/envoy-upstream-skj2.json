@@ -5,8 +5,9 @@
     "list": []
   },
   "description": "Detailed upstream cluster monitoring for Envoy proxy. Tracks request rates, latency distributions (P50/P95/P99), success rates, connection health, circuit breaker status, retry behavior, and timeout patterns for each upstream cluster. Use this dashboard to troubleshoot backend service issues, identify performance bottlenecks, and monitor cluster health across all Envoy pods. Supports multi-cluster selection for comparative analysis. The dashboards were generated using [envoy-mixin](https://github.com/adinhodovic/envoy-mixin). Open issues and create feature requests in the repository.",
-  "editable": false,
+  "editable": true,
   "gnetId": 24457,
+  "id": null,
   "links": [
     {
       "asDropdown": true,
@@ -303,7 +304,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_cluster_name)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_cluster_name)\n",
           "legendFormat": "{{ envoy_cluster_name }}"
         }
       ],
@@ -356,7 +357,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P50"
         },
         {
@@ -365,7 +366,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P95"
         },
         {
@@ -374,7 +375,7 @@
             "uid": "$datasource"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
           "legendFormat": "P99"
         }
       ],
@@ -433,7 +434,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
           "legendFormat": "Success Rate"
         }
       ],
@@ -492,7 +493,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
           "legendFormat": "Success Rate"
         }
       ],
@@ -550,7 +551,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code_class)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code_class)\n",
           "legendFormat": "{{ envoy_response_code_class }}xx"
         }
       ],
@@ -608,7 +609,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code)\n",
           "legendFormat": "{{ envoy_response_code }}"
         }
       ],
@@ -667,7 +668,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_membership_healthy{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n/\nsum(\n  envoy_cluster_membership_total{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n* 100\n",
+          "expr": "sum(\n  envoy_cluster_membership_healthy{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n/\nsum(\n  envoy_cluster_membership_total{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n* 100\n",
           "legendFormat": "{{ envoy_cluster_name }}"
         }
       ],
@@ -720,7 +721,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (envoy_cluster_name)\n",
+          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (envoy_cluster_name)\n",
           "legendFormat": "Active Connections"
         },
         {
@@ -729,7 +730,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Overflow Connections"
         },
         {
@@ -738,7 +739,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Destroyed Connections"
         },
         {
@@ -747,7 +748,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_connect_fail{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_connect_fail{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Connect Failures"
         }
       ],
@@ -805,7 +806,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Open Connections"
         },
         {
@@ -814,7 +815,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_pool_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_pool_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Open Pool Connections"
         },
         {
@@ -823,7 +824,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_rq_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_rq_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Open Requests"
         }
       ],
@@ -881,7 +882,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Retry Rate"
         },
         {
@@ -890,7 +891,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Retry Overflow Rate"
         },
         {
@@ -899,7 +900,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
           "legendFormat": "Timeout Rate"
         }
       ],
@@ -957,7 +958,7 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_cluster_name)\n",
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_cluster_name)\n",
           "legendFormat": "{{instance}}"
         }
       ],
@@ -1015,12 +1016,143 @@
             "uid": "$datasource"
           },
           "exemplar": false,
-          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (instance, envoy_cluster_name)\n",
+          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=~\"$envoy_cluster_name\"\n\n  }\n) by (instance, envoy_cluster_name)\n",
           "legendFormat": "{{instance}}"
         }
       ],
       "title": "Upstream Active Connections by Instance",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Active Envoy cluster health check membership (envoy_cluster_membership_healthy vs total).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Healthy Endpoints"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "id": 19,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "envoy_cluster_membership_healthy{job=~\"$job\", instance=~\"$instance\", envoy_cluster_name=~\"$envoy_cluster_name\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "envoy_cluster_membership_total{job=~\"$job\", instance=~\"$instance\", envoy_cluster_name=~\"$envoy_cluster_name\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Upstream Active Health Check Status (by Cluster)",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "envoy_cluster_name",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "__name__ 1": true,
+              "__name__ 2": true,
+              "instance 1": true,
+              "instance 2": true,
+              "job 1": true,
+              "job 2": true,
+              "prometheus 1": true,
+              "prometheus 2": true
+            },
+            "renameByName": {
+              "Value #A": "Healthy Endpoints",
+              "Value #B": "Total Endpoints",
+              "envoy_cluster_name": "Cluster"
+            }
+          }
+        }
+      ],
+      "type": "table"
     }
   ],
   "schemaVersion": 39,
@@ -1044,13 +1176,14 @@
         "type": "datasource"
       },
       {
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
-            "envoy"
+            "All"
           ],
           "value": [
-            "envoy"
+            "$__all"
           ]
         },
         "datasource": {
@@ -1067,11 +1200,21 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "includeAll": false,
+        "includeAll": true,
         "label": "Envoy Cluster Name",
         "multi": true,
         "name": "envoy_cluster_name",
@@ -1081,6 +1224,16 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
@@ -1103,5 +1256,5 @@
   "timezone": "utc",
   "title": "Envoy / Upstream",
   "uid": "envoy-upstream-skj2",
-  "version": 2
+  "version": 3
 }

@@ -5,8 +5,9 @@
     "list": []
   },
   "description": "A comprehensive overview dashboard for monitoring Envoy proxy deployments. Provides high-level metrics across all upstreams and downstreams including request rates, latency percentiles, success rates, active connections, and SSL certificate expirations. Use this dashboard to identify trends, spot anomalies, and drill down into specific upstream clusters or downstream connection managers. The dashboards were generated using [envoy-mixin](https://github.com/adinhodovic/envoy-mixin). Open issues and create feature requests in the repository.",
-  "editable": false,
+  "editable": true,
   "gnetId": 24459,
+  "id": null,
   "links": [
     {
       "asDropdown": true,
@@ -57,7 +58,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
+        "w": 3,
         "x": 0,
         "y": 1
       },
@@ -102,8 +103,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 4,
+        "w": 3,
+        "x": 3,
         "y": 1
       },
       "id": 3,
@@ -147,8 +148,8 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 4,
-        "x": 8,
+        "w": 3,
+        "x": 6,
         "y": 1
       },
       "id": 4,
@@ -193,7 +194,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
+        "x": 9,
         "y": 1
       },
       "id": 5,
@@ -238,7 +239,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 16,
+        "x": 13,
         "y": 1
       },
       "id": 6,
@@ -283,7 +284,7 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 20,
+        "x": 17,
         "y": 1
       },
       "id": 7,
@@ -1538,6 +1539,75 @@
       ],
       "title": "SSL Expirations by Envoy TLS Certificate",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Total Envoy upstream endpoints currently failing active health checks.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      },
+      "id": 26,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "sum(envoy_cluster_membership_total{job=~\"$job\", instance=~\"$instance\"} - envoy_cluster_membership_healthy{job=~\"$job\", instance=~\"$instance\"}) or vector(0)",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Unhealthy Backends",
+      "type": "stat"
     }
   ],
   "schemaVersion": 39,
@@ -1561,13 +1631,14 @@
         "type": "datasource"
       },
       {
+        "allValue": ".*",
         "current": {
           "selected": true,
           "text": [
-            "envoy"
+            "All"
           ],
           "value": [
-            "envoy"
+            "$__all"
           ]
         },
         "datasource": {
@@ -1584,6 +1655,16 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
@@ -1598,6 +1679,16 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
@@ -1612,6 +1703,16 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
@@ -1620,7 +1721,7 @@
         "label": "instance",
         "multi": true,
         "name": "instance",
-        "query": "label_values(envoy_listener_http_downstream_rq_xx{job=~\"$job\"}, instance)",
+        "query": "label_values(envoy_http_downstream_rq_xx{job=~\"$job\"}, instance)",
         "refresh": 2,
         "sort": 1,
         "type": "query"
@@ -1634,5 +1735,5 @@
   "timezone": "utc",
   "title": "Envoy / Overview",
   "uid": "envoy-overview-skj2",
-  "version": 2
+  "version": 3
 }
