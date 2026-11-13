@@ -104,7 +104,7 @@ var (
 	}
 	// uploadIgnitionToPVEFn writes the rendered Ignition to the snippets dir ON the
 	// Proxmox node over SSH. The fw_cfg file= path is read by qemu on that host, so the
-	// file must live there — not on whatever box runs this CLI (e.g. varunlnx0).
+	// file must live there — not on whatever box runs this CLI (e.g. a dev workstation).
 	// Swappable for tests. Auth uses hypervisors.proxmox.ssh_key when set, else
 	// the ambient ssh-agent.
 	uploadIgnitionToPVEFn = func(sshHost, sshUser, sshPort, remotePath string, content []byte) error {

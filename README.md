@@ -286,6 +286,7 @@ The cluster implements a sophisticated networking architecture using Cilium and 
   - Cilium ASN: 64550
   - Cisco C9300 ASN: 64541
   - LoadBalancer IP pool: 192.168.255.0/24
+- **Internet Edge**: UniFi UXG-Fiber (AS 64545) on Frontier fiber, eBGP to the C9300 over a 10G transit; the C9300 is the L3 gateway for every VLAN and the only BGP peer the cluster sees. IPv4 only.
 - **Gateway IPs**: LoadBalancer services advertised via L2 and BGP
 - **Kernel Optimizations**:
   - TCP Congestion Control: BBR
