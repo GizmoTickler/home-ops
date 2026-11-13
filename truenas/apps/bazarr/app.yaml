@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:6767
+  netns: bazarr
+ui:
+  title: Bazarr
+  description: Subtitle manager for Sonarr/Radarr
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/bazarr.png
+  home: https://www.bazarr.media

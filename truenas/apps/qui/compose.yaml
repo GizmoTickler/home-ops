@@ -1,0 +1,41 @@
+# qui — qBittorrent web UI / automation (Pocket ID via its own OIDC; logs in to qBittorrent with credentials)
+# Listens: qui:80 on the shared `apps` network; https://qui.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/qui-config; torrents /mnt/flashstor/data/torrents
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  qui:
+    image: ghcr.io/autobrr/qui:v1.32.0@sha256:13a09cb0f27004dd19510f6af37aac140164ba0f9a13333b8698e41bd2d1df4c
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      QUI__HOST: "0.0.0.0"
+      QUI__PORT: "80"
+      QUI__LOG_LEVEL: "INFO"
+      QUI__OIDC_ENABLED: "true"
+      QUI__OIDC_DISABLE_BUILT_IN_LOGIN: "true"
+      QUI__OIDC_ISSUER: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      QUI__OIDC_REDIRECT_URL: "https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/api/auth/oidc/callback"
+      QUI__OIDC_CLIENT_ID: "{{ op://Infrastructure/qui/OIDC_CLIENT_ID }}"
+      QUI__OIDC_CLIENT_SECRET: "{{ op://Infrastructure/qui/OIDC_CLIENT_SECRET }}"
+      QUI__SESSION_SECRET: "{{ op://Infrastructure/qui/QUI_SESSION_SECRET }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/qui-config:/config
+      - /mnt/flashstor/data/torrents:/media/torrents
+    tmpfs:
+      - /tmp:size=128m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1024M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

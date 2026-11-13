@@ -103,6 +103,21 @@ http://:9180 {
 		reverse_proxy audiobookshelf:80
 	}
 
+	@autobrr host autobrr.{$DOMAIN}
+	handle @autobrr {
+		reverse_proxy autobrr:80
+	}
+
+	@bazarr host bazarr.{$DOMAIN}
+	handle @bazarr {
+		import pocket_id bazarr-auth bazarr:6767
+	}
+
+	@chaptarr host chaptarr.{$DOMAIN}
+	handle @chaptarr {
+		import pocket_id chaptarr-auth chaptarr:80
+	}
+
 	@grimmory host grimmory.{$DOMAIN}
 	handle @grimmory {
 		reverse_proxy grimmory:6060
@@ -128,11 +143,51 @@ http://:9180 {
 		reverse_proxy n8n:8080
 	}
 
+	@nzbget host nzbget.{$DOMAIN}
+	handle @nzbget {
+		import pocket_id nzbget-auth nzbget:6789
+	}
+
+	@pinchflat host pinchflat.{$DOMAIN}
+	handle @pinchflat {
+		import pocket_id pinchflat-auth pinchflat:80
+	}
+
+	@prowlarr host prowlarr.{$DOMAIN}
+	handle @prowlarr {
+		import pocket_id prowlarr-auth prowlarr:80
+	}
+
+	@qbittorrent host qbittorrent.{$DOMAIN}
+	handle @qbittorrent {
+		import pocket_id qbittorrent-auth qbittorrent:8080
+	}
+
+	@qui host qui.{$DOMAIN}
+	handle @qui {
+		reverse_proxy qui:80
+	}
+
+	@radarr host radarr.{$DOMAIN}
+	handle @radarr {
+		import pocket_id radarr-auth radarr:80
+	}
+
+	@requests host requests.{$DOMAIN}
+	handle @requests {
+		import pocket_id seerr-auth seerr:80
+	}
+
 	@rss host rss.{$DOMAIN}
 	handle @rss {
 		reverse_proxy freshrss:8080 {
 			header_up X-Forwarded-Port 443
 		}
+	}
+
+	@sonarr host sonarr.{$DOMAIN}
+	handle @sonarr {
+		import pocket_id sonarr-auth sonarr:80
 	}
 
 	@webhook host webhook.{$DOMAIN}

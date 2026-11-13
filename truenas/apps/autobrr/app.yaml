@@ -1,0 +1,14 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+files:
+  - template: keepalive.py
+    dest: /mnt/flashstor/apps/autobrr-config/keepalive.py
+    owner: "1000:1000"
+    mode: "0444"
+health:
+  tcp: 127.0.0.1:80
+  netns: autobrr
+ui:
+  title: autobrr
+  description: IRC announce -> download automation (Pocket ID via its own OIDC)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/autobrr.png
+  home: https://autobrr.com

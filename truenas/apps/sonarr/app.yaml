@@ -1,0 +1,14 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+files:
+  - template: recyclarr.yml
+    dest: /mnt/flashstor/apps/recyclarr-config/recyclarr.yml
+    owner: "1000:1000"
+    mode: "0640"
+health:
+  tcp: 127.0.0.1:80
+  netns: sonarr
+ui:
+  title: Sonarr
+  description: TV series manager
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/sonarr.png
+  home: https://sonarr.tv

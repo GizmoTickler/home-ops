@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:80
+  netns: chaptarr
+ui:
+  title: Chaptarr
+  description: Book/audiobook manager
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/readarr.png
+  home: https://github.com/chaptarr

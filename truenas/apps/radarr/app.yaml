@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:80
+  netns: radarr
+ui:
+  title: Radarr
+  description: Movie manager
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/radarr.png
+  home: https://radarr.video

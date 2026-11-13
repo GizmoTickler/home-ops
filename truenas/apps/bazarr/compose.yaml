@@ -1,0 +1,66 @@
+# Bazarr — Subtitle manager for Sonarr/Radarr
+# Listens: bazarr:6767 on the shared `apps` network; https://bazarr.<domain> via Caddy (Pocket ID forward-auth: oauth2-proxy service bazarr-auth).
+# Data:    /mnt/flashstor/apps/bazarr-config; media /mnt/flashstor/data (/media)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  bazarr:
+    image: ghcr.io/home-operations/bazarr:1.6.2@sha256:17dc1cff22e99694ffbfb06555526cb47a66b362b4d6c982f06b557f7caae2bb
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/bazarr-config:/config
+      - /mnt/flashstor/data:/media
+    tmpfs:
+      - /tmp:size=256m,uid=1000,gid=1000
+      - /config/cache:size=512m,uid=1000,gid=1000
+      - /config/log:size=64m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1024M}
+    logging: *logging
+
+  bazarr-auth:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0@sha256:56e3daedf765c7a1eea6e366fbe684be7d3084830ade14b6174570d3c7960954
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      TZ: "America/New_York"
+      OAUTH2_PROXY_PROVIDER: "oidc"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      OAUTH2_PROXY_CLIENT_ID: "bazarr"
+      OAUTH2_PROXY_CLIENT_SECRET: "{{ op://Infrastructure/bazarr/OIDC_CLIENT_SECRET }}"
+      OAUTH2_PROXY_COOKIE_SECRET_FILE: "/secrets/cookie_secret"
+      OAUTH2_PROXY_COOKIE_NAME: "_oauth2_bazarr"
+      OAUTH2_PROXY_REDIRECT_URL: "https://bazarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/oauth2/callback"
+      OAUTH2_PROXY_SCOPE: "openid email profile groups"
+      OAUTH2_PROXY_ALLOWED_GROUPS: "admin"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_WHITELIST_DOMAINS: ".{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+      OAUTH2_PROXY_UPSTREAMS: "static://202"
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/auth-proxy:/secrets:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 128M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

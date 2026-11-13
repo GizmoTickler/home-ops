@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:80
+  netns: qui
+ui:
+  title: qui
+  description: qBittorrent web UI / automation (Pocket ID via its own OIDC; logs in to qBittorrent with credentials)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qui.png
+  home: https://github.com/autobrr/qui

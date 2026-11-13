@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:80
+  netns: seerr
+ui:
+  title: Seerr
+  description: Media request manager (Pocket ID forward-auth via oauth2-proxy)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/overseerr.png
+  home: https://docs.seerr.dev
