@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  http: http://127.0.0.1:8080/healthz
+  netns: cadvisor
+ui:
+  title: cAdvisor
+  description: "Container CPU, memory, network, disk I/O and OOM metrics for nas01 Docker apps"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/cadvisor.png
+  home: https://github.com/google/cadvisor

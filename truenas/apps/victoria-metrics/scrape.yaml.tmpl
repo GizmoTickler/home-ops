@@ -368,6 +368,23 @@ scrape_configs:
   relabel_configs:
   - target_label: instance
     replacement: cloudflared
+# autobrr stays off `monitoring`: Envoy proxies its :9094/metrics on envoy:9180 at /autobrr/metrics.
+- job_name: autobrr
+  metrics_path: /autobrr/metrics
+  static_configs:
+  - targets:
+    - envoy:9180
+  relabel_configs:
+  - target_label: instance
+    replacement: autobrr
+- job_name: cadvisor
+  scrape_interval: 30s
+  static_configs:
+  - targets:
+    - cadvisor:8080
+  relabel_configs:
+  - target_label: instance
+    replacement: nas01
 - job_name: kromgo
   static_configs:
   - targets:

@@ -1123,105 +1123,16 @@ groups:
     labels:
       component: network
       severity: warning
-- name: alertmanager.rules
-  rules:
-  - alert: AlertmanagerFailedReload
-    annotations:
-      description: Configuration has failed to load for {{ $labels.namespace }}/{{ $labels.pod}}.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedreload
-      summary: Reloading an Alertmanager configuration has failed.
-    expr: max_over_time(alertmanager_config_last_reload_successful{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) == 0
-    for: 10m
-    labels:
-      severity: critical
-  - alert: AlertmanagerMembersInconsistent
-    annotations:
-      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} has only found {{ $value }} members of the {{$labels.job}} cluster.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagermembersinconsistent
-      summary: A member of an Alertmanager cluster has not found all other cluster members.
-    expr: max_over_time(alertmanager_cluster_members{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) < on(namespace,service) group_left() count(max_over_time(alertmanager_cluster_members{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]))
-      by(namespace,service)
-    for: 15m
-    labels:
-      severity: critical
-  - alert: AlertmanagerFailedToSendAlerts
-    annotations:
-      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} failed to send {{ $value | humanizePercentage }} of notifications to {{ $labels.integration }}.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedtosendalerts
-      summary: An Alertmanager instance failed to send notifications.
-    expr: (rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[15m]))
-      > 0.01
-    for: 5m
-    labels:
-      severity: warning
-  - alert: AlertmanagerClusterFailedToSendAlerts
-    annotations:
-      description: The minimum notification failure rate to {{ $labels.integration }} sent from any instance in the {{$labels.job}} cluster is {{ $value | humanizePercentage }}.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedtosendalerts
-      summary: All Alertmanager instances in a cluster failed to send notifications to a critical integration.
-    expr: min((rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration=~".*"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration=~".*"}[15m]))
-      > 0) by(namespace,service,integration) > 0.01
-    for: 5m
-    labels:
-      severity: critical
-  - alert: AlertmanagerClusterFailedToSendAlerts
-    annotations:
-      description: The minimum notification failure rate to {{ $labels.integration }} sent from any instance in the {{$labels.job}} cluster is {{ $value | humanizePercentage }}.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedtosendalerts
-      summary: All Alertmanager instances in a cluster failed to send notifications to a non-critical integration.
-    expr: min((rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration!~".*"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration!~".*"}[15m]))
-      > 0) by(namespace,service,integration) > 0.01
-    for: 5m
-    labels:
-      severity: warning
-  - alert: AlertmanagerConfigInconsistent
-    annotations:
-      description: Alertmanager instances within the {{$labels.job}} cluster have different configurations.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerconfiginconsistent
-      summary: Alertmanager instances within the same cluster have different configurations.
-    expr: count(count_values("config_hash", alertmanager_config_hash{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}) by(namespace,service)) by(namespace,service) != 1
-    for: 20m
-    labels:
-      severity: critical
-  - alert: AlertmanagerClusterDown
-    annotations:
-      description: '{{ $value | humanizePercentage }} of Alertmanager instances within the {{$labels.job}} cluster have been up for less than half of the last 5m.'
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterdown
-      summary: Half or more of the Alertmanager instances within the same cluster are down.
-    expr: (count(avg_over_time(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) < 0.5) by(namespace,service) / count(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"})
-      by(namespace,service)) >= 0.5
-    for: 5m
-    labels:
-      severity: critical
-  - alert: AlertmanagerClusterCrashlooping
-    annotations:
-      description: '{{ $value | humanizePercentage }} of Alertmanager instances within the {{$labels.job}} cluster have restarted at least 5 times in the last 10m.'
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclustercrashlooping
-      summary: Half or more of the Alertmanager instances within the same cluster are crashlooping.
-    expr: (count(changes(process_start_time_seconds{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[10m]) > 4) by(namespace,service) / count(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"})
-      by(namespace,service)) >= 0.5
-    for: 5m
-    labels:
-      severity: critical
-  - alert: AlertmanagerClusterFailedPeers
-    annotations:
-      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} has {{ $value }} failed peers in the {{$labels.job}} cluster.
-      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedpeers
-      summary: An Alertmanager instance has failed peers in the cluster.
-    expr: max_over_time(alertmanager_cluster_failed_peers{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) > 0
-    for: 15m
-    labels:
-      severity: warning
 - name: general.rules
   rules:
   - alert: TargetDown
     annotations:
       description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }} targets are down. Jobs with their own up-rule
         (node-exporter: ExternalHostDown, snmp-*: SNMPTargetDown, DNS exporters: DNSResolverTargetDown, kea-dhcp4:
-        KeaExporterDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
+        KeaExporterDown, cgw*-wan-*: BackupGatewayDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|cgw[01]-wan-.*|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|cgw[01]-wan-.*|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning
@@ -1253,14 +1164,14 @@ groups:
 
         This alert fires whenever there''s a severity="info" alert, and stops firing when another alert with a
 
-        severity of ''warning'' or ''critical'' starts firing on the same namespace.
+        severity of ''warning'' or ''critical'' starts firing.
 
         This alert should be routed to a null receiver and configured to inhibit alerts with severity="info".
 
         '
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/infoinhibitor
       summary: Info-level alert inhibition.
-    expr: group(ALERTS{severity="info"} == 1) by(namespace) unless on(namespace) group(ALERTS{alertname!="InfoInhibitor",alertstate="firing",severity=~"warning|critical"} == 1) by(namespace)
+    expr: group(ALERTS{severity="info"} == 1) unless group(ALERTS{alertname!="InfoInhibitor",alertstate="firing",severity=~"warning|critical"} == 1)
     labels:
       severity: none
 - name: node-exporter
@@ -2120,10 +2031,10 @@ groups:
       severity: warning
   - alert: VMSingleHighMemoryUsage
     annotations:
-      description: VMSingle is using {{ $value | humanizePercentage }} of its memory limit. Consider increasing memory limits.
+      description: VMSingle is using {{ $value | humanizePercentage }} of its available memory allowance. Consider increasing memory limits.
       runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
       summary: VMSingle memory usage is high
-    expr: (process_resident_memory_bytes{job="vmsingle-stack"} / on() group_left() kube_pod_container_resource_limits{resource="memory",container="vmsingle"}) > 0.85
+    expr: (process_resident_memory_bytes{job="vmsingle-stack"} / vm_available_memory_bytes{job="vmsingle-stack"}) > 0.85
     for: 10m
     keep_firing_for: 5m
     labels:
@@ -2222,3 +2133,32 @@ groups:
     keep_firing_for: 5m
     labels:
       severity: critical
+- name: nas01-containers.rules
+  rules:
+  - alert: ContainerOOMKilled
+    annotations:
+      description: Container {{ $labels.name }} on {{ $labels.instance }} experienced {{ $value }} OOM kill event(s) in the last 5m.
+      summary: Container OOM event detected
+    expr: increase(container_oom_events_total{job="cadvisor",name!=""}[5m]) > 0
+    for: 0m
+    keep_firing_for: 10m
+    labels:
+      severity: warning
+  - alert: ContainerHighMemory
+    annotations:
+      description: Container {{ $labels.name }} working set is at {{ $value | humanizePercentage }} of its memory limit.
+      summary: Container memory usage above 90%
+    expr: (container_memory_working_set_bytes{job="cadvisor",name!=""} / (container_spec_memory_limit_bytes{job="cadvisor",name!=""} > 0)) > 0.90
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: ContainerCPUThrottled
+    annotations:
+      description: Container {{ $labels.name }} is CPU-throttled on {{ $value | humanizePercentage }} of CFS periods.
+      summary: Container CPU throttling above 25%
+    expr: (rate(container_cpu_cfs_throttled_periods_total{job="cadvisor",name!=""}[5m]) / (rate(container_cpu_cfs_periods_total{job="cadvisor",name!=""}[5m]) > 0)) > 0.25
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning

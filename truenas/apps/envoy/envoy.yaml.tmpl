@@ -1171,6 +1171,14 @@ static_resources:
                   cluster: cloudflared_metrics
                   prefix_rewrite: /metrics
                   timeout: 10s
+              # autobrr stays off `monitoring` (on `apps`); Envoy proxies its :9094/metrics on the monitoring-only
+              # listener envoy:9180 so VictoriaMetrics can scrape it without placing autobrr on `monitoring`.
+              - match:
+                  path: /autobrr/metrics
+                route:
+                  cluster: autobrr_metrics
+                  prefix_rewrite: /metrics
+                  timeout: 10s
               - match:
                   prefix: /
                 direct_response:
@@ -1329,6 +1337,23 @@ static_resources:
               socket_address:
                 address: autobrr
                 port_value: 80
+  - name: autobrr_metrics     # metrics only (see the metrics listener); reached over the apps network
+    cluster_type:
+      name: envoy.clusters.dns
+      typed_config:
+        '@type': type.googleapis.com/envoy.extensions.clusters.dns.v3.DnsCluster
+        dns_lookup_family: V4_ONLY
+        dns_refresh_rate: 5s
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: autobrr_metrics
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: autobrr
+                port_value: 9094
   - name: bazarr
     cluster_type:
       name: envoy.clusters.dns

@@ -1,5 +1,5 @@
 # Grafana — dashboards over nas01 VictoriaMetrics; Pocket ID login (own OIDC client, as on k8s).
-# Listens: grafana:3000 on the `monitoring` network; https://grafana.<domain> via Caddy.
+# Listens: grafana:3000 on the `monitoring` network; https://grafana.<domain> via Envoy.
 # Data:    /mnt/flashstor/apps/grafana-data (grafana.db with all dashboards/folders + plugins, copied from k8s; the
 #          grafana-operator that used to push dashboards is gone with the cluster, so edit dashboards in Grafana).
 #          Datasources are provisioned from datasources.yaml (same uids as on k8s, so dashboards keep working).
@@ -66,4 +66,4 @@ services:
     logging: *logging
 
 networks:
-  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Envoy is its ingress

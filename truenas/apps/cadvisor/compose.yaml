@@ -1,0 +1,46 @@
+# cAdvisor — container CPU, memory, network, filesystem and OOM metrics for nas01 Docker containers.
+# Listens: cadvisor:8080 on the `monitoring` network (scraped by VictoriaMetrics only; no ingress).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.55.1@sha256:3de2bd5203120b866d74a9b283b2ffb8ec382fbf9dc321814700c6ea6f44ec57
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      TZ: America/New_York
+    command:
+      - --port=8080
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --max_housekeeping_interval=30s
+      - --enable_load_reader=false
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,referenced_memory,resctrl,sched,tcp,udp
+    networks:
+      monitoring: {}
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /sys:/sys:ro
+      - /mnt/.ix-apps/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+      - /etc/machine-id:/etc/machine-id:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg:r
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_READ_SEARCH, SYS_PTRACE]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    logging: *logging
+
+networks:
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Envoy is its ingress

@@ -21,6 +21,7 @@ services:
       - --web.listen-address=0.0.0.0:9100
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
       - --collector.textfile.directory=/host/root/mnt/flashstor/observability/node-exporter/textfile
+      - --collector.processes
     ports:
       - {host_ip: 192.168.120.10, target: 9100, published: 9100, protocol: tcp}
     volumes:
