@@ -4,6 +4,7 @@
 #          172.31.200.254:8443 external sites only -- the cloudflared tunnel connector is its only client
 #          172.31.201.254:9180 /metrics (Envoy's own) and /cloudflared/metrics (proxied to cloudflared:2000, which
 #          stays off `monitoring`) -- monitoring network only; and 172.31.201.254:443 for the monitoring stack
+# Health:  active HTTP health checks on the OAuth2-protected app clusters (envoy_cluster_membership_healthy)
 # Certs:   wildcard *.<domain> issued/renewed by `lego` sidecar (Let's Encrypt DNS-01 via Cloudflare) into
 #          /mnt/flashstor/apps/envoy-certs; Envoy hot-reloads via watched_directory.
 # Config:  envoy.yaml + acme-renew.sh rendered by the reconciler to /mnt/flashstor/apps/envoy-config.

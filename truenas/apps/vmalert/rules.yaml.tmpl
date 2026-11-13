@@ -63,6 +63,25 @@ groups:
     for: 5m
     labels:
       severity: critical
+- name: envoy-backends.rules
+  rules:
+  # The OAuth2-protected apps (bazarr, chaptarr, it-tools, nzbget, pinchflat, prowlarr, qbittorrent, radarr, seerr,
+  # sonarr) answer Gatus with the OAuth2 filter's own 302, so Gatus cannot see a dead backend. Envoy actively
+  # health-checks those clusters (envoy.yaml.tmpl `health_checks`, Envoy -> backend, unauthenticated paths); this
+  # rule covers every cluster that has a health check. No overlap with GatusEndpointDown: those Gatus checks stay
+  # green while only a backend is down, and if Envoy itself is down these series vanish and Gatus pages instead.
+  - alert: AppBackendUnhealthy
+    annotations:
+      description: 'Envoy''s active health check of the {{ $labels.envoy_cluster_name }} backend has failed for 5 minutes
+        (or the container name no longer resolves on the apps network). The app is unreachable even after login.
+
+        Check the {{ $labels.envoy_cluster_name }} app on nas01 (TrueNAS Apps / docker logs).'
+      summary: nas01 app backend {{ $labels.envoy_cluster_name }} is unhealthy
+    expr: (envoy_cluster_membership_healthy{job="envoy"} < 1) and on(envoy_cluster_name) envoy_cluster_health_check_attempt{job="envoy"}
+    for: 5m
+    labels:
+      component: apps
+      severity: warning
 - interval: 30s
   name: external-hosts.rules
   rules:

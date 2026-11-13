@@ -1156,6 +1156,9 @@ static_resources:
             typed_config:
               '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
+  # OAuth2-protected apps carry active HTTP health checks (Envoy -> backend directly, unauthenticated paths that
+  # never pass through the OAuth2 filter): Gatus only sees the filter's 302 for them, so
+  # envoy_cluster_membership_healthy is their backend signal (vmalert AppBackendUnhealthy).
   - name: envoy_admin
     type: STATIC
     connect_timeout: 2s
@@ -1261,6 +1264,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /api/system/ping
     load_assignment:
       cluster_name: bazarr
       endpoints:
@@ -1278,6 +1289,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /ping
     load_assignment:
       cluster_name: chaptarr
       endpoints:
@@ -1397,6 +1416,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /
     load_assignment:
       cluster_name: it_tools
       endpoints:
@@ -1448,6 +1475,17 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /
+        expected_statuses:
+        - {start: 200, end: 201}
+        - {start: 401, end: 402}
     load_assignment:
       cluster_name: nzbget
       endpoints:
@@ -1465,6 +1503,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /healthcheck
     load_assignment:
       cluster_name: pinchflat
       endpoints:
@@ -1499,6 +1545,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /ping
     load_assignment:
       cluster_name: prowlarr
       endpoints:
@@ -1516,6 +1570,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /
     load_assignment:
       cluster_name: qbittorrent
       endpoints:
@@ -1550,6 +1612,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /ping
     load_assignment:
       cluster_name: radarr
       endpoints:
@@ -1567,6 +1637,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /api/v1/status
     load_assignment:
       cluster_name: seerr
       endpoints:
@@ -1584,6 +1662,14 @@ static_resources:
         dns_lookup_family: V4_ONLY
         dns_refresh_rate: 5s
     connect_timeout: 5s
+    health_checks:
+    - timeout: 5s
+      interval: 30s
+      no_traffic_interval: 30s
+      unhealthy_threshold: 3
+      healthy_threshold: 1
+      http_health_check:
+        path: /ping
     load_assignment:
       cluster_name: sonarr
       endpoints:
