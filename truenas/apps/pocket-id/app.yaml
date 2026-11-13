@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:1411
+  netns: pocket-id
+ui:
+  title: Pocket ID
+  description: OIDC/passkey SSO for all apps (issuer https://id.<domain>, unchanged)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/pocket-id.png
+  home: https://pocket-id.org

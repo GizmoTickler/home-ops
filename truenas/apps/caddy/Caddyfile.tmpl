@@ -113,6 +113,11 @@ http://:9180 {
 		reverse_proxy home-assistant:8123
 	}
 
+	@id host id.{$DOMAIN}
+	handle @id {
+		reverse_proxy pocket-id:1411
+	}
+
 	@it-tools host it-tools.{$DOMAIN}
 	handle @it-tools {
 		import pocket_id it-tools-auth it-tools:8080

@@ -1,0 +1,40 @@
+# Pocket ID — OIDC/passkey SSO for all apps (issuer https://id.<domain>, unchanged)
+# Listens: pocket-id:1411 on the shared `apps` network; https://id.<domain> (internal) via Caddy.
+# Data:    /mnt/flashstor/apps/pocket-id-data (SQLite, keys, uploads)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2.18.0@sha256:323e7ef5bfacf7cf32f22f3d10ccdf48e0c97c94d67e7e40b0b996830deb5165
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      APP_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      DB_PROVIDER: "sqlite"
+      DB_CONNECTION_STRING: "/data/pocket-id.db"
+      ENCRYPTION_KEY: "{{ op://Infrastructure/pocket-id/ENCRYPTION_KEY }}"
+      HOST: "0.0.0.0"
+      PORT: "1411"
+      KEYS_PATH: "/data/keys"
+      UPLOAD_PATH: "/data/uploads"
+      TRUST_PROXY: "true"
+      LOG_LEVEL: "info"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/pocket-id-data:/data
+    tmpfs:
+      - /tmp:size=64m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 512M}
+    logging: *logging
+
+networks:
+  apps: {external: true}
