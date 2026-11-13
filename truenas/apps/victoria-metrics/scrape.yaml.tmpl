@@ -211,7 +211,9 @@ scrape_configs:
     labels:
       job: smartctl-exporter
   honor_labels: false
-  scrape_timeout: 10s
+  # 25s, not 10s: when the exporter's 60s cache expires the scrape waits for smartctl on all 45 disks (3-12 s),
+  # so a 10s timeout dropped ~1 scrape in 5 (up flapping to 0).
+  scrape_timeout: 25s
   relabel_configs:
   - target_label: job
     replacement: smartctl-exporter
