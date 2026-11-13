@@ -22,6 +22,7 @@ services:
       KEYS_PATH: "/data/keys"
       UPLOAD_PATH: "/data/uploads"
       TRUST_PROXY: "true"
+      EMAILS_VERIFIED: "true"
       LOG_LEVEL: "info"
     networks: [apps]
     volumes:

@@ -1,7 +1,7 @@
 # cloudflared — Cloudflare tunnel connector for the public hostnames (replaces the k8s `kubernetes` tunnel pods).
 # Listens: nothing inbound; :2000 metrics on the `apps` network (service name cloudflared).
-# Tunnel:  same tunnel as k8s (credentials from 1Password item `cloudflare`), wildcard ingress -> Caddy's external
-#          listener https://caddy:8443 (TLS verified against the wildcard via originServerName).
+# Tunnel:  same tunnel as k8s (credentials from 1Password item `cloudflare`), wildcard ingress -> Envoy's external
+#          listener https://envoy:8443 (TLS verified against the wildcard via originServerName).
 # Config:  /mnt/flashstor/apps/cloudflared-config/{config.yaml,credentials.json} rendered by the reconciler.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging

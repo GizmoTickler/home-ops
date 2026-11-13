@@ -1,6 +1,6 @@
 # qBittorrent — torrent client, VPN-only egress through one AirVPN WireGuard tunnel (gluetun).
 # Listens: 192.168.123.155:8080 (web UI, shared `mgmt` macvlan) and qbittorrent:8080 on the shared `apps` network
-#          (Caddy -> https://qbittorrent.<domain> behind Pocket ID; *arr apps / qui talk to it there)
+#          (Envoy -> https://qbittorrent.<domain> behind Pocket ID; *arr apps / qui talk to it there)
 #          AirVPN forwarded port 29867 inbound on the tunnel (FIREWALL_VPN_INPUT_PORTS)
 # Network: qbittorrent shares gluetun's netns. gluetun = AirVPN Chicago (Sadalsuud), kernel WireGuard; its outer UDP
 #          leaves via the `wan` bridge (NAT to nas01 -> UXG -> Frontier). One tunnel = one stable public IP, which is
@@ -83,39 +83,6 @@ services:
           cpus: "4"
           memory: 20480M         # MemoryWorkingSetLimit=16384 in qBittorrent.conf + headroom
     restart: unless-stopped
-    logging: *logging
-
-  qbittorrent-auth:
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0@sha256:56e3daedf765c7a1eea6e366fbe684be7d3084830ade14b6174570d3c7960954
-    restart: unless-stopped
-    user: "65532:65532"
-    environment:
-      TZ: "America/New_York"
-      OAUTH2_PROXY_PROVIDER: "oidc"
-      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-      OAUTH2_PROXY_CLIENT_ID: "qbittorrent"
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ op://Infrastructure/qbittorrent/OIDC_CLIENT_SECRET }}"
-      OAUTH2_PROXY_COOKIE_SECRET_FILE: "/secrets/cookie_secret"
-      OAUTH2_PROXY_COOKIE_NAME: "_oauth2_qbittorrent"
-      OAUTH2_PROXY_REDIRECT_URL: "https://qbittorrent.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/oauth2/callback"
-      OAUTH2_PROXY_SCOPE: "openid email profile groups"
-      OAUTH2_PROXY_ALLOWED_GROUPS: "admin"
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_WHITELIST_DOMAINS: ".{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
-      OAUTH2_PROXY_UPSTREAMS: "static://202"
-      OAUTH2_PROXY_REVERSE_PROXY: "true"
-      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
-      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-    networks: [apps]
-    volumes:
-      - /mnt/flashstor/apps/auth-proxy:/secrets:ro
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits: {cpus: "0.5", memory: 128M}
     logging: *logging
 
 networks:

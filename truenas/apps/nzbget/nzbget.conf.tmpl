@@ -3,7 +3,7 @@
 # Settings changed in the web UI do NOT survive a redeploy: change them here.
 # Difference from the k8s template: the control user now has a password; only cluster pods
 # (k8s nodes 192.168.122.10-12: Cilium masquerades pod egress, so the Pocket ID gateway and
-# *arr apps arrive from node IPs) and Caddy on nas01 (172.31.200.2, behind Pocket ID) are exempt via AuthorizedIP.
+# *arr apps arrive from node IPs) and Envoy on nas01 (172.31.200.2, behind Pocket ID) are exempt via AuthorizedIP.
 # NZBGet configuration — deployed via Flux/GitOps
 # This template is copied to /config/nzbget.conf on first run only.
 # Runtime changes via the web UI are preserved.

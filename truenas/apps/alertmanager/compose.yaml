@@ -1,5 +1,5 @@
 # Alertmanager — routes nas01 vmalert alerts to Pushover (+ Watchdog heartbeat). Same routes/receivers as k8s.
-# Listens: alertmanager:9093 on the `monitoring` network; https://alertmanager.<domain> via Caddy (Pocket ID forward-auth: oauth2-proxy service alertmanager-auth).
+# Listens: alertmanager:9093 on the `monitoring` network; https://alertmanager.<domain> via Envoy (Pocket ID OAuth2).
 # Data:    /mnt/flashstor/apps/alertmanager-data (silences/nflog copied from k8s); config alertmanager.yml rendered
 #          by the reconciler from alertmanager.yml.tmpl (Pushover/heartbeat secrets from 1Password).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -30,39 +30,6 @@ services:
     deploy:
       resources:
         limits: {cpus: "0.5", memory: 256M}
-    logging: *logging
-
-  alertmanager-auth:
-    image: quay.io/oauth2-proxy/oauth2-proxy:v7.13.0@sha256:56e3daedf765c7a1eea6e366fbe684be7d3084830ade14b6174570d3c7960954
-    restart: unless-stopped
-    user: "65532:65532"
-    environment:
-      TZ: America/New_York
-      OAUTH2_PROXY_PROVIDER: oidc
-      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-      OAUTH2_PROXY_CLIENT_ID: vmauth            # the k8s vmauth Pocket ID client (metrics + alertmanager redirects)
-      OAUTH2_PROXY_CLIENT_SECRET: "{{ op://Infrastructure/vmauth/OIDC_CLIENT_SECRET }}"
-      OAUTH2_PROXY_COOKIE_SECRET_FILE: /secrets/cookie_secret
-      OAUTH2_PROXY_COOKIE_NAME: _oauth2_alertmanager
-      OAUTH2_PROXY_REDIRECT_URL: "https://alertmanager.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/oauth2/callback"
-      OAUTH2_PROXY_SCOPE: openid email profile groups
-      OAUTH2_PROXY_ALLOWED_GROUPS: admin        # Pocket ID admin group only
-      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
-      OAUTH2_PROXY_WHITELIST_DOMAINS: ".{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-      OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
-      OAUTH2_PROXY_UPSTREAMS: static://202
-      OAUTH2_PROXY_REVERSE_PROXY: "true"
-      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
-      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-    networks: [monitoring]
-    volumes:
-      - /mnt/flashstor/apps/auth-proxy:/secrets:ro
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    deploy:
-      resources:
-        limits: {cpus: "0.5", memory: 128M}
     logging: *logging
 
 networks:

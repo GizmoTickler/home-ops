@@ -76,7 +76,7 @@ metrics:
     title: Apps
 
   - name: cert_expiry_days
-    query: round((min(probe_ssl_earliest_cert_expiry{job="probe/nas01/caddy-cert"}) - time()) / 86400)
+    query: round((min(probe_ssl_earliest_cert_expiry{job="probe/nas01/envoy-cert"}) - time()) / 86400)
     suffix: "d"
     colors:
       - {color: "red", min: 0, max: 7}

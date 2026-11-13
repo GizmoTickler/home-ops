@@ -74,7 +74,7 @@ endpoints:
   - '[STATUS] == 404'
   interval: 1m0s
   client:
-    dns-resolver: tcp://192.168.123.250:53
+    dns-resolver: tcp://1.1.1.1:53
 - name: n8n-app
   group: internal
   url: https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -88,7 +88,7 @@ endpoints:
   - '[STATUS] == 404'
   interval: 1m0s
   client:
-    dns-resolver: tcp://192.168.123.250:53
+    dns-resolver: tcp://1.1.1.1:53
 - name: nzbget
   group: internal
   url: https://nzbget.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}

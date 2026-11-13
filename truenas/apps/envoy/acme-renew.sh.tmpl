@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+run_lego() {
+  /lego run \
+    --accept-tos \
+    --email "$ACME_EMAIL" \
+    --path /certs \
+    --dns cloudflare \
+    --dns.resolvers 192.168.123.250:53 \
+    --dns.propagation.disable-ans \
+    --domains "$DOMAIN" \
+    --domains "*.$DOMAIN" \
+    --cert.name "$DOMAIN" \
+    --key-type EC256 \
+    --renew-days 30
+}
+
+if [ ! -f "/certs/certificates/${DOMAIN}.crt" ] || [ ! -f "/certs/certificates/${DOMAIN}.key" ]; then
+  run_lego
+fi
+
+while :; do
+  sleep 43200 &
+  wait $!
+  run_lego || echo "$(date -Iseconds) lego renew failed; retrying in 12h" >&2
+done

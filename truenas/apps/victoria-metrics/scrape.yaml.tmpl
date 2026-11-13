@@ -1,7 +1,7 @@
 # VictoriaMetrics scrape config (truenas/apps/victoria-metrics). Rendered by the reconciler (domain via 1Password).
 # Ported 1:1 from the k8s vmagent's static/probe jobs (same job names, so dashboards/rules/kromgo keep matching);
 # in-cluster blackbox-exporter -> nas01 blackbox-exporter. k8s service/pod/node scrapes are gone with the cluster.
-# Added for nas01: the monitoring apps themselves, Caddy, kromgo, a probe of Caddy's wildcard cert.
+# Added for nas01: the monitoring apps themselves, Envoy, kromgo, a probe of Envoy's wildcard cert.
 # VictoriaMetrics re-reads this file every 30 s (-promscrape.configCheckInterval); no restart needed.
 global:
   scrape_interval: 30s
@@ -490,22 +490,22 @@ scrape_configs:
   static_configs:
   - targets:
     - blackbox-exporter:9115
-- job_name: caddy
+- job_name: envoy
   static_configs:
   - targets:
-    - caddy:9180
+    - envoy:9180
 - job_name: kromgo
   static_configs:
   - targets:
     - kromgo:8080
-- job_name: probe/nas01/caddy-cert
+- job_name: probe/nas01/envoy-cert
   metrics_path: /probe
   params:
     module:
     - http_2xx
   static_configs:
   - targets:
-    - https://caddy-test.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    - https://envoy-test.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
   relabel_configs:
   - source_labels:
     - __address__

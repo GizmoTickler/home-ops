@@ -1,0 +1,21 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/envoy-config, owner: "1000:1000", mode: "0700"}
+  - {path: /mnt/flashstor/apps/envoy-certs, owner: "1000:1000", mode: "0700"}
+files:
+  - template: envoy.yaml.tmpl
+    dest: /mnt/flashstor/apps/envoy-config/envoy.yaml
+    owner: "1000:1000"
+    mode: "0600"
+  - template: acme-renew.sh.tmpl
+    dest: /mnt/flashstor/apps/envoy-config/acme-renew.sh
+    owner: "1000:1000"
+    mode: "0755"
+health:
+  tcp: 127.0.0.1:9901       # admin endpoint, probed inside the container (macvlan: the host can't reach .156)
+  netns: envoy
+ui:
+  title: Envoy
+  description: "HTTPS ingress for all nas01 apps — wildcard cert (LE via Cloudflare DNS-01), native Pocket ID OAuth2"
+  icon: https://raw.githubusercontent.com/cncf/artwork/main/projects/envoy/icon/color/envoy-icon-color.png
+  home: https://www.envoyproxy.io

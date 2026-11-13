@@ -10,7 +10,7 @@ originRequest:
   tcpKeepAlive: 7200s
 ingress:
   - hostname: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-    service: https://caddy:8443
+    service: https://envoy:8443
   - hostname: "*.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-    service: https://caddy:8443
+    service: https://envoy:8443
   - service: http_status:404
