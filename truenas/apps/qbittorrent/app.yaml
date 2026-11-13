@@ -6,10 +6,10 @@ ini:
       'WebUI\Port': "8080"
       'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
       'WebUI\AuthSubnetWhitelistEnabled': "true"
-      # Bind torrent traffic to the AirVPN tunnel: wg0 exists only inside gluetun's netns (shared with qbittorrent).
+      # Bind torrent traffic to the AirVPN tunnel: tun0 (gluetun default VPN_INTERFACE) exists only inside gluetun's netns (shared with qbittorrent).
       # If the tunnel is down qBittorrent cannot bind at all (kill-switch, on top of gluetun's firewall).
-      'Session\Interface': "wg0"
-      'Session\InterfaceName': "wg0"
+      'Session\Interface': "tun0"
+      'Session\InterfaceName': "tun0"
       'Session\InterfaceAddress': ""
 health:
   tcp: 127.0.0.1:8080      # probed inside the container (netns): the host can't reach its own macvlan IPs

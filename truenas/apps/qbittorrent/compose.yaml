@@ -8,7 +8,7 @@
 # Data:    config /mnt/flashstor/apps/qbittorrent-config, scratch /mnt/flashstor/apps/qbittorrent-inter,
 #          completed -> /mnt/flashstor/data/torrents
 # Kill-switch: gluetun's firewall drops everything outside the tunnel except local subnets; app.yaml also binds
-#          torrents to interface wg0 in qBittorrent.conf, so a missing tunnel means qBittorrent cannot bind at all.
+#          torrents to interface tun0 in qBittorrent.conf, so a missing tunnel means qBittorrent cannot bind at all.
 #          mgmt is `internal: true` (never a default route).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
@@ -25,15 +25,15 @@ services:
       VPN_SERVICE_PROVIDER: custom
       VPN_TYPE: wireguard
       WIREGUARD_IMPLEMENTATION: kernelspace   # v3.41: kernelspace|userspace|auto ("kernel" is rejected)
-      VPN_ENDPOINT_IP: 68.235.35.181          # AirVPN Sadalsuud (Chicago)
-      VPN_ENDPOINT_PORT: "51820"
+      WIREGUARD_ENDPOINT_IP: 68.235.35.181          # AirVPN Sadalsuud (Chicago)
+      WIREGUARD_ENDPOINT_PORT: "51820"
       WIREGUARD_PUBLIC_KEY: PyLCXAQT8KkM4T+dUsOQfn+Ub3pGxfGlxkIApuig+hk=
       WIREGUARD_PRIVATE_KEY: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/private_key }}"
       WIREGUARD_PRESHARED_KEY: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/preshared_key }}"
       WIREGUARD_ADDRESSES: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/address }}"
       WIREGUARD_MTU: "1320"                   # AirVPN default
       FIREWALL_VPN_INPUT_PORTS: "29867"       # AirVPN forwarded port -> qBittorrent Session\Port
-      HEALTH_TARGET_ADDRESS: 1.1.1.1:443
+      HEALTH_TARGET_ADDRESSES: 1.1.1.1:443
     sysctls:                        # per-netns (qbittorrent shares this netns): host bbr/fq does not carry over
       net.ipv4.tcp_congestion_control: bbr
       net.ipv4.tcp_mtu_probing: "1"
