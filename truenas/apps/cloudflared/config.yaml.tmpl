@@ -3,6 +3,7 @@ tunnel: "{{ op://Infrastructure/cloudflare/CLOUDFLARE_TUNNEL_ID }}"
 credentials-file: /etc/cloudflared/credentials.json
 metrics: 0.0.0.0:2000
 no-autoupdate: true
+protocol: http2           # QUIC (udp/7844) does not get out from nas01
 originRequest:
   originServerName: "external.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
   keepAliveTimeout: 3600s
