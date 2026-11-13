@@ -110,11 +110,11 @@ services:
       - /mnt/flashstor/apps/github-runner-work/broker:/broker
       - /mnt/flashstor/apps/github-runner-work/runner-1:/home/runner/_work
     tmpfs:
-      - /tmp:size=1g,uid=1001,gid=1001,exec
+      - /tmp:size=2g,uid=1001,gid=1001,exec
     command: ["/bin/bash", "/runner-loop.sh"]
     deploy:
       resources:
-        limits: {cpus: "2", memory: 4096M}
+        limits: {cpus: "8", memory: 8192M}
     logging: *logging
 
   runner-2:
@@ -143,11 +143,11 @@ services:
       - /mnt/flashstor/apps/github-runner-work/broker:/broker
       - /mnt/flashstor/apps/github-runner-work/runner-2:/home/runner/_work
     tmpfs:
-      - /tmp:size=1g,uid=1001,gid=1001,exec
+      - /tmp:size=2g,uid=1001,gid=1001,exec
     command: ["/bin/bash", "/runner-loop.sh"]
     deploy:
       resources:
-        limits: {cpus: "2", memory: 4096M}
+        limits: {cpus: "8", memory: 8192M}
     logging: *logging
 
   runner-3:
@@ -176,11 +176,11 @@ services:
       - /mnt/flashstor/apps/github-runner-work/broker:/broker
       - /mnt/flashstor/apps/github-runner-work/runner-3:/home/runner/_work
     tmpfs:
-      - /tmp:size=1g,uid=1001,gid=1001,exec
+      - /tmp:size=2g,uid=1001,gid=1001,exec
     command: ["/bin/bash", "/runner-loop.sh"]
     deploy:
       resources:
-        limits: {cpus: "2", memory: 4096M}
+        limits: {cpus: "8", memory: 8192M}
     logging: *logging
 
   runner-4:
@@ -209,11 +209,11 @@ services:
       - /mnt/flashstor/apps/github-runner-work/broker:/broker
       - /mnt/flashstor/apps/github-runner-work/runner-4:/home/runner/_work
     tmpfs:
-      - /tmp:size=1g,uid=1001,gid=1001,exec
+      - /tmp:size=2g,uid=1001,gid=1001,exec
     command: ["/bin/bash", "/runner-loop.sh"]
     deploy:
       resources:
-        limits: {cpus: "2", memory: 4096M}
+        limits: {cpus: "8", memory: 8192M}
     logging: *logging
 
 networks:
