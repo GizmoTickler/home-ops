@@ -1,5 +1,5 @@
 # Gatus — status page: internet, network devices, DNS, management UIs, monitoring, every web app; Pocket ID login (own OIDC).
-# Listens: gatus:80 on the `monitoring` network (also joins `apps` to check apps directly); https://status.<domain> via Envoy.
+# Listens: gatus:80 on the `monitoring` network only; https://status.<domain> via Envoy.
 # Config:  /mnt/flashstor/apps/gatus-config/{config.yaml,endpoints-apps.yaml} rendered by the reconciler. No alerting
 #          provider: vmalert alerts on Gatus metrics (GatusEndpointDown) -> Alertmanager -> Pushover.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -17,7 +17,7 @@ services:
       GATUS_CONFIG_PATH: /config
       GATUS_DELAY_START_SECONDS: "5"
       GATUS_WEB_PORT: "80"
-    networks: [monitoring, apps]   # apps: direct health checks of the OAuth2-protected apps (see endpoints-apps)
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/gatus-config:/config:ro
     read_only: true
@@ -30,4 +30,3 @@ services:
 
 networks:
   monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Envoy is its ingress
-  apps: {external: true}         # shared app network; Gatus has its own OIDC login, its API/UI stay authenticated

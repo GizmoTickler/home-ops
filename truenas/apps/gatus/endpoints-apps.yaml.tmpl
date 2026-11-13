@@ -1,9 +1,11 @@
 # Gatus endpoints for the web apps (truenas/apps/gatus). Rendered by the reconciler.
 #
-# Apps that Envoy serves without its own OAuth2 filter are checked through Envoy (https://<host>.<domain>), which
-# tests DNS + Envoy + the app. Apps behind Envoy's Pocket ID OAuth2 filter would only show Pocket ID's login page
-# (always 200 while Pocket ID is up), so they are checked directly on the `apps` network instead (Gatus joins it
-# for that) -- the Envoy path itself is covered by the unprotected apps and the envoy-test certificate probe.
+# Every app is checked through Envoy, the same path users take (Gatus is on the `monitoring` network only).
+# Apps without Envoy's OAuth2 filter: expect the app's own answer (tests DNS + Envoy + the app).
+# Apps behind Envoy's Pocket ID OAuth2 filter (bazarr, chaptarr, it-tools, nzbget, pinchflat, prowlarr, qbittorrent,
+# radarr, seerr, sonarr): the filter answers unauthenticated requests itself with a 302 to Pocket ID, so the check
+# (redirects not followed, expect 302) proves the Envoy route and filter are live but NOT that the app behind it is
+# up. Backend health for those needs an Envoy-side change (active health checks or an unauthenticated health path).
 endpoints:
   - name: Actual
     group: Apps
@@ -31,16 +33,20 @@ endpoints:
     - "[STATUS] == 200"
   - name: Bazarr
     group: Apps
-    url: http://bazarr:6767/api/system/ping
+    url: https://bazarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: Chaptarr
     group: Apps
-    url: http://chaptarr:80/ping
+    url: https://chaptarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: FreshRSS
     group: Apps
     url: https://rss.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -61,10 +67,12 @@ endpoints:
     - "[STATUS] == 200"
   - name: IT-Tools
     group: Apps
-    url: http://it-tools:8080/
+    url: https://it-tools.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: Jellyfin
     group: Apps
     url: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -79,16 +87,20 @@ endpoints:
     - "[STATUS] == 200"
   - name: NZBGet
     group: Apps
-    url: http://nzbget:6789/
+    url: https://nzbget.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 401"
+    - "[STATUS] == 302"
   - name: Pinchflat
     group: Apps
-    url: http://pinchflat:80/healthcheck
+    url: https://pinchflat.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: Pocket ID (SSO)
     group: Apps
     url: https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -97,16 +109,20 @@ endpoints:
     - "[STATUS] == 200"
   - name: Prowlarr
     group: Apps
-    url: http://prowlarr:80/ping
+    url: https://prowlarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: qBittorrent
     group: Apps
-    url: http://qbittorrent:8080/
+    url: https://qbittorrent.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: qui
     group: Apps
     url: https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -115,22 +131,28 @@ endpoints:
     - "[STATUS] == 200"
   - name: Radarr
     group: Apps
-    url: http://radarr:80/ping
+    url: https://radarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: Seerr (requests)
     group: Apps
-    url: http://seerr:80/api/v1/status
+    url: https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: Sonarr
     group: Apps
-    url: http://sonarr:80/ping
+    url: https://sonarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+    client:
+      ignore-redirect: true
     interval: 1m
     conditions:
-    - "[STATUS] == 200"
+    - "[STATUS] == 302"
   - name: webhook
     group: Apps
     url: https://webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
