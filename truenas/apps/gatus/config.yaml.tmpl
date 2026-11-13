@@ -2,12 +2,12 @@
 #
 # Alerting: Gatus has NO alerting provider on purpose. vmalert alerts on Gatus' metrics (GatusEndpointDown in
 # truenas/apps/vmalert) and routes through Alertmanager -> Pushover, so there is one notification path.
-# GatusEndpointDown covers the groups Apps, Management and External; Internet, Network and Monitoring are covered by
+# GatusEndpointDown covers the groups Apps and Management; Internet, Network and Monitoring are covered by
 # blackbox/up-based rules (InternetUnreachable, BlackboxProbeFailed, BackupGatewayDown, DNS*, VM*Down, TargetDown)
 # and are not alerted on twice.
 #
 # Groups: Internet (WAN reachability) | Network (edge, core, backup WAN, DNS) | Management (TrueNAS, Proxmox, UniFi,
-# 1Password Connect) | Monitoring | Apps | External (the public path through Cloudflare).
+# 1Password Connect) | Monitoring | Apps.
 # Probes leave nas01 as SGT 15; a check that times out on a live device is usually SC01 TrustSec.
 # Gatus skips all checks while this target is unreachable (nas01 itself offline). The DNS VIP survives the loss of
 # either DNS server, so one DNS VM going down does not blank the whole page.

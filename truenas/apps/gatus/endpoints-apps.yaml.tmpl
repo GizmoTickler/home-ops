@@ -192,13 +192,12 @@ endpoints:
     conditions:
     - "[STATUS] == 200"
 
-  # ---- External: the public path (Cloudflare -> cloudflared tunnel -> Envoy external -> app). Resolved through
-  # public DNS so the check does not take the internal shortcut to Envoy. ----
-  - name: n8n webhooks (via Cloudflare)
-    group: External
+  # n8n's webhook endpoint through Envoy's internal route. The public path (Cloudflare -> cloudflared -> Envoy external)
+  # is not checked: nas01 cannot query public DNS resolvers (udp/tcp 53 to 1.1.1.1/8.8.8.8 get no answer), so Gatus
+  # only ever sees the internal answer for the hostname.
+  - name: n8n webhooks
+    group: Apps
     url: https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/webhook
-    client:
-      dns-resolver: tcp://1.1.1.1:53
     interval: 1m
     conditions:
     - "[STATUS] == 200"
