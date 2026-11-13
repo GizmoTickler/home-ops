@@ -498,10 +498,6 @@ scrape_configs:
   static_configs:
   - targets:
     - kromgo:8080
-- job_name: cloudflared
-  static_configs:
-  - targets:
-    - cloudflared:2000
 - job_name: probe/nas01/envoy-cert
   metrics_path: /probe
   params:
