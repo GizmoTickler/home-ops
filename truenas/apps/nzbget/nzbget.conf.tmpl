@@ -1,12 +1,9 @@
 # NZBGet configuration for the nas01 TrueNAS app (moved from k8s 2026-11-11).
 # Rendered by truenas/apps/deploy-nzbget.sh with secrets from 1Password item 'nzbget'.
 # Settings changed in the web UI do NOT survive a redeploy: change them here.
-# Difference from the k8s template: the control user now has a password; only cluster pods
-# (k8s nodes 192.168.122.10-12: Cilium masquerades pod egress, so the Pocket ID gateway and
-# *arr apps arrive from node IPs) and Envoy on nas01 (172.31.200.254, behind Pocket ID) are exempt via AuthorizedIP.
-# NZBGet configuration — deployed via Flux/GitOps
-# This template is copied to /config/nzbget.conf on first run only.
-# Runtime changes via the web UI are preserved.
+# Only Envoy on nas01 (172.31.200.254, behind Pocket ID) is exempt via AuthorizedIP.
+# NZBGet configuration — deployed via GitOps (truenas/reconciler)
+# This template is copied to /config/nzbget.conf when rendered by truenas/reconciler.
 
 # Paths
 MainDir=/downloads
@@ -29,6 +26,7 @@ AuthorizedIP=172.31.200.254
 RestrictedUsername={{ op://Infrastructure/nzbget/RESTRICTED_USER }}
 RestrictedPassword={{ op://Infrastructure/nzbget/RESTRICTED_PASS }}
 DaemonUsername=root
+UMask=0022
 
 # Performance — Download
 ArticleCache=12000

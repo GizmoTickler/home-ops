@@ -1,0 +1,21 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/github-runner-config, owner: "0:0", mode: "0755"}
+  - {path: /mnt/flashstor/apps/github-runner-work, owner: "0:0", mode: "0755"}
+  - {path: /mnt/flashstor/apps/github-runner-work/broker, owner: "65532:1001", mode: "0750"}
+  - {path: /mnt/flashstor/apps/github-runner-work/runner-1, owner: "1001:1001", mode: "0755"}
+  - {path: /mnt/flashstor/apps/github-runner-work/runner-2, owner: "1001:1001", mode: "0755"}
+  - {path: /mnt/flashstor/apps/github-runner-work/runner-3, owner: "1001:1001", mode: "0755"}
+  - {path: /mnt/flashstor/apps/github-runner-work/runner-4, owner: "1001:1001", mode: "0755"}
+files:
+  - {template: github-app.pem.tmpl, dest: /mnt/flashstor/apps/github-runner-config/github-app.pem, owner: "65532:65532", mode: "0400"}
+  - {template: token-broker.py.tmpl, dest: /mnt/flashstor/apps/github-runner-config/token-broker.py, owner: "0:0", mode: "0444"}
+  - {template: runner-loop.sh.tmpl, dest: /mnt/flashstor/apps/github-runner-config/runner-loop.sh, owner: "0:0", mode: "0555"}
+health:
+  tcp: 127.0.0.1:8080
+  netns: token-broker
+ui:
+  title: GitHub Runner
+  description: "Ephemeral single-label runners (ia-automation) for infrastructure-automation"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/github.png
+  home: https://github.com/GizmoTickler/infrastructure-automation/settings/actions/runners

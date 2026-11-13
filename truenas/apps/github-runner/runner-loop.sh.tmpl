@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+child_pid=""
+cleanup_term() {
+  if [[ -n "${child_pid}" ]]; then
+    kill -TERM "${child_pid}" 2>/dev/null || true
+    wait "${child_pid}" 2>/dev/null || true
+  fi
+  exit 0
+}
+trap cleanup_term TERM INT
+
+wipe_state() {
+  find /home/runner/_work -mindepth 1 -maxdepth 1 ! -name 'lost+found' -exec rm -rf -- {} + 2>/dev/null || true
+  find /tmp -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null || true
+  rm -rf \
+    /home/runner/.runner \
+    /home/runner/.credentials \
+    /home/runner/.credentials_rsaparams \
+    /home/runner/.env \
+    /home/runner/.path \
+    /home/runner/run-helper.sh \
+    /home/runner/.ansible \
+    /home/runner/.cache \
+    /home/runner/go \
+    2>/dev/null || true
+  find /home/runner/_diag -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + 2>/dev/null || true
+}
+
+while true; do
+  if curl -sS --max-time 2 http://192.168.120.10 >/dev/null 2>&1; then
+    echo "FATAL: RFC1918 reachable from runner-${RUNNER_SLOT}" >&2
+    exit 1
+  fi
+
+  wipe_state
+
+  for _ in $(seq 1 30); do
+    [[ -S /broker/broker.sock ]] && break
+    sleep 1
+  done
+  if [[ ! -S /broker/broker.sock ]]; then
+    echo "runner-${RUNNER_SLOT}: /broker/broker.sock absent, retrying" >&2
+    sleep 10 &
+    child_pid=$!
+    wait "$child_pid" || true
+    child_pid=""
+    continue
+  fi
+
+  if ! jit=$(curl -fsS --max-time 30 --unix-socket /broker/broker.sock -X POST "http://localhost/jitconfig?slot=${RUNNER_SLOT}" | jq -er .encoded_jit_config); then
+    echo "runner-${RUNNER_SLOT}: failed to mint jitconfig, retrying in 10s" >&2
+    sleep 10 &
+    child_pid=$!
+    wait "$child_pid" || true
+    child_pid=""
+    continue
+  fi
+
+  echo "runner-${RUNNER_SLOT}: starting ephemeral runner"
+  ACTIONS_RUNNER_INPUT_JITCONFIG="$jit" /home/runner/run.sh &
+  child_pid=$!
+  unset jit
+  set +e
+  wait "$child_pid"
+  rc=$?
+  set -e
+  child_pid=""
+  echo "runner-${RUNNER_SLOT}: run.sh exited rc=${rc}; recycling"
+  sleep 2 &
+  child_pid=$!
+  wait "$child_pid" || true
+  child_pid=""
+done

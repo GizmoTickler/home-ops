@@ -5,7 +5,7 @@ set -euo pipefail
 # ntopng format: {"version":"0.2","timestamp":N,"alerts":[{...},...]}
 # AlertManager format: [{"labels":{"alertname":"...","severity":"..."},"annotations":{...}}]
 
-ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://vmalertmanager-stack.observability.svc.cluster.local:9093}"
+ALERTMANAGER_URL="${ALERTMANAGER_URL:-http://alertmanager:9093}"
 PAYLOAD="${NTOPNG_PAYLOAD}"
 
 if [[ -z "${PAYLOAD}" ]]; then
