@@ -45,14 +45,14 @@ groups:
 - name: gatus.rules
   rules:
   # Gatus has no alerting provider of its own: vmalert alerts on its metrics, so Pushover is the only path.
-  # The "Network" group (device ICMP) is skipped here because blackbox already alerts on the same devices.
+  # Internet, Network and Monitoring groups are skipped: blackbox/up-based rules already alert on the same things.
   - alert: GatusEndpointDown
     annotations:
       description: 'Gatus check "{{ $labels.name }}" (group {{ $labels.group }}) has been failing for 5 minutes.
 
         Details on the status page (status.<domain>).'
       summary: '{{ $labels.group }} / {{ $labels.name }} is down'
-    expr: gatus_results_endpoint_success{group!~"Network|Internet"} == 0
+    expr: gatus_results_endpoint_success{group!~"Network|Internet|Monitoring"} == 0
     for: 5m
     labels:
       severity: warning
