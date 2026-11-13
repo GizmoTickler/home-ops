@@ -12,6 +12,16 @@ datasources:
     isDefault: true
     jsonData: {timeInterval: 30s}
     editable: false
+  # Alias: several copied dashboards (Cloudflare Tunnels, SMARTctl, ...) reference the datasource by the literal
+  # uid "prometheus" (the k8s default). Same VictoriaMetrics, not default.
+  - name: prometheus (uid alias)
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://victoria-metrics:8428
+    isDefault: false
+    jsonData: {timeInterval: 30s}
+    editable: false
   - name: Alertmanager
     uid: 244b2e58-d42d-4dbf-9306-3c0830924b88
     type: alertmanager
