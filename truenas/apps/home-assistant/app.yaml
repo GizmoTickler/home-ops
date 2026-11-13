@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:8123
+  netns: home-assistant
+ui:
+  title: Home Assistant
+  description: Home automation and IoT controller (VLAN 20 L2 presence, SGT 12)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/home-assistant.png
+  home: https://www.home-assistant.io

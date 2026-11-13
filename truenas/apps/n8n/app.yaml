@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:8080
+  netns: n8n
+ui:
+  title: n8n
+  description: Workflow automation (editor n8n.<domain> internal; webhooks n8n-webhook.<domain> via the tunnel)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/n8n.png
+  home: https://n8n.io

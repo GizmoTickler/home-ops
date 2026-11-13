@@ -24,3 +24,9 @@ networks:
     parent: br0
     subnet: 192.168.120.0/22
     gateway: 192.168.123.254
+  # IoT VLAN 20 presence for Home Assistant mDNS/SSDP discovery and routed egress under SGT 12.
+  - name: iot
+    driver: macvlan
+    parent: vlan20
+    subnet: 192.168.136.0/22
+    gateway: 192.168.139.254

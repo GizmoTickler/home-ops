@@ -108,14 +108,26 @@ http://:9180 {
 		reverse_proxy grimmory:6060
 	}
 
+	@home-assistant host home-assistant.{$DOMAIN} homeassistant.{$DOMAIN}
+	handle @home-assistant {
+		reverse_proxy home-assistant:8123
+	}
+
 	@it-tools host it-tools.{$DOMAIN}
 	handle @it-tools {
 		import pocket_id it-tools-auth it-tools:8080
 	}
 
+	@n8n host n8n.{$DOMAIN}
+	handle @n8n {
+		reverse_proxy n8n:8080
+	}
+
 	@rss host rss.{$DOMAIN}
 	handle @rss {
-		reverse_proxy freshrss:8080
+		reverse_proxy freshrss:8080 {
+			header_up X-Forwarded-Port 443
+		}
 	}
 
 	@webhook host webhook.{$DOMAIN}
@@ -171,6 +183,14 @@ https://*.{$DOMAIN}:8443, https://{$DOMAIN}:8443 {
 	bind 172.31.200.2
 
 	# ==== migrated external hostnames ====
+	@n8n-webhook host n8n-webhook.{$DOMAIN}
+	handle @n8n-webhook {
+		@n8n_public path /webhook /webhook/* /form /form/*
+		handle @n8n_public {
+			reverse_proxy n8n:8080
+		}
+		respond 404
+	}
 
 	# ==== monitoring ====
 	# kromgo goes here at the phase-4 cut-over (`@kromgo-ext host kromgo.{$DOMAIN}` -> kromgo:80). Not before: the

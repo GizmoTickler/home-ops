@@ -1,0 +1,41 @@
+# n8n — Workflow automation (editor n8n.<domain> internal; webhooks n8n-webhook.<domain> via the tunnel)
+# Listens: n8n:8080 on the shared `apps` network; https://n8n.<domain> (internal) and https://n8n-webhook.<domain> (external /webhook* + /form* only) via Caddy.
+# Data:    /mnt/flashstor/apps/n8n-data (SQLite + settings)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  n8n:
+    image: docker.io/n8nio/n8n:2.44.3@sha256:5032941f437e1daa421cad0cc3ea57cd054f0d44a7256b38a0a3fca1b460834a
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      DB_SQLITE_VACUUM_ON_STARTUP: "true"
+      EXECUTIONS_DATA_MAX_AGE: "7"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_PRUNE_MAX_COUNT: "50000"
+      GENERIC_TIMEZONE: "America/New_York"
+      N8N_EDITOR_BASE_URL: "https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      N8N_HOST: "n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      N8N_ENCRYPTION_KEY: "{{ op://Infrastructure/n8n/N8N_ENCRYPTION_KEY }}"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+      N8N_LOG_LEVEL: "info"
+      N8N_LOG_OUTPUT: "console"
+      N8N_PORT: "8080"
+      N8N_PROTOCOL: "https"
+      WEBHOOK_URL: "https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/n8n-data:/home/node/.n8n
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "4", memory: 2048M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

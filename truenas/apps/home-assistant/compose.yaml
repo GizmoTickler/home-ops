@@ -1,0 +1,34 @@
+# Home Assistant — Home automation with L2 presence on IoT VLAN 20 (192.168.136.20, SGT 12 on SC01)
+# Listens: home-assistant:8123 on the shared `apps` network; https://home-assistant.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/home-assistant-config (/config; .storage/http trusts 172.31.200.0/24).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  home-assistant:
+    image: ghcr.io/home-operations/home-assistant:2026.10.2@sha256:a582f4b113e3018517a5ae9727b873e262aa787fa97f07b97b71bfc57f14d470
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+    networks:
+      iot:
+        ipv4_address: 192.168.136.20
+        gw_priority: 100
+      apps: {}
+    volumes:
+      - /mnt/flashstor/apps/home-assistant-config:/config
+    tmpfs:
+      - /tmp:size=256m,uid=1000,gid=1000
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "4", memory: 2048M}
+    logging: *logging
+
+networks:
+  iot: {external: true}
+  apps: {external: true}
