@@ -178,3 +178,28 @@ def test_fresh_clone_with_nothing_passing_deploys_nothing(tmp_path, ctx, origin,
     # the next run must not treat the (ungated) checked-out tip as "deployed"
     info = rc.git_pull(ctx.cfg, ctx)
     assert info["deploy"] is False
+
+
+def test_lost_last_good_commit_does_not_move_checkout(tmp_path, ctx, origin, monkeypatch):
+    verdicts = {}
+    monkeypatch.setattr(rc, "make_checker", lambda cfg, c, cache: lambda sha: verdicts.get(sha, "none"))
+    ctx.cfg.update(repo=f"file://{origin}", checkout=str(tmp_path / "co"))
+    a = commit(origin, "truenas/apps/x/compose.yaml", "v: 1\n", "a")
+    verdicts[a] = "success"
+    assert rc.git_pull(ctx.cfg, ctx)["commit"] == a
+    p = os.path.join(ctx.cfg["state_dir"], "ci-gate.json")
+    st = json.load(open(p))
+    st["deployed"] = "f" * 40  # e.g. history rewritten / gc'd
+    json.dump(st, open(p, "w"))
+    commit(origin, "truenas/apps/x/compose.yaml", "v: 2\n", "b: unchecked")
+    info = rc.git_pull(ctx.cfg, ctx)  # newest passing commit is still found and deployed
+    assert info.get("deploy", True) and info["commit"] == a and info["status"] == "held"
+
+    def boom(sha):
+        raise rc.GateAPIError("down")
+    monkeypatch.setattr(rc, "make_checker", lambda cfg, c, cache: boom)
+    st = json.load(open(p))
+    st["deployed"] = "f" * 40
+    json.dump(st, open(p, "w"))
+    info = rc.git_pull(ctx.cfg, ctx)  # API down AND last good unknown: deploy nothing, never the ungated tip
+    assert info["deploy"] is False and info["commit"] == a

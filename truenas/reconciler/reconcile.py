@@ -95,17 +95,18 @@ class Ctx:
         self.events = []            # (kind, app) for metrics: deploy, deploy_failure, rollback, rollback_failure, ...
         self.drift = {}             # app -> True/False
         self.state = {}             # persisted reconciler state (applied fingerprints etc.)
+        self.public_tokens = set()  # app directory names (public in git): never treated as secret values
 
     def log(self, msg):
-        # callers mask text that can carry values (errors from midclt/docker); masking every line would also
-        # rewrite app names whose non-secret refs (e.g. OIDC client ids) equal the name
-        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
+        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {self.mask(str(msg))}"  # masked by default, every line
         print(line, flush=True)
         self.log_lines.append(line)
 
     def mask(self, text):
+        # A resolved value that is exactly an app name (public in git, e.g. an OIDC client id "autobrr") is not a
+        # secret; masking it would rewrite every log line that names the app.
         for ref, val in self.secrets.items():
-            if val and len(val) >= 4:
+            if val and len(val) >= 4 and val not in self.public_tokens:
                 text = text.replace(val, f"<{ref}>")
         return text
 
@@ -1176,11 +1177,10 @@ def git_pull(cfg, ctx, gate_on=True):
         info.update(status=status, reason=reason, api_ok=status != "outage")
         if target is None:  # fresh clone and nothing passed (or API down): deploy nothing this run
             info["deploy"] = False
-            target = head
         elif run("cat-file", "-e", f"{target}^{{commit}}", check=False).returncode != 0:
             info.update(deploy=False, status="outage", api_ok=True,
                         reason=f"last good commit {target[:8]} is no longer in the fetched history")
-            target = head
+            target = None
         ctx.log(f"ci-gate: {info['status']}: {info['reason']}")
         if not ctx.dry:
             if len(cache) > 500:
@@ -1197,7 +1197,8 @@ def git_pull(cfg, ctx, gate_on=True):
         if not ctx.dry:  # keep the last-good marker current so re-enabling the gate starts from here
             gstate["deployed"] = head
             atomic_json(cache_p, gstate)
-    run("reset", "--hard", target)
+    if target is not None:  # deploy=False: the checkout (and this script) is never moved to an ungated commit
+        run("reset", "--hard", target)
     info["commit"] = run("rev-parse", "HEAD").stdout.strip()
     ctx.log(f"git {br}@{head[:7]} deploying {info['commit'][:7]}")
     return info
@@ -1458,8 +1459,8 @@ def main(argv=None):
     deploy = True
     if not a.no_pull:
         gi = git_pull(cfg, ctx, gate_on)
-        run_info.update(gate=gi["status"], commit=gi["commit"], head=gi["head"], api_ok=gi["api_ok"])
         deploy = gi.get("deploy", True)
+        run_info.update(gate=gi["status"], commit=gi["commit"], head=gi["head"], api_ok=gi["api_ok"], deploy=deploy)
         if os.path.exists(me) and open(me, "rb").read() != before:
             # the pull updated this very script: re-exec the new code (release the lock first) for this run
             ctx.log("reconciler updated by git -- re-executing new version")
@@ -1469,6 +1470,7 @@ def main(argv=None):
             os.execv(sys.executable, [sys.executable, me, *sys.argv[1:], "--no-pull"])
     elif os.environ.get("RECONCILE_GATE_INFO"):
         run_info.update(json.loads(os.environ.pop("RECONCILE_GATE_INFO")))
+        deploy = run_info.get("deploy", True)
     else:
         try:
             run_info["commit"] = subprocess.run(["git", "-C", cfg["checkout"], "rev-parse", "HEAD"],
@@ -1480,6 +1482,7 @@ def main(argv=None):
     all_apps = list(apps)
     if a.app:
         apps = [x for x in apps if x in a.app]
+    ctx.public_tokens = set(all_apps)
     metas = {}
     for n in apps:
         try:

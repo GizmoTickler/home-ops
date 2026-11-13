@@ -69,3 +69,19 @@ def test_mask(rctx):
 def test_rendering_without_refs_does_not_call_connect(rctx):
     assert rctx.render_obj({"x": "{{ not a ref }}"}) == {"x": "{{ not a ref }}"}
     assert rctx.calls == []
+
+
+def test_log_masks_by_default(rctx, capsys):
+    rctx.render_str("{{ op://Infrastructure/app1/password }}")
+    rctx.log("rendered value hunter2-secret in a normal message")
+    rctx.log("midclt app.update failed: stderr: environment.X=hunter2-secret invalid")
+    out = capsys.readouterr().out + "\n".join(rctx.log_lines)
+    assert "hunter2-secret" not in out
+    assert out.count("<op://Infrastructure/app1/password>") == 4  # stdout + log_lines, both messages
+
+
+def test_app_name_values_are_not_masked(rctx):
+    rctx.secrets["op://Infrastructure/autobrr/OIDC_CLIENT_ID"] = "autobrr"
+    rctx.public_tokens = {"autobrr"}
+    rctx.log("autobrr: in sync (RUNNING)")
+    assert rctx.log_lines[-1].endswith("autobrr: in sync (RUNNING)")
