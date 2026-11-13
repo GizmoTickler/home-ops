@@ -1,6 +1,6 @@
 # qBittorrent — torrent client, VPN-only egress.
 # Listens: 192.168.123.155:8080 (web UI, mgmt leg; behind Pocket ID via k8s Service qbittorrent.downloads)
-#          192.168.90.20 / bc:24:11:90:00:20 on VLAN 90 = the ONLY default route (gateway0 VPN policy + DNAT 29867)
+#          192.168.90.20 / bc:24:11:90:00:20 on VLAN 90 = the ONLY default route (UXG-Fiber VPN90 policy routes (3x AirVPN) + DNAT 29867)
 # Data:    config /mnt/flashstor/apps/qbittorrent-config, scratch /mnt/flashstor/apps/qbittorrent-inter,
 #          completed -> /mnt/flashstor/data/torrents
 # Kill-switch: no route to the internet except via vpn; mgmt network is `internal: true`. app.yaml binds torrents
@@ -29,6 +29,9 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    sysctls:                        # per-netns: the host's bbr/fq does NOT carry into the container namespace
+      net.ipv4.tcp_congestion_control: bbr
+      net.ipv4.tcp_mtu_probing: "1"
     dns: [192.168.123.249]          # MGMT DNS VIP, on-link via the mgmt leg (same resolver as before via CoreDNS)
     networks:
       vpn:
@@ -51,7 +54,9 @@ networks:
     driver: macvlan
     driver_opts:
       parent: vlan90
-      com.docker.network.driver.mtu: "1420"
+      com.docker.network.driver.mtu: "1360"   # NOTE: Docker 29 macvlan ignores this; the effective MTU is
+                                              # inherited from the parent -> nas01 vlan90 is set to MTU 1360
+                                              # (TrueNAS interface config) to fit the UXG AirVPN WireGuard tunnels.
     ipam:
       config:
         - subnet: 192.168.90.0/24
