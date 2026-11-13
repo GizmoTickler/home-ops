@@ -13,6 +13,8 @@ services:
     image: ghcr.io/home-operations/webhook:2.8.3@sha256:de6bba5fac2dde1a16083ba248292511c7d692404624f14909d4cb0206851f2e
     restart: unless-stopped
     user: "1000:1000"
+    # refuse to start without a proper shared secret (64 hex chars); the health probe then fails -> rollback
+    entrypoint: ["/bin/sh", "-c", "grep -qE '^[0-9a-f]{64}$$' /secret/token || { echo 'webhook: /secret/token missing or invalid' >&2; exit 1; }; exec /entrypoint.sh"]
     environment:
       TZ: "America/New_York"
       WEBHOOK__PORT: "80"

@@ -1,17 +1,21 @@
 ---
 # Hooks for the nas01 webhook app (truenas/apps/webhook).
-# Every hook requires ?token=<shared secret>; the secret lives only on nas01 in
-# /mnt/flashstor/apps/webhook-secret/token (mounted at /secret/token), never in git. Senders (Sonarr, Radarr,
+# Every hook requires ?token=<64 hex chars> (regex AND exact match: fails closed); the secret lives only on nas01 in
+# /mnt/flashstor/apps/webhook-secret/token (root:1000 0640, dir 0750; mounted at /secret/token), never in git; the
+# container refuses to start without it. Senders (Sonarr, Radarr,
 # Seerr, ntopng) carry it in their webhook URL. ntopng-alertmanager is additionally limited to nflo0's IP in Caddy.
 # Sonarr/Radarr API targets and app URLs come from env (never from the request or payload).
 - id: seerr-pushover
   execute-command: /config/seerr-pushover.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-arguments-to-command:
     - source: string
       name: '{{ getenv "SEERR_PUSHOVER_URL" }}'
@@ -21,10 +25,13 @@
   execute-command: /config/radarr-pushover.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-environment-to-command:
     - envname: RADARR_PUSHOVER_URL
       source: string
@@ -52,10 +59,13 @@
   execute-command: /config/sonarr-pushover.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-environment-to-command:
     - envname: SONARR_PUSHOVER_URL
       source: string
@@ -86,10 +96,13 @@
   execute-command: /config/sonarr-refresh-series.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-environment-to-command:
     - envname: SONARR_API_KEY
       source: string
@@ -108,10 +121,13 @@
   execute-command: /config/ntopng-alertmanager.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-environment-to-command:
     - envname: NTOPNG_PAYLOAD
       source: entire-payload
@@ -120,10 +136,13 @@
   execute-command: /config/sonarr-tag-codecs.sh
   command-working-directory: /config
   trigger-rule:
-    match:
-      type: value
-      value: '{{ cat `/secret/token` }}'
-      parameter: {source: url, name: token}
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
   pass-environment-to-command:
     - envname: SONARR_API_KEY
       source: string
