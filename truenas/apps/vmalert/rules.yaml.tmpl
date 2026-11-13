@@ -134,44 +134,6 @@ groups:
     labels:
       component: infrastructure
       severity: warning
-- interval: 1m
-  name: flow-telemetry.rules
-  rules:
-  - alert: NtopngFlowExportStale
-    annotations:
-      description: 'No new flows written to the ntopng.flows ClickHouse table for
-
-        {{ $value | humanizeDuration }} (threshold 15m). The ntopng->ClickHouse
-
-        export on nflo0 has likely stalled — live capture (XDP/ERSPAN) can be
-
-        fine while persistence is dead. Check ntopng on nflo0 and its
-
-        ClickHouse export connection; a `systemctl restart ntopng` reconnects it.'
-      runbook_url: https://docs.victoriametrics.com/
-      summary: ntopng flow export to ClickHouse is stale (nflo0)
-    expr: (time() - ntopng_flows_last_seen_timestamp_seconds) > 900
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      component: observability
-      severity: warning
-  - alert: NtopngFlowFreshnessMetricMissing
-    annotations:
-      description: 'ntopng_flows_last_seen_timestamp_seconds is absent — the freshness
-
-        exporter (ntopng-flow-freshness.timer on nflo0) or the nflo0
-
-        node_exporter scrape is down, so flow-export health is unobservable.
-
-        Check the timer on nflo0 and the node-exporter target for netflow.'
-      summary: ntopng flow-freshness watchdog metric is missing
-    expr: absent(ntopng_flows_last_seen_timestamp_seconds)
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      component: observability
-      severity: warning
 - interval: 60s
   name: nas01-storage-path.rules
   rules:
@@ -799,38 +761,10 @@ groups:
       severity: warning
   - alert: CellularWANDown
     annotations:
-      description: 'Multi-protocol probes (ICMP/HTTP/TCP) from both cell-gateway0 and cell-gateway1 are failing.
+      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway1 (the only cellular modem) are failing.
 
-        Cellular backup internet is completely unavailable.'
-      summary: Both cellular WANs have lost internet reachability
-    expr: '(count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5)
-
-      and
-
-      (count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5)'
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: gateway
-      severity: warning
-  - alert: CellularWAN1Down
-    annotations:
-      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway0 (T-Mobile modem #1) are failing.
-
-        Cell-gateway1 may still be providing backup connectivity.'
-      summary: Cellular WAN 1 (cell-gateway0) has lost internet reachability
-    expr: count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5
-    for: 90s
-    keep_firing_for: 5m
-    labels:
-      component: gateway
-      severity: warning
-  - alert: CellularWAN2Down
-    annotations:
-      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway1 (T-Mobile modem #2) are failing.
-
-        Cell-gateway0 may still be providing backup connectivity.'
-      summary: Cellular WAN 2 (cell-gateway1) has lost internet reachability
+        The backup internet path (gateway1 -> cell-gateway1) is unavailable; fiber (UXG) is the only path.'
+      summary: Cellular backup WAN (cell-gateway1) has lost internet reachability
     expr: count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5
     for: 90s
     keep_firing_for: 5m
