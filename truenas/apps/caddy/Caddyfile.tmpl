@@ -98,6 +98,16 @@ http://:9180 {
 		reverse_proxy atuin:80
 	}
 
+	@audiobookshelf host audiobookshelf.{$DOMAIN}
+	handle @audiobookshelf {
+		reverse_proxy audiobookshelf:80
+	}
+
+	@grimmory host grimmory.{$DOMAIN}
+	handle @grimmory {
+		reverse_proxy grimmory:6060
+	}
+
 	@it-tools host it-tools.{$DOMAIN}
 	handle @it-tools {
 		import pocket_id it-tools-auth it-tools:8080

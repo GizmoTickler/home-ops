@@ -1,0 +1,19 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+- path: /mnt/flashstor/apps/grimmory-config/sync
+  owner: 0:0
+  mode: '0755'
+files:
+- template: sync.sh
+  dest: /mnt/flashstor/apps/grimmory-config/sync/sync.sh
+  owner: 0:0
+  mode: '0755'
+health:
+  tcp: 127.0.0.1:6060
+  netns: grimmory
+  timeout: 300
+ui:
+  title: Grimmory
+  description: Book library (MariaDB sidecar; Pocket ID login via its own OIDC)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/booklore.png
+  home: https://github.com/grimmory-tools/grimmory

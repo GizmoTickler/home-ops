@@ -1,0 +1,34 @@
+# Audiobookshelf — Audiobook and podcast server
+# Listens: audiobookshelf:80 on the shared `apps` network; https://audiobookshelf.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/audiobookshelf-config ({config,metadata}); library /mnt/flashstor/data/media/books
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:2.37.2@sha256:b897c33f05972fb1bf484f7487bc878fa91ec8691335c1db6e2929c3a7658efa
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      CONFIG_PATH: "/config/config"
+      METADATA_PATH: "/config/metadata"
+      PORT: "80"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/audiobookshelf-config:/config
+      - /mnt/flashstor/data/media/books:/books
+    tmpfs:
+      - /tmp:size=512m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1024M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

@@ -1,0 +1,87 @@
+# Grimmory — Book library (MariaDB sidecar; Pocket ID login via its own OIDC)
+# Listens: grimmory:6060 on the shared `apps` network; https://grimmory.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/grimmory-config ({data,mariadb}); library /mnt/flashstor/data/media/books
+# grimmory-db is only on the app's own network; grimmory-sync refreshes library 1 every 15 min (was a k8s CronJob).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  grimmory-db:
+    image: docker.io/library/mariadb:11.4.13@sha256:5e73baf8179b29f115101bb102763a47a017361f3e9792daccba6646c3ab1532
+    restart: unless-stopped
+    user: "1000:1000"
+    command: [--skip-name-resolve]
+    environment:
+      TZ: "America/New_York"
+      MARIADB_AUTO_UPGRADE: "1"
+      MARIADB_DATABASE: "grimmory"
+      MARIADB_USER: "grimmory"
+      MARIADB_PASSWORD: "{{ op://Infrastructure/grimmory/GRIMMORY_DB_PASSWORD }}"
+      MARIADB_ROOT_PASSWORD: "{{ op://Infrastructure/grimmory/GRIMMORY_DB_ROOT_PASSWORD }}"
+    networks: [default]
+    volumes:
+      - /mnt/flashstor/apps/grimmory-config/mariadb:/var/lib/mysql
+    tmpfs:
+      - /tmp:size=256m,uid=1000,gid=1000
+      - /run/mysqld:size=8m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1024M}
+    logging: *logging
+
+  grimmory:
+    image: docker.io/grimmory/grimmory:v3.5.0@sha256:bf6fe21c6e247597f7869664a440b5a34242e2d2940575cae39c17bfaa66dc0b
+    restart: unless-stopped
+    user: "1000:1000"
+    command: [java, --enable-native-access=ALL-UNNAMED, --enable-preview, -jar, /app/app.jar]
+    environment:
+      TZ: "America/New_York"
+      DATABASE_URL: "jdbc:mariadb://grimmory-db:3306/grimmory?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true"
+      DATABASE_USERNAME: "grimmory"
+      DATABASE_PASSWORD: "{{ op://Infrastructure/grimmory/GRIMMORY_DB_PASSWORD }}"
+      DISK_TYPE: "NETWORK"
+      OIDC_ALLOW_UNSAFE_HOSTS: "true"
+      SERVER_PORT: "6060"
+    networks: [default, apps]
+    volumes:
+      - /mnt/flashstor/apps/grimmory-config/data:/app/data
+      - /mnt/flashstor/data/media/books:/books
+      - /mnt/flashstor/data/media/books/bookdrop:/bookdrop
+    tmpfs:
+      - /tmp:size=1g,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [grimmory-db]
+    deploy:
+      resources:
+        limits: {cpus: "4", memory: 3072M}
+    logging: *logging
+
+  grimmory-sync:
+    image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+    restart: unless-stopped
+    user: "1000:1000"
+    command: [/bin/sh, /sync/sync.sh]
+    environment:
+      TZ: "America/New_York"
+      GRIMMORY_SYNC_USERNAME: "{{ op://Infrastructure/grimmory/GRIMMORY_SYNC_USERNAME }}"
+      GRIMMORY_SYNC_PASSWORD: "{{ op://Infrastructure/grimmory/GRIMMORY_SYNC_PASSWORD }}"
+    networks: [default]
+    volumes:
+      - /mnt/flashstor/apps/grimmory-config/sync:/sync:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.2", memory: 64M}
+    logging: *logging
+
+networks:
+  apps: {external: true}
