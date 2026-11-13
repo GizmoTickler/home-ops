@@ -12,7 +12,7 @@ services:
     image: ghcr.io/atuinsh/atuin:18.24.1@sha256:b9a8369b4016dddcd90d23906f1d63dd883f459c6aaecec3be87cf481e8ac88d
     restart: unless-stopped
     user: "1000:1000"
-    command: [atuin-server, start]
+    command: [start]           # image entrypoint is atuin-server
     environment:
       TZ: "America/New_York"
       ATUIN_DB_URI: "sqlite:///config/atuin.db"
