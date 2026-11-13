@@ -11,8 +11,10 @@ Per app directory truenas/apps/<app>/:
                    dirs:  [{path, owner: "uid:gid", mode: "0755"}]           ensured before deploy
                    files: [{template, dest, owner, mode}]                    template (in the app dir) rendered with
                                                                              op refs -> dest; app redeployed on change
-                   ini:   [{path, set: {"Section\\Key": "value"}}]           existing `key=value` lines rewritten
-                                                                             (app stopped, patched, started)
+                   ini:   [{path, set: {"Key": "value"}}]                   existing `key=value` lines rewritten
+                                                                             (app stopped, patched, started); keys
+                                                                             are verbatim + section-blind; a key
+                                                                             absent from the file fails the app
                    health: {http: URL, insecure: true} | {tcp: "host:port"}  probed after RUNNING (120 s);
                                                                              failure -> rollback
                    ui:    {title, description, icon: URL, home: URL}         shown in the TrueNAS Apps UI (custom
@@ -473,14 +475,16 @@ def reconcile_app(appdir, ctx):
         if cur != content:
             file_changes.append((fs, content, cur))
 
-    ini_todo = []
+    ini_todo, ini_missing = [], []
     for spec in meta.get("ini", []):
         if not os.path.lexists(spec["path"]):
             ctx.log(f"{name}: ini file {spec['path']} missing (app not initialised yet?) -- skipped")
             continue
         ch, missing = ini_changes(spec)
         for k in missing:
-            ctx.log(f"{name}: ini key {k!r} not present in {spec['path']} -- not added")
+            # a pinned setting that matches nothing is a silent no-op -> fail the app (keys are verbatim, section-blind)
+            ctx.log(f"{name}: ERROR ini key {k!r} not present in {spec['path']} -- app.yaml does not match the file")
+            ini_missing.append(k)
         if ch:
             ini_todo.append((spec, ch))
 
@@ -488,7 +492,7 @@ def reconcile_app(appdir, ctx):
         state = app.get("state") if app else None
         ctx.log(f"{name}: in sync ({state})")
         ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
-        return True
+        return not ini_missing
 
     # ---- report ----
     if compose_diff:
@@ -533,7 +537,7 @@ def reconcile_app(appdir, ctx):
         if wait_running(name, ctx) and healthy(meta, name, ctx):
             ctx.log(f"{name}: converged (RUNNING{', healthy' if meta.get('health') else ''})")
             ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
-            return True
+            return not ini_missing
         raise RuntimeError("not RUNNING/healthy")
     except Exception as e:
         ctx.log(f"{name}: deploy FAILED: {ctx.mask(str(e))} -- rolling back")

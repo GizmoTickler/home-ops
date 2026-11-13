@@ -91,7 +91,7 @@ Public hostnames: `apps/cloudflared` (Cloudflare tunnel) -> Caddy's external lis
 ```yaml
 dirs:   [{path: /mnt/flashstor/apps/x-config, owner: "1000:1000", mode: "0755"}]
 files:  [{template: x.conf.tmpl, dest: /mnt/flashstor/apps/x-config/x.conf, owner: "1000:1000", mode: "0600"}]
-ini:    [{path: /mnt/flashstor/apps/x-config/x.conf, set: {'Section\Key': "value"}}]   # existing keys only
+ini:    [{path: /mnt/flashstor/apps/x-config/x.conf, set: {"Key": "value"}}]   # existing keys only (verbatim, section-blind); a missing key fails the app
 health: {tcp: "192.168.123.154:6789"}        # or {http: https://..., insecure: true}
                                              # macvlan apps: {tcp: "127.0.0.1:8080", netns: <service>} (host can't reach its macvlan IPs)
 ui:     {title: NZBGet, description: "...", icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/nzbget.png, home: https://nzbget.com}
