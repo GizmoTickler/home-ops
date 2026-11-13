@@ -49,6 +49,12 @@
       prPriority: 5,
     },
     {
+      description: "smartctl-exporter v0.15.0 breaks on SAS drives (HTTP 500, upstream #406); nas01 is pinned to v0.14.0. Skip only v0.15.0 so a fixed release is still proposed. Remove once unpinned.",
+      matchDatasources: ["docker"],
+      matchPackageNames: ["quay.io/prometheuscommunity/smartctl-exporter"],
+      allowedVersions: "!/^v?0\\.15\\.0$/",
+    },
+    {
       description: "Ignore unpinnable claude-code-action beta tag",
       matchManagers: [
         "github-actions"

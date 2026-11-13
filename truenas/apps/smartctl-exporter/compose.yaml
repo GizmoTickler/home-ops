@@ -7,7 +7,12 @@ x-logging: &logging
 
 services:
   smartctl-exporter:
-    image: quay.io/prometheuscommunity/smartctl-exporter:v0.15.0@sha256:a76e08dbf5db4781fefd1ed81c65ad46ae8d2849dae6b6d3acebcde2fc4e59d6
+    # PINNED to v0.14.0: v0.15.0 answers HTTP 500 on every scrape because the SAS drives (sdr-sdu) report
+    # smartctl_verify_* / smartctl_scsi_percentage_used_endurance_indicator values whose descriptors v0.15.0 never
+    # registers ("collected metric ... with unregistered descriptor"; upstream issue
+    # prometheus-community/smartctl_exporter#406, fix in PR #397). Unpin -- and drop the matching rule in
+    # .renovaterc.json5 -- once a release containing that fix ships.
+    image: quay.io/prometheuscommunity/smartctl-exporter:v0.14.0@sha256:cfe22c36d7d2fac48ebf619707305acb65eb0fb670656eb80f356e606d782bc1
     restart: unless-stopped
     user: root
     privileged: true
