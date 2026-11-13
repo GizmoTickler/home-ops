@@ -4,7 +4,8 @@
 Runs on nas01 as root (cron, every 10 min). git is the source of truth; nas01 converges to it.
 
 Per app directory truenas/apps/<app>/:
-  compose.yaml   required. The app's full compose. Any string may contain {{ op://Vault/Item/[Section/]field }};
+  compose.yaml   required. The app's full compose. Any string may contain {{ op://Vault/Item/[Section/]field }}
+                 (Item = title, or the 26-char item id when the title has spaces/parentheses);
                  references are resolved through the local 1Password Connect server at deploy time (never in git).
   app.yaml       optional:
                    dirs:  [{path, owner: "uid:gid", mode: "0755"}]           ensured before deploy
@@ -31,6 +32,7 @@ import yaml
 
 DEFAULT_CONFIG = "/mnt/flashstor/secure-scripts/apps-gitops/config.json"
 REF = re.compile(r"\{\{\s*(op://[^}\s]+)\s*\}\}")
+ITEM_ID = re.compile(r"[a-z0-9]{26}")  # 1Password item ids are 26 lowercase base32 chars
 RUN_TIMEOUT = 300  # s to wait for an app to reach RUNNING after a deploy
 
 
@@ -77,11 +79,14 @@ class Ctx:
         vid = self._vaults[vault]
         key = (vid, item)
         if key not in self._items:
-            q = urllib.parse.quote(f'title eq "{item}"')
-            it = self._connect(f"/v1/vaults/{vid}/items?filter={q}")
-            if not it:
-                raise KeyError(f"item {vault}/{item} not found")
-            self._items[key] = self._connect(f"/v1/vaults/{vid}/items/{it[0]['id']}")
+            if ITEM_ID.fullmatch(item):  # item id: for titles a ref can't carry (spaces, parentheses)
+                self._items[key] = self._connect(f"/v1/vaults/{vid}/items/{item}")
+            else:
+                q = urllib.parse.quote(f'title eq "{item}"')
+                it = self._connect(f"/v1/vaults/{vid}/items?filter={q}")
+                if not it:
+                    raise KeyError(f"item {vault}/{item} not found")
+                self._items[key] = self._connect(f"/v1/vaults/{vid}/items/{it[0]['id']}")
         full = self._items[key]
         sections = {s["id"]: s.get("label", "") for s in full.get("sections", [])}
         for f in full.get("fields", []):

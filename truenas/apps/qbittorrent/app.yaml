@@ -6,18 +6,17 @@ ini:
       'WebUI\Port': "8080"
       'WebUI\AuthSubnetWhitelist': "127.0.0.1/32, 192.168.122.10/32, 192.168.122.11/32, 192.168.122.12/32"
       'WebUI\AuthSubnetWhitelistEnabled': "true"
-      # Bind torrent traffic to the VPN leg by interface AND address: vpn0 is pinned in compose (interface_name)
-      # and 192.168.90.20 exists only on it. If the vpn leg is missing qBittorrent cannot bind at all (kill-switch).
-      # (Unpinned eth0 binding broke on 2026-11-11: Docker attached mgmt as eth0 on a recreate.)
-      'Session\Interface': "vpn0"
-      'Session\InterfaceName': "vpn0"
-      'Session\InterfaceAddress': "192.168.90.20"
+      # Bind torrent traffic to the AirVPN tunnel: wg0 exists only inside gluetun's netns (shared with qbittorrent).
+      # If the tunnel is down qBittorrent cannot bind at all (kill-switch, on top of gluetun's firewall).
+      'Session\Interface': "wg0"
+      'Session\InterfaceName': "wg0"
+      'Session\InterfaceAddress': ""
 health:
   tcp: 127.0.0.1:8080      # probed inside the container (netns): the host can't reach its own macvlan IPs
-  netns: qbittorrent
+  netns: qbittorrent       # = gluetun's netns (network_mode: service:gluetun)
   timeout: 300            # large torrent sets load fastresume before the WebUI listens
 ui:
   title: qBittorrent
-  description: "Torrent client — VPN-only egress on VLAN 90"
+  description: "Torrent client — VPN-only egress via one AirVPN tunnel (gluetun)"
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/qbittorrent.png
   home: https://www.qbittorrent.org
