@@ -9,6 +9,7 @@ x-logging: &logging
 services:
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id:v2.18.0@sha256:323e7ef5bfacf7cf32f22f3d10ccdf48e0c97c94d67e7e40b0b996830deb5165
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     environment:

@@ -9,6 +9,7 @@ x-logging: &logging
 services:
   sonarr:
     image: ghcr.io/home-operations/sonarr:4.0.20.3012@sha256:1f19eb5e0f421418c1a956bbe01310a0141423afe28bd9a4b1dcb8629ff2bce2
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     environment:
@@ -38,6 +39,7 @@ services:
 
   recyclarr:
     image: ghcr.io/recyclarr/recyclarr:8.8.0@sha256:b1fbb929ba718fdbdac2c1fc25b32b0ae916d7a5a0892c2068c9bfae6f1a9209
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     environment:

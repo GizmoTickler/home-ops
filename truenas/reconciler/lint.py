@@ -56,6 +56,15 @@ def lint_app(d, shared=frozenset()):
         for v in s.get("volumes") or []:
             if not isinstance(v, str):
                 e(f"{p}.volumes must use the short 'src:dst[:ro]' form")
+        # TCP congestion control is per network namespace; pin BBR so it never silently falls back to cubic if the
+        # host default changes. Services joining another netns (service:/container:) inherit it; host netns uses the host's.
+        nm = str(s.get("network_mode") or "")
+        if not (nm == "host" or nm.startswith(("service:", "container:"))):
+            sc = s.get("sysctls") or {}
+            if isinstance(sc, list):
+                sc = dict(x.split("=", 1) for x in sc if "=" in x)
+            if sc.get("net.ipv4.tcp_congestion_control") != "bbr":
+                e(f"{p}.sysctls must set net.ipv4.tcp_congestion_control: bbr")
     for nk, nv in (c.get("networks") or {}).items():
         if (nv or {}).get("external") and (nv.get("name") or nk) not in shared:
             e(f"networks.{nk}: external network {(nv.get('name') or nk)!r} is not defined in truenas/networks.yaml")

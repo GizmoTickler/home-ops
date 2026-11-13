@@ -9,6 +9,7 @@ x-logging: &logging
 services:
   freshrss:
     image: freshrss/freshrss:1.30.1@sha256:48b63b9bc3d042a1301c32971b01af8841c7f059b452589c5bf77f475ba44c61
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     environment:
       TZ: "America/New_York"

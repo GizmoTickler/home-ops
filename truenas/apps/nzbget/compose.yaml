@@ -11,6 +11,7 @@ x-logging: &logging
 services:
   nzbget:
     image: ghcr.io/nzbgetcom/nzbget:v26.3@sha256:f451d98066cbc0c108146420a61a60f7638de50e067738951461e0105eeaa56d
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     environment:
       TZ: America/New_York

@@ -11,6 +11,7 @@ x-logging: &logging
 services:
   vmalert:
     image: victoriametrics/vmalert:v1.156.0@sha256:4fea7d1a888d4db4ff18804434ef0f3ca8eb6482e289c50d32001c2db218287c
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     environment:
       TZ: America/New_York

@@ -13,6 +13,7 @@ services:
     # prometheus-community/smartctl_exporter#406, fix in PR #397). Unpin -- and drop the matching rule in
     # .renovaterc.json5 -- once a release containing that fix ships.
     image: quay.io/prometheuscommunity/smartctl-exporter:v0.14.0@sha256:cfe22c36d7d2fac48ebf619707305acb65eb0fb670656eb80f356e606d782bc1
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: root
     privileged: true

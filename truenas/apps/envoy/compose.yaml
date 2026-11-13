@@ -17,6 +17,7 @@ x-logging: &logging
 services:
   envoy:
     image: docker.io/envoyproxy/envoy:v1.40.2@sha256:8de97e654644827d62afdbf7e1d3dc9fee01a8690d410dd1c63a30dc6b6cecbb
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
@@ -111,6 +112,7 @@ services:
 
   lego:
     image: docker.io/goacme/lego:v5.6.0@sha256:6f1583fc026a455ea46a7a5858c576105bb69c2e2de69db391cab7f14750350c
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     depends_on: [envoy]
     restart: unless-stopped
     user: "1000:1000"

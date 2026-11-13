@@ -10,6 +10,7 @@ x-logging: &logging
 services:
   blackbox-exporter:
     image: quay.io/prometheus/blackbox-exporter:v0.29.0@sha256:9613f2884689b6fad9f1939f6a3b0388c93a022cfaededb19545b329b5c83dea
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "65534:65534"
     environment:

@@ -12,6 +12,7 @@ x-logging: &logging
 services:
   jellyfin:
     image: jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "568:568"
     group_add: [44, 107, 568]           # video, render, apps

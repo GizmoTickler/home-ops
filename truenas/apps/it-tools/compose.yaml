@@ -9,6 +9,7 @@ x-logging: &logging
 services:
   it-tools:
     image: ghcr.io/home-operations/it-tools:2024.10.22@sha256:7f26ae8d7a4a58b8d70b685cba5cbaa54d7df876d9f8bae702207f45b06d9b7c
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     environment:

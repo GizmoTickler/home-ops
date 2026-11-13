@@ -9,6 +9,7 @@ x-logging: &logging
 services:
   home-assistant:
     image: ghcr.io/home-operations/home-assistant:2026.10.2@sha256:a582f4b113e3018517a5ae9727b873e262aa787fa97f07b97b71bfc57f14d470
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     environment:

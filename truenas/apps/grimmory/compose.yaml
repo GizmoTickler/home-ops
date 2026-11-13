@@ -10,6 +10,7 @@ x-logging: &logging
 services:
   grimmory-db:
     image: docker.io/library/mariadb:11.4.13@sha256:5e73baf8179b29f115101bb102763a47a017361f3e9792daccba6646c3ab1532
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     command: [--skip-name-resolve]
@@ -36,6 +37,7 @@ services:
 
   grimmory:
     image: docker.io/grimmory/grimmory:v3.5.0@sha256:bf6fe21c6e247597f7869664a440b5a34242e2d2940575cae39c17bfaa66dc0b
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     entrypoint: [java, --enable-native-access=ALL-UNNAMED, --enable-preview, -jar, /app/app.jar]
@@ -65,6 +67,7 @@ services:
 
   grimmory-sync:
     image: curlimages/curl:8.11.1@sha256:c1fe1679c34d9784c1b0d1e5f62ac0a79fca01fb6377cdd33e90473c6f9f9a69
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
     command: [/bin/sh, /sync/sync.sh]

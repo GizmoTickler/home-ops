@@ -11,6 +11,7 @@ x-logging: &logging
 services:
   victoria-metrics:
     image: victoriametrics/victoria-metrics:v1.156.0@sha256:da8a90ac0912f16589be2b96a6441a2fca4bca415c83783d972d92e3b5b66970
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     environment:
       TZ: America/New_York

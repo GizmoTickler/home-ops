@@ -11,6 +11,7 @@ x-logging: &logging
 services:
   onepassword-connect-api:
     image: docker.io/1password/connect-api:1.8.4@sha256:0f74924c55c9156b8116f59f485223b2c2d30a5148d362562aa27838159bdffa
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     container_name: onepassword-connect-api
     restart: unless-stopped
     env_file: [/mnt/flashstor/secure-scripts/onepassword-connect/.env]   # OP_SESSION
@@ -34,6 +35,7 @@ services:
 
   onepassword-connect-sync:
     image: docker.io/1password/connect-sync:1.8.4@sha256:ca34850f2a20ca302e688a9347cdb696f29ce3bfc011d2554eff338e315c9089
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     container_name: onepassword-connect-sync
     restart: unless-stopped
     env_file: [/mnt/flashstor/secure-scripts/onepassword-connect/.env]
