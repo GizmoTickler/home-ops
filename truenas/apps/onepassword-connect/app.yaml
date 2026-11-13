@@ -7,3 +7,6 @@ ui:
   description: "Secret provider for External Secrets and the nas01 app reconciler"
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/1password.png
   home: https://developer.1password.com/docs/connect/
+# Critical: deployed after all other apps, one at a time; a failure aborts the rest of the run.
+critical: true
+order: 0          # first among critical apps: every {{ op://... }} ref resolves through it

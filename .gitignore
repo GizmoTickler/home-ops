@@ -35,3 +35,4 @@ talsecret.yaml
 cmd/homeops-cli/coverage.out
 cmd/homeops-cli/rendered-config-*.yaml
 .claude/
+__pycache__/

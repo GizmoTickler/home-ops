@@ -1942,12 +1942,50 @@ groups:
       severity: warning
   - alert: TrueNASAppNotConverged
     annotations:
-      description: The reconciler failed to converge {{ $labels.app }} (deploy failed and was rolled back, a secret reference could not be resolved, or the app is a catalog app). See reconcile.log on nas01.
+      description: The reconciler has not converged {{ $labels.app }} for more than 20 minutes (preflight refused the deploy, the deploy failed and was rolled back, a critical app failed earlier in the run, a secret reference could not be resolved, or the app is a catalog app). See reconcile.log on nas01.
       summary: nas01 app {{ $labels.app }} does not match git
     expr: truenas_apps_gitops_app_ok == 0
     for: 20m
     labels:
       severity: warning
+  - alert: TrueNASAppRollbackFailed
+    annotations:
+      description: A deploy of {{ $labels.app }} failed and re-applying the previous compose did not bring it back RUNNING and healthy. The app is probably down (Envoy = every app). Fix by hand; see reconcile.log on nas01. Clears once the app converges.
+      summary: nas01 app {{ $labels.app }} is down after a failed rollback
+    expr: truenas_apps_gitops_app_rollback_failed == 1
+    labels:
+      severity: critical
+  - alert: TrueNASAppsReconcilerFailing
+    annotations:
+      description: '{{ $value }} reconciler runs in a row ended with at least one app not converged. See reconcile.log on nas01.'
+      summary: nas01 app reconciler is failing repeatedly
+    expr: truenas_apps_gitops_consecutive_failed_runs >= 3
+    for: 5m
+    labels:
+      severity: warning
+  - alert: TrueNASAppsCIGateUnavailable
+    annotations:
+      description: The reconciler cannot query the GitHub check-runs API (outage or rate limit). It fails closed and keeps reconciling the last good commit; new merges under truenas/ are not deployed. Emergency bypass on nas01 (config.json ci_gate.enabled=false or --no-ci-gate).
+      summary: nas01 reconciler CI gate cannot reach GitHub
+    expr: truenas_apps_gitops_ci_gate_api_ok == 0
+    for: 30m
+    labels:
+      severity: warning
+  - alert: TrueNASAppsCIGateHeld
+    annotations:
+      description: The newest truenas/ change on main has not passed the "Lint nas01 apps" check (failed, still pending, or never ran), so nas01 stays on the last good commit (truenas_apps_gitops_commit_info shows deployed vs head). Fix CI or revert the change.
+      summary: nas01 deploys are held by the CI gate
+    expr: truenas_apps_gitops_ci_gate_held == 1
+    for: 1h
+    labels:
+      severity: warning
+  - alert: TrueNASAppDrift
+    annotations:
+      description: The live compose, a templated file or an ini pin of {{ $labels.app }} was changed outside git (TrueNAS UI or by hand) since the reconciler last deployed it; it was re-applied from git. Make the change in git instead.
+      summary: nas01 app {{ $labels.app }} was edited outside git
+    expr: max_over_time(truenas_apps_gitops_app_drift[1h]) == 1
+    labels:
+      severity: info
   - alert: TrueNASAppsUnmanaged
     annotations:
       summary: '{{ $value }} app(s) on nas01 are not in git (truenas/apps/)'

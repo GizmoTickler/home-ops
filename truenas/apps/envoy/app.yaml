@@ -19,3 +19,10 @@ ui:
   description: "HTTPS ingress for all nas01 apps — wildcard cert (LE via Cloudflare DNS-01), native Pocket ID OAuth2"
   icon: https://raw.githubusercontent.com/cncf/artwork/main/projects/envoy/icon/color/envoy-icon-color.png
   home: https://www.envoyproxy.io
+# Critical: deployed after all other apps, one at a time; a failure aborts the rest of the run.
+critical: true
+order: 20
+validate:                 # preflight: the target image validates the fully rendered envoy.yaml
+  service: envoy
+  entrypoint: envoy
+  args: ["--mode", "validate", "-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]

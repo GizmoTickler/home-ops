@@ -17,13 +17,36 @@ truenas/
 ## How it works
 `reconcile.py` (on nas01, cron job "apps-gitops reconcile") per run:
 1. `git fetch` this repo (public, sparse checkout of `truenas/`) into the encrypted dataset.
-2. For each `apps/<app>/`: render `{{ op://Vault/Item/[Section/]field }}` references through the local
+2. **CI gate:** only a commit whose `truenas/` changes passed the **Lint nas01 apps** check (this repo's
+   `truenas-apps` workflow: lint + reconciler unit tests) is checked out. Commits that don't touch `truenas/` need no
+   check; a failing/pending/missing check holds deploys on the last good commit (it never rewinds). If the GitHub
+   API can't be reached it fails closed: it keeps reconciling the last good commit and raises an alert.
+3. For each `apps/<app>/`: render `{{ op://Vault/Item/[Section/]field }}` references through the local
    1Password Connect server, then compare with the live app (`app.config`), templated files and ini pins.
-3. Only if something differs: write files / patch ini, `app.update` (or `app.create`), wait for `RUNNING` and the
-   optional `health` probe — **automatic rollback** to the previous compose/files if either fails.
-4. Apps on nas01 that are not in git are reported, never deleted. Catalog apps are refused (migrate by hand).
-5. Metrics → node-exporter textfile (`truenas_apps_gitops_*`), alerts in
-   `kubernetes/apps/observability/victoria-metrics/app/vmrule-truenas-apps.yaml`.
+   Live state changed outside git since the last deploy (TrueNAS UI edits) is logged as **DRIFT** (+ metric) and
+   re-applied from git.
+4. Only if something differs: **preflight** (nothing running is touched unless all pass): `docker compose config`
+   on the rendered compose, static-IP / host-port conflicts against what is live on nas01 (other apps' containers,
+   host addresses, LAN ping/ARP for `mgmt`/`iot` macvlan IPs), pull of new images, and the app's `validate`
+   command (Envoy: `envoy --mode validate` with the target image on the fully rendered config; rendered files
+   live in a root-only temp dir that is deleted right after). Then write files / patch ini, `app.update` (or
+   `app.create`), wait while TrueNAS reports `DEPLOYING` (up to `deploy_timeout`; `CRASHED`/`STOPPED` = failure)
+   and for the `health` probe -- **automatic rollback** re-applies the exact previous compose with `app.update`
+   (and restores files/ini) and verifies health again.
+5. **Critical apps** (`critical: true`: onepassword-connect, pocket-id, envoy) deploy after all others, one at a
+   time in `order`; if one fails the run stops there.
+6. Apps on nas01 that are not in git are reported, never deleted. Catalog apps are refused (migrate by hand).
+7. Housekeeping: backup retention, state dirs 0700, `reconcile.log` rotation.
+8. Metrics → node-exporter textfile (`truenas_apps_gitops_*`), alerts in `apps/vmalert/rules.yaml.tmpl`
+   (group `truenas-apps-gitops.rules`).
+
+Config: `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 0600, not in git). Optional keys (defaults):
+`deploy_timeout` (600), `backup_dir` (`<state_dir>/backup`), `backup_retention_days` (14), `backup_keep_newest` (5),
+`log_max_bytes` (5000000), `log_keep` (5), `preflight` (`{"enabled": true, "pull_images": true, "probe_lan": true}`),
+`ci_gate` (`{"enabled": true, "check_name": "Lint nas01 apps", "api_url": "https://api.github.com",
+"history_depth": 50, "timeout": 15, "token_ref": null}`; `token_ref` = optional `op://` ref to a GitHub token if the
+unauthenticated 60 requests/h limit is ever hit). **Emergency (CI or GitHub down, fix needed now):** set
+`"ci_gate": {"enabled": false}` in config.json, or run by hand with `--no-ci-gate`.
 
 Secrets never touch git or the reconciler's logs: compose diffs are logged as changed key paths only and
 templated files as "N changed lines" (never values, old or new). File writes into app-owned directories are
@@ -94,4 +117,11 @@ ini:    [{path: /mnt/flashstor/apps/x-config/x.conf, set: {"Key": "value"}}]   #
 health: {tcp: "192.168.123.154:6789"}        # or {http: https://..., insecure: true}
                                              # macvlan apps: {tcp: "127.0.0.1:8080", netns: <service>} (host can't reach its macvlan IPs)
 ui:     {title: NZBGet, description: "...", icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/nzbget.png, home: https://nzbget.com}
+deploy_timeout: 600                          # optional: s the app may stay DEPLOYING after a deploy
+critical: true                               # optional: deploy last, one at a time, abort the run on failure
+order: 20                                    # critical apps only, lower first (onepassword-connect = 0)
+validate: {service: envoy, entrypoint: envoy, args: ["--mode", "validate", "-c", "/etc/envoy/envoy.yaml"]}
+                                             # optional preflight: run the target image (no network, read-only)
+                                             # with the service's volumes, rendered files swapped in
 ```
+Tests: `python3 -m pytest truenas/reconciler/tests` (needs pyyaml, pytest, prometheus-client; CI runs them).
