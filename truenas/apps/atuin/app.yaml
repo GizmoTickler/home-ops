@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:80
+  netns: atuin
+ui:
+  title: Atuin
+  description: Shell history sync server
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/atuin.png
+  home: https://atuin.sh

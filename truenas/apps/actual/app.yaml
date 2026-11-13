@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:5006
+  netns: actual
+ui:
+  title: Actual Budget
+  description: Personal budgeting (Pocket ID login via its own OIDC)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/actual-budget.png
+  home: https://actualbudget.org

@@ -1,0 +1,36 @@
+# Webhook — Notification hooks (Seerr/Radarr/Sonarr -> Pushover, Sonarr helpers, ntopng -> Alertmanager)
+# Listens: webhook:80 on the shared `apps` network; https://webhook.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/webhook-config (hooks.yaml + scripts rendered from this directory)
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  webhook:
+    image: ghcr.io/home-operations/webhook:2.8.3@sha256:de6bba5fac2dde1a16083ba248292511c7d692404624f14909d4cb0206851f2e
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      WEBHOOK__PORT: "80"
+      SEERR_URL: "https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      SEERR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/seerr/SEERR_PUSHOVER_TOKEN }}"
+      RADARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/radarr/RADARR_PUSHOVER_TOKEN }}"
+      SONARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/sonarr/SONARR_PUSHOVER_TOKEN }}"
+      SONARR_API_KEY: "{{ op://Infrastructure/sonarr/SONARR_API_KEY }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/webhook-config:/config:ro
+    tmpfs:
+      - /tmp:size=32m
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 192M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

@@ -1,0 +1,34 @@
+# Atuin — Shell history sync server
+# Listens: atuin:80 on the shared `apps` network; https://atuin.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/atuin-config (SQLite)
+# Also served as sh.<domain> (alias host in the Caddyfile).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  atuin:
+    image: ghcr.io/atuinsh/atuin:18.24.1@sha256:b9a8369b4016dddcd90d23906f1d63dd883f459c6aaecec3be87cf481e8ac88d
+    restart: unless-stopped
+    user: "1000:1000"
+    command: [atuin-server, start]
+    environment:
+      TZ: "America/New_York"
+      ATUIN_DB_URI: "sqlite:///config/atuin.db"
+      ATUIN_HOST: "0.0.0.0"
+      ATUIN_PORT: "80"
+      ATUIN_OPEN_REGISTRATION: "true"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/atuin-config:/config
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 256M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

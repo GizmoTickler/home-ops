@@ -1,0 +1,36 @@
+# FreshRSS — RSS reader (Pocket ID login via its own OIDC)
+# Listens: freshrss:8080 on the shared `apps` network; https://rss.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/freshrss-data ({data,extensions})
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  freshrss:
+    image: freshrss/freshrss:1.30.1@sha256:48b63b9bc3d042a1301c32971b01af8841c7f059b452589c5bf77f475ba44c61
+    restart: unless-stopped
+    environment:
+      TZ: "America/New_York"
+      CRON_MIN: "*"
+      LISTEN: "8080"
+      DOMAIN: "rss.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      OIDC_ENABLED: "1"
+      OIDC_PROVIDER_METADATA_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/.well-known/openid-configuration"
+      OIDC_REMOTE_USER_CLAIM: "preferred_username"
+      OIDC_SCOPES: "openid email profile"
+      OIDC_X_FORWARDED_HEADERS: "X-Forwarded-Host X-Forwarded-Port X-Forwarded-Proto"
+      OIDC_CLIENT_ID: "{{ op://Infrastructure/freshrss/OIDC_CLIENT_ID }}"
+      OIDC_CLIENT_SECRET: "{{ op://Infrastructure/freshrss/OIDC_CLIENT_SECRET }}"
+      OIDC_CLIENT_CRYPTO_KEY: "{{ op://Infrastructure/freshrss/OIDC_CLIENT_CRYPTO_KEY }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/freshrss-data/data:/var/www/FreshRSS/data
+      - /mnt/flashstor/apps/freshrss-data/extensions:/var/www/FreshRSS/extensions
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 384M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

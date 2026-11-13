@@ -1,0 +1,42 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+- path: /mnt/flashstor/apps/webhook-config
+  owner: 0:0
+  mode: '0755'
+files:
+- template: hooks.yaml
+  dest: /mnt/flashstor/apps/webhook-config/hooks.yaml
+  owner: 0:0
+  mode: '0644'
+- template: seerr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/seerr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: radarr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/radarr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: sonarr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/sonarr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: sonarr-refresh-series.sh
+  dest: /mnt/flashstor/apps/webhook-config/sonarr-refresh-series.sh
+  owner: 0:0
+  mode: '0755'
+- template: sonarr-tag-codecs.sh
+  dest: /mnt/flashstor/apps/webhook-config/sonarr-tag-codecs.sh
+  owner: 0:0
+  mode: '0755'
+- template: ntopng-alertmanager.sh
+  dest: /mnt/flashstor/apps/webhook-config/ntopng-alertmanager.sh
+  owner: 0:0
+  mode: '0755'
+health:
+  tcp: 127.0.0.1:80
+  netns: webhook
+ui:
+  title: Webhook
+  description: Notification hooks (Seerr/Radarr/Sonarr -> Pushover, Sonarr helpers, ntopng -> Alertmanager)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/webhook.png
+  home: https://github.com/adnanh/webhook

@@ -88,6 +88,30 @@ http://:9180 {
 	}
 
 	# ==== migrated apps (keep alphabetical) ====
+	@actual host actual.{$DOMAIN}
+	handle @actual {
+		reverse_proxy actual:5006
+	}
+
+	@atuin host atuin.{$DOMAIN} sh.{$DOMAIN}
+	handle @atuin {
+		reverse_proxy atuin:80
+	}
+
+	@it-tools host it-tools.{$DOMAIN}
+	handle @it-tools {
+		import pocket_id it-tools-auth it-tools:8080
+	}
+
+	@rss host rss.{$DOMAIN}
+	handle @rss {
+		reverse_proxy freshrss:8080
+	}
+
+	@webhook host webhook.{$DOMAIN}
+	handle @webhook {
+		reverse_proxy webhook:80
+	}
 
 	handle {
 		import k8s_internal

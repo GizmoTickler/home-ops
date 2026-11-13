@@ -1,0 +1,36 @@
+# Actual Budget — Personal budgeting (Pocket ID login via its own OIDC)
+# Listens: actual:5006 on the shared `apps` network; https://actual.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/actual-data
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  actual:
+    image: ghcr.io/actualbudget/actual-server:26.10.0@sha256:24645e971da6bb1a1f953d6859e307a0b29be1e8b4130a35b3220c209b5b860c
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: "America/New_York"
+      ACTUAL_PORT: "5006"
+      ACTUAL_ALLOWED_LOGIN_METHODS: "openid"
+      ACTUAL_OPENID_DISCOVERY_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/.well-known/openid-configuration"
+      ACTUAL_OPENID_SERVER_HOSTNAME: "https://actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      ACTUAL_OPENID_CLIENT_ID: "{{ op://Infrastructure/actual/OIDC_CLIENT_ID }}"
+      ACTUAL_OPENID_CLIENT_SECRET: "{{ op://Infrastructure/actual/OIDC_CLIENT_SECRET }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/actual-data:/data
+    tmpfs:
+      - /tmp:size=64m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 384M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

@@ -1,0 +1,9 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+health:
+  tcp: 127.0.0.1:8080
+  netns: it-tools
+ui:
+  title: IT-Tools
+  description: Handy developer/IT utilities (stateless)
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/it-tools.png
+  home: https://it-tools.tech
