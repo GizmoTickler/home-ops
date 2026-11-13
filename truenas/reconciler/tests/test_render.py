@@ -60,13 +60,10 @@ def test_resolve_errors(rctx, ref, exc):
         rctx.resolve(ref)
 
 
-def test_mask_and_log_never_print_secret(rctx, capsys):
+def test_mask(rctx):
     rctx.render_str("{{ op://Infrastructure/app1/password }}")
     rctx.secrets["op://x/y/short"] = "abc"  # < 4 chars: not masked (would mangle normal text)
     assert rctx.mask("err: hunter2-secret abc") == "err: <op://Infrastructure/app1/password> abc"
-    rctx.log("deploy failed: token hunter2-secret leaked")
-    assert "hunter2-secret" not in capsys.readouterr().out
-    assert "hunter2-secret" not in "\n".join(rctx.log_lines)
 
 
 def test_rendering_without_refs_does_not_call_connect(rctx):

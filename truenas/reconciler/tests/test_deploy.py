@@ -163,3 +163,13 @@ def test_noncritical_failure_does_not_abort(tmp_path, ctx, monkeypatch):
     metas = {"a": {}, "b": {}, "envoy": {"critical": True}}
     monkeypatch.setattr(rc, "reconcile_app", lambda d, c, m=None: not d.endswith("/a"))
     assert rc.run_apps(str(tmp_path), list(metas), metas, ctx) == {"a": False, "b": True, "envoy": True}
+
+
+def test_deploy_error_with_secret_is_masked(tmp_path, ctx, mid, clock, capsys):
+    ctx.secrets["op://v/i/token"] = "TOPSECRET-123"
+    mid.add("app", OLD)
+    mid.fail["app.update"] = RuntimeError("midclt app.update failed: env TOKEN=TOPSECRET-123 invalid")
+    d = make_app(tmp_path / "apps", "app", NEW, {})
+    assert rc.reconcile_app(d, ctx) is False
+    out = capsys.readouterr().out + "\n".join(ctx.log_lines)
+    assert "TOPSECRET-123" not in out and "<op://v/i/token>" in out

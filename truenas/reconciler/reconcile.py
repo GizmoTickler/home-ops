@@ -97,7 +97,9 @@ class Ctx:
         self.state = {}             # persisted reconciler state (applied fingerprints etc.)
 
     def log(self, msg):
-        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {self.mask(str(msg))}"
+        # callers mask text that can carry values (errors from midclt/docker); masking every line would also
+        # rewrite app names whose non-secret refs (e.g. OIDC client ids) equal the name
+        line = f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}"
         print(line, flush=True)
         self.log_lines.append(line)
 
@@ -761,11 +763,13 @@ def preflight(name, meta, compose, rendered_files, ctx):
         ctx.log(f"{name}: pulling {img}")
         r = sh(["docker", "pull", "--quiet", img], timeout=1800)
         if r.returncode != 0:
-            probs.append(f"pull {img} failed: {r.stderr.strip()[-300:]}")
-    if not probs:
+            probs.append(f"pull {img} failed: {ctx.mask(r.stderr.strip()[-300:])}")
+    if not probs and meta.get("validate"):
         e = run_validate(name, meta, compose, rendered_files, ctx)
         if e:
             probs.append(e)
+        else:
+            ctx.log(f"{name}: validate ({meta['validate']['service']}, target image) OK")
     return probs
 
 
