@@ -1,0 +1,967 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": {
+    "list": []
+  },
+  "description": "Detailed downstream connection monitoring for Envoy proxy. Tracks client-facing metrics including request rates, latency percentiles (P50/P95/P99), success rates, active connections, connection lifecycle events, bandwidth usage, and request reset patterns for each HTTP connection manager. Use this dashboard to analyze client behavior, diagnose connection issues, monitor ingress traffic patterns, and identify potential DDoS or abuse scenarios. Supports multi-prefix selection for comparative analysis. The dashboards were generated using [envoy-mixin](https://github.com/adinhodovic/envoy-mixin). Open issues and create feature requests in the repository.",
+  "editable": false,
+  "gnetId": 24458,
+  "links": [
+    {
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "envoy",
+        "envoy-mixin",
+        "gateway"
+      ],
+      "targetBlank": true,
+      "title": "Envoy",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Summary",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Distribution of downstream HTTP connection managers across different Prometheus job labels. Helps understand how client-facing listeners are organized across Envoy deployments or environments. Imbalanced distribution may indicate configuration inconsistencies.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "downstreams"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "id": 2,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "count(\n  envoy_http_downstream_rq_total{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n\n  }\n) by (job)\n",
+          "instant": true,
+          "legendFormat": "{{ job }}"
+        }
+      ],
+      "title": "Downstreams Count by Job",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Request rate distribution across downstream connection managers over the past hour (top 20). Identifies which ingress points receive the most client traffic. Use this to validate traffic routing, detect unexpected traffic patterns, and identify hot spots requiring load balancing adjustments.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "id": 3,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "topk(20,\n  sum(\n    rate(\n      envoy_http_downstream_rq_total{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n\n      }[1h]\n    )\n  ) by (envoy_http_conn_manager_prefix)\n)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_http_conn_manager_prefix }}"
+        }
+      ],
+      "title": "Downstream Rate by Envoy HTTP Conn Manager Prefix [1h]",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Breakdown of client responses by HTTP status code class over the past hour. Healthy services show 95%+ 2xx responses. High 4xx proportions indicate client errors, authentication issues, or invalid requests. Any 5xx responses indicate service failures requiring immediate investigation.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "id": 4,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n\n    }[1h]\n  )\n) by (envoy_response_code_class)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_response_code_class }}xx"
+        }
+      ],
+      "title": "Downstream Rate by Code Class [1h]",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Distribution of currently active client connections across HTTP connection managers. Shows which ingress points are handling the most concurrent connections. High connection counts relative to request rates may indicate slow clients, long-polling connections, or WebSocket traffic.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "id": 5,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "topk(20,\n  sum(\n    envoy_http_downstream_cx_active{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n\n    }\n  ) by (envoy_http_conn_manager_prefix)\n)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_http_conn_manager_prefix }}"
+        }
+      ],
+      "title": "Downstream Active Connections by Envoy HTTP Conn Manager Prefix",
+      "type": "piechart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 6,
+      "repeat": "envoy_http_conn_manager_prefix",
+      "title": "$envoy_http_conn_manager_prefix",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Client request rate per HTTP connection manager over time. Each line represents traffic to a specific ingress listener. Sudden spikes may indicate traffic surges, DDoS attacks, or sudden popularity. Drops suggest client-side issues or upstream routing changes. Use to monitor ingress traffic patterns.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "{{ envoy_http_conn_manager_prefix }}"
+        }
+      ],
+      "title": "Downstream Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "End-to-end request latency as experienced by clients. P50 shows typical response time, P95/P99 reveal tail latency impacting user experience. Rising tail latency often precedes user complaints. Investigate when P95 exceeds SLOs. Correlate with upstream latency to identify bottlenecks. Exemplars enable trace-based debugging.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_http_downstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P99"
+        }
+      ],
+      "title": "Downstream Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Client success rate excluding 4xx errors (treating client errors as successful). Values below 99.9% indicate service-side problems. Drops correlate with backend failures or Envoy issues. Compare with upstream success rates to determine if failures originate from backends or proxy layer.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "title": "Downstream Success Rate (Excluding 4xx errors)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Overall client success rate including both 4xx and 5xx as failures. Represents actual end-user experience. Drops may indicate authentication failures, invalid client requests, API contract violations, or backend errors. Use this metric for user-facing SLOs and customer impact assessment.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "title": "Downstream Success Rate (Including 4xx errors)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Client request rate by HTTP status code class (2xx/3xx/4xx/5xx). Normal traffic is dominated by 2xx. Spikes in 4xx may indicate authentication problems, API misuse, or client bugs. Any 5xx indicates service failures. Monitor 401/403 for security issues and 429 for rate limiting effectiveness.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code_class)\n",
+          "legendFormat": "{{ envoy_response_code_class }}xx"
+        }
+      ],
+      "title": "Downstream Rate by Code Class",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Client connection lifecycle metrics. Active shows current open connections. Destroyed tracks normal connection teardown. High idle timeouts may indicate misconfigured clients, slow clients, or aggressive timeout settings. Correlate with request rates to identify connection efficiency issues.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Active Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Destroyed Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  increase(\n    envoy_http_downstream_cx_idle_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Idle Timeout"
+        }
+      ],
+      "title": "Downstream Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Bandwidth usage for client traffic. Received shows data from clients (request bodies, uploads). Transmitted shows data to clients (response bodies, downloads). Use to identify bandwidth-heavy endpoints, detect large file transfers, and plan capacity. Sudden spikes may indicate data exfiltration or abuse.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10
+          },
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_rx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Received"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_cx_tx_bytes_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Transmitted"
+        }
+      ],
+      "title": "Downstream Connection Bytes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Abnormal request termination patterns. RX Reset = client aborted request (client disconnect, timeout). TX Reset = Envoy terminated response (upstream failure, policy violation). Timeouts = request exceeded configured deadline. High rates indicate client issues, network problems, or slow backends.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_rx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "RX Reset"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_tx_reset{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "TX Reset"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "Timeout"
+        }
+      ],
+      "title": "Downstream Request Resets",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Client traffic distribution across Envoy proxy pods for this connection manager. Should show even distribution if load balancing works correctly. Imbalanced traffic may indicate L4 load balancer issues, DNS problems, or client-side connection affinity. Use to verify horizontal scaling effectiveness.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_http_downstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Downstream Rate by Instance",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Active client connections per Envoy pod for this connection manager. Should correlate with request rates and show balanced distribution. High connections with low requests indicate long-lived connections (WebSockets, streaming). Uneven distribution suggests load balancer or DNS issues requiring investigation.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_http_downstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_http_conn_manager_prefix=\"$envoy_http_conn_manager_prefix\"\n\n  }\n) by (instance, envoy_http_conn_manager_prefix)\n",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Downstream Active Connections by Instance",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "envoy",
+    "envoy-mixin",
+    "gateway",
+    "nas01"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "prometheus",
+          "value": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+        },
+        "label": "Data source",
+        "name": "datasource",
+        "query": "prometheus",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "envoy"
+          ],
+          "value": [
+            "envoy"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "query": "label_values(envoy_cluster_upstream_rq_xx, job)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": false,
+        "label": "Envoy HTTP Conn Manager Prefix",
+        "multi": true,
+        "name": "envoy_http_conn_manager_prefix",
+        "query": "label_values(envoy_http_downstream_rq_xx{job=~\"$job\"}, envoy_http_conn_manager_prefix)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": true,
+        "label": "instance",
+        "multi": true,
+        "name": "instance",
+        "query": "label_values(envoy_listener_http_downstream_rq_xx{job=~\"$job\", envoy_http_conn_manager_prefix=~\"$envoy_http_conn_manager_prefix\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "Envoy / Downstream",
+  "uid": "envoy-downstream-skj2",
+  "version": 2
+}

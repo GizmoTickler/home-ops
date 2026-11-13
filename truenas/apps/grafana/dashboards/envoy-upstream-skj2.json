@@ -1,0 +1,1107 @@
+{
+  "__inputs": [],
+  "__requires": [],
+  "annotations": {
+    "list": []
+  },
+  "description": "Detailed upstream cluster monitoring for Envoy proxy. Tracks request rates, latency distributions (P50/P95/P99), success rates, connection health, circuit breaker status, retry behavior, and timeout patterns for each upstream cluster. Use this dashboard to troubleshoot backend service issues, identify performance bottlenecks, and monitor cluster health across all Envoy pods. Supports multi-cluster selection for comparative analysis. The dashboards were generated using [envoy-mixin](https://github.com/adinhodovic/envoy-mixin). Open issues and create feature requests in the repository.",
+  "editable": false,
+  "gnetId": 24457,
+  "links": [
+    {
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "envoy",
+        "envoy-mixin",
+        "gateway"
+      ],
+      "targetBlank": true,
+      "title": "Envoy",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Summary",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Distribution of upstream clusters across different Prometheus job labels. Useful for understanding how backend services are organized across different Envoy deployments or environments. Imbalanced distribution may indicate configuration inconsistencies.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "upstreams"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 5
+      },
+      "id": 2,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "count(\n  envoy_cluster_upstream_rq_total{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n\n  }\n) by (job)\n",
+          "instant": true,
+          "legendFormat": "{{ job }}"
+        }
+      ],
+      "title": "Upstreams Count by Job",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Request rate distribution across upstream clusters over the past hour (top 20). Identifies which backend services receive the most traffic. Use this to validate load distribution, detect traffic shifts after deployments, and identify hot services that may need scaling.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 6,
+        "y": 5
+      },
+      "id": 3,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "topk(20,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_total{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n\n      }[1h]\n    )\n  ) by (envoy_cluster_name)\n)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_cluster_name }}"
+        }
+      ],
+      "title": "Upstream Rate by Envoy Cluster Name [1h]",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Breakdown of upstream responses by HTTP status code class over the past hour. Healthy services typically show 95%+ 2xx responses. High 4xx proportions suggest API contract issues or client misconfigurations. Any 5xx responses indicate backend failures requiring immediate investigation.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 12,
+        "y": 5
+      },
+      "id": 4,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n\n    }[1h]\n  )\n) by (envoy_response_code_class)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_response_code_class }}xx"
+        }
+      ],
+      "title": "Upstream Rate by Code Class [1h]",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Distribution of currently active TCP connections to upstream services. Shows which backend clusters are consuming the most connections. Disproportionately high connection counts may indicate connection pooling issues, slow backends, or HTTP/1.1 connection inefficiency. Compare with request rates to assess connection reuse.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 18,
+        "y": 5
+      },
+      "id": 5,
+      "options": {
+        "displayLabels": [
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "expr": "topk(20,\n  sum(\n    envoy_cluster_upstream_cx_active{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n\n    }\n  ) by (envoy_cluster_name)\n)\n",
+          "instant": true,
+          "legendFormat": "{{ envoy_cluster_name }}"
+        }
+      ],
+      "title": "Upstream Active Connections by Envoy Cluster Name",
+      "type": "piechart"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 6,
+      "repeat": "envoy_cluster_name",
+      "title": "$envoy_cluster_name",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Request rate per upstream cluster over time. Each line represents traffic to a specific backend service. Sudden drops may indicate circuit breaker activation, upstream failures, or routing changes. Gradual increases suggest growing load. Use this to identify which clusters need scaling or optimization.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_cluster_name)\n",
+          "legendFormat": "{{ envoy_cluster_name }}"
+        }
+      ],
+      "title": "Upstream Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Backend service response time percentiles. P50 represents typical latency, while P95/P99 show tail latency affecting a subset of requests. Rising P99 often precedes visible performance degradation. Investigate backends when P95 exceeds SLO targets. Exemplars link to distributed traces for root cause analysis.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(\n  0.5,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P50"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "histogram_quantile(\n  0.95,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P95"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": true,
+          "expr": "histogram_quantile(\n  0.99,\n  sum(\n    rate(\n      envoy_cluster_upstream_rq_time_bucket{\n        job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n      }[$__rate_interval]\n    )\n  ) by (le)\n)\n",
+          "legendFormat": "P99"
+        }
+      ],
+      "title": "Upstream Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Backend success rate treating 4xx as successful (client errors, not backend failures). Drops below 99.9% indicate backend health issues. Correlate with circuit breaker metrics, health check status, and backend logs. Sustained low rates may trigger automatic circuit breaking.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!=\"5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "title": "Upstream Success Rate (Excluding 4xx errors)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Overall success rate counting both 4xx and 5xx as failures. Reflects end-user experience including authentication, authorization, and validation errors. Lower rates may indicate API contract mismatches, breaking changes, or integration issues between services.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n,\n      envoy_response_code_class!~\"4|5\"\n    }[$__rate_interval]\n  )\n)\n/\nsum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n)\n* 100\n",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "title": "Upstream Success Rate (Including 4xx errors)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Request rate breakdown by HTTP status code class (2xx/3xx/4xx/5xx). Normal traffic shows dominant 2xx responses. Sudden 4xx spikes suggest client-side issues or API changes. Any 5xx indicates backend failures. Monitor 5xx rate to detect cascading failures early.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_xx{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code_class)\n",
+          "legendFormat": "{{ envoy_response_code_class }}xx"
+        }
+      ],
+      "title": "Upstream Rate by Code Class",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Detailed request rate by specific HTTP status code (200, 404, 500, etc.). Use this to identify specific error patterns. For example, 503 may indicate overload, 502 suggests gateway issues, and 429 shows rate limiting activation. Helps pinpoint exact failure modes.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (envoy_response_code)\n",
+          "legendFormat": "{{ envoy_response_code }}"
+        }
+      ],
+      "title": "Upstream Rate by Code",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Percentage of healthy endpoints per cluster based on active health checks. 100% indicates all endpoints passing health checks. Drops suggest failing instances - check pod logs, resource usage, and health check configurations. Envoy removes unhealthy endpoints from load balancing rotation.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMax": 100,
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_membership_healthy{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n/\nsum(\n  envoy_cluster_membership_total{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n* 100\n",
+          "legendFormat": "{{ envoy_cluster_name }}"
+        }
+      ],
+      "title": "Upstream Healthy Percent",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Connection lifecycle metrics. Active shows current open connections. Overflow indicates circuit breaker limits exceeded - increase limits or scale backends. Destroyed tracks normal connection teardown. Connect failures suggest network issues, DNS problems, or unreachable backends.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 10
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (envoy_cluster_name)\n",
+          "legendFormat": "Active Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Overflow Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_destroy{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Destroyed Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  increase(\n    envoy_cluster_upstream_cx_connect_fail{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Connect Failures"
+        }
+      ],
+      "title": "Upstream Connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Circuit breaker activation counts. Non-zero values indicate protection mechanisms triggered to prevent cascade failures. Open Connections = max concurrent connections reached. Open Requests = max pending requests exceeded. Persistent activation suggests undersized limits or backend overload requiring scaling.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "id": 15,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Open Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_cx_pool_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Open Pool Connections"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_circuit_breakers_default_rq_open{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Open Requests"
+        }
+      ],
+      "title": "Upstream Circuit Breakers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Retry and timeout patterns. Retry Rate shows automatic retry attempts for failed requests. Retry Overflow means retry budget exhausted - may indicate persistent failures or aggressive retry policies. Timeout Rate tracks requests exceeding configured deadlines - investigate slow backends or network latency.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Retry Rate"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_retry_overflow{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Retry Overflow Rate"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_timeout{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (job, envoy_cluster_name)\n",
+          "legendFormat": "Timeout Rate"
+        }
+      ],
+      "title": "Upstream Retry Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Request distribution across Envoy proxy pods for this upstream cluster. Ideally shows even distribution. Imbalanced traffic may indicate pod scheduling issues, uneven client distribution, or connection affinity problems. Use to verify horizontal scaling effectiveness.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  rate(\n    envoy_cluster_upstream_rq_total{\n      job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n    }[$__rate_interval]\n  )\n) by (instance, envoy_cluster_name)\n",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Upstream Rate by Instance",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "$datasource"
+      },
+      "description": "Active connections per Envoy pod to this upstream cluster. Should correlate with request rates. High connections with low requests suggest connection pooling inefficiency or slow-draining connections. Uneven distribution may indicate pod-level issues requiring investigation.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "axisSoftMin": 0,
+            "fillOpacity": 100,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "id": 18,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "sortBy": "mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "v11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "exemplar": false,
+          "expr": "sum(\n  envoy_cluster_upstream_cx_active{\n    job=~\"$job\",\ninstance=~\"$instance\"\n\n,\nenvoy_cluster_name=\"$envoy_cluster_name\"\n\n  }\n) by (instance, envoy_cluster_name)\n",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "title": "Upstream Active Connections by Instance",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": [
+    "envoy",
+    "envoy-mixin",
+    "gateway",
+    "nas01"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "prometheus",
+          "value": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+        },
+        "label": "Data source",
+        "name": "datasource",
+        "query": "prometheus",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "envoy"
+          ],
+          "value": [
+            "envoy"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": true,
+        "label": "Job",
+        "multi": true,
+        "name": "job",
+        "query": "label_values(envoy_cluster_upstream_rq_xx, job)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": false,
+        "label": "Envoy Cluster Name",
+        "multi": true,
+        "name": "envoy_cluster_name",
+        "query": "label_values(envoy_cluster_upstream_rq_xx{job=~\"$job\"}, envoy_cluster_name)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "includeAll": true,
+        "label": "instance",
+        "multi": true,
+        "name": "instance",
+        "query": "label_values(envoy_cluster_upstream_rq_xx{job=~\"$job\", envoy_cluster_name=~\"$envoy_cluster_name\"}, instance)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "utc",
+  "title": "Envoy / Upstream",
+  "uid": "envoy-upstream-skj2",
+  "version": 2
+}
