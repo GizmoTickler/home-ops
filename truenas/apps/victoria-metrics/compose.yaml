@@ -1,5 +1,5 @@
 # VictoriaMetrics — single-node TSDB + scraper for the home network (replaces the k8s vmsingle + vmagent).
-# Listens: victoria-metrics:8428 on the shared `apps` network; https://metrics.<domain> via Caddy (Pocket ID forward-auth: oauth2-proxy service victoria-metrics-auth).
+# Listens: victoria-metrics:8428 on the `monitoring` network; https://metrics.<domain> via Caddy (Pocket ID forward-auth: oauth2-proxy service victoria-metrics-auth).
 # Data:    /mnt/flashstor/apps/victoria-metrics-data (history copied from the k8s vmsingle on 2026-11-12), 90 d.
 # Scrape:  scrape.yaml (rendered by the reconciler; static jobs ported 1:1 from the k8s vmagent).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -27,7 +27,7 @@ services:
       - -search.maxMemoryPerQuery=536870912
       - -search.cacheTimestampOffset=5m
       - -search.maxUniqueTimeseries=300000
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/victoria-metrics-data:/storage
       - /mnt/flashstor/apps/victoria-metrics-config:/etc/vm:ro
@@ -52,14 +52,15 @@ services:
       OAUTH2_PROXY_COOKIE_SECRET_FILE: /secrets/cookie_secret
       OAUTH2_PROXY_COOKIE_NAME: _oauth2_victoria_metrics
       OAUTH2_PROXY_REDIRECT_URL: "https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/oauth2/callback"
-      OAUTH2_PROXY_SCOPE: openid email profile
+      OAUTH2_PROXY_SCOPE: openid email profile groups
+      OAUTH2_PROXY_ALLOWED_GROUPS: admin        # Pocket ID admin group only
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
       OAUTH2_PROXY_HTTP_ADDRESS: 0.0.0.0:4180
       OAUTH2_PROXY_UPSTREAMS: static://202
       OAUTH2_PROXY_REVERSE_PROXY: "true"
       OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/auth-proxy:/secrets:ro
     read_only: true
@@ -71,4 +72,4 @@ services:
     logging: *logging
 
 networks:
-  apps: {external: true}
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress

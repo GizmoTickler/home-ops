@@ -1,5 +1,5 @@
 # vmalert — evaluates the alert/recording rules against nas01 VictoriaMetrics.
-# Listens: vmalert:8880 on the shared `apps` network (no hostname of its own).
+# Listens: vmalert:8880 on the `monitoring` network (no hostname of its own).
 # Rules:   rules.yaml (rendered by the reconciler). Results (ALERTS, recordings) are written back to VictoriaMetrics.
 # Notify:  -notifier.blackhole until the phase-4 cut-over (the k8s stack still pages); then
 #          -notifier.url=http://alertmanager:9093.
@@ -23,7 +23,7 @@ services:
       - -notifier.blackhole
       - -external.url=https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
       - -httpListenAddr=:8880
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/vmalert-config:/etc/vmalert:ro
     read_only: true
@@ -36,4 +36,4 @@ services:
     logging: *logging
 
 networks:
-  apps: {external: true}
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress

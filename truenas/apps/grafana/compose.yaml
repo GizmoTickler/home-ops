@@ -1,5 +1,5 @@
 # Grafana — dashboards over nas01 VictoriaMetrics; Pocket ID login (own OIDC client, as on k8s).
-# Listens: grafana:3000 on the shared `apps` network; https://grafana.<domain> via Caddy.
+# Listens: grafana:3000 on the `monitoring` network; https://grafana.<domain> via Caddy.
 # Data:    /mnt/flashstor/apps/grafana-data (grafana.db with all dashboards/folders + plugins, copied from k8s; the
 #          grafana-operator that used to push dashboards is gone with the cluster, so edit dashboards in Grafana).
 #          Datasources are provisioned from datasources.yaml (same uids as on k8s, so dashboards keep working).
@@ -42,11 +42,14 @@ services:
       GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
       GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true"
       GF_AUTH_GENERIC_OAUTH_SKIP_ORG_ROLE_SYNC: "false"
-      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "email && 'GrafanaAdmin' || 'GrafanaAdmin'"
-      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      # Pocket ID group `admin` -> GrafanaAdmin; anyone else is rejected (allowed_groups + strict role mapping)
+      GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: groups
+      GF_AUTH_GENERIC_OAUTH_ALLOWED_GROUPS: admin
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups[*], 'admin') && 'GrafanaAdmin' || ''"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "true"
       GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ op://Infrastructure/grafana/OIDC_CLIENT_ID }}"
       GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ op://Infrastructure/grafana/OIDC_CLIENT_SECRET }}"
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/grafana-data:/var/lib/grafana
       - /mnt/flashstor/apps/grafana-config/datasources:/etc/grafana/provisioning/datasources:ro
@@ -61,4 +64,4 @@ services:
     logging: *logging
 
 networks:
-  apps: {external: true}
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress

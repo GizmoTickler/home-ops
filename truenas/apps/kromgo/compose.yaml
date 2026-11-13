@@ -1,5 +1,5 @@
 # kromgo — README badges (status JSON/SVG) from nas01 VictoriaMetrics; public via the Cloudflare tunnel.
-# Listens: kromgo:80 on the shared `apps` network; https://kromgo.<domain> on Caddy's external site (cloudflared,
+# Listens: kromgo:80 on the `monitoring` network; https://kromgo.<domain> on Caddy's external site (cloudflared,
 #          Cloudflare Access in front) and internal site. The kromgo-proxy Cloudflare Worker reads it.
 # Config:  /mnt/flashstor/apps/kromgo-config/config.yaml rendered from config.yaml (badge set reworked for no k8s).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
@@ -17,7 +17,7 @@ services:
       PROMETHEUS_URL: http://victoria-metrics:8428
       SERVER_PORT: "80"
       HEALTH_PORT: "8080"
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/kromgo-config/config.yaml:/kromgo/config.yaml:ro
     read_only: true
@@ -29,4 +29,4 @@ services:
     logging: *logging
 
 networks:
-  apps: {external: true}
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress

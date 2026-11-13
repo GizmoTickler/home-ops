@@ -1,5 +1,5 @@
 # blackbox-exporter — ICMP/TCP/HTTP probes for VictoriaMetrics (device/DNS/NFS probes, Caddy cert expiry).
-# Listens: blackbox-exporter:9115 on the shared `apps` network (scraped by victoria-metrics only).
+# Listens: blackbox-exporter:9115 on the `monitoring` network (scraped by victoria-metrics only).
 # Config:  blackbox.yml (same modules as the k8s chart values). Probes leave via nas01's NAT (192.168.120.10).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
@@ -14,7 +14,7 @@ services:
     environment:
       TZ: America/New_York
     command: ["--config.file=/etc/blackbox/blackbox.yml", "--web.listen-address=:9115"]
-    networks: [apps]
+    networks: [monitoring]
     volumes:
       - /mnt/flashstor/apps/blackbox-exporter-config:/etc/blackbox:ro
     read_only: true
@@ -26,4 +26,4 @@ services:
     logging: *logging
 
 networks:
-  apps: {external: true}
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress

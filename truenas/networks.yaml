@@ -8,6 +8,13 @@ networks:
     driver: bridge
     subnet: 172.31.200.0/24
     gateway: 172.31.200.1
+  # Monitoring stack only (VictoriaMetrics, vmalert, Alertmanager, Grafana, blackbox, gatus, kromgo) + Caddy
+  # (172.31.201.2, same hostname aliases as on `apps`). VictoriaMetrics/Alertmanager have no auth of their own, so
+  # they are deliberately NOT on `apps`; egress (scrapes/probes) is NATed via nas01.
+  - name: monitoring
+    driver: bridge
+    subnet: 172.31.201.0/24
+    gateway: 172.31.201.1
   # MGMT VLAN 999 presence for apps that need their own LAN IP (Caddy, qBittorrent/gluetun, Home Assistant).
   # One shared macvlan: Docker refuses a second network with an overlapping subnet. The host cannot reach its
   # macvlan children (and vice versa); containers that also sit on `apps` talk to them there.

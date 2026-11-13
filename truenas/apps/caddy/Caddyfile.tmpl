@@ -74,9 +74,9 @@
 	}
 }
 
-# ---- metrics (apps network only) --------------------------------------------------------------------------
+# ---- metrics (monitoring network only) --------------------------------------------------------------------------
 http://:9180 {
-	bind 172.31.200.2
+	bind 172.31.201.2
 	metrics /metrics
 }
 
@@ -146,7 +146,14 @@ http://:9180 {
 
 	@metrics host metrics.{$DOMAIN}
 	handle @metrics {
-		import pocket_id victoria-metrics-auth victoria-metrics:8428
+		# read-only through the ingress: no ingestion, deletion, snapshot or admin endpoints
+		@vm_write path /api/v1/admin/* /api/v1/import* /api/v1/write /api/v1/delete_series /prometheus/api/v1/admin/* /prometheus/api/v1/import* /prometheus/api/v1/write /prometheus/api/v1/delete_series /write /influx/* /datadog/* /opentelemetry/* /newrelic/* /snapshot/* /internal/*
+		handle @vm_write {
+			respond 403
+		}
+		handle {
+			import pocket_id victoria-metrics-auth victoria-metrics:8428
+		}
 	}
 
 	@status host status.{$DOMAIN}
