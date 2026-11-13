@@ -20,7 +20,7 @@ services:
       - -remoteWrite.url=http://victoria-metrics:8428
       - -remoteRead.url=http://victoria-metrics:8428
       - -evaluationInterval=20s
-      - -notifier.blackhole
+      - -notifier.url=http://alertmanager:9093
       - -external.url=https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
       - -httpListenAddr=:8880
     networks: [monitoring]

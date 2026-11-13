@@ -253,9 +253,10 @@ https://*.{$DOMAIN}:8443, https://{$DOMAIN}:8443 {
 	}
 
 	# ==== monitoring ====
-	# kromgo goes here at the phase-4 cut-over (`@kromgo-ext host kromgo.{$DOMAIN}` -> kromgo:80). Not before: the
-	# nas01 cloudflared shares the tunnel with the k8s connectors, so a route here would serve half the public badge
-	# requests from the reworked badge set while the k8s one still answers the rest.
+	@kromgo-ext host kromgo.{$DOMAIN}
+	handle @kromgo-ext {
+		reverse_proxy kromgo:80
+	}
 
 	handle {
 		import k8s_external

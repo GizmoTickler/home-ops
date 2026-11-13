@@ -1260,7 +1260,7 @@ groups:
         '
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodememoryhighutilization
       summary: Host is running out of memory.
-    expr: (100 - ((node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"}) * 100)) > 90
+    expr: (100 - ((node_memory_MemAvailable_bytes{job="node-exporter",instance!~"nas01\\..*"} / node_memory_MemTotal_bytes{job="node-exporter",instance!~"nas01\\..*"}) * 100)) > 90
     for: 15m
     labels:
       severity: warning

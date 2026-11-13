@@ -132,27 +132,19 @@ const ICONS = {
 
 // Map metric names to their icons
 const METRIC_ICON_MAP = {
-  talos_version: "fedora",
-  kubernetes_version: "kubernetes",
-  flux_version: "flux",
+  truenas_version: "storage",
+  app_count: "container",
+  ntp_sync: "uptime",
   renovate: "renovatebot",
-  cluster_age_days: "calendar",
   cluster_uptime_days: "uptime",
-  cluster_node_count: "node",
   cluster_alert_count: "alert",
-  cluster_pod_count: "pod",
-  container_count: "container",
   cluster_cpu_usage: "cpu",
   cluster_memory_usage: "ram",
-  storage_used: "storage",
+  storage_used: "volume",
   storage_health: "shieldcheck",
-  helmrelease_count: "helm",
-  pvc_count: "volume",
-  flux_failing_count: "xerror",
   cert_expiry_days: "lock",
   wan_primary: "bolt",
   wan_cellular1: "signal",
-  wan_cellular2: "signal",
 };
 
 // Metrics whose value carries a real state — these render a status dot.
@@ -160,8 +152,7 @@ const METRIC_ICON_MAP = {
 const METRIC_STATUS = new Set([
   "cluster_alert_count", "storage_health", "cluster_cpu_usage",
   "cluster_memory_usage", "storage_used", "cert_expiry_days",
-  "flux_failing_count", "renovate", "wan_primary", "wan_cellular1",
-  "wan_cellular2",
+  "ntp_sync", "renovate", "wan_primary", "wan_cellular1",
 ]);
 
 // --- Badge geometry (shields.io "for-the-badge" style) ---
@@ -348,14 +339,11 @@ function panelMessage(message) {
 
 // --- Allowed metrics ---
 const ALLOWED_METRICS = new Set([
-  "talos_version", "kubernetes_version", "flux_version",
-  "cluster_node_count", "cluster_pod_count", "cluster_cpu_usage",
-  "cluster_memory_usage", "cluster_age_days", "cluster_uptime_days",
-  "cluster_alert_count", "storage_used", "storage_health",
-  "cert_expiry_days", "flux_failing_count", "helmrelease_count",
-  "pvc_count", "container_count", "wan_primary", "wan_cellular1", "wan_cellular2",
-  "network_status", "renovate", "stack_panel", "health_panel",
-  "usage_panel", "gitops_panel",
+  "truenas_version", "app_count", "ntp_sync", "cluster_cpu_usage",
+  "cluster_memory_usage", "cluster_uptime_days", "cluster_alert_count",
+  "storage_used", "storage_health", "cert_expiry_days",
+  "wan_primary", "wan_cellular1", "network_status", "renovate",
+  "stack_panel", "health_panel", "usage_panel", "gitops_panel",
 ]);
 
 // --- Response helpers ---
@@ -572,36 +560,30 @@ function metricState(item, message, color) {
 const PANEL_DEFINITIONS = {
   stack_panel: {
     items: [
-      { metric: "talos_version", label: "FCOS", hue: "teal" },
-      { metric: "kubernetes_version", label: "Kubernetes", hue: "blue" },
-      { metric: "flux_version", label: "Flux", hue: "violet" },
+      { metric: "truenas_version", label: "TrueNAS", hue: "azure" },
+      { metric: "app_count", label: "Apps", hue: "teal" },
       { metric: "renovate", label: "Renovate", status: true },
     ],
   },
   health_panel: {
     items: [
-      { metric: "cluster_node_count", label: "Nodes", hue: "azure" },
-      { metric: "cluster_age_days", label: "Age", hue: "violet" },
       { metric: "cluster_uptime_days", label: "Uptime", hue: "cyan" },
       { metric: "cluster_alert_count", label: "Alerts", status: true },
-      { metric: "storage_health", label: "Storage", status: true },
+      { metric: "storage_health", label: "ZFS", status: true },
+      { metric: "ntp_sync", label: "NTP", status: true },
     ],
   },
   usage_panel: {
     items: [
-      { metric: "cluster_pod_count", label: "Pods", hue: "azure" },
-      { metric: "container_count", label: "Containers", hue: "teal" },
       { metric: "cluster_cpu_usage", label: "CPU", status: true },
       { metric: "cluster_memory_usage", label: "Memory", status: true },
-      { metric: "storage_used", label: "PVC Used", status: true },
+      { metric: "storage_used", label: "Storage Used", status: true },
     ],
   },
   gitops_panel: {
     items: [
-      { metric: "helmrelease_count", label: "HelmReleases", hue: "indigo" },
-      { metric: "pvc_count", label: "PVCs", hue: "cyan" },
-      { metric: "flux_failing_count", label: "Flux errors", status: true },
-      { metric: "cert_expiry_days", label: "Cert expiry", status: true },
+      { metric: "cert_expiry_days", label: "Cert Expiry", status: true },
+      { metric: "renovate", label: "Renovate", status: true },
     ],
   },
 };
@@ -710,25 +692,24 @@ async function renderMetric(metricName, url, env) {
     return renderMetricPanel(metricName, env, theme);
   }
 
-  // Network status panel — Fiber from Uptime Kuma (external), cells from kromgo (internal)
+  // Network status panel — Fiber from Uptime Kuma (or kromgo wan_primary), cellular from kromgo
   if (metricName === "network_status") {
-    const [kuma, cell1, cell2] = await Promise.all([
+    const [kuma, wanPrimary, cell1] = await Promise.all([
       fetchKumaStatus(env),
+      fetchWanMetric("wan_primary", env),
       fetchWanMetric("wan_cellular1", env),
-      fetchWanMetric("wan_cellular2", env),
     ]);
     let fiberTile;
-    if (!kuma) {
-      fiberTile = { label: "Fiber", message: "ERR", color: "grey", logo: "bolt", status: true };
-    } else if (!kuma.up) {
-      fiberTile = { label: "Fiber", message: "DOWN", color: "red", logo: "bolt", status: true };
+    if (kuma) {
+      fiberTile = kuma.up
+        ? { label: "Fiber", message: `UP · ${Math.round(kuma.ping)}ms`, color: "brightgreen", logo: "bolt", status: true }
+        : { label: "Fiber", message: "DOWN", color: "red", logo: "bolt", status: true };
     } else {
-      fiberTile = { label: "Fiber", message: `UP · ${Math.round(kuma.ping)}ms`, color: "brightgreen", logo: "bolt", status: true };
+      fiberTile = { label: "Fiber", message: wanPrimary.message, color: wanPrimary.color, logo: "bolt", status: true };
     }
     return svgResponse(tileRowSvg([
       fiberTile,
-      { label: "Cell 1", message: cell1.message, color: cell1.color, logo: "signal", status: true },
-      { label: "Cell 2", message: cell2.message, color: cell2.color, logo: "signal", status: true },
+      { label: "Cellular", message: cell1.message, color: cell1.color, logo: "signal", status: true },
     ], ROW_WIDTH, theme), 200);
   }
 
