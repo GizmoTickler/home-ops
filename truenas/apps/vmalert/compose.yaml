@@ -1,0 +1,39 @@
+# vmalert — evaluates the alert/recording rules against nas01 VictoriaMetrics.
+# Listens: vmalert:8880 on the shared `apps` network (no hostname of its own).
+# Rules:   rules.yaml (rendered by the reconciler). Results (ALERTS, recordings) are written back to VictoriaMetrics.
+# Notify:  -notifier.blackhole until the phase-4 cut-over (the k8s stack still pages); then
+#          -notifier.url=http://alertmanager:9093.
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  vmalert:
+    image: victoriametrics/vmalert:v1.156.0@sha256:4fea7d1a888d4db4ff18804434ef0f3ca8eb6482e289c50d32001c2db218287c
+    restart: unless-stopped
+    environment:
+      TZ: America/New_York
+    command:
+      - -rule=/etc/vmalert/rules.yaml
+      - -datasource.url=http://victoria-metrics:8428
+      - -remoteWrite.url=http://victoria-metrics:8428
+      - -remoteRead.url=http://victoria-metrics:8428
+      - -evaluationInterval=20s
+      - -notifier.blackhole
+      - -external.url=https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      - -httpListenAddr=:8880
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/vmalert-config:/etc/vmalert:ro
+    read_only: true
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "1", memory: 512M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

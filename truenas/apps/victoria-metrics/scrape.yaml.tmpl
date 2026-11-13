@@ -1,0 +1,521 @@
+# VictoriaMetrics scrape config (truenas/apps/victoria-metrics). Rendered by the reconciler (domain via 1Password).
+# Ported 1:1 from the k8s vmagent's static/probe jobs (same job names, so dashboards/rules/kromgo keep matching);
+# in-cluster blackbox-exporter -> nas01 blackbox-exporter. k8s service/pod/node scrapes are gone with the cluster.
+# Added for nas01: the monitoring apps themselves, Caddy, cloudflared, kromgo, a probe of Caddy's wildcard cert.
+# VictoriaMetrics re-reads this file every 30 s (-promscrape.configCheckInterval); no restart needed.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 15s
+  external_labels:
+    prometheus: observability/stack
+scrape_configs:
+- job_name: probe/observability/devices
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - icmp
+  static_configs:
+  - targets:
+    - sc01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - nas01-console.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - edge0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - edge1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - 10.255.255.46
+    - gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - mgateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+- job_name: probe/observability/dns
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - tcp_connect
+  static_configs:
+  - targets:
+    - 192.168.123.250:53
+    - 192.168.123.251:53
+    - 10.53.53.53:53
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+- job_name: probe/observability/nfs
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - tcp_connect
+  static_configs:
+  - targets:
+    - 192.168.120.10:2049
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+- job_name: staticScrape/observability/cgw0-wan-http/0
+  static_configs:
+  - targets:
+    - http://www.google.com
+    - http://www.amazon.com
+    labels:
+      job: cgw0-wan-http
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - http_2xx
+  relabel_configs:
+  - target_label: job
+    replacement: cgw0-wan-http
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/cgw0-wan-probes/0
+  static_configs:
+  - targets:
+    - 8.8.8.8
+    - 9.9.9.9
+    - 208.67.222.222
+    labels:
+      job: cgw0-wan-probes
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - wan_reachability
+  relabel_configs:
+  - target_label: job
+    replacement: cgw0-wan-probes
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/cgw0-wan-tcp/0
+  static_configs:
+  - targets:
+    - www.apple.com:80
+    - www.microsoft.com:80
+    labels:
+      job: cgw0-wan-tcp
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - tcp_connect
+  relabel_configs:
+  - target_label: job
+    replacement: cgw0-wan-tcp
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/cgw1-wan-http/0
+  static_configs:
+  - targets:
+    - http://www.google.com
+    - http://www.amazon.com
+    labels:
+      job: cgw1-wan-http
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - http_2xx
+  relabel_configs:
+  - target_label: job
+    replacement: cgw1-wan-http
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/cgw1-wan-probes/0
+  static_configs:
+  - targets:
+    - 8.8.8.8
+    - 9.9.9.9
+    - 208.67.222.222
+    labels:
+      job: cgw1-wan-probes
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - wan_reachability
+  relabel_configs:
+  - target_label: job
+    replacement: cgw1-wan-probes
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/cgw1-wan-tcp/0
+  static_configs:
+  - targets:
+    - www.apple.com:80
+    - www.microsoft.com:80
+    labels:
+      job: cgw1-wan-tcp
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - tcp_connect
+  relabel_configs:
+  - target_label: job
+    replacement: cgw1-wan-tcp
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/dnscrypt-proxy/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:49312
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:49312
+    labels:
+      job: dnscrypt-proxy
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: dnscrypt-proxy
+- job_name: staticScrape/observability/dnsdist/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8083
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8083
+    labels:
+      job: dnsdist
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: dnsdist
+- job_name: staticScrape/observability/kea-dhcp4/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9548
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9548
+    labels:
+      job: kea-dhcp4
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: kea-dhcp4
+- job_name: staticScrape/observability/nas-node-exporter/0
+  static_configs:
+  - targets:
+    - nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    labels:
+      job: node-exporter
+  honor_labels: false
+  scrape_timeout: 10s
+  relabel_configs:
+  - target_label: job
+    replacement: node-exporter
+- job_name: staticScrape/observability/nas-smartctl-exporter/0
+  static_configs:
+  - targets:
+    - nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9633
+    labels:
+      job: smartctl-exporter
+  honor_labels: false
+  scrape_timeout: 10s
+  relabel_configs:
+  - target_label: job
+    replacement: smartctl-exporter
+- job_name: staticScrape/observability/network-ssh-probes/0
+  static_configs:
+  - targets:
+    - 10.255.255.253:22
+    - 10.255.255.252:22
+    - 10.255.255.251:22
+    - 10.255.255.250:22
+    labels:
+      job: network-ssh-probes
+  honor_labels: false
+  scrape_interval: 60s
+  scrape_timeout: 15s
+  metrics_path: /probe
+  params:
+    module:
+    - tcp_connect
+  relabel_configs:
+  - target_label: job
+    replacement: network-ssh-probes
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/nflo0-icmp-rtt/0
+  static_configs:
+  - targets:
+    - 1.1.1.1
+    - 8.8.8.8
+    - 9.9.9.9
+    labels:
+      job: nflo0-icmp-rtt
+  honor_labels: false
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  metrics_path: /probe
+  params:
+    module:
+    - icmp
+  relabel_configs:
+  - target_label: job
+    replacement: nflo0-icmp-rtt
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+- job_name: staticScrape/observability/onepassword-connect/0
+  static_configs:
+  - targets:
+    - passwords.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:443
+    labels:
+      job: onepassword-connect
+  honor_labels: false
+  scrape_timeout: 10s
+  scheme: https
+  relabel_configs:
+  - target_label: job
+    replacement: onepassword-connect
+  tls_config:
+    insecure_skip_verify: true
+- job_name: staticScrape/observability/pdns-auth/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8081
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8081
+    labels:
+      job: pdns-auth
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: pdns-auth
+- job_name: staticScrape/observability/pdns-recursor/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8092
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8092
+    labels:
+      job: pdns-recursor
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: pdns-recursor
+- job_name: staticScrape/observability/postgres-exporter/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9187
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9187
+    labels:
+      job: postgres-exporter
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: postgres-exporter
+- job_name: staticScrape/observability/rhel-node-exporter/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - aap-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - unifi-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - 192.168.120.15:9100
+    - 192.168.120.16:9100
+    labels:
+      job: node-exporter
+  honor_labels: false
+  scrape_timeout: 10s
+  relabel_configs:
+  - target_label: job
+    replacement: node-exporter
+- job_name: staticScrape/observability/snmp-cisco/0
+  static_configs:
+  - targets:
+    - 10.255.255.253
+    - 10.255.255.252
+    labels:
+      job: snmp
+  honor_labels: false
+  scrape_interval: 60s
+  scrape_timeout: 30s
+  metrics_path: /snmp
+  params:
+    auth:
+    - ntopng_v3
+    module:
+    - if_mib
+    - cisco_health
+    - bgp
+  relabel_configs:
+  - target_label: job
+    replacement: snmp-cisco
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9116
+- job_name: staticScrape/observability/snmp-vyos-cellgw/0
+  static_configs:
+  - targets:
+    - 10.255.255.251
+    - 10.255.255.250
+    labels:
+      job: snmp
+  honor_labels: false
+  scrape_interval: 60s
+  scrape_timeout: 30s
+  metrics_path: /snmp
+  params:
+    auth:
+    - ntopng_v3
+    module:
+    - if_mib
+    - net_snmp_extend
+  relabel_configs:
+  - target_label: job
+    replacement: snmp-vyos
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9116
+- job_name: vmsingle-stack
+  static_configs:
+  - targets:
+    - 127.0.0.1:8428
+- job_name: vmalert-stack
+  static_configs:
+  - targets:
+    - vmalert:8880
+- job_name: vmalertmanager-stack
+  static_configs:
+  - targets:
+    - alertmanager:9093
+- job_name: grafana
+  static_configs:
+  - targets:
+    - grafana:3000
+- job_name: gatus
+  static_configs:
+  - targets:
+    - gatus:80
+- job_name: blackbox-exporter
+  static_configs:
+  - targets:
+    - blackbox-exporter:9115
+- job_name: caddy
+  static_configs:
+  - targets:
+    - caddy:9180
+- job_name: cloudflared
+  static_configs:
+  - targets:
+    - cloudflared:2000
+- job_name: kromgo
+  static_configs:
+  - targets:
+    - kromgo:8080
+- job_name: probe/nas01/caddy-cert
+  metrics_path: /probe
+  params:
+    module:
+    - http_2xx
+  static_configs:
+  - targets:
+    - https://caddy-test.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115

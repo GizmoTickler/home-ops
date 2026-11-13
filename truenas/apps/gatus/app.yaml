@@ -1,0 +1,12 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+files:
+  - {template: config.yaml.tmpl, dest: /mnt/flashstor/apps/gatus-config/config.yaml, owner: "0:1000", mode: "0640"}
+  - {template: endpoints-apps.yaml.tmpl, dest: /mnt/flashstor/apps/gatus-config/endpoints-apps.yaml, owner: "0:1000", mode: "0640"}
+health:
+  tcp: 127.0.0.1:80
+  netns: gatus
+ui:
+  title: Gatus
+  description: "Status page and uptime checks for the network and every web app"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/gatus.png
+  home: https://gatus.io

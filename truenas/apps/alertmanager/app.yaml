@@ -1,0 +1,13 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/alertmanager-config, owner: "0:1000", mode: "0750"}
+files:
+  - {template: alertmanager.yml.tmpl, dest: /mnt/flashstor/apps/alertmanager-config/alertmanager.yml, owner: "0:1000", mode: "0640"}
+health:
+  tcp: 127.0.0.1:9093
+  netns: alertmanager
+ui:
+  title: Alertmanager
+  description: "Alert routing -> Pushover + Watchdog heartbeat"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/alertmanager.png
+  home: https://prometheus.io/docs/alerting/latest/alertmanager/

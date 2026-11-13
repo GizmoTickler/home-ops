@@ -1,0 +1,117 @@
+# kromgo badges (truenas/apps/kromgo). Reworked 2026-11-12 for the k8s retirement (plan
+# retire-k8s-apps-on-nas01-2026-11-12.md): k8s/flux badges dropped; cluster_* names kept (the README and the
+# kromgo-proxy Worker reference them) but they now describe nas01, the host that runs every app.
+badge:
+  font: Verdana.ttf
+  size: 12
+
+metrics:
+  - name: truenas_version
+    query: label_replace(max by (version) (node_os_info{instance=~"nas01\\..*"}), "version", "$1", "version", "(.+)")
+    label: version
+    title: TrueNAS
+
+  - name: cluster_cpu_usage
+    query: round((1 - avg(rate(node_cpu_seconds_total{instance=~"nas01\\..*",mode="idle"}[5m]))) * 100, 0.1)
+    suffix: "%"
+    colors:
+      - {color: "green", min: 0, max: 35}
+      - {color: "orange", min: 36, max: 75}
+      - {color: "red", min: 76, max: 9999}
+    title: CPU
+
+  # ZFS ARC counts as available (it is reclaimable), as in the ExternalHostHighMemory alert.
+  - name: cluster_memory_usage
+    query: round((1 - (node_memory_MemAvailable_bytes{instance=~"nas01\\..*"} + node_zfs_arc_size{instance=~"nas01\\..*"}) / node_memory_MemTotal_bytes{instance=~"nas01\\..*"}) * 100, 0.1)
+    suffix: "%"
+    colors:
+      - {color: green, min: 0, max: 35}
+      - {color: orange, min: 36, max: 75}
+      - {color: red, min: 76, max: 9999}
+    title: Memory
+
+  - name: cluster_uptime_days
+    query: round((node_time_seconds{instance=~"nas01\\..*"} - node_boot_time_seconds{instance=~"nas01\\..*"}) / 86400)
+    suffix: "d"
+    colors:
+      - {color: "green", min: 0, max: 180}
+      - {color: "orange", min: 181, max: 360}
+      - {color: "red", min: 361, max: 9999}
+    title: Uptime
+
+  - name: cluster_alert_count
+    query: (count(ALERTS{alertstate="firing",alertname!~"Watchdog|InfoInhibitor"}) or vector(0))
+    colors:
+      - {color: "green", min: 0, max: 0}
+      - {color: "red", min: 1, max: 9999}
+    title: Alerts
+
+  - name: storage_health
+    query: >-
+      (label_replace(vector(1), "health", "OK", "", "") and on() (sum(node_zfs_zpool_state{instance=~"nas01\\..*",state!="online"}) == 0))
+      or label_replace(vector(0), "health", "DEGRADED", "", "")
+    label: health
+    colors:
+      - {color: "green", min: 1, max: 1}
+      - {color: "red", min: 0, max: 0}
+    title: ZFS
+
+  # flashstor: data referenced by its mounted datasets vs. that plus the pool's free space (zvols/snapshots excluded).
+  - name: storage_used
+    query: >-
+      round(100 * sum(node_filesystem_size_bytes{instance=~"nas01\\..*",mountpoint=~"/mnt/flashstor(/.*)?"} - node_filesystem_avail_bytes{instance=~"nas01\\..*",mountpoint=~"/mnt/flashstor(/.*)?"})
+      / (sum(node_filesystem_size_bytes{instance=~"nas01\\..*",mountpoint=~"/mnt/flashstor(/.*)?"} - node_filesystem_avail_bytes{instance=~"nas01\\..*",mountpoint=~"/mnt/flashstor(/.*)?"})
+         + max(node_filesystem_avail_bytes{instance=~"nas01\\..*",mountpoint="/mnt/flashstor"})), 0.1)
+    suffix: "%"
+    colors:
+      - {color: "green", min: 0, max: 60}
+      - {color: "orange", min: 61, max: 85}
+      - {color: "red", min: 86, max: 9999}
+    title: Storage Used
+
+  - name: app_count
+    query: count(truenas_apps_gitops_app_ok)
+    colors:
+      - {color: "green", min: 0, max: 9999}
+    title: Apps
+
+  - name: cert_expiry_days
+    query: round((min(probe_ssl_earliest_cert_expiry{job="probe/nas01/caddy-cert"}) - time()) / 86400)
+    suffix: "d"
+    colors:
+      - {color: "red", min: 0, max: 7}
+      - {color: "orange", min: 8, max: 30}
+      - {color: "green", min: 31, max: 9999}
+    title: Cert Expiry
+
+  - name: ntp_sync
+    query: >-
+      (label_replace(vector(1), "status", "SYNCED", "", "") and on() (min(node_timex_sync_status{instance=~"nas01\\..*"}) == 1))
+      or label_replace(vector(0), "status", "UNSYNCED", "", "")
+    label: status
+    colors:
+      - {color: "green", min: 1, max: 1}
+      - {color: "red", min: 0, max: 0}
+    title: NTP
+
+  # Primary edge = UXG-Fiber: the UXG answering the ICMP device probe (not an end-to-end Frontier path test).
+  - name: wan_primary
+    query: |
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job="probe/observability/devices",instance="10.255.255.46"} == 1) >= 1))
+      or label_replace(vector(0), "status", "DOWN", "", "")
+    label: status
+    colors:
+      - {color: "green", min: 1, max: 1}
+      - {color: "red", min: 0, max: 0}
+    title: Fiber
+
+  # Cellular backup: still cell-gateway0's probes; repoint to the Route10 once it is built.
+  - name: wan_cellular1
+    query: |
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw0-wan.*"} == 1) >= 5))
+      or label_replace(vector(0), "status", "DOWN", "", "")
+    label: status
+    colors:
+      - {color: "green", min: 1, max: 1}
+      - {color: "red", min: 0, max: 0}
+    title: Cellular

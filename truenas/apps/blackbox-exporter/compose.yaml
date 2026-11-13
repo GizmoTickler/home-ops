@@ -1,0 +1,29 @@
+# blackbox-exporter — ICMP/TCP/HTTP probes for VictoriaMetrics (device/DNS/NFS probes, Caddy cert expiry).
+# Listens: blackbox-exporter:9115 on the shared `apps` network (scraped by victoria-metrics only).
+# Config:  blackbox.yml (same modules as the k8s chart values). Probes leave via nas01's NAT (192.168.120.10).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  blackbox-exporter:
+    image: quay.io/prometheus/blackbox-exporter:v0.29.0@sha256:9613f2884689b6fad9f1939f6a3b0388c93a022cfaededb19545b329b5c83dea
+    restart: unless-stopped
+    user: "65534:65534"
+    environment:
+      TZ: America/New_York
+    command: ["--config.file=/etc/blackbox/blackbox.yml", "--web.listen-address=:9115"]
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/blackbox-exporter-config:/etc/blackbox:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 128M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

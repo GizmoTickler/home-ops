@@ -1,0 +1,20 @@
+# blackbox-exporter modules (truenas/apps/blackbox-exporter), same as the k8s chart values.
+# ICMP needs no capability: Docker sets net.ipv4.ping_group_range for containers (unprivileged ICMP sockets).
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      follow_redirects: true
+      preferred_ip_protocol: ip4
+  icmp:
+    prober: icmp
+    timeout: 5s
+    icmp:
+      preferred_ip_protocol: ip4
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4

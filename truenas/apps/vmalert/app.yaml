@@ -1,0 +1,13 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/vmalert-config, owner: "0:0", mode: "0755"}
+files:
+  - {template: rules.yaml.tmpl, dest: /mnt/flashstor/apps/vmalert-config/rules.yaml, owner: "0:0", mode: "0644"}
+health:
+  tcp: 127.0.0.1:8880
+  netns: vmalert
+ui:
+  title: vmalert
+  description: "Alerting/recording rules for nas01 VictoriaMetrics"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/victoriametrics.png
+  home: https://docs.victoriametrics.com/vmalert/

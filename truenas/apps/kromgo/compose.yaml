@@ -1,0 +1,32 @@
+# kromgo — README badges (status JSON/SVG) from nas01 VictoriaMetrics; public via the Cloudflare tunnel.
+# Listens: kromgo:80 on the shared `apps` network; https://kromgo.<domain> on Caddy's external site (cloudflared,
+#          Cloudflare Access in front) and internal site. The kromgo-proxy Cloudflare Worker reads it.
+# Config:  /mnt/flashstor/apps/kromgo-config/config.yaml rendered from config.yaml (badge set reworked for no k8s).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  kromgo:
+    image: ghcr.io/kashalls/kromgo:v0.10.0@sha256:965ecc92d68dc1a4a969397855367bbc70da03227a941ea607b73bb7e0b78fd6
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: America/New_York
+      PROMETHEUS_URL: http://victoria-metrics:8428
+      SERVER_PORT: "80"
+      HEALTH_PORT: "8080"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/kromgo-config/config.yaml:/kromgo/config.yaml:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 128M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

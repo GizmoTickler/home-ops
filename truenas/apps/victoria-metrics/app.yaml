@@ -1,0 +1,14 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/victoria-metrics-config, owner: "0:0", mode: "0755"}
+files:
+  - {template: scrape.yaml.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/scrape.yaml, owner: "0:0", mode: "0644"}
+health:
+  tcp: 127.0.0.1:8428
+  netns: victoria-metrics
+  timeout: 300            # opening the copied 90 d of history takes a while
+ui:
+  title: VictoriaMetrics
+  description: "Metrics TSDB + scraper (UXG/SC01/DNS/NTP/nas01/pve/AAP targets), 90 d retention"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/victoriametrics.png
+  home: https://victoriametrics.com

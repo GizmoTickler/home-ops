@@ -1,0 +1,1968 @@
+# vmalert rules (truenas/apps/vmalert). Rendered by the reconciler.
+# Ported from the k8s VMRules that still apply without the cluster: UXG/SC01/SNMP/BGP, DNS/DHCP, WAN, external hosts
+# (node-exporter on nas01/pve VMs/RHEL VMs), ZFS/SMART, nas01 storage path, truenas apps GitOps, blackbox, gatus,
+# and the VictoriaMetrics/vmalert/Alertmanager self-monitoring. Dropped: kube*/etcd/k8s.rules, flux, cert-manager,
+# cnpg, kopiur, scale-csi, external-dns, keda, VictoriaLogs and all log-based rules, trustsec-sgacl-exporter (k8s pod).
+groups:
+- name: prometheus-blackbox-exporter
+  rules:
+  - alert: BlackboxProbeFailed
+    annotations:
+      summary: The host {{ $labels.target }} is currently unreachable
+    expr: probe_success == 0
+    for: 15m
+    labels:
+      severity: critical
+- name: gatus.rules
+  rules:
+  - alert: GatusEndpointDown
+    annotations:
+      summary: The {{ $labels.name }} endpoint is down
+    expr: gatus_results_endpoint_success{group="external"} == 0
+    for: 5m
+    labels:
+      severity: critical
+  - alert: GatusEndpointExposed
+    annotations:
+      summary: The {{ $labels.name }} endpoint has a public DNS record and is exposed
+    expr: gatus_results_endpoint_success{group="guarded"} == 0
+    for: 5m
+    labels:
+      severity: critical
+- interval: 30s
+  name: external-hosts.rules
+  rules:
+  - alert: ExternalHostDown
+    annotations:
+      description: 'node_exporter on {{ $labels.instance }} has been unreachable for 3 minutes.
+
+        Check host connectivity and service status.'
+      summary: Host {{ $labels.instance }} is down
+    expr: up{job="node-exporter", instance!~".*k8s.*"} == 0
+    for: 3m
+    keep_firing_for: 5m
+    labels:
+      component: infrastructure
+      severity: critical
+  - alert: ExternalHostHighCPU
+    annotations:
+      description: CPU on {{ $labels.instance }} has been above 90% for 15 minutes.
+      summary: Host {{ $labels.instance }} CPU usage is {{ $value | humanize }}%
+    expr: (1 - avg without(cpu, mode) (rate(node_cpu_seconds_total{mode="idle", job="node-exporter"}[5m]))) * 100 > 90
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: infrastructure
+      severity: warning
+  - alert: ExternalHostHighMemory
+    annotations:
+      description: 'Memory on {{ $labels.instance }} has been above 90% for 15 minutes
+
+        (ZFS ARC counted as reclaimable). Risk of OOM kills.'
+      summary: Host {{ $labels.instance }} memory usage is {{ $value | humanize }}% (ARC-adjusted)
+    expr: "(1 - ((node_memory_MemAvailable_bytes{job=\"node-exporter\"}\n  + (node_zfs_arc_size{job=\"node-exporter\"} or 0 * node_memory_MemAvailable_bytes{job=\"node-exporter\"}))\n  / node_memory_MemTotal_bytes{job=\"\
+      node-exporter\"})) * 100 > 90"
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: infrastructure
+      severity: warning
+  - alert: ExternalHostFilesystemFull
+    annotations:
+      description: 'Filesystem {{ $labels.mountpoint }} ({{ $labels.device }}) on {{ $labels.instance }} is above 85%.
+
+        Free up space or expand the volume.'
+      summary: '{{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full'
+    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 85
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: infrastructure
+      severity: warning
+  - alert: ExternalHostFilesystemCritical
+    annotations:
+      description: 'Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} is critically full.
+
+        Immediate action required to prevent service disruption.'
+      summary: 'CRITICAL: {{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full'
+    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 95
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: infrastructure
+      severity: critical
+  - alert: ExternalHostRebootRequired
+    annotations:
+      description: '{{ $labels.instance }} has required a reboot for over 24 hours (likely pending kernel update).'
+      summary: Host {{ $labels.instance }} requires a reboot
+    expr: node_reboot_required{job="node-exporter"} == 1
+    for: 24h
+    labels:
+      component: infrastructure
+      severity: warning
+- interval: 1m
+  name: flow-telemetry.rules
+  rules:
+  - alert: NtopngFlowExportStale
+    annotations:
+      description: 'No new flows written to the ntopng.flows ClickHouse table for
+
+        {{ $value | humanizeDuration }} (threshold 15m). The ntopng->ClickHouse
+
+        export on nflo0 has likely stalled — live capture (XDP/ERSPAN) can be
+
+        fine while persistence is dead. Check ntopng on nflo0 and its
+
+        ClickHouse export connection; a `systemctl restart ntopng` reconnects it.'
+      runbook_url: https://docs.victoriametrics.com/
+      summary: ntopng flow export to ClickHouse is stale (nflo0)
+    expr: (time() - ntopng_flows_last_seen_timestamp_seconds) > 900
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngFlowFreshnessMetricMissing
+    annotations:
+      description: 'ntopng_flows_last_seen_timestamp_seconds is absent — the freshness
+
+        exporter (ntopng-flow-freshness.timer on nflo0) or the nflo0
+
+        node_exporter scrape is down, so flow-export health is unobservable.
+
+        Check the timer on nflo0 and the node-exporter target for netflow.'
+      summary: ntopng flow-freshness watchdog metric is missing
+    expr: absent(ntopng_flows_last_seen_timestamp_seconds)
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+- interval: 60s
+  name: nas01-storage-path.rules
+  rules:
+  - alert: Nas01StorageBridgeMtuDegraded
+    annotations:
+      description: 'br0 carries 192.168.120.10 — the address scale-csi uses for NVMe-oF,
+
+        iSCSI and NFS. Below 9000 every Kubernetes storage session negotiates
+
+        MSS 1448 instead of 8948, roughly 6x the per-byte packet overhead on
+
+        the cluster''s entire storage path.
+
+
+        Usual cause: a container/VM veth attached to br0 at the default 1500,
+
+        dragging the bridge below its configured MTU. net-drift-guard.sh on
+
+        nas01 should self-heal within 15m — if this is firing, the guard is
+
+        not running. Check `logger -t net-drift-guard` output in syslog and
+
+        the POSTINIT script (id 8) / cron job (id 22).'
+      runbook_url: https://docs.victoriametrics.com/
+      summary: nas01 br0 MTU is {{ $value }}, expected 9000
+    expr: node_network_mtu_bytes{instance=~"nas01.*", device="br0"} != 9000
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: storage
+      severity: warning
+  - alert: Nas01StorageInterfaceMtuDegraded
+    annotations:
+      description: 'A member of nas01''s storage fabric has left jumbo. The storage ports
+
+        ens786f0 (VLAN 1201, 192.168.201.10) and ens786f1 (VLAN 1202,
+
+        192.168.202.10), plus bond0 and its four 10G slaves (MGMT NFS on
+
+        192.168.120.10), must all sit at 9000 or the NVMe-oF/NFS paths to
+
+        pve and the k8s nodes silently lose jumbo frames. VLANs 1203/1204
+
+        were retired 2026-10-16.'
+      runbook_url: https://docs.victoriametrics.com/
+      summary: nas01 {{ $labels.device }} MTU is {{ $value }}, expected 9000
+    expr: node_network_mtu_bytes{instance=~"nas01.*", device=~"ens786f0|ens786f1|bond0|eno1|eno2|ens787f0|ens787f1"} != 9000
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: storage
+      severity: warning
+- interval: 30s
+  name: dns-dhcp.rules
+  rules:
+  - alert: DNSServerDown
+    annotations:
+      description: 'TCP probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
+
+        DHCP clients may lose DNS resolution if both servers fail.'
+      summary: DNS server {{ $labels.instance }} is down
+    expr: probe_success{job="probe/observability/dns"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSAllServersDown
+    annotations:
+      description: 'Every probed DNS target (dns0, dns1 and the 10.53.53.53 anycast address)
+
+        is unreachable on port 53.
+
+        All DNS resolution for the network is offline. Immediate action required.'
+      summary: All DNS servers are down
+    expr: "count(probe_success{job=\"probe/observability/dns\"} == 0)\n  == count(probe_success{job=\"probe/observability/dns\"})"
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: DHCPPrimaryDown
+    annotations:
+      description: 'ICMP probe to dns0 has been failing for over 5 minutes.
+
+        Kea HA standby (dns1) should take over DHCP serving.
+
+        Investigate dns0 VM on TrueNAS.'
+      summary: Primary DHCP server (dns0) is down
+    expr: probe_success{job="probe/observability/devices",instance=~"dns0.*"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: DHCPAllServersDown
+    annotations:
+      description: 'Both dns0 and dns1 are unreachable via ICMP.
+
+        No DHCP leases can be issued or renewed. Existing clients retain leases until expiry.
+
+        Immediate action required.'
+      summary: All DHCP servers are down
+    expr: count(probe_success{job="probe/observability/devices",instance=~"dns-[01].*"} == 0) == 2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
+  - alert: ReplicationSlotInactiveLong
+    annotations:
+      description: 'Multi-master replication has been down for 30+ minutes; DNS/DHCP
+
+        writes are landing on one node only and the datasets are diverging.
+
+        Runbook: check output_plugin_libraries first (PG minor upgrades can
+
+        break Spock BY POLICY — see claude-config runbooks/proposals/dns-anycast §23.1).'
+      summary: Spock slot {{ $labels.slot_name }} inactive >30m — nodes are diverging
+    expr: pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
+    for: 30m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: ReplicationSlotInactive
+    annotations:
+      description: 'Slot {{ $labels.slot_name }} on {{ $labels.instance }} has been inactive for 5m.
+
+        WAL will accumulate until max_slot_wal_keep_size (4GB). Investigate Spock subscription health.'
+      summary: Spock replication slot {{ $labels.slot_name }} inactive on {{ $labels.instance }}
+    expr: pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: postgres
+      severity: warning
+  - alert: ReplicationLagHigh
+    annotations:
+      description: 'Slot {{ $labels.slot_name }} on {{ $labels.instance }} has >50MB unreplicated WAL for 10m.
+
+        Multi-master sync is lagging; writes on other node not yet applied locally.'
+      summary: Spock replication lag >50MB for slot {{ $labels.slot_name }}
+    expr: (pg_replication_slot_slot_current_wal_lsn{job="postgres-exporter"} - pg_replication_slot_slot_confirmed_flush_lsn{job="postgres-exporter"}) > 52428800
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: postgres
+      severity: warning
+  - alert: DNSCacheHitRatioLow
+    annotations:
+      description: 'Combined dnsdist + recursor packet cache hit ratio: {{ $value | humanizePercentage }} for 1h.
+
+        Typical healthy value is 85-90%. Likely a warming period after restart, unusual query
+
+        mix, or a cache configuration regression in the 3-layer stack.'
+      summary: Effective DNS cache hit ratio <70% (cluster-wide)
+    expr: "(\n  sum(rate(dnsdist_cache_hits{job=\"dnsdist\"}[15m]))\n  +\n  sum(rate(pdns_recursor_packetcache_hits{job=\"pdns-recursor\"}[15m]))\n)\n/\nclamp_min(sum(rate(dnsdist_queries{job=\"dnsdist\"\
+      }[15m])), 1)\n< 0.7"
+    for: 1h
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: info
+  - alert: KeepalivedVIPFlap
+    annotations:
+      description: 'The DNS VIP (192.168.123.249) changed master/backup state repeatedly across dns0/dns1.
+
+        Health check may be flapping; investigate check-dns-health.sh and network between nodes.'
+      summary: Keepalived DNS VIP flapped {{ $value }} times in 10m
+    expr: sum(changes(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}[10m])) > 4
+    for: 0m
+    keep_firing_for: 15m
+    labels:
+      component: dns
+      severity: warning
+  - alert: KeepalivedNoMaster
+    annotations:
+      description: 'Expected exactly 1 master for the DNS VIP. Current master count: {{ $value }}.
+
+        0 = no master (VIP offline); >1 = split-brain (both nodes claim master).'
+      summary: Keepalived DNS VIP election unhealthy (count={{ $value }})
+    expr: sum(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}) != 1
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: DNSStackBackupStale
+    annotations:
+      description: 'dns-stack-backup.service has not completed successfully in >26h on this node.
+
+        Check: systemctl status dns-stack-backup.{service,timer} and /var/backups/dns-stack/.'
+      summary: DNS stack backup stale on {{ $labels.instance }} ({{ $value | humanizeDuration }} old)
+    expr: (time() - dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 93600
+    for: 30m
+    keep_firing_for: 1h
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSStackBackupMetricMissing
+    annotations:
+      description: 'dns_stack_backup_last_success_timestamp_seconds is absent for one or both DNS nodes.
+
+        Verify the dns-stack-backup timer exists and /var/lib/node_exporter/textfile/dns_backup.prom is written.'
+      summary: DNS stack backup metric missing (series count {{ $value }}, expected 2)
+    expr: (count(dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) or vector(0)) < 2
+    for: 1h
+    keep_firing_for: 1h
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSUpstreamFallbackActive
+    annotations:
+      description: 'dnscrypt-proxy on this node is using the Google public DoH fallback — CF Gateway
+
+        filtering is BYPASSED. Auto-restore happens when Gateway probes recover; if this
+
+        persists, CF Gateway is down or a manual break-glass was left active
+
+        (dns-upstream-breakglass status / restore).'
+      summary: UNFILTERED Google DoH fallback active on {{ $labels.instance }}
+    expr: max by (instance) (dns_upstream_fallback_active{job="node-exporter",instance=~"dns[01].*"}) == 1
+    for: 1m
+    keep_firing_for: 10m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSUpstreamWatchdogStale
+    annotations:
+      description: 'dns-upstream-watchdog.timer has not ticked in >10m — automatic Google-DoH failover
+
+        for CF Gateway outages is not armed on this node.'
+      summary: DNS upstream watchdog not running on {{ $labels.instance }}
+    expr: (time() - dns_upstream_watchdog_last_run_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 600
+    for: 5m
+    keep_firing_for: 15m
+    labels:
+      component: dns
+      severity: warning
+- interval: 30s
+  name: dns-anycast.rules
+  rules:
+  - alert: DNSAnycastBothDemoted
+    annotations:
+      description: 'Both gates have applied ANYCAST_OUT_DEGRADED. Traffic still flows
+
+        (equal-length paths ECMP), but the gate believes neither dnsdist is
+
+        answering — either both are broken, or the shared probe is lying.
+
+        Verify with dig against each node''s PHYSICAL address first.'
+      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastbothdemoted--critical
+      summary: Both DNS nodes report dnsdist unhealthy — anycast degraded on both
+    expr: sum(dns_anycast_demoted) >= 2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: DNSAnycastNodeDemoted
+    annotations:
+      description: 'Service is fine on the peer; redundancy is reduced. Likely dnsdist
+
+        down/hung on the node, gate stopped for maintenance, or a node that
+
+        booted and never promoted.'
+      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastnodedemoted--warning-10m
+      summary: '{{ $labels.instance }} demoted from anycast ECMP for >10m'
+    expr: dns_anycast_demoted == 1
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: DNSAnycastMetricMissing
+    annotations:
+      description: 'dns_anycast_* gauges absent — the gate daemon or its textfile
+
+        publication may not be running on one or both nodes.'
+      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#first-commands-always
+      summary: Anycast gate metrics missing for one or both DNS nodes
+    expr: absent(dns_anycast_healthy) or count(dns_anycast_healthy) < 2
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+- interval: 30s
+  name: dns-resolver.rules
+  rules:
+  - alert: RecursorServfailRateHigh
+    annotations:
+      description: 'PowerDNS Recursor on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
+
+        Healthy baseline is ~0/s. Likely cause: DNSSEC trust-anchor gap, upstream resolver
+
+        failure, or broken forwarding. Cross-check RecursorDNSSECBogusIncreasing and
+
+        dnscrypt upstream health. This is the signal class that caused the 2026-06-10
+
+        guest/IoT reverse-PTR outage.'
+      summary: Recursor SERVFAIL rate elevated on {{ $labels.instance }}
+    expr: rate(pdns_recursor_servfail_answers{job="pdns-recursor"}[5m]) > 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: DnsdistServfailRateHigh
+    annotations:
+      description: 'dnsdist on {{ $labels.instance }} returned {{ $value | humanize }} SERVFAIL/s to clients (5m rate).
+
+        This is what end users actually experience. Likely a recursor backend failure or
+
+        a DNSSEC/upstream problem propagating through the VIP. Check RecursorServfailRateHigh
+
+        and DnsdistBackendDown.'
+      summary: dnsdist is returning SERVFAIL to clients on {{ $labels.instance }}
+    expr: rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: RecursorDNSSECBogusIncreasing
+    annotations:
+      description: 'PowerDNS Recursor on {{ $labels.instance }} is recording {{ $value | humanize }} bogus
+
+        DNSSEC validations/s (5m rate). Bogus results return SERVFAIL with EDE 12 to clients.
+
+        Likely cause: a DNSSEC trust-anchor gap, expired/invalid RRSIGs upstream, or a
+
+        missing/stale root key. This is the precise silent signal behind the 2026-06-10
+
+        guest/IoT reverse-PTR outage. Check the recursor root trust anchor and
+
+        rec_control current-queries / dump-trace.'
+      summary: DNSSEC validation failures (bogus) increasing on {{ $labels.instance }}
+    expr: "sum by (instance) (\n  rate({__name__=~\"pdns_recursor_dnssec_result_bogus.*\",job=\"pdns-recursor\"}[5m])\n) > 1"
+    for: 5m
+    keep_firing_for: 10m
+    labels:
+      component: dns
+      severity: critical
+  - alert: RecursorClientLatencyHigh
+    annotations:
+      description: 'Average client-answer latency on {{ $labels.instance }} is {{ $value | humanize }}s over 10m
+
+        (healthy floor ~16-28ms). Upstream DoH may be slow or failing, or the recursor is
+
+        spending time on retries/timeouts. Check RecursorOutgoingTimeoutsHigh and dnscrypt
+
+        upstream response time.'
+      summary: Recursor client-answer latency high on {{ $labels.instance }}
+    expr: "(\n  rate(pdns_recursor_cumul_clientanswers_seconds_sum{job=\"pdns-recursor\"}[10m])\n  /\n  clamp_min(rate(pdns_recursor_cumul_clientanswers_seconds_count{job=\"pdns-recursor\"}[10m]), 1)\n\
+      ) > 0.15"
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: RecursorOutgoingTimeoutsHigh
+    annotations:
+      description: 'PowerDNS Recursor on {{ $labels.instance }} is timing out on {{ $value | humanize }} outgoing
+
+        queries/s (5m rate). Upstream resolvers (DoH via dnscrypt-proxy or authoritatives)
+
+        may be unreachable or slow. Often a precursor to SERVFAILs and elevated latency.'
+      summary: Recursor outgoing query timeouts rising on {{ $labels.instance }}
+    expr: rate(pdns_recursor_outgoing_timeouts{job="pdns-recursor"}[5m]) > 1
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DnsdistBackendDown
+    annotations:
+      description: 'dnsdist on {{ $labels.instance }} has marked recursor backend "{{ $labels.server }}"
+
+        ({{ $labels.address }}) as DOWN. The dnsdist->recursor path for that backend is failing
+
+        its health check. Resolution continues via the surviving backend, but redundancy is lost.
+
+        Investigate the recursor process / port 5301 on the affected node.'
+      summary: dnsdist backend {{ $labels.server }} is DOWN on {{ $labels.instance }}
+    expr: dnsdist_server_status{job="dnsdist"} == 0
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DnsdistAllBackendsDown
+    annotations:
+      description: 'Every recursor backend behind dnsdist on {{ $labels.instance }} is DOWN. This node''s
+
+        dnsdist cannot resolve anything via the recursor tier. If this is the VIP master, all
+
+        clients are affected. Immediate action required.'
+      summary: All dnsdist recursor backends DOWN on {{ $labels.instance }}
+    expr: sum by (instance) (dnsdist_server_status{job="dnsdist"}) == 0
+    for: 1m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: DNSResolverTargetDown
+    annotations:
+      description: 'Prometheus scrape of {{ $labels.job }} on {{ $labels.instance }} has been failing (up==0)
+
+        for 5m. The exporter or the underlying DNS service ({{ $labels.job }}) may be dead.
+
+        If both nodes show the same job down, resolution for that component is fully offline.'
+      summary: DNS scrape target {{ $labels.job }} down on {{ $labels.instance }}
+    expr: up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DNSResolverComponentAllDown
+    annotations:
+      description: '{{ $labels.job }} is down (up==0) on both dns0 and dns1. That entire tier of the
+
+        resolver stack is offline cluster-wide. Immediate action required.'
+      summary: DNS component {{ $labels.job }} is down on ALL nodes
+    expr: count by (job) (up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0) >= 2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: DnscryptUpstreamLatencyHigh
+    annotations:
+      description: 'dnscrypt-proxy on {{ $labels.instance }} reports {{ $value | humanize }}ms average response
+
+        time from upstream "{{ $labels.server }}" (healthy ~33-38ms). The upstream DoH resolver
+
+        may be degraded; this feeds recursor latency and can cascade into outgoing timeouts and
+
+        SERVFAILs. NOTE: dnscrypt-proxy 2.1.15 has no upstream-error counter, so latency is the
+
+        only observable upstream-health signal (see report for the exporter gap).'
+      summary: dnscrypt-proxy upstream {{ $labels.server }} slow on {{ $labels.instance }}
+    expr: dnscrypt_proxy_server_response_time_average_ms{job="dnscrypt-proxy"} > 250
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+- interval: 30s
+  name: wan-gateway.rules
+  rules:
+  - alert: BackupGatewayDown
+    annotations:
+      description: 'ICMP probe to gateway1 (ISR 4321) has been failing for over 10 minutes.
+
+        Cellular WAN backup is unavailable. Primary fiber (UXG-Fiber) is the only internet path.'
+      summary: Backup gateway (gateway1) is unreachable
+    expr: probe_success{job="probe/observability/devices",instance=~"gateway1.*"} == 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularWANDown
+    annotations:
+      description: 'Multi-protocol probes (ICMP/HTTP/TCP) from both cell-gateway0 and cell-gateway1 are failing.
+
+        Cellular backup internet is completely unavailable.'
+      summary: Both cellular WANs have lost internet reachability
+    expr: '(count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5)
+
+      and
+
+      (count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5)'
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularWAN1Down
+    annotations:
+      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway0 (T-Mobile modem #1) are failing.
+
+        Cell-gateway1 may still be providing backup connectivity.'
+      summary: Cellular WAN 1 (cell-gateway0) has lost internet reachability
+    expr: count(probe_success{job=~"cgw0-wan.*"} == 0) >= 5
+    for: 90s
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularWAN2Down
+    annotations:
+      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway1 (T-Mobile modem #2) are failing.
+
+        Cell-gateway0 may still be providing backup connectivity.'
+      summary: Cellular WAN 2 (cell-gateway1) has lost internet reachability
+    expr: count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5
+    for: 90s
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+- interval: 30s
+  name: node-resource-usage.rules
+  rules:
+  - expr: 1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m])) by (instance)
+    record: node:node_cpu_utilization:avg1m
+  - expr: 1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)
+    record: node:node_cpu_utilization:avg5m
+  - expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+    record: node:node_memory_utilization:ratio
+  - expr: node_memory_MemAvailable_bytes
+    record: node:node_memory_available_bytes:sum
+  - expr: 1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})
+    record: node:node_filesystem_utilization:ratio
+  - expr: node_filesystem_avail_bytes{mountpoint="/"}
+    record: node:node_filesystem_avail_bytes:sum
+  - expr: sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|cali.*|cilium.*"}[5m])) by (instance)
+    record: node:node_network_receive_bytes_total:rate5m
+  - expr: sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|cali.*|cilium.*"}[5m])) by (instance)
+    record: node:node_network_transmit_bytes_total:rate5m
+  - expr: node_load1
+    record: node:node_load1:avg
+- interval: 5m
+  name: disk-health.rules
+  rules:
+  - alert: DiskUDMACRCErrorsIncreasing
+    annotations:
+      description: "Disk {{ $labels.device }} on {{ $labels.instance }} has gained\n{{ $value }} new UDMA_CRC_Error_Count events in the last 6h.\nThese are SATA/SAS link-layer CRC failures: the transfer\
+        \ is\nretried so data is not corrupted, but they indicate a marginal\nphysical connection -- cable, backplane slot, or connector.\nInvestigate the cable/slot rather than the drive; the NAND is\n\
+        almost certainly fine. Check whether the link has downshifted:\n  smartctl -i /dev/<dev> | grep \"SATA Version\"\nMegaRAID devices are labelled bus_0_sat+megaraid_<DID>; map DID\nto a bay with:\n\
+        \  storcli /c0 /eall /sall show"
+      runbook_url: https://www.smartmontools.org/wiki/FAQ#ATACRCerrors
+      summary: SATA link CRC errors increasing on {{ $labels.instance }} disk {{ $labels.device }}
+    expr: "smartctl_device_attribute{job=\"smartctl-exporter\",attribute_name=\"UDMA_CRC_Error_Count\",attribute_value_type=\"raw\"}\n  - min_over_time(smartctl_device_attribute{job=\"smartctl-exporter\"\
+      ,attribute_name=\"UDMA_CRC_Error_Count\",attribute_value_type=\"raw\"}[6h])\n  > 0"
+    for: 10m
+    keep_firing_for: 30m
+    labels:
+      component: storage
+      severity: warning
+- interval: 60s
+  name: snmp-availability.rules
+  rules:
+  - alert: SNMPTargetDown
+    annotations:
+      description: 'snmp_exporter (nflo0) is getting no SNMP reply from {{ $labels.instance }}.
+
+        If this is SC01 (10.255.255.253), it is the known TrustSec return-path gap
+
+        (cell 18->24 lacks `permit udp src eq snmp`) — see proposal SC01 SNMP fix.'
+      summary: SNMP target {{ $labels.instance }} not responding
+    expr: up{job=~"snmp.*"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: warning
+- interval: 60s
+  name: snmp-interfaces.rules
+  rules:
+  - alert: InterfaceErrors
+    annotations:
+      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
+
+        is accumulating in/out errors (>1/s over 5m).'
+      summary: Interface errors on {{ $labels.instance }} {{ $labels.ifName }}
+    expr: rate(ifInErrors{job=~"snmp.*"}[5m]) + rate(ifOutErrors{job=~"snmp.*"}[5m]) > 1
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: warning
+  - alert: InterfaceDiscards
+    annotations:
+      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
+
+        is discarding packets (>50/s over 5m) — possible congestion or buffer pressure.'
+      summary: Interface discards on {{ $labels.instance }} {{ $labels.ifName }}
+    expr: rate(ifInDiscards{job=~"snmp.*"}[5m]) + rate(ifOutDiscards{job=~"snmp.*"}[5m]) > 50
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: warning
+  - alert: SC01PortChannelMemberPolarized
+    annotations:
+      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on SC01 dropped {{ $value | humanize }}
+
+        egress packets in 15m. If only one member of a Po10/Po20 bundle is dropping while
+
+        its siblings stay clean, the LACP hash is polarizing elephant flows (storage/vMotion)
+
+        onto a single 10G member. Fix by spreading flow-tuples at the source (nas01 bond
+
+        xmit_hash_policy, more NVMe-oF sessions) rather than changing SC01''s global hash.'
+      summary: SC01 port-channel member {{ $labels.ifName }} dropping (LACP polarization?)
+    expr: increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/1[0-6]"}[15m]) > 50000
+    for: 5m
+    keep_firing_for: 15m
+    labels:
+      component: network
+      severity: warning
+  - alert: UplinkDown
+    annotations:
+      description: 'Transit/uplink {{ $labels.ifAlias }} ({{ $labels.ifName }}) on
+
+        {{ $labels.instance }} is not in operational-up state.'
+      summary: 'Uplink down: {{ $labels.instance }} {{ $labels.ifName }}'
+    expr: ifOperStatus{job=~"snmp.*",ifOperStatus="up",ifAlias=~"(?i).*(transit|uplink|po1|po2|portchannel|nas01|pve).*"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: critical
+- interval: 60s
+  name: snmp-cisco-health.rules
+  rules:
+  - alert: CiscoHighCPU
+    annotations:
+      description: 5-min CPU on {{ $labels.instance }} (index {{ $labels.cpmCPUTotalIndex }}) is {{ $value }}%.
+      summary: High CPU on {{ $labels.instance }}
+    expr: cpmCPUTotal5minRev{job=~"snmp.*"} > 75
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: warning
+  - alert: CiscoHighMemory
+    annotations:
+      description: Memory pool {{ $labels.ciscoMemoryPoolName }} on {{ $labels.instance }} is {{ $value | humanize }}% used.
+      summary: High memory on {{ $labels.instance }} ({{ $labels.ciscoMemoryPoolName }})
+    expr: "100 * ciscoMemoryPoolUsed{job=~\"snmp.*\"}\n  / (ciscoMemoryPoolUsed{job=~\"snmp.*\"} + ciscoMemoryPoolFree{job=~\"snmp.*\"}) > 85"
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: warning
+- interval: 60s
+  name: snmp-bgp.rules
+  rules:
+  - alert: BGPPeerNotEstablished
+    annotations:
+      description: 'BGP session to {{ $labels.bgpPeerRemoteAddr }} on {{ $labels.instance }}
+
+        is not Established. ECMP/backup path may be degraded.'
+      summary: BGP peer {{ $labels.bgpPeerRemoteAddr }} down on {{ $labels.instance }}
+    expr: "min without (bgpPeerState) (\n  bgpPeerState{job=~\"snmp.*\",bgpPeerState=\"established\"}\n) == 0\nand on (instance, bgpPeerRemoteAddr)\nbgpPeerAdminStatus{job=~\"snmp.*\",bgpPeerAdminStatus=\"\
+      start\"} == 1"
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: network
+      severity: critical
+  - alert: BGPPeerFlapping
+    annotations:
+      description: '{{ $value }} BGP FSM established-transitions in the last hour to {{ $labels.bgpPeerRemoteAddr }}.'
+      summary: BGP peer {{ $labels.bgpPeerRemoteAddr }} flapping on {{ $labels.instance }}
+    expr: increase(bgpPeerFsmEstablishedTransitions{job=~"snmp.*"}[1h]) > 3
+    for: 5m
+    keep_firing_for: 15m
+    labels:
+      component: network
+      severity: warning
+- interval: 60s
+  name: geoip-feed-health.rules
+  rules:
+  - alert: GeoIPBlockEmpty
+    annotations:
+      description: '{{ $labels.instance }} GeoIP nft set {{ $labels.nsExtendCommand }} has 0 elements — the
+
+        cn/ru/kp/ir/by country-block is providing NO protection. Apply proposal B1
+
+        (configure firewall global-options geoip + run geoip-update.py --init).'
+      summary: GeoIP country-block set empty ({{ $labels.nsExtendCommand }})
+    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand=~"geoip_set_elements_wan_(local|transit)"} == 0
+    for: 15m
+    keep_firing_for: 10m
+    labels:
+      component: security
+      severity: warning
+  - alert: GeoIPUpdaterFailing
+    annotations:
+      description: geoip-update.py last run returned non-zero — GeoIP DB not refreshing.
+      summary: GeoIP updater failing on {{ $labels.instance }}
+    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_update_last_exit"} > 0
+    for: 1h
+    keep_firing_for: 30m
+    labels:
+      component: security
+      severity: warning
+  - alert: GeoIPDatabaseStale
+    annotations:
+      description: nftables-geoip.conf is {{ $value | humanizeDuration }} old (>14d) — GeoIP not refreshing.
+      summary: GeoIP database stale on {{ $labels.instance }}
+    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_conf_age_seconds"} > 1209600
+    for: 1h
+    keep_firing_for: 30m
+    labels:
+      component: security
+      severity: warning
+  - alert: ThreatFeedResolverDown
+    annotations:
+      description: The service that refreshes the reputation feeds (firehol/spamhaus/et/feodo/bitwire/hagezi) is not active — feeds will go stale.
+      summary: vyos-domain-resolver down on {{ $labels.instance }}
+    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="vyos_domain_resolver_up"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: security
+      severity: critical
+  - alert: ThreatFeedEmpty
+    annotations:
+      description: '{{ $labels.nsExtendOutLine }} on {{ $labels.instance }} — a reputation-feed nftables set has been empty for 2h+; the feed URL may be dead or the resolver wedged.'
+      summary: Threat feed set empty on {{ $labels.instance }}
+    expr: nsExtendOutLine{job=~"snmp.*",nsExtendCommand="threat_feeds",nsExtendOutLine=~"feed_.*_elements (0|-1)"} == 1
+    for: 2h
+    keep_firing_for: 30m
+    labels:
+      component: security
+      severity: warning
+- interval: 60s
+  name: bgp-origination-drift.rules
+  rules:
+  - alert: BGPDefaultOriginationDrift
+    annotations:
+      description: '{{ $labels.instance }}: FRR is originating 0.0.0.0/0 but the SAVED VyOS
+
+        config has no `network 0.0.0.0/0` statement. A reboot or BGP commit will
+
+        silently withdraw the default (2026-07 gateway0 incident). Fix:
+
+        `set protocols bgp address-family ipv4-unicast network 0.0.0.0/0` + save.'
+      summary: BGP default-route drift on {{ $labels.instance }}
+    expr: "nsExtendOutputFull{job=~\"snmp.*\",nsExtendCommand=\"bgp_default_in_frr\"} == 1\n  and on(instance)\nnsExtendOutputFull{job=~\"snmp.*\",nsExtendCommand=\"bgp_default_in_config\"} == 0"
+    for: 10m
+    keep_firing_for: 15m
+    labels:
+      component: network
+      severity: critical
+  - alert: WANHealthWithdrawn
+    annotations:
+      description: '{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design. NOTE: this SNMP signal refreshes
+        ~15min.'
+      summary: wan-health daemon withdrew the default on {{ $labels.instance }} (slow SNMP path)
+    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="wan_health_state"} == 0
+    for: 2m
+    keep_firing_for: 10m
+    labels:
+      component: network
+      severity: warning
+- interval: 60s
+  name: network-ssh.rules
+  rules:
+  - alert: NetworkDeviceSSHDown
+    annotations:
+      description: '{{ $labels.instance }} is not answering TCP :22 from nflo0. If the device
+
+        is otherwise up (API/SNMP fine), this is the gw0-style silent SSH breakage
+
+        (2026-07: authorized_keys not regenerated after reboot — fix with the
+
+        delete-save-set-save key toggle via the VyOS API).'
+      summary: SSH down on {{ $labels.instance }}
+    expr: probe_success{job="network-ssh-probes"} == 0
+    for: 10m
+    keep_firing_for: 10m
+    labels:
+      component: network
+      severity: warning
+- name: alertmanager.rules
+  rules:
+  - alert: AlertmanagerFailedReload
+    annotations:
+      description: Configuration has failed to load for {{ $labels.namespace }}/{{ $labels.pod}}.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedreload
+      summary: Reloading an Alertmanager configuration has failed.
+    expr: max_over_time(alertmanager_config_last_reload_successful{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) == 0
+    for: 10m
+    labels:
+      severity: critical
+  - alert: AlertmanagerMembersInconsistent
+    annotations:
+      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} has only found {{ $value }} members of the {{$labels.job}} cluster.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagermembersinconsistent
+      summary: A member of an Alertmanager cluster has not found all other cluster members.
+    expr: max_over_time(alertmanager_cluster_members{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) < on(namespace,service) group_left() count(max_over_time(alertmanager_cluster_members{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]))
+      by(namespace,service)
+    for: 15m
+    labels:
+      severity: critical
+  - alert: AlertmanagerFailedToSendAlerts
+    annotations:
+      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} failed to send {{ $value | humanizePercentage }} of notifications to {{ $labels.integration }}.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerfailedtosendalerts
+      summary: An Alertmanager instance failed to send notifications.
+    expr: (rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[15m]))
+      > 0.01
+    for: 5m
+    labels:
+      severity: warning
+  - alert: AlertmanagerClusterFailedToSendAlerts
+    annotations:
+      description: The minimum notification failure rate to {{ $labels.integration }} sent from any instance in the {{$labels.job}} cluster is {{ $value | humanizePercentage }}.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedtosendalerts
+      summary: All Alertmanager instances in a cluster failed to send notifications to a critical integration.
+    expr: min((rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration=~".*"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration=~".*"}[15m]))
+      > 0) by(namespace,service,integration) > 0.01
+    for: 5m
+    labels:
+      severity: critical
+  - alert: AlertmanagerClusterFailedToSendAlerts
+    annotations:
+      description: The minimum notification failure rate to {{ $labels.integration }} sent from any instance in the {{$labels.job}} cluster is {{ $value | humanizePercentage }}.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedtosendalerts
+      summary: All Alertmanager instances in a cluster failed to send notifications to a non-critical integration.
+    expr: min((rate(alertmanager_notifications_failed_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration!~".*"}[15m]) / ignoring(reason) group_left() rate(alertmanager_notifications_total{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability",integration!~".*"}[15m]))
+      > 0) by(namespace,service,integration) > 0.01
+    for: 5m
+    labels:
+      severity: warning
+  - alert: AlertmanagerConfigInconsistent
+    annotations:
+      description: Alertmanager instances within the {{$labels.job}} cluster have different configurations.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerconfiginconsistent
+      summary: Alertmanager instances within the same cluster have different configurations.
+    expr: count(count_values("config_hash", alertmanager_config_hash{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}) by(namespace,service)) by(namespace,service) != 1
+    for: 20m
+    labels:
+      severity: critical
+  - alert: AlertmanagerClusterDown
+    annotations:
+      description: '{{ $value | humanizePercentage }} of Alertmanager instances within the {{$labels.job}} cluster have been up for less than half of the last 5m.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterdown
+      summary: Half or more of the Alertmanager instances within the same cluster are down.
+    expr: (count(avg_over_time(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) < 0.5) by(namespace,service) / count(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"})
+      by(namespace,service)) >= 0.5
+    for: 5m
+    labels:
+      severity: critical
+  - alert: AlertmanagerClusterCrashlooping
+    annotations:
+      description: '{{ $value | humanizePercentage }} of Alertmanager instances within the {{$labels.job}} cluster have restarted at least 5 times in the last 10m.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclustercrashlooping
+      summary: Half or more of the Alertmanager instances within the same cluster are crashlooping.
+    expr: (count(changes(process_start_time_seconds{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[10m]) > 4) by(namespace,service) / count(up{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"})
+      by(namespace,service)) >= 0.5
+    for: 5m
+    labels:
+      severity: critical
+  - alert: AlertmanagerClusterFailedPeers
+    annotations:
+      description: Alertmanager {{ $labels.namespace }}/{{ $labels.pod}} has {{ $value }} failed peers in the {{$labels.job}} cluster.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/alertmanager/alertmanagerclusterfailedpeers
+      summary: An Alertmanager instance has failed peers in the cluster.
+    expr: max_over_time(alertmanager_cluster_failed_peers{job=~"vmalertmanager-.*",container="alertmanager",namespace=~"observability"}[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+- name: general.rules
+  rules:
+  - alert: TargetDown
+    annotations:
+      description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }}/{{ $labels.service }} targets in {{ $labels.namespace }} namespace are down.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
+      summary: One or more targets are unreachable.
+    expr: (100 * (count(up == 0) by(cluster,job,namespace,service) / count(up) by(cluster,job,namespace,service))) > 10
+    for: 10m
+    labels:
+      severity: warning
+  - alert: Watchdog
+    annotations:
+      description: 'This is an alert meant to ensure that the entire alerting pipeline is functional.
+
+        This alert is always firing, therefore it should always be firing in Alertmanager
+
+        and always fire against a receiver. There are integrations with various notification
+
+        mechanisms that send a notification when this alert is not firing. For example the
+
+        "DeadMansSnitch" integration in PagerDuty.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/watchdog
+      summary: An alert that should always be firing to certify that Alertmanager is working properly.
+    expr: vector(1)
+    labels:
+      severity: none
+  - alert: InfoInhibitor
+    annotations:
+      description: 'This is an alert that is used to inhibit info alerts.
+
+        By themselves, the info-level alerts are sometimes very noisy, but they are relevant when combined with
+
+        other alerts.
+
+        This alert fires whenever there''s a severity="info" alert, and stops firing when another alert with a
+
+        severity of ''warning'' or ''critical'' starts firing on the same namespace.
+
+        This alert should be routed to a null receiver and configured to inhibit alerts with severity="info".
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/infoinhibitor
+      summary: Info-level alert inhibition.
+    expr: group(ALERTS{severity="info"} == 1) by(namespace) unless on(namespace) group(ALERTS{alertname!="InfoInhibitor",alertstate="firing",severity=~"warning|critical"} == 1) by(namespace)
+    labels:
+      severity: none
+- name: node-exporter
+  rules:
+  - alert: NodeFilesystemSpaceFillingUp
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left and is filling up.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemspacefillingup
+      summary: Filesystem is predicted to run out of space within the next 24 hours.
+    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 15) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""}[6h],
+      86400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    for: 1h
+    labels:
+      severity: warning
+  - alert: NodeFilesystemSpaceFillingUp
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left and is filling up fast.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemspacefillingup
+      summary: Filesystem is predicted to run out of space within the next 4 hours.
+    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 10) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""}[6h],
+      14400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    for: 1h
+    labels:
+      severity: critical
+  - alert: NodeFilesystemAlmostOutOfSpace
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutofspace
+      summary: Filesystem has less than 5% space left.
+    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 5) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+      == 0)
+    for: 30m
+    labels:
+      severity: warning
+  - alert: NodeFilesystemAlmostOutOfSpace
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutofspace
+      summary: Filesystem has less than 3% space left.
+    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 3) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+      == 0)
+    for: 30m
+    labels:
+      severity: critical
+  - alert: NodeFilesystemFilesFillingUp
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available inodes left and is filling up.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemfilesfillingup
+      summary: Filesystem is predicted to run out of inodes within the next 24 hours.
+    expr: ((((node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_files{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 40) and (predict_linear(node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""}[6h],
+      86400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    for: 1h
+    labels:
+      severity: warning
+  - alert: NodeFilesystemFilesFillingUp
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available inodes left and is filling up fast.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemfilesfillingup
+      summary: Filesystem is predicted to run out of inodes within the next 4 hours.
+    expr: ((((node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_files{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 20) and (predict_linear(node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""}[6h],
+      14400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    for: 1h
+    labels:
+      severity: critical
+  - alert: NodeFilesystemAlmostOutOfFiles
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available inodes left.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutoffiles
+      summary: Filesystem has less than 5% inodes left.
+    expr: (((node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_files{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 5) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+      == 0)
+    for: 1h
+    labels:
+      severity: warning
+  - alert: NodeFilesystemAlmostOutOfFiles
+    annotations:
+      description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available inodes left.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutoffiles
+      summary: Filesystem has less than 3% inodes left.
+    expr: (((node_filesystem_files_free{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_files{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 3) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+      == 0)
+    for: 1h
+    labels:
+      severity: critical
+  - alert: NodeNetworkReceiveErrs
+    annotations:
+      description: '{{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf "%.0f" $value }} receive errors in the last two minutes.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodenetworkreceiveerrs
+      summary: Network interface is reporting many receive errors.
+    expr: (rate(node_network_receive_errs_total{job="node-exporter"}[2m]) / rate(node_network_receive_packets_total{job="node-exporter"}[2m])) > 0.01
+    for: 1h
+    labels:
+      severity: warning
+  - alert: NodeNetworkTransmitErrs
+    annotations:
+      description: '{{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf "%.0f" $value }} transmit errors in the last two minutes.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodenetworktransmiterrs
+      summary: Network interface is reporting many transmit errors.
+    expr: (rate(node_network_transmit_errs_total{job="node-exporter"}[2m]) / rate(node_network_transmit_packets_total{job="node-exporter"}[2m])) > 0.01
+    for: 1h
+    labels:
+      severity: warning
+  - alert: NodeHighNumberConntrackEntriesUsed
+    annotations:
+      description: '{{ $labels.instance }} {{ $value | humanizePercentage }} of conntrack entries are used.'
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodehighnumberconntrackentriesused
+      summary: Number of conntrack are getting close to the limit.
+    expr: (node_nf_conntrack_entries{job="node-exporter"} / node_nf_conntrack_entries_limit) > 0.75
+    labels:
+      severity: warning
+  - alert: NodeTextFileCollectorScrapeError
+    annotations:
+      description: Node Exporter text file collector on {{ $labels.instance }} failed to scrape.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodetextfilecollectorscrapeerror
+      summary: Node Exporter text file collector failed to scrape.
+    expr: node_textfile_scrape_error{job="node-exporter"} == 1
+    labels:
+      severity: warning
+  - alert: NodeClockSkewDetected
+    annotations:
+      description: Clock at {{ $labels.instance }} is out of sync by more than 0.05s. Ensure NTP is configured correctly on this host.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodeclockskewdetected
+      summary: Clock skew detected.
+    expr: ((node_timex_offset_seconds{job="node-exporter"} > 0.05) and (deriv(node_timex_offset_seconds{job="node-exporter"}[5m]) >= 0)) or ((node_timex_offset_seconds{job="node-exporter"} < -0.05) and
+      (deriv(node_timex_offset_seconds{job="node-exporter"}[5m]) <= 0))
+    for: 10m
+    labels:
+      severity: warning
+  - alert: NodeClockNotSynchronising
+    annotations:
+      description: Clock at {{ $labels.instance }} is not synchronising. Ensure NTP is configured on this host.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodeclocknotsynchronising
+      summary: Clock not synchronising.
+    expr: (min_over_time(node_timex_sync_status{job="node-exporter"}[5m]) == 0) and (node_timex_maxerror_seconds{job="node-exporter"} >= 16)
+    for: 10m
+    labels:
+      severity: warning
+  - alert: NodeRAIDDegraded
+    annotations:
+      description: RAID array '{{ $labels.device }}' at {{ $labels.instance }} is in degraded state due to one or more disks failures. Number of spare drives is insufficient to fix issue automatically.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/noderaiddegraded
+      summary: RAID Array is degraded.
+    expr: (node_md_disks_required{job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"} - ignoring(state) node_md_disks{state="active",job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"})
+      > 0
+    for: 15m
+    labels:
+      severity: critical
+  - alert: NodeRAIDDiskFailure
+    annotations:
+      description: At least one device in RAID array at {{ $labels.instance }} failed. Array '{{ $labels.device }}' needs attention and possibly a disk swap.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/noderaiddiskfailure
+      summary: Failed device in RAID array.
+    expr: node_md_disks{state="failed",job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"} > 0
+    labels:
+      severity: warning
+  - alert: NodeFileDescriptorLimit
+    annotations:
+      description: File descriptors limit at {{ $labels.instance }} is currently at {{ printf "%.2f" $value }}%.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefiledescriptorlimit
+      summary: Kernel is predicted to exhaust file descriptors limit soon.
+    expr: ((node_filefd_allocated{job="node-exporter"} * 100) / node_filefd_maximum{job="node-exporter"}) > 70
+    for: 15m
+    labels:
+      severity: warning
+  - alert: NodeFileDescriptorLimit
+    annotations:
+      description: File descriptors limit at {{ $labels.instance }} is currently at {{ printf "%.2f" $value }}%.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefiledescriptorlimit
+      summary: Kernel is predicted to exhaust file descriptors limit soon.
+    expr: ((node_filefd_allocated{job="node-exporter"} * 100) / node_filefd_maximum{job="node-exporter"}) > 90
+    for: 15m
+    labels:
+      severity: critical
+  - alert: NodeCPUHighUsage
+    annotations:
+      description: 'CPU usage at {{ $labels.instance }} has been above 90% for the last 15 minutes, is currently at {{ printf "%.2f" $value }}%.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodecpuhighusage
+      summary: High CPU usage.
+    expr: (sum(avg(rate(node_cpu_seconds_total{job="node-exporter",mode!~"idle|iowait"}[2m])) without(cpu)) without(mode) * 100) > 90
+    for: 15m
+    labels:
+      severity: info
+  - alert: NodeSystemSaturation
+    annotations:
+      description: 'System load per core at {{ $labels.instance }} has been above 2 for the last 15 minutes, is currently at {{ printf "%.2f" $value }}.
+
+        This might indicate this instance resources saturation and can cause it becoming unresponsive.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodesystemsaturation
+      summary: System saturated, load per core is very high.
+    expr: (node_load1{job="node-exporter"} / count(node_cpu_seconds_total{job="node-exporter",mode="idle"}) without(cpu,mode)) > 2
+    for: 15m
+    labels:
+      severity: warning
+  - alert: NodeMemoryMajorPagesFaults
+    annotations:
+      description: 'Memory major pages are occurring at very high rate at {{ $labels.instance }}, 500 major page faults per second for the last 15 minutes, is currently at {{ printf "%.2f" $value }}.
+
+        Please check that there is enough memory available at this instance.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodememorymajorpagesfaults
+      summary: Memory major page faults are occurring at very high rate.
+    expr: rate(node_vmstat_pgmajfault{job="node-exporter"}[5m]) > 500
+    for: 15m
+    labels:
+      severity: warning
+  - alert: NodeMemoryHighUtilization
+    annotations:
+      description: 'Memory is filling up at {{ $labels.instance }}, has been above 90% for the last 15 minutes, is currently at {{ printf "%.2f" $value }}%.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodememoryhighutilization
+      summary: Host is running out of memory.
+    expr: (100 - ((node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"}) * 100)) > 90
+    for: 15m
+    labels:
+      severity: warning
+  - alert: NodeDiskIOSaturation
+    annotations:
+      description: 'Disk IO queue (aqu-sq) is high on {{ $labels.device }} at {{ $labels.instance }}, has been above 10 for the last 30 minutes, is currently at {{ printf "%.2f" $value }}.
+
+        This symptom might indicate disk saturation.
+
+        '
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodediskiosaturation
+      summary: Disk IO queue is high.
+    expr: rate(node_disk_io_time_weighted_seconds_total{job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"}[5m]) > 10
+    for: 30m
+    labels:
+      severity: warning
+  - alert: NodeSystemdServiceFailed
+    annotations:
+      description: Systemd service {{ $labels.name }} has entered failed state at {{ $labels.instance }}
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodesystemdservicefailed
+      summary: Systemd service has entered failed state.
+    expr: node_systemd_unit_state{job="node-exporter",state="failed"} == 1
+    for: 5m
+    labels:
+      severity: warning
+  - alert: NodeSystemdServiceCrashlooping
+    annotations:
+      description: Systemd service {{ $labels.name }} has being restarted too many times at {{ $labels.instance }} for the last 15 minutes. Please check if service is crash looping.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodesystemdservicecrashlooping
+      summary: Systemd service keeps restaring, possibly crash looping.
+    expr: increase(node_systemd_service_restart_total{job="node-exporter"}[5m]) > 2
+    for: 15m
+    labels:
+      severity: warning
+  - alert: NodeBondingDegraded
+    annotations:
+      description: Bonding interface {{ $labels.master }} on {{ $labels.instance }} is in degraded state due to one or more slave failures.
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodebondingdegraded
+      summary: Bonding interface is degraded.
+    expr: (node_bonding_slaves{job="node-exporter"} - node_bonding_active{job="node-exporter"}) != 0
+    for: 5m
+    labels:
+      severity: warning
+- name: node-exporter.rules
+  rules:
+  - expr: count(node_cpu_seconds_total{job="node-exporter",mode="idle"}) without(cpu,mode)
+    record: instance:node_num_cpu:sum
+  - expr: 1 - avg(sum(rate(node_cpu_seconds_total{job="node-exporter",mode=~"idle|iowait|steal"}[5m])) without(mode)) without(cpu)
+    record: instance:node_cpu_utilisation:rate5m
+  - expr: node_load1{job="node-exporter"} / instance:node_num_cpu:sum{job="node-exporter"}
+    record: instance:node_load1_per_cpu:ratio
+  - expr: 1 - ((node_memory_MemAvailable_bytes{job="node-exporter"} or (((node_memory_Buffers_bytes{job="node-exporter"} + node_memory_Cached_bytes{job="node-exporter"}) + node_memory_MemFree_bytes{job="node-exporter"})
+      + node_memory_Slab_bytes{job="node-exporter"})) / node_memory_MemTotal_bytes{job="node-exporter"})
+    record: instance:node_memory_utilisation:ratio
+  - expr: rate(node_vmstat_pgmajfault{job="node-exporter"}[5m])
+    record: instance:node_vmstat_pgmajfault:rate5m
+  - expr: rate(node_disk_io_time_seconds_total{job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"}[5m])
+    record: instance_device:node_disk_io_time_seconds:rate5m
+  - expr: rate(node_disk_io_time_weighted_seconds_total{job="node-exporter",device=~"(/dev/)?(mmcblk.p.+|nvme.+|rbd.+|sd.+|vd.+|xvd.+|dm-.+|md.+|dasd.+)"}[5m])
+    record: instance_device:node_disk_io_time_weighted_seconds:rate5m
+  - expr: sum(rate(node_network_receive_bytes_total{job="node-exporter",device!="lo"}[5m])) without(device)
+    record: instance:node_network_receive_bytes_excluding_lo:rate5m
+  - expr: sum(rate(node_network_transmit_bytes_total{job="node-exporter",device!="lo"}[5m])) without(device)
+    record: instance:node_network_transmit_bytes_excluding_lo:rate5m
+  - expr: sum(rate(node_network_receive_drop_total{job="node-exporter",device!="lo"}[5m])) without(device)
+    record: instance:node_network_receive_drop_excluding_lo:rate5m
+  - expr: sum(rate(node_network_transmit_drop_total{job="node-exporter",device!="lo"}[5m])) without(device)
+    record: instance:node_network_transmit_drop_excluding_lo:rate5m
+  - expr: sum(rate(node_network_receive_bytes_total{job="node-exporter",device!~"lo|veth.+"}[5m])) without(device)
+    record: instance:node_network_receive_bytes_physical:rate5m
+  - expr: sum(rate(node_network_transmit_bytes_total{job="node-exporter",device!~"lo|veth.+"}[5m])) without(device)
+    record: instance:node_network_transmit_bytes_physical:rate5m
+  - expr: sum(rate(node_network_receive_drop_total{job="node-exporter",device!~"lo|veth.+"}[5m])) without(device)
+    record: instance:node_network_receive_drop_physical:rate5m
+  - expr: sum(rate(node_network_transmit_drop_total{job="node-exporter",device!~"lo|veth.+"}[5m])) without(device)
+    record: instance:node_network_transmit_drop_physical:rate5m
+- name: node-network
+  rules:
+  - alert: NodeNetworkInterfaceFlapping
+    annotations:
+      description: Network interface "{{ $labels.device }}" changing its up status often on node-exporter {{ $labels.namespace }}/{{ $labels.pod }}
+      runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/nodenetworkinterfaceflapping
+      summary: Network interface is often changing its status
+    expr: changes(node_network_up{job="node-exporter",device!~"veth.+"}[2m]) > 2
+    for: 2m
+    labels:
+      severity: warning
+- name: vm-health
+  rules:
+  - alert: TooManyRestarts
+    annotations:
+      description: 'Job {{ $labels.job }} (instance {{ $labels.instance }}) has restarted more than twice in the last 15 minutes. It might be crashlooping.
+
+        '
+      summary: '{{ $labels.job }} too many restarts (instance {{ $labels.instance }})'
+    expr: changes(process_start_time_seconds{job=~".*(victoriametrics|vmselect|vminsert|vmstorage|vmagent|vmalert|vmsingle|vmalertmanager|vmauth).*"}[15m]) > 2
+    labels:
+      severity: critical
+  - alert: UncleanShutdown
+    annotations:
+      description: 'The previous process run didn''t shut down cleanly. Check the logs for OOM, SIGKILL,
+
+        a host failure, or another unexpected termination. In Kubernetes, a pod may be forcefully
+
+        killed with SIGKILL if the shutdown takes longer than terminationGracePeriodSeconds.
+
+        This alert stops firing 10 minutes after startup.
+
+        See https://github.com/VictoriaMetrics/VictoriaMetrics/issues/8443 for more details.
+
+        '
+      summary: '{{ $labels.job }} on instance {{ $labels.instance }} started after an unclean shutdown'
+    expr: (vm_app_prev_shutdown_unclean == 1) and ((time() - vm_app_start_timestamp) < 600)
+    labels:
+      severity: warning
+  - alert: ServiceDown
+    annotations:
+      description: '{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 2 minutes.'
+      summary: Service {{ $labels.job }} is down on {{ $labels.instance }}
+    expr: up{job=~".*(victoriametrics|vmselect|vminsert|vmstorage|vmagent|vmalert|vmsingle|vmalertmanager|vmauth).*"} == 0
+    for: 2m
+    labels:
+      severity: critical
+  - alert: ProcessNearFDLimits
+    annotations:
+      description: 'Exhausting OS file descriptors limit can cause severe degradation of the process.
+
+        Consider to increase the limit as fast as possible.
+
+        '
+      summary: Number of free file descriptors is less than 100 for "{{ $labels.job }}"("{{ $labels.instance }}") for the last 5m
+    expr: (process_max_fds - process_open_fds) < 100
+    for: 5m
+    labels:
+      severity: critical
+  - alert: TooHighMemoryUsage
+    annotations:
+      description: 'Too high memory usage may result into multiple issues such as OOMs or degraded performance.
+
+        Consider to either increase available memory or decrease the load on the process.
+
+        '
+      summary: It is more than 80% of memory used by "{{ $labels.job }}"("{{ $labels.instance }}")
+    expr: (min_over_time(process_resident_memory_anon_bytes[10m]) / vm_available_memory_bytes) > 0.8
+    for: 5m
+    labels:
+      severity: critical
+  - alert: TooHighCPUUsage
+    annotations:
+      description: 'Too high CPU usage may be a sign of insufficient resources and make process unstable. Consider to either increase available CPU resources or decrease the load on the process.
+
+        '
+      summary: More than 90% of CPU is used by "{{ $labels.job }}"("{{ $labels.instance }}") during the last 5m
+    expr: (rate(process_cpu_seconds_total[5m]) / process_cpu_cores_available) > 0.9
+    for: 5m
+    labels:
+      severity: critical
+  - alert: TooHighGoroutineSchedulingLatency
+    annotations:
+      description: 'Go runtime is unable to schedule goroutines execution in acceptable time. This is usually a sign of insufficient CPU resources or CPU throttling. Verify that service has enough CPU resources.
+        Otherwise, the service could work unreliably with delays in processing.
+
+        '
+      summary: '"{{ $labels.job }}"("{{ $labels.instance }}") has insufficient CPU resources for >15m'
+    expr: histogram_quantile(0.99, sum(rate(go_sched_latencies_seconds_bucket{job=~".*(victoriametrics|vmselect|vminsert|vmstorage|vmagent|vmalert|vmsingle|vmalertmanager|vmauth).*"}[5m])) by(le,job,instance))
+      > 0.1
+    for: 15m
+    labels:
+      severity: critical
+  - alert: TooManyErrorLogs
+    annotations:
+      description: 'The job "{{ $labels.job }}" ({{ $labels.instance }}) generated too many {{ $labels.level }} logs at {{ $labels.location }} for the last 5 minutes.
+
+
+
+        Actions:
+
+        - Check {{ $labels.level }} logs produced by {{ $labels.job }} ({{ $labels.instance }}) component.
+
+        - Use `source_code_url` annotation to check the source code that produced the log message.
+
+
+        NOTE: The metric `vm_log_messages_total` tracks all log messages including those suppressed by `-loggerLevel`. Check the `is_printed` label to see whether the log was actually printed.
+
+        '
+      source_code_url: '{{ with printf "last_over_time(vm_log_messages_total{job=%q,instance=%q,location=%q}[6m])" $labels.job $labels.instance $labels.location | query }}{{ with index . 0 }}https://l2s.victoriametrics.com/?app_version={{
+        .Labels.app_version }}&location={{ $labels.location | urlquery }}{{ end }}{{ end }}'
+      summary: '"{{ $labels.job }}" ({{ $labels.instance }}) generates too many {{ $labels.level }} logs at {{ $labels.location }}'
+    expr: sum(increase(vm_log_messages_total{level=~"error|fatal|panic"}[1m])) without(app_version,is_printed) > 0
+    for: 5m
+    labels:
+      severity: warning
+  - alert: TooManyLogs
+    annotations:
+      description: 'The job "{{ $labels.job }}" ({{ $labels.instance }}) generated warn logs for the last 15 minutes.
+
+
+        Actions:
+
+        - Check {{ $labels.level }} logs produced by {{ $labels.job }} ({{ $labels.instance }}) component.
+
+        - Query `rate(vm_log_messages_total{job="{{ $labels.job }}",instance="{{ $labels.instance }}",level="warn"}[5m])` to find the source code locations generating the warnings.
+
+
+        NOTE: The metric `vm_log_messages_total` tracks all log messages including those suppressed by `-loggerLevel`. Check the `is_printed` label to see whether the log was actually printed.
+
+        '
+      summary: '"{{ $labels.job }}" ({{ $labels.instance }}) generates too many warn logs'
+    expr: sum(increase(vm_log_messages_total{level="warn"}[5m])) without(app_version,location,is_printed) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: ConcurrentInsertsHitTheLimit
+    annotations:
+      description: "The limit of concurrent inserts on instance {{ $labels.instance }} depends on the number of CPUs.\nUsually, when component constantly hits the limit it is likely the component is overloaded\
+        \ and requires more CPU.\nIn some cases for components like vmagent or vminsert the alert might trigger if there are too many clients\nmaking write attempts. If vmagent's or vminsert's CPU usage\
+        \ and network saturation are at normal level, then \nit might be worth adjusting `-maxConcurrentInserts` cmd-line flag.\n"
+      summary: '{{ $labels.job }} on instance {{ $labels.instance }} is constantly hitting concurrent inserts limit'
+    expr: avg_over_time(vm_concurrent_insert_current[1m]) >= vm_concurrent_insert_capacity
+    for: 15m
+    labels:
+      severity: warning
+  - alert: TooHighQueryLoad
+    annotations:
+      description: 'Instance {{ $labels.instance }} ({{ $labels.job }}) is failing to serve read queries during last 15m.
+
+        Concurrency limit `-search.maxConcurrentRequests` was reached on this instance and extra queries were
+
+        put into the queue for `-search.maxQueueDuration` interval. But even after waiting in the queue these queries weren''t served.
+
+        This happens if instance is overloaded with the current workload, or datasource is too slow to respond.
+
+        Possible solutions are the following:
+
+        * reduce the query load;
+
+        * increase compute resources or number of replicas;
+
+        * adjust limits `-search.maxConcurrentRequests` and `-search.maxQueueDuration`.
+
+        See more at https://docs.victoriametrics.com/victoriametrics/troubleshooting/#slow-queries.
+
+        '
+      summary: Read queries fail with timeout for {{ $labels.job }} on instance {{ $labels.instance }}
+    expr: increase(vm_concurrent_select_limit_timeout_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: RowsRejectedOnIngestion
+    annotations:
+      description: 'Ingested rows on instance "{{ $labels.instance }}" are rejected due to the following reason: "{{ $labels.reason }}"'
+      summary: Some rows are rejected on "{{ $labels.instance }}" on ingestion attempt
+    expr: rate(vm_rows_ignored_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: TooManySnapshots
+    annotations:
+      description: "More than 2 snapshots were present on \"{{ $labels.instance }}\" during the last 2 hours.\n`vmbackup` and `vmbackupmanager` delete the snapshot right after the backup is completed,\n\
+        so at most a single snapshot is expected to exist at any point in time. \nManually created snapshots will be removed automatically when they become older than `-snapshotsMaxAge` (`3d` by default)\n\
+        The growing number of snapshots means that something on \"{{ $labels.instance }}\" isn't working as expected.\n\nOld snapshots keep references to the data parts they were created from. This prevents\n\
+        background merges from deleting these parts and from freeing the occupied disk space,\nso snapshots may end up consuming more and more disk space with time.\n\nActions:\n- Inspect the snapshots\
+        \ list via `/snapshot/list` API. See https://docs.victoriametrics.com/victoriametrics/#how-to-work-with-snapshots.\n- Delete unneeded snapshots via `/snapshot/delete?snapshot=<snapshot-name>` API.\n\
+        - Check error logs of `vmbackup` / `vmbackupmanager` to find out what caused the backup failure.\n- Make sure that every backup completes before the next backup starts.\n- Make sure that `-snapshotsMaxAge`\
+        \ is set to a non-zero value, which is big enough for the backup to complete.\n\nSee https://docs.victoriametrics.com/victoriametrics/#snapshot-troubleshooting\nand https://docs.victoriametrics.com/victoriametrics/vmbackup/#troubleshooting\
+        \ for details."
+      summary: Too many snapshots on "{{ $labels.job }}"("{{ $labels.instance }}")
+    expr: vm_snapshots > 2
+    for: 2h
+    labels:
+      severity: warning
+- interval: 30s
+  name: vmalert
+  rules:
+  - alert: ConfigurationReloadFailure
+    annotations:
+      description: Configuration hot-reload failed for vmalert on instance {{ $labels.instance }}. Check vmalert's logs for detailed error message.
+      summary: Configuration reload failed for vmalert instance {{ $labels.instance }}
+    expr: vmalert_config_last_reload_successful != 1
+    labels:
+      severity: warning
+  - alert: AlertingRulesError
+    annotations:
+      dashboard: '{{ $externalURL }}/d/LzldHAVnz?viewPanel=13&var-instance={{ $labels.instance }}&var-file={{ $labels.file }}&var-group={{ $labels.group }}'
+      description: Alerting rules execution is failing for "{{ $labels.alertname }}" from group "{{ $labels.group }}" in file "{{ $labels.file }}". Check vmalert's logs for detailed error message.
+      summary: Alerting rules are failing for vmalert instance {{ $labels.instance }}
+    expr: sum(increase(vmalert_alerting_rules_errors_total[5m])) without(id) > 0
+    for: 5m
+    labels:
+      severity: warning
+  - alert: RecordingRulesError
+    annotations:
+      dashboard: '{{ $externalURL }}/d/LzldHAVnz?viewPanel=30&var-instance={{ $labels.instance }}&var-file={{ $labels.file }}&var-group={{ $labels.group }}'
+      description: Recording rules execution is failing for "{{ $labels.recording }}" from group "{{ $labels.group }}" in file "{{ $labels.file }}". Check vmalert's logs for detailed error message.
+      summary: Recording rules are failing for vmalert instance {{ $labels.instance }}
+    expr: sum(increase(vmalert_recording_rules_errors_total[5m])) without(id) > 0
+    for: 5m
+    labels:
+      severity: warning
+  - alert: RecordingRulesNoData
+    annotations:
+      dashboard: '{{ $externalURL }}/d/LzldHAVnz?viewPanel=33&var-file={{ $labels.file }}&var-group={{ $labels.group }}'
+      description: Recording rule "{{ $labels.recording }}" from group "{{ $labels.group }} in file "{{ $labels.file }}" produces 0 samples over the last 30min. It might be caused by a misconfiguration
+        or incorrect query expression.
+      summary: Recording rule {{ $labels.recording }} ({{ $labels.group }}) produces no data
+    expr: sum(vmalert_recording_rules_last_evaluation_samples) without(id) < 1
+    for: 30m
+    labels:
+      severity: info
+  - alert: TooManyMissedIterations
+    annotations:
+      description: vmalert instance {{ $labels.instance }} is missing rules evaluations for group "{{ $labels.group }}" in file "{{ $labels.file }}". The group evaluation time takes longer than the configured
+        evaluation interval. This may result in missed alerting notifications or recording rules samples. Try increasing evaluation interval or concurrency of group "{{ $labels.group }}". See https://docs.victoriametrics.com/victoriametrics/vmalert/#groups.
+        If rule expressions are taking longer than expected, please see https://docs.victoriametrics.com/victoriametrics/troubleshooting/#slow-queries.
+      summary: vmalert instance {{ $labels.instance }} is missing rules evaluations
+    expr: increase(vmalert_iteration_missed_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: GroupIterationReset
+    annotations:
+      description: Evaluation iteration for group "{{ $labels.group }}" in file "{{ $labels.file }}" is reset on vmalert instance {{ $labels.instance }}. This can be caused by irregular delays during evaluation
+        or by the system wall clock being moved backward. If it is caused by host clock changes, vmalert could generate duplicate results for the group rules since some evaluations could be repeated. Check
+        host clock time synchronization configurations if this happens frequently.
+      summary: Evaluation iteration for group {{ $labels.group }} in file {{ $labels.file }} is reset
+    expr: increase(vmalert_iteration_reset_total[5m]) > 0
+    for: 5m
+    labels:
+      severity: warning
+  - alert: RemoteWriteErrors
+    annotations:
+      description: vmalert instance {{ $labels.instance }} is failing to push metrics generated via alerting or recording rules to the configured remote write URL. Check vmalert's logs for detailed error
+        message.
+      summary: vmalert instance {{ $labels.instance }} is failing to push metrics to remote write URL
+    expr: increase(vmalert_remotewrite_errors_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: RemoteWriteDroppingData
+    annotations:
+      description: vmalert instance {{ $labels.instance }} is failing to send results of alerting or recording rules to the configured remote write URL. This may result into gaps in recording rules or alerts
+        state. Check vmalert's logs for detailed error message.
+      summary: vmalert instance {{ $labels.instance }} is dropping data sent to remote write URL
+    expr: increase(vmalert_remotewrite_dropped_rows_total[5m]) > 0
+    for: 5m
+    labels:
+      severity: critical
+  - alert: RemoteWriteQueueHighUsage
+    annotations:
+      description: 'The remote write queue on vmalert instance {{ $labels.instance }} has consistently high utilization. The queue acts as a buffer between rules generating series and remote-write client
+        consuming and pushing these series. When queue overflows, vmalert will start dropping newly generated series. Queue may overflow due to multiple reasons: 1. Some bad rules produce too many series
+        at once. This can be limited using the global `-rule.resultsLimit` flag or `limit` param at the rule group level. 2. Remote write connection is slow.  Increase `-remoteWrite.concurrency`,  so vmalert
+        could establish more concurrent connections. 3. The queue size is too small. Increase `-remoteWrite.maxQueueSize` to extend the buffer size. Note that a larger queue will result in higher memory
+        consumption when the queue is full.'
+      summary: Remote write queue capacity on the vmalert instance {{ $labels.instance }} has exceeded 80% utilization
+    expr: (histogram_quantile(0.99, sum(increase(vmalert_remotewrite_queue_size_bucket[5m])) by(job,instance,vmrange)) / vmalert_remotewrite_queue_capacity) > 0.8
+    for: 15m
+    labels:
+      severity: warning
+  - alert: AlertmanagerErrors
+    annotations:
+      description: vmalert instance {{ $labels.instance }} is failing to send alert notifications to "{{ $labels.addr }}". Check vmalert's logs for detailed error message.
+      summary: vmalert instance {{ $labels.instance }} is failing to send notifications to Alertmanager
+    expr: increase(vmalert_alerts_send_errors_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: AlertingRuleResultsApproachingLimit
+    annotations:
+      description: Alerting rule "{{ $labels.alertname }}" from group "{{ $labels.group }}" in file "{{ $labels.file }}" produced {{ $value }} samples in last evaluation, which approaches the configured
+        results limit. If the produced results exceed the limit, the rule will be marked with an error and all its results will be discarded. Try increasing the results limit for the group or reducing the
+        number of series produced by the rule. See https://docs.victoriametrics.com/victoriametrics/vmalert/#groups.
+      summary: Alerting rule {{ $labels.alertname }} in group {{ $labels.group }} is approaching the configured results limit
+    expr: (vmalert_alerting_rules_last_evaluation_samples > on(group,file) group_left() min(vmalert_group_rule_results_limit * 0.9) by(group,file)) and on(group,file) (min(vmalert_group_rule_results_limit)
+      by(group,file) > 0)
+    for: 5m
+    labels:
+      severity: warning
+  - alert: RecordingRuleResultsApproachingLimit
+    annotations:
+      description: Recording rule "{{ $labels.recording }}" from group "{{ $labels.group }}" in file "{{ $labels.file }}" produced {{ $value }} samples in last evaluation, which approaches the configured
+        results limit. If the produced results exceed the limit, the rule will be marked with an error and all its results will be discarded. Try increasing the results limit for the group or reducing the
+        number of series produced by the rule. See https://docs.victoriametrics.com/victoriametrics/vmalert/#groups.
+      summary: Recording rule {{ $labels.recording }} in group {{ $labels.group }} is approaching the configured results limit
+    expr: (vmalert_recording_rules_last_evaluation_samples > on(group,file) group_left() min(vmalert_group_rule_results_limit * 0.9) by(group,file)) and on(group,file) (min(vmalert_group_rule_results_limit)
+      by(group,file) > 0)
+    for: 5m
+    labels:
+      severity: warning
+- interval: 30s
+  name: vmsingle
+  rules:
+  - alert: DiskRunsOutOfSpaceIn3Days
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=53&var-instance={{ $labels.instance }}'
+      description: "Taking into account current ingestion rate, free disk space will be enough only for {{ $value | humanizeDuration }} on instance {{ $labels.instance }}.\n Consider to limit the ingestion\
+        \ rate, decrease retention or scale the disk space if possible."
+      summary: Instance {{ $labels.instance }} will run out of disk space soon
+    expr: ((sum(vm_free_disk_space_bytes) without(path) / (((rate(vm_rows_added_to_storage_total[1d]) - sum(rate(vm_deduplicated_samples_total[1d])) without(type)) * (sum(vm_data_size_bytes{type!~"indexdb.*"})
+      without(type) / sum(vm_rows{type!~"indexdb.*"}) without(type))) + (rate(vm_new_timeseries_created_total[1d]) * (sum(vm_data_size_bytes{type="indexdb/file"}) without(type) / sum(vm_rows{type="indexdb/file"})
+      without(type))))) < 259200) > 0
+    for: 30m
+    labels:
+      severity: critical
+  - alert: NodeBecomesReadonlyIn3Days
+    annotations:
+      dashboard: '{{ $externalURL }}/d/oS7Bi_0Wz?viewPanel=53&var-instance={{ $labels.instance }}'
+      description: "Taking into account current ingestion rate and free disk space instance {{ $labels.instance }} is writable for {{ $value | humanizeDuration }}.\n Consider to limit the ingestion rate,\
+        \ decrease retention or scale the disk space up if possible."
+      summary: Instance {{ $labels.instance }} will become read-only in 3 days
+    expr: ((sum(vm_free_disk_space_bytes - vm_free_disk_space_limit_bytes) without(path) / (((rate(vm_rows_added_to_storage_total[1d]) - sum(rate(vm_deduplicated_samples_total[1d])) without(type)) * (sum(vm_data_size_bytes{type!~"indexdb.*"})
+      without(type) / sum(vm_rows{type!~"indexdb.*"}) without(type))) + (rate(vm_new_timeseries_created_total[1d]) * (sum(vm_data_size_bytes{type="indexdb/file"}) without(type) / sum(vm_rows{type="indexdb/file"})
+      without(type))))) < 259200) > 0
+    for: 30m
+    labels:
+      severity: warning
+  - alert: DiskRunsOutOfSpace
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=53&var-instance={{ $labels.instance }}'
+      description: "Disk utilisation on instance {{ $labels.instance }} is more than 80%.\n Having less than 20% of free disk space could cripple merge processes and overall performance. Consider to limit\
+        \ the ingestion rate, decrease retention or scale the disk space if possible."
+      summary: Instance {{ $labels.instance }} (job={{ $labels.job }}) will run out of disk space soon
+    expr: (sum(vm_data_size_bytes) by(job,instance) / (sum(vm_free_disk_space_bytes) by(job,instance) + sum(vm_data_size_bytes) by(job,instance))) > 0.8
+    for: 30m
+    labels:
+      severity: critical
+  - alert: RequestErrorsToAPI
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=35&var-instance={{ $labels.instance }}'
+      description: Requests to path {{ $labels.path }} are receiving errors. Please verify if clients are sending correct requests.
+      summary: Too many errors served for path {{ $labels.path }} (instance {{ $labels.instance }})
+    expr: increase(vm_http_request_errors_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: warning
+  - alert: TooHighChurnRate
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=66&var-instance={{ $labels.instance }}'
+      description: "VM constantly creates new time series on \"{{ $labels.instance }}\".\n This effect is known as Churn Rate.\n High Churn Rate is tightly connected with database performance and may result\
+        \ in unexpected OOM's or slow queries."
+      summary: Churn rate is more than 10% on "{{ $labels.instance }}" for the last 15m
+    expr: (sum(rate(vm_new_timeseries_created_total[5m])) by(instance) / sum(rate(vm_rows_inserted_total[5m])) by(instance)) > 0.1
+    for: 15m
+    labels:
+      severity: warning
+  - alert: TooHighChurnRate24h
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=66&var-instance={{ $labels.instance }}'
+      description: "The number of created new time series over last 24h is 3x times higher than current number of active series on \"{{ $labels.instance }}\".\n This effect is known as Churn Rate.\n High\
+        \ Churn Rate is tightly connected with database performance and may result in unexpected OOM's or slow queries."
+      summary: Too high number of new series on "{{ $labels.instance }}" created over last 24h
+    expr: sum(increase(vm_new_timeseries_created_total[24h])) by(instance) > (sum(vm_cache_entries{type="storage/hour_metric_ids"}) by(instance) * 3)
+    for: 15m
+    labels:
+      severity: warning
+  - alert: TooHighSlowInsertsRate
+    annotations:
+      dashboard: '{{ $externalURL }}/d/wNf0q_kZk?viewPanel=68&var-instance={{ $labels.instance }}'
+      description: High rate of slow inserts on "{{ $labels.instance }}" may be a sign of resource exhaustion for the current load. It is likely more RAM is needed for optimal handling of the current number
+        of active time series. See also https://github.com/VictoriaMetrics/VictoriaMetrics/issues/3976#issuecomment-1476883183
+      summary: Percentage of slow inserts is more than 5% on "{{ $labels.instance }}" for the last 15m
+    expr: (sum(rate(vm_slow_row_inserts_total[5m])) by(instance) / sum(rate(vm_rows_inserted_total[5m])) by(instance)) > 0.05
+    for: 15m
+    labels:
+      severity: warning
+  - alert: MetadataCacheUtilizationIsTooHigh
+    annotations:
+      description: Metadata cache stores meta information about ingested time series - see https://docs.victoriametrics.com/victoriametrics/#metrics-metadata. When cache is overutilized, the oldest entries
+        will be dropped out automatically. It may result into incomplete response for /api/v1/metadata API calls. It doesn't impact regular queries or alerts. Cache size is controlled via -storage.maxMetadataStorageSize
+        cmd-line flag.
+      summary: Metadata cache capacity on {{ $labels.instance }} (job={{ $labels.job }}) is utilized for more than 95% for the last 15min
+    expr: (vm_metrics_metadata_storage_size_bytes / vm_metrics_metadata_storage_max_size_bytes) > 0.95
+    for: 15m
+    labels:
+      severity: warning
+  - alert: MetricNameStatsCacheUtilizationIsTooHigh
+    annotations:
+      description: 'Metric names usage cache stores information about unique metric names and how frequently they are queried - see https://docs.victoriametrics.com/victoriametrics/#track-ingested-metrics-usage.
+        When cache is overutilized, it will stop tracking the new metric names. It has no other negative impact. Usually, the number of unique metric names is very limited (thousands). The cache can be
+        overutilized only if metric names are changing too frequently or if the cache size is too low. There are following ways to mitigate cache overutilization: - disable cache via `--storage.trackMetricNamesStats=false`
+        flag, so metric names usage will stop tracking - increase the cache size via `--storage.cacheSizeMetricNamesStats` flag - reset the cache (see docs for details)'
+      summary: Cache capacity for tracking metric names usage on {{ $labels.instance }} (job={{ $labels.job }}) is utilized for more than 95% during the last 15min
+    expr: (vm_cache_size_bytes{type="storage/metricNamesStatsTracker"} / vm_cache_size_max_bytes{type="storage/metricNamesStatsTracker"}) > 0.95
+    for: 15m
+    labels:
+      severity: warning
+  - alert: IndexDBRecordsDrop
+    annotations:
+      description: "VictoriaMetrics could skip registering new timeseries during ingestion if they fail the validation process. \nFor example, `reason=too_long_item` means that time series cannot exceed\
+        \ 64KB. Please, reduce the number \nof labels or label values for such series. Or enforce these limits via `-maxLabelsPerTimeseries` and \n`-maxLabelValueLen` command-line flags.\n"
+      summary: IndexDB skipped registering items during data ingestion with reason={{ $labels.reason }}.
+    expr: increase(vm_indexdb_items_dropped_total[5m]) > 0
+    labels:
+      severity: critical
+  - alert: TooManyTSIDMisses
+    annotations:
+      description: 'Unexpected TSID misses for \"{{ $labels.job }}\" ({{ $labels.instance }}) for the last 15 minutes.
+
+        If this happens after unclean shutdown of VictoriaMetrics process (via \"kill -9\", OOM or power off),
+
+        then this is OK - the alert must go away in a few minutes after the restart.
+
+        Otherwise this may point to the corruption of index data.'
+      summary: Unexpected TSID misses for job "{{ $labels.job }}" ({{ $labels.instance }}) for the last 15 minutes
+    expr: increase(vm_missing_tsids_for_metric_id_total[5m]) > 0
+    for: 15m
+    labels:
+      severity: critical
+- name: truenas-apps-gitops.rules
+  rules:
+  - alert: TrueNASAppsReconcilerStale
+    annotations:
+      description: Cron job "apps-gitops reconcile" on nas01 is not running (or node-exporter's textfile collector is broken). Merged changes under truenas/apps/ are not being deployed. Check /mnt/flashstor/secure-scripts/apps-gitops/state/reconcile.log
+        on nas01.
+      summary: nas01 app reconciler has not run for {{ $value | humanizeDuration }}
+    expr: time() - max(truenas_apps_gitops_last_run_timestamp_seconds) > 1800
+    for: 10m
+    labels:
+      severity: warning
+  - alert: TrueNASAppsReconcilerMissing
+    annotations:
+      summary: nas01 app reconciler metrics are missing
+    expr: absent(truenas_apps_gitops_last_run_timestamp_seconds)
+    for: 30m
+    labels:
+      severity: warning
+  - alert: TrueNASAppNotConverged
+    annotations:
+      description: The reconciler failed to converge {{ $labels.app }} (deploy failed and was rolled back, a secret reference could not be resolved, or the app is a catalog app). See reconcile.log on nas01.
+      summary: nas01 app {{ $labels.app }} does not match git
+    expr: truenas_apps_gitops_app_ok == 0
+    for: 20m
+    labels:
+      severity: warning
+  - alert: TrueNASAppsUnmanaged
+    annotations:
+      summary: '{{ $value }} app(s) on nas01 are not in git (truenas/apps/)'
+    expr: truenas_apps_gitops_unmanaged_apps > 0
+    for: 1h
+    labels:
+      severity: info
+- name: zfs
+  rules:
+  - alert: ZfsUnexpectedPoolState
+    annotations:
+      summary: ZFS pool {{$labels.zpool}} on {{$labels.instance}} is in a unexpected state {{$labels.state}}
+    expr: node_zfs_zpool_state{state!="online"} > 0
+    labels:
+      severity: critical
+- name: vmsingle.rules
+  rules:
+  - alert: VMSingleDown
+    annotations:
+      description: VMSingle has been unavailable for more than 5 minutes. All metric ingestion and queries are failing.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
+      summary: VMSingle instance is down
+    expr: absent(up{job="vmsingle-stack"}) or up{job="vmsingle-stack"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: VMSingleStorageNearlyFull
+    annotations:
+      description: VMSingle has less than 20% free disk space remaining ({{ $value | humanizePercentage }} free). Consider increasing retention or storage size.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#storage
+      summary: VMSingle storage is nearly full
+    expr: (vm_free_disk_space_bytes{job="vmsingle-stack"} / vm_disk_space_limit_bytes{job="vmsingle-stack"}) < 0.2
+    for: 15m
+    keep_firing_for: 10m
+    labels:
+      severity: critical
+  - alert: VMSingleHighIngestionRate
+    annotations:
+      description: VMSingle is ingesting {{ $value | humanize }} rows/sec, which may indicate a metrics explosion or misconfigured scraper.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#cardinality-limiter
+      summary: VMSingle ingestion rate is unusually high
+    expr: rate(vm_rows_inserted_total{job="vmsingle-stack"}[5m]) > 500000
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMSingleSlowInserts
+    annotations:
+      description: VMSingle has {{ $value | humanize }} slow inserts per second (>1% of normal rate). This may indicate storage performance issues.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
+      summary: VMSingle is experiencing slow metric inserts
+    expr: rate(vm_slow_row_inserts_total{job="vmsingle-stack"}[5m]) > 200
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMSingleHighQueryLatency
+    annotations:
+      description: VMSingle p99 query latency is {{ $value | humanizeDuration }}, which may affect dashboard performance.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
+      summary: VMSingle query latency is high
+    expr: histogram_quantile(0.99, sum(rate(vm_request_duration_seconds_bucket{job="vmsingle-stack",path=~"/api/v1/(query|query_range)"}[5m])) by (le)) > 5
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMSingleHighMemoryUsage
+    annotations:
+      description: VMSingle is using {{ $value | humanizePercentage }} of its memory limit. Consider increasing memory limits.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#troubleshooting
+      summary: VMSingle memory usage is high
+    expr: (process_resident_memory_bytes{job="vmsingle-stack"} / on() group_left() kube_pod_container_resource_limits{resource="memory",container="vmsingle"}) > 0.85
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+- name: vmalert.rules
+  rules:
+  - alert: VMAlertDown
+    annotations:
+      description: VMAlert has been unavailable for more than 5 minutes. Alert evaluation has stopped.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+      summary: VMAlert is down
+    expr: absent(up{job="vmalert-stack"}) or up{job="vmalert-stack"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: VMAlertEvaluationFailures
+    annotations:
+      description: VMAlert has {{ $value }} evaluation failures per second. Check rule syntax and datasource connectivity.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+      summary: VMAlert is experiencing rule evaluation failures
+    expr: rate(vmalert_iteration_total{job="vmalert-stack",result="error"}[5m]) > 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMAlertHighEvaluationLatency
+    annotations:
+      description: VMAlert p99 evaluation latency is {{ $value | humanizeDuration }}. This may delay alert notifications.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+      summary: VMAlert rule evaluation is slow
+    expr: histogram_quantile(0.99, sum(rate(vmalert_iteration_duration_seconds_bucket{job="vmalert-stack"}[5m])) by (le)) > 30
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMAlertNotificationFailures
+    annotations:
+      description: VMAlert has {{ $value }} notification failures per second. Check Alertmanager connectivity.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+      summary: VMAlert cannot send notifications
+    expr: rate(vmalert_alerts_send_errors_total{job="vmalert-stack"}[5m]) > 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: VMAlertNoRulesLoaded
+    annotations:
+      description: VMAlert has no alerting or recording rules loaded. Check VMRule resources and selectors.
+      runbook_url: https://docs.victoriametrics.com/victoriametrics/vmalert/#troubleshooting
+      summary: VMAlert has no rules loaded
+    expr: vmalert_alerting_rules_loaded{job="vmalert-stack"} == 0 and vmalert_recording_rules_loaded{job="vmalert-stack"} == 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+- name: vmalertmanager.rules
+  rules:
+  - alert: VMAlertmanagerDown
+    annotations:
+      description: VMAlertmanager has been unavailable for more than 5 minutes. Alert notifications will not be delivered.
+      runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
+      summary: VMAlertmanager is down
+    expr: absent(up{job="vmalertmanager-stack"}) or up{job="vmalertmanager-stack"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      severity: critical
+  - alert: VMAlertmanagerNotificationQueueGrowing
+    annotations:
+      description: VMAlertmanager notification queue has {{ $value }} pending notifications. Check integration endpoints.
+      runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
+      summary: VMAlertmanager notification queue is growing
+    expr: rate(alertmanager_notification_queue_length{job="vmalertmanager-stack"}[15m]) > 0
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMAlertmanagerNotificationFailures
+    annotations:
+      description: VMAlertmanager has {{ $value }} notification failures per second for integration {{ $labels.integration }}.
+      runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
+      summary: VMAlertmanager notification failures
+    expr: rate(alertmanager_notifications_failed_total{job="vmalertmanager-stack"}[5m]) > 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      severity: warning
+  - alert: VMAlertmanagerConfigReloadFailure
+    annotations:
+      description: VMAlertmanager failed to reload its configuration. Check config syntax.
+      runbook_url: https://prometheus.io/docs/alerting/latest/alertmanager/#troubleshooting
+      summary: VMAlertmanager configuration reload failed
+    expr: alertmanager_config_last_reload_successful{job="vmalertmanager-stack"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      severity: critical

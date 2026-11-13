@@ -1,0 +1,21 @@
+# Grafana datasources (truenas/apps/grafana). Same uids as the k8s grafana-operator ones, so the copied dashboards
+# keep resolving; URLs now point at the nas01 apps on the shared `apps` network.
+apiVersion: 1
+deleteDatasources:
+  - {name: VictoriaLogs, orgId: 1}   # VictoriaLogs is not migrated (owner decision 2026-11-12)
+datasources:
+  - name: prometheus
+    uid: b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb
+    type: prometheus
+    access: proxy
+    url: http://victoria-metrics:8428
+    isDefault: true
+    jsonData: {timeInterval: 30s}
+    editable: false
+  - name: Alertmanager
+    uid: 244b2e58-d42d-4dbf-9306-3c0830924b88
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    jsonData: {implementation: prometheus}
+    editable: false

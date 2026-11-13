@@ -1,0 +1,132 @@
+# Gatus main config (truenas/apps/gatus), ported from the k8s gatus-configmap. Rendered by the reconciler.
+connectivity:
+  checker:
+    target: 192.168.123.250:53
+    interval: 1m
+
+metrics: true
+
+security:
+  oidc:
+    issuer-url: https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    redirect-url: https://status.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/authorization-code/callback
+    client-id: "{{ op://Infrastructure/gatus/OIDC_CLIENT_ID }}"
+    client-secret: "{{ op://Infrastructure/gatus/OIDC_CLIENT_SECRET }}"
+    scopes:
+      - openid
+      - email
+      - profile
+
+ui:
+  title: Status | Gatus
+  header: Status
+  logo: https://avatars.githubusercontent.com/u/19583593
+  link: https://github.com/GizmoTickler/home-ops
+  buttons:
+    - name: Github
+      link: https://github.com/GizmoTickler
+    - name: homelab
+      link: https://github.com/GizmoTickler/home-ops
+
+web:
+  port: 80
+
+endpoints:
+  - name: "Google"
+    group: "connectivity"
+    url: icmp://8.8.8.8
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: "Cloudflare"
+    group: "connectivity"
+    url: icmp://1.1.1.1
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: Quad9
+    group: connectivity
+    url: icmp://9.9.9.9
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: Cisco Umbrella
+    group: connectivity
+    url: icmp://208.67.220.220
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: "Core Switch"
+    group: "infrastructure"
+    url: https://sc01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "Primary Gateway"
+    group: "infrastructure"
+    # UXG-Fiber (internet edge since 2026-11-12), SC01-Transit address
+    url: icmp://10.255.255.46
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: Secondary Gateway
+    group: "infrastructure"
+    url: icmp://10.255.255.252
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
+
+  - name: "5G Gateway Primary"
+    group: "infrastructure"
+    url: https://cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 403"
+
+  - name: "5G Gateway Backuo"
+    group: "infrastructure"
+    url: https://cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 403"
+
+  - name: "unifi"
+    group: "infrastructure"
+    url: https://unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "Proxmox"
+    group: "infrastructure"
+    url: https://pve.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "TrueNAS"
+    group: "infrastructure"
+    url: https://nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "Jellyfin"
+    group: "internal"
+    url: https://jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
+
+  - name: "OP-Connect"
+    group: "internal"
+    url: https://passwords.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+      - "[STATUS] == 404"

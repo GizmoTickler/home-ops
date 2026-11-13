@@ -1,0 +1,13 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/kromgo-config, owner: "0:0", mode: "0755"}
+files:
+  - {template: config.yaml, dest: /mnt/flashstor/apps/kromgo-config/config.yaml, owner: "0:0", mode: "0644"}
+health:
+  tcp: 127.0.0.1:80
+  netns: kromgo
+ui:
+  title: kromgo
+  description: "README status badges from nas01 VictoriaMetrics"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prometheus.png
+  home: https://github.com/kashalls/kromgo

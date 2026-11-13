@@ -1,0 +1,32 @@
+# Gatus — status page + uptime checks (connectivity, infrastructure, every web app); Pocket ID login (own OIDC).
+# Listens: gatus:80 on the shared `apps` network; https://status.<domain> via Caddy.
+# Config:  /mnt/flashstor/apps/gatus-config/{config.yaml,endpoints-apps.yaml} rendered by the reconciler (the k8s
+#          gatus-sidecar that generated endpoints from HTTPRoutes is gone; its last output is frozen in git).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  gatus:
+    image: ghcr.io/twin/gatus:v5.37.0@sha256:094eb186e55235db367e90e9d56140e5897b7044c41de23cde4cc18e6da1242e
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: America/New_York
+      GATUS_CONFIG_PATH: /config
+      GATUS_DELAY_START_SECONDS: "5"
+      GATUS_WEB_PORT: "80"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/gatus-config:/config:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.5", memory: 256M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

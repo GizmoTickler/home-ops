@@ -1,0 +1,163 @@
+# Gatus endpoints for the web apps (truenas/apps/gatus). Frozen from what the k8s gatus-sidecar generated from the
+# HTTPRoutes on 2026-11-12 (k8s-only flux-web/kopia/echo/github-webhook/logs dropped). Rendered by the reconciler.
+endpoints:
+- name: actual
+  group: internal
+  url: https://actual.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: atuin
+  group: internal
+  url: https://atuin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: audiobookshelf
+  group: internal
+  url: https://audiobookshelf.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: autobrr
+  group: internal
+  url: https://autobrr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: bazarr
+  group: internal
+  url: https://bazarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: chaptarr
+  group: internal
+  url: https://chaptarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: freshrss
+  group: internal
+  url: https://rss.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 401'
+  interval: 1m0s
+- name: grafana
+  group: internal
+  url: https://grafana.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: grimmory
+  group: internal
+  url: https://grimmory.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: home-assistant
+  group: internal
+  url: https://home-assistant.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: it-tools
+  group: internal
+  url: https://it-tools.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: kromgo
+  group: external
+  url: https://kromgo.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 404'
+  interval: 1m0s
+  client:
+    dns-resolver: tcp://192.168.123.250:53
+- name: n8n-app
+  group: internal
+  url: https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: n8n-webhooks
+  group: external
+  url: https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/webhook
+  conditions:
+  - '[STATUS] == 404'
+  interval: 1m0s
+  client:
+    dns-resolver: tcp://192.168.123.250:53
+- name: nzbget
+  group: internal
+  url: https://nzbget.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: pinchflat
+  group: internal
+  url: https://pinchflat.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: pocket-id
+  group: internal
+  url: https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: prowlarr
+  group: internal
+  url: https://prowlarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: qbittorrent
+  group: internal
+  url: https://qbittorrent.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: qui
+  group: internal
+  url: https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: radarr
+  group: internal
+  url: https://radarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: seerr
+  group: internal
+  url: https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: sonarr
+  group: internal
+  url: https://sonarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: vmauth-alertmanager
+  group: internal
+  url: https://alertmanager.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: vmauth-metrics
+  group: internal
+  url: https://metrics.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s
+- name: webhook
+  group: internal
+  url: https://webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+  conditions:
+  - '[STATUS] == 200'
+  interval: 1m0s

@@ -1,0 +1,70 @@
+# Alertmanager config (truenas/apps/alertmanager). Rendered by the reconciler; secrets from 1Password.
+# Ported from the k8s vmalertmanager config (kubernetes/apps/observability/victoria-metrics/app/helmrelease.yaml);
+# k8s-only inhibit rules (KubernetesNodeNotReady, component=kubernetes) dropped.
+route:
+  group_by: [alertname, job, namespace]
+  group_interval: 5m
+  group_wait: 1m
+  receiver: pushover
+  repeat_interval: 12h
+  routes:
+    - receiver: "null"
+      matchers: [alertname=InfoInhibitor]
+    - receiver: heartbeat
+      group_interval: 5m
+      group_wait: 0s
+      repeat_interval: 5m
+      matchers: [alertname=Watchdog]
+    # Info-level alerts are never paged (see the k8s config for the 2026-08-22 history).
+    - receiver: "null"
+      group_wait: 0s
+      group_interval: 5m
+      repeat_interval: 24h
+      matchers: [severity=info]
+    - receiver: pushover
+      group_wait: 1m
+      repeat_interval: 24h
+      matchers: [severity=warning]
+    - receiver: pushover
+      matchers: [severity=critical]
+inhibit_rules:
+  - source_matchers: [severity = "critical"]
+    target_matchers: [severity = "warning"]
+    equal: [alertname, namespace]
+receivers:
+  - name: "null"
+  - name: heartbeat
+    webhook_configs:
+      - url: "{{ op://Infrastructure/alertmanager/ALERTMANAGER_HEARTBEAT_URL }}"
+  - name: pushover
+    pushover_configs:
+      - html: true
+        message: |-
+          {{- range .Alerts }}
+            {{- if ne .Annotations.description "" }}
+              {{ .Annotations.description }}
+            {{- else if ne .Annotations.summary "" }}
+              {{ .Annotations.summary }}
+            {{- else if ne .Annotations.message "" }}
+              {{ .Annotations.message }}
+            {{- else }}
+              Alert description not available
+            {{- end }}
+            {{- if gt (len .Labels.SortedPairs) 0 }}
+              <small>
+                {{- range .Labels.SortedPairs }}
+                  <b>{{ .Name }}:</b> {{ .Value }}
+                {{- end }}
+              </small>
+            {{- end }}
+          {{- end }}
+        priority: |-
+          {{ if eq .Status "firing" }}1{{ else }}0{{ end }}
+        send_resolved: true
+        sound: gamelan
+        title: >-
+          [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+          {{ .CommonLabels.alertname }}
+        token: "{{ op://Infrastructure/alertmanager/ALERTMANAGER_PUSHOVER_TOKEN }}"
+        user_key: "{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}"
+        url_title: View in Alertmanager

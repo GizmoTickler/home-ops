@@ -1,0 +1,64 @@
+# Grafana — dashboards over nas01 VictoriaMetrics; Pocket ID login (own OIDC client, as on k8s).
+# Listens: grafana:3000 on the shared `apps` network; https://grafana.<domain> via Caddy.
+# Data:    /mnt/flashstor/apps/grafana-data (grafana.db with all dashboards/folders + plugins, copied from k8s; the
+#          grafana-operator that used to push dashboards is gone with the cluster, so edit dashboards in Grafana).
+#          Datasources are provisioned from datasources.yaml (same uids as on k8s, so dashboards keep working).
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  grafana:
+    image: grafana/grafana:13.0.1@sha256:0f86bada30d65ef9d0183b90c1e2682ac92d53d95da8bed322b984ea78a4a73a
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      TZ: America/New_York
+      GF_SERVER_ROOT_URL: "https://grafana.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      GF_SERVER_ENABLE_GZIP: "true"
+      GF_SECURITY_ADMIN_USER: "{{ op://Infrastructure/grafana/GF_SECURITY_ADMIN_USERNAME }}"
+      GF_SECURITY_ADMIN_PASSWORD: "{{ op://Infrastructure/grafana/GF_SECURITY_ADMIN_PASSWORD }}"
+      GF_SECURITY_ANGULAR_SUPPORT_ENABLED: "true"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_METRICS_ENABLED: "true"
+      GF_LOG_MODE: console
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_OAUTH_AUTO_LOGIN: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+      GF_AUTH_GENERIC_OAUTH_NAME: PocketID
+      GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP: "true"
+      GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN: "true"
+      GF_AUTH_GENERIC_OAUTH_SCOPES: openid email profile groups
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/authorize"
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/api/oidc/token"
+      GF_AUTH_GENERIC_OAUTH_API_URL: "https://id.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/api/oidc/userinfo"
+      GF_AUTH_GENERIC_OAUTH_USE_PKCE: "true"
+      GF_AUTH_GENERIC_OAUTH_ALLOW_ASSIGN_GRAFANA_ADMIN: "true"
+      GF_AUTH_GENERIC_OAUTH_SKIP_ORG_ROLE_SYNC: "false"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "email && 'GrafanaAdmin' || 'GrafanaAdmin'"
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_STRICT: "false"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ op://Infrastructure/grafana/OIDC_CLIENT_ID }}"
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ op://Infrastructure/grafana/OIDC_CLIENT_SECRET }}"
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/grafana-data:/var/lib/grafana
+      - /mnt/flashstor/apps/grafana-config/datasources:/etc/grafana/provisioning/datasources:ro
+    tmpfs:
+      - /tmp:size=64m,uid=1000,gid=1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 1024M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

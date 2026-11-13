@@ -1,0 +1,15 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/grafana-config, owner: "0:1000", mode: "0755"}
+  - {path: /mnt/flashstor/apps/grafana-config/datasources, owner: "0:1000", mode: "0755"}
+files:
+  - {template: datasources.yaml, dest: /mnt/flashstor/apps/grafana-config/datasources/datasources.yaml, owner: "0:1000", mode: "0644"}
+health:
+  tcp: 127.0.0.1:3000
+  netns: grafana
+  timeout: 300
+ui:
+  title: Grafana
+  description: "Dashboards over nas01 VictoriaMetrics (Pocket ID login)"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/grafana.png
+  home: https://grafana.com
