@@ -71,10 +71,8 @@ endpoints:
   group: external
   url: https://kromgo.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
   conditions:
-  - '[STATUS] == 404'
+  - '[STATUS] == 200'
   interval: 1m0s
-  client:
-    dns-resolver: tcp://1.1.1.1:53
 - name: n8n-app
   group: internal
   url: https://n8n.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -85,10 +83,8 @@ endpoints:
   group: external
   url: https://n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/webhook
   conditions:
-  - '[STATUS] == 404'
+  - '[STATUS] == 200'
   interval: 1m0s
-  client:
-    dns-resolver: tcp://1.1.1.1:53
 - name: nzbget
   group: internal
   url: https://nzbget.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
