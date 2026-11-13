@@ -1,0 +1,15 @@
+# cloudflared config (truenas/apps/cloudflared). Rendered by the reconciler.
+tunnel: "{{ op://Infrastructure/cloudflare/CLOUDFLARE_TUNNEL_ID }}"
+credentials-file: /etc/cloudflared/credentials.json
+metrics: 0.0.0.0:2000
+no-autoupdate: true
+originRequest:
+  originServerName: "external.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+  keepAliveTimeout: 3600s
+  tcpKeepAlive: 7200s
+ingress:
+  - hostname: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+    service: https://caddy:8443
+  - hostname: "*.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+    service: https://caddy:8443
+  - service: http_status:404

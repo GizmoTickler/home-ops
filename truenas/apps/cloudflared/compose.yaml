@@ -1,0 +1,33 @@
+# cloudflared — Cloudflare tunnel connector for the public hostnames (replaces the k8s `kubernetes` tunnel pods).
+# Listens: nothing inbound; :2000 metrics on the `apps` network (service name cloudflared).
+# Tunnel:  same tunnel as k8s (credentials from 1Password item `cloudflare`), wildcard ingress -> Caddy's external
+#          listener https://caddy:8443 (TLS verified against the wildcard via originServerName).
+# Config:  /mnt/flashstor/apps/cloudflared-config/{config.yaml,credentials.json} rendered by the reconciler.
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.1@sha256:a15a3b50b8dabd57ac2090e9484c0247dba9dfa1f0df4d298d4317f9d69eb2d5
+    restart: unless-stopped
+    user: "65532:65532"
+    environment:
+      TZ: America/New_York
+      NO_AUTOUPDATE: "true"
+      TUNNEL_ORIGIN_ENABLE_HTTP2: "true"
+    command: ["tunnel", "--config", "/etc/cloudflared/config.yaml", "run"]
+    networks: [apps]
+    volumes:
+      - /mnt/flashstor/apps/cloudflared-config:/etc/cloudflared:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "2", memory: 256M}
+    logging: *logging
+
+networks:
+  apps: {external: true}

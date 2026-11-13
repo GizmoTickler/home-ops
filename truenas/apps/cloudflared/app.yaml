@@ -1,0 +1,20 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/cloudflared-config, owner: "65532:65532", mode: "0700"}
+files:
+  - template: config.yaml.tmpl
+    dest: /mnt/flashstor/apps/cloudflared-config/config.yaml
+    owner: "65532:65532"
+    mode: "0600"
+  - template: credentials.json.tmpl     # tunnel secret from 1Password item `cloudflare`
+    dest: /mnt/flashstor/apps/cloudflared-config/credentials.json
+    owner: "65532:65532"
+    mode: "0600"
+health:
+  tcp: 127.0.0.1:2000     # metrics/ready server, probed inside the container
+  netns: cloudflared
+ui:
+  title: cloudflared
+  description: "Cloudflare tunnel connector — public hostnames -> Caddy external listener"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/cloudflare.png
+  home: https://github.com/cloudflare/cloudflared
