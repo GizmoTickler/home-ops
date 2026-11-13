@@ -3,11 +3,18 @@ dirs:
 - path: /mnt/flashstor/apps/webhook-config
   owner: 0:0
   mode: '0755'
+- path: /mnt/flashstor/apps/webhook-trigger
+  owner: 1000:1000
+  mode: '0700'
 files:
 - template: hooks.yaml
   dest: /mnt/flashstor/apps/webhook-config/hooks.yaml
   owner: 0:0
   mode: '0644'
+- template: truenas-gitops.sh
+  dest: /mnt/flashstor/apps/webhook-config/truenas-gitops.sh
+  owner: 0:0
+  mode: '0755'
 - template: seerr-pushover.sh
   dest: /mnt/flashstor/apps/webhook-config/seerr-pushover.sh
   owner: 0:0

@@ -1075,6 +1075,30 @@ static_resources:
           route_config:
             name: external_routes
             virtual_hosts:
+            - name: gitops_webhook_external
+              domains:
+              - gitops-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+              routes:
+              - match:
+                  path: /hooks/truenas-gitops
+                  headers:
+                  - name: ':method'
+                    string_match:
+                      exact: POST
+                  - name: x-hub-signature-256
+                    string_match:
+                      prefix: sha256=
+                  - name: x-github-event
+                    string_match:
+                      safe_regex:
+                        regex: ^(ping|push|check_run)$
+                route:
+                  cluster: webhook
+                  timeout: 10s
+              - match:
+                  prefix: /
+                direct_response:
+                  status: 404
             - name: n8n_webhook_external
               domains:
               - n8n-webhook.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}

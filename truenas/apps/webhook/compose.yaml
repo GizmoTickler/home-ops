@@ -1,8 +1,9 @@
-# Webhook — Notification hooks (Seerr/Radarr/Sonarr -> Pushover, Sonarr helpers, ntopng -> Alertmanager)
-# Listens: webhook:80 on the shared `apps` network; https://webhook.<domain> via Caddy.
+# Webhook — Notification hooks (Seerr/Radarr/Sonarr -> Pushover, Sonarr helpers, ntopng -> Alertmanager, GitHub -> apps-gitops)
+# Listens: webhook:80 on the shared `apps` network; https://webhook.<domain> (internal), https://gitops-webhook.<domain>/hooks/truenas-gitops (external via cloudflared -> Envoy :8443).
 # Data:    /mnt/flashstor/apps/webhook-config (hooks.yaml + scripts rendered from this directory)
-# Every hook needs ?token=<secret> (file /mnt/flashstor/apps/webhook-secret/token on nas01, not in git);
-# ntopng-alertmanager is also limited to nflo0 (192.168.120.9) in the Caddyfile.
+#          /mnt/flashstor/apps/webhook-trigger (1000:1000 0700; truenas-gitops touches /trigger/poke for host systemd.path)
+# Internal hooks need ?token=<secret> (/mnt/flashstor/apps/webhook-secret/token on nas01, not in git);
+# ntopng-alertmanager is also limited to nflo0 (192.168.120.9) in Envoy; truenas-gitops verifies GitHub HMAC-SHA256.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -14,12 +15,13 @@ services:
     sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
-    # refuse to start without a proper shared secret (64 hex chars); the health probe then fails -> rollback.
-    # Not -verbose (the image default): verbose request logs would carry the ?token= query string.
-    entrypoint: ["/bin/sh", "-c", "grep -qE '^[0-9a-f]{64}$$' /secret/token || { echo 'webhook: /secret/token missing or invalid' >&2; exit 1; }; exec /app/bin/webhook -port 80 -hooks /config/hooks.yaml -template"]
+    # Refuse to start without the shared internal secret (64 hex) OR the GitHub webhook secret (>= 32 chars).
+    # Not -verbose (the image default): verbose request logs would carry ?token= query strings or headers.
+    entrypoint: ["/bin/sh", "-c", "grep -qE '^[0-9a-f]{64}$$' /secret/token || { echo 'webhook: /secret/token missing or invalid' >&2; exit 1; }; [ \"$${#GITHUB_WEBHOOK_SECRET}\" -ge 32 ] || { echo 'webhook: GITHUB_WEBHOOK_SECRET missing or short' >&2; exit 1; }; exec /app/bin/webhook -port 80 -hooks /config/hooks.yaml -template"]
     environment:
       TZ: "America/New_York"
       WEBHOOK__PORT: "80"
+      GITHUB_WEBHOOK_SECRET: "{{ op://Infrastructure/flux/FLUX_GITHUB_WEBHOOK_TOKEN }}"
       SEERR_URL: "https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
       SEERR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/seerr/SEERR_PUSHOVER_TOKEN }}"
       RADARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/radarr/RADARR_PUSHOVER_TOKEN }}"
@@ -33,6 +35,7 @@ services:
     volumes:
       - /mnt/flashstor/apps/webhook-config:/config:ro
       - /mnt/flashstor/apps/webhook-secret:/secret:ro
+      - /mnt/flashstor/apps/webhook-trigger:/trigger
     tmpfs:
       - /tmp:size=32m
     read_only: true

@@ -62,7 +62,11 @@ config live in `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 060
   `.env`). Its `health` probe makes a bad Connect deploy roll back.
 - Data lives on datasets under `/mnt/flashstor/apps/<app>-*` (Jellyfin still uses its former ix-volume paths).
 - Changing an app: edit here, merge. Need it now? On nas01: `sudo python3
-  /mnt/flashstor/secure-scripts/apps-gitops/bin/reconcile.py --app <app>` (add `--dry-run` to see the diff).
+  /mnt/flashstor/secure-scripts/apps-gitops/home-ops/truenas/reconciler/reconcile.py --app <app>` (add `--dry-run` to see the diff).
+  Merging to `main` also wakes the reconciler automatically once CI (`Lint nas01 apps`) passes: GitHub delivers
+  signed `push`/`check_run` events through Cloudflare Tunnel → Envoy `:8443` (`gitops-webhook.<domain>/hooks/truenas-gitops` only)
+  → `apps/webhook` (verifies `X-Hub-Signature-256` HMAC and writes 0-byte `/trigger/poke`) → host `systemd.path`
+  (`POSTINIT`) running `reconcile.py --wait-lock 300`; the 10-minute cron catches drift and fallback runs.
 - New app: write `apps/<app>/compose.yaml` (+ `app.yaml`), merge; the reconciler creates it.
   Adopting an existing app: `export_app.py <app>` on nas01, commit the output, dry-run must show "in sync".
 

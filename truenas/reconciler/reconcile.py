@@ -669,8 +669,9 @@ def preflight_tmp(ctx):
 def write_secret_file(path, content, uid=None, gid=None, mode=0o600):
     """New file (O_EXCL, never follows a symlink); owned by the caller (root) unless uid/gid are given."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(content)
+    data = content if isinstance(content, (bytes, bytearray)) else content.encode()
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
         if uid is not None and (uid, gid) != (os.getuid(), os.getgid()):
             os.fchown(f.fileno(), uid, gid)
         os.fchmod(f.fileno(), mode)
@@ -691,10 +692,60 @@ def compose_config_check(name, compose, ctx):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _stage_validate_dir(tmp, idx, src_dir, mine, svc_user):
+    """Build a staging directory containing non-templated regular files from src_dir plus rendered `files:`."""
+    d = os.path.join(tmp, f"v{idx}")
+    os.mkdir(d, 0o700)
+    uid, gid = parse_owner(mine[0][0].get("owner"))
+    dir_mode = os.lstat(src_dir).st_mode & 0o777 if os.path.isdir(src_dir) and not os.path.islink(src_dir) else (
+        0o755 if svc_user and str(svc_user) != f"{uid}:{gid}" else 0o700)
+    if (uid, gid) != (os.getuid(), os.getgid()):
+        os.chown(d, uid, gid)
+    os.chmod(d, dir_mode)
+    templated = {os.path.normpath(fs["dest"]) for fs, _ in mine}
+
+    def copy_tree(cur_src, cur_dst):
+        for entry in os.scandir(cur_src):
+            if entry.is_symlink():
+                continue
+            dst_p = os.path.join(cur_dst, entry.name)
+            if entry.is_dir(follow_symlinks=False):
+                os.mkdir(dst_p, 0o755)
+                st = entry.stat(follow_symlinks=False)
+                if (st.st_uid, st.st_gid) != (os.getuid(), os.getgid()):
+                    os.chown(dst_p, st.st_uid, st.st_gid)
+                os.chmod(dst_p, st.st_mode & 0o777)
+                copy_tree(entry.path, dst_p)
+            elif entry.is_file(follow_symlinks=False) and os.path.normpath(entry.path) not in templated:
+                fd = os.open(entry.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                try:
+                    st = os.fstat(fd)
+                    if stat.S_ISREG(st.st_mode) and st.st_size <= MAX_FILE:
+                        data = os.read(fd, MAX_FILE + 1)
+                        write_secret_file(dst_p, data, st.st_uid, st.st_gid, st.st_mode & 0o777)
+                finally:
+                    os.close(fd)
+
+    if os.path.isdir(src_dir) and not os.path.islink(src_dir):
+        copy_tree(src_dir, d)
+    for fs, content in mine:
+        fu, fg = parse_owner(fs.get("owner"))
+        out_p = os.path.join(d, os.path.relpath(os.path.normpath(fs["dest"]), src_dir))
+        parent = os.path.dirname(out_p)
+        if not os.path.isdir(parent):
+            os.makedirs(parent, mode=0o755, exist_ok=True)
+            if (fu, fg) != (os.getuid(), os.getgid()):
+                os.chown(parent, fu, fg)
+        if os.path.lexists(out_p):
+            os.unlink(out_p)
+        write_secret_file(out_p, content, fu, fg, int(str(fs.get("mode", "0600")), 8))
+    return d
+
+
 def run_validate(name, meta, compose, rendered_files, ctx):
     """app.yaml `validate`: run the service's target image (no network, read-only, no caps) with the service's
-    volumes, where every volume source that receives rendered files is replaced by a temp dir holding the fully
-    rendered files. Returns None or an error string. The temp dir is deleted right after."""
+    volumes, where every volume source that receives rendered files is replaced by a staged file or temp dir
+    holding the fully rendered files (preserving host siblings). Returns None or an error string."""
     v = meta.get("validate")
     if not v:
         return None
@@ -719,18 +770,21 @@ def run_validate(name, meta, compose, rendered_files, ctx):
                 continue
             parts = vol.split(":")
             src, dst = parts[0], parts[1] if len(parts) > 1 else parts[0]
-            mine = [(fs, c) for fs, c in rendered_files if os.path.dirname(fs["dest"]).rstrip("/") == src.rstrip("/")]
-            if mine:
-                d = os.path.join(tmp, f"v{i}")
-                os.mkdir(d, 0o700)
-                uid, gid = parse_owner(mine[0][0].get("owner"))
-                if (uid, gid) != (os.getuid(), os.getgid()):
-                    os.chown(d, uid, gid)
-                for fs, content in mine:
-                    fu, fg = parse_owner(fs.get("owner"))
-                    write_secret_file(os.path.join(d, os.path.basename(fs["dest"])), content, fu, fg,
-                                      int(str(fs.get("mode", "0600")), 8))
-                src = d
+            src_c = os.path.normpath(src) if src.startswith("/") else src.rstrip("/")
+            single = next(((fs, c) for fs, c in rendered_files
+                           if fs["dest"].startswith("/") and os.path.normpath(fs["dest"]) == src_c), None)
+            if single is not None:
+                fs, content = single
+                fu, fg = parse_owner(fs.get("owner"))
+                f = os.path.join(tmp, f"f{i}-{os.path.basename(src_c)}")
+                write_secret_file(f, content, fu, fg, int(str(fs.get("mode", "0600")), 8))
+                src = f
+            elif src_c.startswith("/"):
+                mine = [(fs, c) for fs, c in rendered_files
+                        if fs["dest"].startswith("/") and os.path.normpath(fs["dest"]) != src_c
+                        and os.path.commonpath([src_c, os.path.normpath(fs["dest"])]) == src_c]
+                if mine:
+                    src = _stage_validate_dir(tmp, i, src_c, mine, svc.get("user"))
             if src.startswith("/"):
                 args += ["-v", f"{src}:{dst}:ro"]
         r = sh(args + [img] + [str(a) for a in v.get("args", [])], timeout=int(v.get("timeout", 120)))
@@ -912,10 +966,11 @@ def reconcile_app(appdir, ctx, meta=None):
         if not ctx.dry:
             applied[name] = live_fingerprints(ctx, desired, meta)
 
-    if not (compose_diff or file_changes or ini_todo):
+    if not (compose_diff or file_changes or ini_todo or dirs_changed):
         state = app.get("state") if app else None
-        ctx.log(f"{name}: in sync ({state})")
         if ctx.dry:  # dry-run exercises every preflight, so a bad image/config/IP shows up before it is deployed
+            ctx.log(f"{name}: config in sync, state is {state} (would start)" if state != "RUNNING"
+                    else f"{name}: in sync ({state})")
             probs = preflight(name, meta, desired, rendered_files, ctx)
             for p in probs:
                 ctx.log(f"{name}: PREFLIGHT FAILED: {p}")
@@ -923,6 +978,26 @@ def reconcile_app(appdir, ctx, meta=None):
                 ctx.event("preflight_failure", name)
                 return False
             ctx.log(f"{name}: preflight OK")
+            return not ini_missing
+        if state != "RUNNING":
+            ctx.log(f"{name}: config in sync, state is {state} -- starting")
+            timeout = int(meta.get("deploy_timeout", cfg_get(ctx.cfg, "deploy_timeout")))
+            ctx.live = None
+            try:
+                ensure_started(name, ctx)
+                ok = wait_running(name, ctx, timeout) and healthy(meta, name, ctx)
+            except Exception as e:  # noqa: BLE001
+                ctx.log(f"{name}: start FAILED: {ctx.mask(str(e))}")
+                ok = False
+            if ok:
+                ctx.log(f"{name}: started (RUNNING{', healthy' if meta.get('health') else ''})")
+                record_applied()
+                ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
+                return not ini_missing
+            ctx.event("deploy_failure", name)
+            ctx.log(f"{name}: start/health FAILED (was {state})")
+            return False
+        ctx.log(f"{name}: in sync ({state})")
         record_applied()
         ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
         return not ini_missing
@@ -1154,11 +1229,17 @@ def git_pull(cfg, ctx, gate_on=True):
         # what is checked out, which is what is deployed.
         current = gstate["deployed"] if "deployed" in gstate else run("rev-parse", "HEAD").stdout.strip()
     run("fetch", "--depth", str(int(gate["history_depth"]) if gate_on else 1), "origin", br)
+    sp = os.path.join(co, ".git", "shallow")
+    if gate_on and current and os.path.exists(sp):
+        for _ in range(4):
+            shallow_now = set(open(sp).read().split())
+            if run("cat-file", "-e", f"{current}^{{commit}}", check=False).returncode == 0 and current not in shallow_now:
+                break
+            run("fetch", "--deepen", "50", "origin", br)
     head = run("rev-parse", "FETCH_HEAD").stdout.strip()
     info = {"head": head, "status": "disabled", "reason": "CI gate disabled", "api_ok": True}
     if gate_on:
         shallow = set()
-        sp = os.path.join(co, ".git", "shallow")
         if os.path.exists(sp):
             shallow = set(open(sp).read().split())
         cands = [c for c in run("log", "--format=%H", "FETCH_HEAD", "--", "truenas").stdout.split()
@@ -1370,8 +1451,9 @@ def render_metrics(results, unmanaged, ok_all, now, mstate, run_info, prev_succe
             out.append(f"truenas_apps_gitops_{name}{{{lab}}} {v}" if lab else f"truenas_apps_gitops_{name} {v}")
 
     fam("last_run_timestamp_seconds", "gauge", "Last reconciler run.", [({}, now)])
+    real_results = {a: ok for a, ok in results.items() if not a.startswith("_")}
     fam("app_ok", "gauge", "1 if the app converged to git on the last run.",
-        [({"app": a}, 1 if ok else 0) for a, ok in sorted(results.items())])
+        [({"app": a}, 1 if ok else 0) for a, ok in sorted(real_results.items())])
     fam("unmanaged_apps", "gauge", "Apps on nas01 not present in git.", [({}, unmanaged)])
     succ = now if ok_all else prev_success
     if succ is not None:
@@ -1387,11 +1469,11 @@ def render_metrics(results, unmanaged, ok_all, now, mstate, run_info, prev_succe
     fam("ci_gate_held", "gauge", "1 if the branch tip's truenas/ changes are held back (CI failed/pending/missing).",
         [({}, 1 if run_info.get("gate") == "held" else 0)])
     c, ts = mstate.get("counters", {}), mstate.get("last", {})
-    apps = sorted(set(results) | {a for k in c.values() for a in k})
+    apps = sorted(set(real_results) | {a for k in c.values() for a in k if not a.startswith("_")})
     for kind, (stem, help_) in COUNTERS.items():
         fam(f"{stem}_total", "counter", help_, [({"app": a}, c.get(kind, {}).get(a, 0)) for a in apps])
     for kind, (stem, help_) in COUNTERS.items():
-        last = ts.get(kind, {})
+        last = {a: t for a, t in ts.get(kind, {}).items() if not a.startswith("_")}
         if last:
             fam(f"last_{kind}_timestamp_seconds", "gauge", f"Last time: {help_}",
                 [({"app": a}, int(t)) for a, t in sorted(last.items())])
@@ -1414,16 +1496,22 @@ def write_metrics(cfg, results, unmanaged, ok_all, mstate=None, run_info=None, n
     now = int(now if now is not None else _now())
     prev_success = None
     prev = os.path.join(d, "apps_gitops.prom")
-    if os.path.exists(prev):
-        for ln in open(prev):
-            if ln.startswith("truenas_apps_gitops_last_success_timestamp_seconds"):
-                prev_success = ln.split()[-1]
+    for ln in (read_file(prev) or "").splitlines():
+        if ln.startswith("truenas_apps_gitops_last_success_timestamp_seconds"):
+            prev_success = ln.split()[-1]
     text = render_metrics(results, unmanaged, ok_all, now, mstate or {}, run_info or {}, prev_success)
-    tmp = os.path.join(d, ".apps_gitops.prom.tmp")
-    with open(tmp, "w") as f:
-        f.write(text)
-    os.chmod(tmp, 0o644)
-    os.replace(tmp, prev)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".apps_gitops.prom.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            os.fchmod(f.fileno(), 0o644)
+        os.replace(tmp, prev)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 # ---- main ------------------------------------------------------------------------------------------------
@@ -1434,6 +1522,7 @@ def main(argv=None):
     ap.add_argument("--app", action="append")
     ap.add_argument("--no-pull", action="store_true")
     ap.add_argument("--no-ci-gate", action="store_true", help="emergency: deploy the branch tip without CI check")
+    ap.add_argument("--wait-lock", type=int, default=0, help="seconds to wait for .lock before exiting (0 = non-blocking)")
     a = ap.parse_args(argv)
     t0 = _now()
     with open(a.config) as f:
@@ -1442,11 +1531,17 @@ def main(argv=None):
     os.makedirs(sd, mode=0o700, exist_ok=True)
     lfd = os.open(os.path.join(sd, ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     lockf = os.fdopen(lfd, "r+")
-    try:
-        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        print("another reconcile is running", file=sys.stderr)
-        return 0
+    lock_deadline = _now() + max(0, a.wait_lock)
+    while True:
+        try:
+            fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if _now() >= lock_deadline:
+                print("another reconcile is running", file=sys.stderr)
+                lockf.close()
+                return 0
+            _sleep(1)
     ctx = Ctx(cfg, a.dry_run)
     if not a.dry_run:
         os.fchmod(lfd, 0o600)
@@ -1489,7 +1584,12 @@ def main(argv=None):
             metas[n] = load_app(os.path.join(root, n))[1]
         except Exception as e:  # noqa: BLE001
             ctx.log(f"{n}: ERROR reading app.yaml: {e}")
-            metas[n] = {}
+            raw_meta = read_file(os.path.join(root, n, "app.yaml")) or ""
+            if re.search(r"(?m)^\s*critical\s*:\s*true\b", raw_meta):
+                om = re.search(r"(?m)^\s*order\s*:\s*(-?\d+)\b", raw_meta)
+                metas[n] = {"critical": True, "order": int(om.group(1)) if om else -1}
+            else:
+                metas[n] = {}
     results, unmanaged = {}, 0
     if not ensure_networks(os.path.join(cfg["checkout"], "truenas", "networks.yaml"), ctx):
         results["_networks"] = False

@@ -12,6 +12,7 @@ on:
       - main
     paths:
       - truenas/**
+      - .github/workflows/truenas-apps.yaml
 
 permissions:
   contents: read

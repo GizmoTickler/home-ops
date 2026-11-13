@@ -203,3 +203,16 @@ def test_lost_last_good_commit_does_not_move_checkout(tmp_path, ctx, origin, mon
     json.dump(st, open(p, "w"))
     info = rc.git_pull(ctx.cfg, ctx)  # API down AND last good unknown: deploy nothing, never the ungated tip
     assert info["deploy"] is False and info["commit"] == a
+
+
+def test_shallow_fetch_deepens_to_reach_deployed(tmp_path, ctx, origin, monkeypatch):
+    verdicts = {}
+    monkeypatch.setattr(rc, "make_checker", lambda cfg, c, cache: lambda sha: verdicts.get(sha, "none"))
+    ctx.cfg.update(repo=f"file://{origin}", checkout=str(tmp_path / "co"))
+    a = commit(origin, "truenas/apps/x/compose.yaml", "v: 1\n", "a")
+    verdicts[a] = "success"
+    assert rc.git_pull(ctx.cfg, ctx)["commit"] == a
+    for i in range(55):
+        head = commit(origin, "kubernetes/noise.txt", f"{i}\n", f"noise {i}")
+    info = rc.git_pull(ctx.cfg, ctx)
+    assert info["status"] == "unchanged" and info["commit"] == head and info.get("deploy", True)

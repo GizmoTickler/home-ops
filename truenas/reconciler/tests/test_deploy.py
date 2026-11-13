@@ -173,3 +173,53 @@ def test_deploy_error_with_secret_is_masked(tmp_path, ctx, mid, clock, capsys):
     assert rc.reconcile_app(d, ctx) is False
     out = capsys.readouterr().out + "\n".join(ctx.log_lines)
     assert "TOPSECRET-123" not in out and "<op://v/i/token>" in out
+
+
+def test_stopped_in_sync_app_is_started(tmp_path, ctx, mid, clock):
+    mid.add("app", OLD, state="STOPPED")
+    mid.script["app"] = ["STOPPED", "RUNNING"]
+    d = make_app(tmp_path / "apps", "app", OLD, {})
+    assert rc.reconcile_app(d, ctx) is True
+    assert methods(mid) == ["app.start"]
+    assert mid.apps["app"]["state"] == "RUNNING"
+
+
+def test_crashed_in_sync_app_fails(tmp_path, ctx, mid, clock, monkeypatch):
+    monkeypatch.setattr(rc, "container_status", lambda n: "")
+    mid.add("app", OLD, state="CRASHED")
+    mid.script["app"] = ["CRASHED"] * 100
+    d = make_app(tmp_path / "apps", "app", OLD, {})
+    assert rc.reconcile_app(d, ctx) is False
+    assert ("deploy_failure", "app") in ctx.events
+    assert any("start/health FAILED" in ln for ln in ctx.log_lines)
+
+
+def test_dirs_changed_alone_redeploys(tmp_path, ctx, mid, clock):
+    missing = tmp_path / "newdir"
+    mid.add("app", OLD)
+    mid.script["app"] = ["RUNNING"]
+    d = make_app(tmp_path / "apps", "app", OLD, {"dirs": [{"path": str(missing), "owner": ME, "mode": "0755"}]})
+    assert rc.reconcile_app(d, ctx) is True
+    assert missing.is_dir()
+    assert "app.redeploy" in methods(mid)
+
+
+def test_broken_critical_app_yaml_still_aborts(tmp_path, ctx, mid, monkeypatch):
+    co = tmp_path / "co"
+    apps = co / "truenas" / "apps"
+    make_app(apps, "broken-crit", OLD, {"critical": True, "order": 0})
+    (apps / "broken-crit" / "compose.yaml").write_text(": bad: [yaml")
+    make_app(apps, "envoy", OLD, {"critical": True, "order": 20})
+    mid.add("envoy", OLD)
+    seen = []
+    real = rc.reconcile_app
+    monkeypatch.setattr(rc, "reconcile_app", lambda d, c, m=None: seen.append(d.rsplit("/", 1)[1]) or real(d, c, m))
+    monkeypatch.setattr(rc, "sh", lambda cmd, **k: __import__("subprocess").CompletedProcess(cmd, 1, "", "none"))
+    cfg_p = tmp_path / "cfg.json"
+    cfg_p.write_text(__import__("json").dumps({
+        "repo": "https://github.com/o/r.git", "checkout": str(co),
+        "state_dir": str(tmp_path / "state"), "connect_url": "http://c", "connect_token": "t",
+    }))
+    assert rc.main(["--config", str(cfg_p), "--no-pull"]) == 1
+    assert seen == ["broken-crit"]
+    assert any("aborting the run; skipped: envoy" in ln for ln in open(tmp_path / "state" / "reconcile.log"))

@@ -181,6 +181,35 @@ def test_validate_ok(ctx, monkeypatch):
     assert rc.run_validate("envoy", {"validate": {"service": "envoy"}}, comp, [], ctx) is None
 
 
+def test_validate_single_file_mount_and_mixed_dir(ctx, tmp_path, monkeypatch):
+    host_dir = tmp_path / "cfg"
+    (host_dir / "sub").mkdir(parents=True)
+    (host_dir / "keep.txt").write_text("sibling\n")
+    (host_dir / "sub" / "old.conf").write_text("stale\n")
+    single_host = tmp_path / "one.conf"
+    single_host.write_text("old-single\n")
+    comp = {"services": {"app": {"image": "img:1@sha256:aa", "user": ME,
+                                 "volumes": [f"{host_dir}:/etc/app:ro", f"{single_host}:/etc/one.conf:ro"]}}}
+    files = [
+        ({"dest": f"{host_dir}/sub/old.conf", "owner": ME, "mode": "0600"}, "rendered\n"),
+        ({"dest": str(single_host), "owner": ME, "mode": "0600"}, "new-single\n"),
+    ]
+    seen = {}
+
+    def fake(cmd, **k):
+        if cmd[:3] == ["docker", "image", "inspect"]:
+            return cp(0)
+        vols = [cmd[i + 1] for i, x in enumerate(cmd) if x == "-v"]
+        d_src, f_src = vols[0].split(":")[0], vols[1].split(":")[0]
+        seen["sibling"] = open(os.path.join(d_src, "keep.txt")).read()
+        seen["nested"] = open(os.path.join(d_src, "sub", "old.conf")).read()
+        seen["single"] = open(f_src).read()
+        return cp(0)
+    monkeypatch.setattr(rc, "sh", fake)
+    assert rc.run_validate("app", {"validate": {"service": "app"}}, comp, files, ctx) is None
+    assert seen == {"sibling": "sibling\n", "nested": "rendered\n", "single": "new-single\n"}
+
+
 def test_preflight_pulls_missing_image_only_when_not_dry(ctx, monkeypatch):
     calls = []
 

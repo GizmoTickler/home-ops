@@ -94,6 +94,25 @@ def lint_app(d, shared=frozenset()):
             e("app.yaml validate.service must name a service in compose.yaml")
         elif not isinstance(v.get("args", []), list):
             e("app.yaml validate.args must be a list")
+    seen_dirs = []
+    for ds in meta.get("dirs") or []:
+        if not isinstance(ds, dict) or not isinstance(ds.get("path"), str):
+            e(f"app.yaml dirs entries must be maps with path ({ds})")
+            continue
+        dp = ds["path"].rstrip("/")
+        if not dp.startswith("/mnt/") or ".." in dp.split("/"):
+            e(f"app.yaml dir path must be an absolute /mnt/... path without '..' ({ds['path']})")
+        if "owner" in ds and not re.match(r"^\d+:\d+$", str(ds["owner"])):
+            e(f"app.yaml dir owner must be uid:gid ({ds['owner']})")
+        if "mode" in ds:
+            try:
+                int(str(ds["mode"]), 8)
+            except ValueError:
+                e(f"app.yaml dir mode must be octal ({ds['mode']})")
+        for prev in seen_dirs:
+            if prev.startswith(dp + "/"):
+                e(f"app.yaml dir parent {dp} must appear before child {prev}")
+        seen_dirs.append(dp)
     return errs
 
 

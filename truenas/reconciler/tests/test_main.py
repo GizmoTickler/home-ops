@@ -65,3 +65,33 @@ def test_lock_held_exits_quietly(setup):
         fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
         assert rc.main(["--config", setup["config"], "--no-pull"]) == 0
     assert setup["order"] == []
+
+
+def test_wait_lock_retries_then_times_out_and_hides_synthetic_metrics(setup, clock, monkeypatch):
+    attempts = {"n": 0}
+    orig_flock = rc.fcntl.flock
+
+    def flakey(fd, op):
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise BlockingIOError("busy")
+        return orig_flock(fd, op)
+    monkeypatch.setattr(rc.fcntl, "flock", flakey)
+    assert rc.main(["--config", setup["config"], "--no-pull", "--wait-lock", "5"]) == 0
+    assert attempts["n"] == 3 and len(setup["order"]) == 3
+
+    attempts["n"] = 0
+    setup["order"].clear()
+
+    def always_busy(fd, op):
+        attempts["n"] += 1
+        raise BlockingIOError("busy")
+    monkeypatch.setattr(rc.fcntl, "flock", always_busy)
+    t0 = clock.now
+    assert rc.main(["--config", setup["config"], "--no-pull", "--wait-lock", "3"]) == 0
+    assert setup["order"] == [] and clock.now - t0 >= 3
+
+    text = rc.render_metrics({"_networks": False, "alpha": True}, 0, False, 1000, {}, {})
+    fams = {f.name: f for f in text_string_to_metric_families(text)}
+    labels = [s.labels["app"] for s in fams["truenas_apps_gitops_app_ok"].samples]
+    assert labels == ["alpha"]

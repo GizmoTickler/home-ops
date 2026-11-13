@@ -1,9 +1,10 @@
 ---
 # Hooks for the nas01 webhook app (truenas/apps/webhook).
-# Every hook requires ?token=<64 hex chars> (regex AND exact match: fails closed); the secret lives only on nas01 in
+# Internal hooks require ?token=<64 hex chars> (regex AND exact match: fails closed); the secret lives only on nas01 in
 # /mnt/flashstor/apps/webhook-secret/token (root:1000 0640, dir 0750; mounted at /secret/token), never in git; the
 # container refuses to start without it. Senders (Sonarr, Radarr,
-# Seerr, ntopng) carry it in their webhook URL. ntopng-alertmanager is additionally limited to nflo0's IP in Caddy.
+# Seerr, ntopng) carry it in their webhook URL. ntopng-alertmanager is additionally limited to nflo0's IP in Envoy.
+# External hook `truenas-gitops` verifies GitHub's X-Hub-Signature-256 (GITHUB_WEBHOOK_SECRET) and touches /trigger/poke.
 # Sonarr/Radarr API targets and app URLs come from env (never from the request or payload).
 - id: seerr-pushover
   execute-command: /config/seerr-pushover.sh
@@ -162,3 +163,44 @@
     - envname: SONARR_SERIES_TITLE
       source: payload
       name: series.title
+
+- id: truenas-gitops
+  execute-command: /config/truenas-gitops.sh
+  command-working-directory: /config
+  trigger-rule-mismatch-http-response-code: 403
+  trigger-rule:
+    and:
+      - match:
+          type: regex
+          regex: '^sha256=[0-9a-f]{64}$'
+          parameter: {source: header, name: X-Hub-Signature-256}
+      - match:
+          type: payload-hmac-sha256
+          secret: '{{ getenv "GITHUB_WEBHOOK_SECRET" }}'
+          parameter: {source: header, name: X-Hub-Signature-256}
+      - match:
+          type: regex
+          regex: '^(ping|push|check_run)$'
+          parameter: {source: header, name: X-GitHub-Event}
+  pass-environment-to-command:
+    - envname: GITHUB_EVENT
+      source: header
+      name: X-GitHub-Event
+    - envname: GH_REPO
+      source: payload
+      name: repository.full_name
+    - envname: GH_REF
+      source: payload
+      name: ref
+    - envname: GH_ACTION
+      source: payload
+      name: action
+    - envname: GH_CHECK_NAME
+      source: payload
+      name: check_run.name
+    - envname: GH_CHECK_CONCLUSION
+      source: payload
+      name: check_run.conclusion
+    - envname: GH_HEAD_BRANCH
+      source: payload
+      name: check_run.check_suite.head_branch
