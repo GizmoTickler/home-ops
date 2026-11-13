@@ -15,7 +15,6 @@ resources:
   - ./vmrule-truenas-apps.yaml
   - ./vmrule-infrastructure.yaml
   - ./vmrule-network-infra.yaml
-  - ./vmrule-cnpg.yaml
   - ./vmrule-snmp-geoip.yaml
   - ./vmrule-recording.yaml
   - ./grafanadashboards.yaml
