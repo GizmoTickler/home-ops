@@ -26,7 +26,7 @@ func TestDefaultConfigIsPortable(t *testing.T) {
 	assert.Equal(t, DefaultDNSDomain, c.Cluster.DNSDomain)
 	assert.Equal(t, "10.43.0.10", c.ClusterDNS())
 	assert.Equal(t, DefaultNodeSubnet, c.Cluster.NodeSubnet)
-	assert.Equal(t, []string{"10.123.123.123", "10.123.123.124", "10.123.123.125", "10.123.123.126", "10.123.123.127"}, c.Cluster.NTPServers)
+	assert.Equal(t, []string{"10.123.123.123", "10.123.123.124", "10.123.123.127"}, c.Cluster.NTPServers)
 	assert.Equal(t, []string{"192.168.255.10"}, c.Cluster.ExtraCertSANs)
 	assert.Equal(t, constants.DefaultNodeSSHPort, c.Cluster.NodeSSHPort)
 	assert.Equal(t, constants.NSObservability, c.Cluster.Observability.Namespace)

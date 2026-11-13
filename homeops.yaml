@@ -63,8 +63,6 @@ cluster:
   ntp_servers:
     - 10.123.123.123
     - 10.123.123.124
-    - 10.123.123.125
-    - 10.123.123.126
     - 10.123.123.127
   # Establish the production nas01 NFS session across both storage VLANs. One
   # anchor per link, and nconnect=1, is what produces an even transport spread

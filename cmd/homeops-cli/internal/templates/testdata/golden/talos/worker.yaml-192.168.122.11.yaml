@@ -110,8 +110,6 @@ machine:
         servers:
             - 10.123.123.123
             - 10.123.123.124
-            - 10.123.123.125
-            - 10.123.123.126
             - 10.123.123.127
     token: secret://talos_machine_token
 version: v1alpha1
