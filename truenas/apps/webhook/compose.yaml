@@ -26,12 +26,19 @@ services:
       SEERR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/seerr/SEERR_PUSHOVER_TOKEN }}"
       RADARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/radarr/RADARR_PUSHOVER_TOKEN }}"
       SONARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/sonarr/SONARR_PUSHOVER_TOKEN }}"
+      AUTOBRR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/autobrr/PUSHOVER_SECRET }}"
       SONARR_API_KEY: "{{ op://Infrastructure/sonarr/SONARR_API_KEY }}"
       SONARR_URL: "http://sonarr:80"
       SONARR_APPLICATION_URL: "https://sonarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
       RADARR_APPLICATION_URL: "https://radarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
-      ALERTMANAGER_URL: "http://alertmanager:9093"
-    networks: [apps]
+      PROWLARR_APPLICATION_URL: "https://prowlarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      CHAPTARR_APPLICATION_URL: "https://chaptarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      AUTOBRR_APPLICATION_URL: "https://autobrr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      QUI_APPLICATION_URL: "https://qui.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      ALERTMANAGER_URL: "http://172.31.200.254:9093"
+    networks:
+      apps:
+        ipv4_address: 172.31.200.253
     volumes:
       - /mnt/flashstor/apps/webhook-config:/config:ro
       - /mnt/flashstor/apps/webhook-secret:/secret:ro

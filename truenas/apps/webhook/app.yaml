@@ -39,6 +39,22 @@ files:
   dest: /mnt/flashstor/apps/webhook-config/ntopng-alertmanager.sh
   owner: 0:0
   mode: '0755'
+- template: prowlarr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/prowlarr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: chaptarr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/chaptarr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: autobrr-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/autobrr-pushover.sh
+  owner: 0:0
+  mode: '0755'
+- template: qui-pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/qui-pushover.sh
+  owner: 0:0
+  mode: '0755'
 health:
   tcp: 127.0.0.1:80
   netns: webhook

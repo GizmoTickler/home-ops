@@ -2,7 +2,7 @@
 # Hooks for the nas01 webhook app (truenas/apps/webhook).
 # Internal hooks require ?token=<64 hex chars> (regex AND exact match: fails closed); the secret lives only on nas01 in
 # /mnt/flashstor/apps/webhook-secret/token (root:1000 0640, dir 0750; mounted at /secret/token), never in git; the
-# container refuses to start without it. Senders (Sonarr, Radarr,
+# container refuses to start without it. Senders (Sonarr, Radarr, Prowlarr, Chaptarr, Autobrr, Qui,
 # Seerr, ntopng) carry it in their webhook URL. ntopng-alertmanager is additionally limited to nflo0's IP in Envoy.
 # External hook `truenas-gitops` verifies GitHub's X-Hub-Signature-256 (GITHUB_WEBHOOK_SECRET) and touches /trigger/poke.
 # Sonarr/Radarr API targets and app URLs come from env (never from the request or payload).
@@ -35,28 +35,10 @@
           type: value
           value: '{{ cat `/secret/token` }}'
           parameter: {source: url, name: token}
-  pass-environment-to-command:
-    - envname: RADARR_PUSHOVER_URL
-      source: string
+  pass-arguments-to-command:
+    - source: string
       name: '{{ getenv "RADARR_PUSHOVER_URL" }}'
-    - envname: RADARR_EVENT_TYPE
-      source: payload
-      name: eventType
-    - envname: RADARR_MOVIE_TITLE
-      source: payload
-      name: movie.title
-    - envname: RADARR_MOVIE_YEAR
-      source: payload
-      name: movie.year
-    - envname: RADARR_MOVIE_OVERVIEW
-      source: payload
-      name: movie.overview
-    - envname: RADARR_MOVIE_TMDB_ID
-      source: payload
-      name: movie.tmdbId
-    - envname: RADARR_DOWNLOAD_CLIENT
-      source: payload
-      name: downloadClient
+    - source: entire-payload
 
 - id: sonarr-pushover
   execute-command: /config/sonarr-pushover.sh
@@ -70,31 +52,10 @@
           type: value
           value: '{{ cat `/secret/token` }}'
           parameter: {source: url, name: token}
-  pass-environment-to-command:
-    - envname: SONARR_PUSHOVER_URL
-      source: string
+  pass-arguments-to-command:
+    - source: string
       name: '{{ getenv "SONARR_PUSHOVER_URL" }}'
-    - envname: SONARR_EVENT_TYPE
-      source: payload
-      name: eventType
-    - envname: SONARR_SERIES_TITLE
-      source: payload
-      name: series.title
-    - envname: SONARR_SERIES_TITLE_SLUG
-      source: payload
-      name: series.titleSlug
-    - envname: SONARR_EPISODE_TITLE
-      source: payload
-      name: episodes.0.title
-    - envname: SONARR_EPISODE_SEASON_NUMBER
-      source: payload
-      name: episodes.0.seasonNumber
-    - envname: SONARR_EPISODE_NUMBER
-      source: payload
-      name: episodes.0.episodeNumber
-    - envname: SONARR_DOWNLOAD_CLIENT
-      source: payload
-      name: downloadClient
+    - source: entire-payload
 
 - id: sonarr-refresh-series
   execute-command: /config/sonarr-refresh-series.sh
@@ -204,3 +165,71 @@
     - envname: GH_HEAD_BRANCH
       source: payload
       name: check_run.check_suite.head_branch
+
+- id: prowlarr-pushover
+  execute-command: /config/prowlarr-pushover.sh
+  command-working-directory: /config
+  trigger-rule-mismatch-http-response-code: 403
+  trigger-rule:
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
+  pass-arguments-to-command:
+    - source: string
+      name: '{{ getenv "AUTOBRR_PUSHOVER_URL" }}'
+    - source: entire-payload
+
+- id: chaptarr-pushover
+  execute-command: /config/chaptarr-pushover.sh
+  command-working-directory: /config
+  trigger-rule-mismatch-http-response-code: 403
+  trigger-rule:
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
+  pass-arguments-to-command:
+    - source: string
+      name: '{{ getenv "SONARR_PUSHOVER_URL" }}'
+    - source: entire-payload
+
+- id: autobrr-pushover
+  execute-command: /config/autobrr-pushover.sh
+  command-working-directory: /config
+  trigger-rule-mismatch-http-response-code: 403
+  trigger-rule:
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
+  pass-arguments-to-command:
+    - source: string
+      name: '{{ getenv "AUTOBRR_PUSHOVER_URL" }}'
+    - source: entire-payload
+
+- id: qui-pushover
+  execute-command: /config/qui-pushover.sh
+  command-working-directory: /config
+  trigger-rule-mismatch-http-response-code: 403
+  trigger-rule:
+    and:
+      # fail closed: an empty/short token never matches, even if the secret file were empty
+      - match: {type: regex, regex: '^[0-9a-f]{64}$', parameter: {source: url, name: token}}
+      - match:
+          type: value
+          value: '{{ cat `/secret/token` }}'
+          parameter: {source: url, name: token}
+  pass-arguments-to-command:
+    - source: string
+      name: '{{ getenv "AUTOBRR_PUSHOVER_URL" }}'
+    - source: entire-payload

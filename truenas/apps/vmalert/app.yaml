@@ -11,3 +11,7 @@ ui:
   description: "Alerting/recording rules for nas01 VictoriaMetrics"
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/victoriametrics.png
   home: https://docs.victoriametrics.com/vmalert/
+validate:
+  service: vmalert
+  entrypoint: /vmalert-prod
+  args: ["-rule=/etc/vmalert/rules.yaml", "-dryRun"]

@@ -87,7 +87,7 @@ function update_series_tags() {
 
     # Identify tags to remove
     for tag_id in $(echo "${series_tags}" | jq --raw-output '.[]'); do
-        local tag_label="${TAG_CACHE[$tag_id]}"
+        local tag_label="${TAG_CACHE[$tag_id]:-}"
         if [[ -n "${tag_label}" && ! " ${codecs} " =~ ${tag_label} ]] && [[ "${tag_label}" =~ codec:.* ]]; then
             tags_to_remove+=("$tag_id")
         fi
@@ -107,7 +107,7 @@ function update_series_tags() {
 function tag() {
     if [[ "${SONARR_EVENT_TYPE}" == "Test" ]]; then
         echo "[DEBUG] test event received, nothing to do ..."
-    elif [[ "${SONARR_EVENT_TYPE}" == "Download" ]]; then
+    elif [[ "${SONARR_EVENT_TYPE}" =~ ^(Download|ImportComplete|EpisodeFileDelete)$ ]]; then
         cache_existing_tags
 
         local orig_series_data

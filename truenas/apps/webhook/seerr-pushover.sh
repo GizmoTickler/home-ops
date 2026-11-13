@@ -10,8 +10,6 @@ PAYLOAD=${2:?}
 
 SEERR_URL="${SEERR_URL:?SEERR_URL env var is required}"
 
-echo "[DEBUG] Payload: ${PAYLOAD}"
-
 function _jq() {
     jq --raw-output "${1:?}" <<<"${PAYLOAD}"
 }
@@ -89,7 +87,7 @@ function notify() {
         printf -v PUSHOVER_PRIORITY "low"
     fi
 
-    apprise -vv --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
+    apprise --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
         "${SEERR_PUSHOVER_URL}?url=$(urienc "${PUSHOVER_URL}")&url_title=$(urienc "${PUSHOVER_URL_TITLE}")&priority=$(urienc "${PUSHOVER_PRIORITY}")&format=html"
 }
 

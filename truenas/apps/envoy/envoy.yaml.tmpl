@@ -1179,6 +1179,55 @@ static_resources:
           - name: envoy.filters.http.router
             typed_config:
               '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  - name: alertmanager_ingest
+    address:
+      socket_address:
+        address: 172.31.200.254
+        port_value: 9093
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          '@type': type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          stat_prefix: alertmanager_ingest
+          normalize_path: true
+          route_config:
+            name: alertmanager_ingest
+            virtual_hosts:
+            - name: alertmanager_ingest
+              domains:
+              - '*'
+              routes:
+              - match:
+                  path: /api/v2/alerts
+                  headers:
+                  - name: :method
+                    string_match:
+                      exact: POST
+                route:
+                  cluster: alertmanager
+                  timeout: 10s
+              - match:
+                  prefix: /
+                direct_response:
+                  status: 404
+          http_filters:
+          - name: envoy.filters.http.rbac
+            typed_config:
+              '@type': type.googleapis.com/envoy.extensions.filters.http.rbac.v3.RBAC
+              rules:
+                action: ALLOW
+                policies:
+                  webhook:
+                    permissions:
+                    - any: true
+                    principals:
+                    - direct_remote_ip:
+                        address_prefix: 172.31.200.253
+                        prefix_len: 32
+          - name: envoy.filters.http.router
+            typed_config:
+              '@type': type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
   clusters:
   # OAuth2-protected apps carry active HTTP health checks (Envoy -> backend directly, unauthenticated paths that
   # never pass through the OAuth2 filter): Gatus only sees the filter's 302 for them, so
