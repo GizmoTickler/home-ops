@@ -2,6 +2,7 @@
 # Listens: atuin:80 on the shared `apps` network; https://atuin.<domain> via Caddy.
 # Data:    /mnt/flashstor/apps/atuin-config (SQLite)
 # Also served as sh.<domain> (alias host in the Caddyfile).
+# Registration closed (existing users keep syncing).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -12,13 +13,13 @@ services:
     image: ghcr.io/atuinsh/atuin:18.24.1@sha256:b9a8369b4016dddcd90d23906f1d63dd883f459c6aaecec3be87cf481e8ac88d
     restart: unless-stopped
     user: "1000:1000"
-    command: [start]           # image entrypoint is atuin-server
+    command: [start]
     environment:
       TZ: "America/New_York"
       ATUIN_DB_URI: "sqlite:///config/atuin.db"
       ATUIN_HOST: "0.0.0.0"
       ATUIN_PORT: "80"
-      ATUIN_OPEN_REGISTRATION: "true"
+      ATUIN_OPEN_REGISTRATION: "false"
     networks: [apps]
     volumes:
       - /mnt/flashstor/apps/atuin-config:/config

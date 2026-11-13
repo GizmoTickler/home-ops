@@ -110,6 +110,11 @@ http://:9180 {
 
 	@webhook host webhook.{$DOMAIN}
 	handle @webhook {
+		@ntopng_other {
+			path /hooks/ntopng-alertmanager
+			not remote_ip 192.168.120.9
+		}
+		respond @ntopng_other 403
 		reverse_proxy webhook:80
 	}
 

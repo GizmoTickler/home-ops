@@ -1,6 +1,8 @@
 # Webhook — Notification hooks (Seerr/Radarr/Sonarr -> Pushover, Sonarr helpers, ntopng -> Alertmanager)
 # Listens: webhook:80 on the shared `apps` network; https://webhook.<domain> via Caddy.
 # Data:    /mnt/flashstor/apps/webhook-config (hooks.yaml + scripts rendered from this directory)
+# Every hook needs ?token=<secret> (file /mnt/flashstor/apps/webhook-secret/token on nas01, not in git);
+# ntopng-alertmanager is also limited to nflo0 (192.168.120.9) in the Caddyfile.
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -19,9 +21,14 @@ services:
       RADARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/radarr/RADARR_PUSHOVER_TOKEN }}"
       SONARR_PUSHOVER_URL: "pover://{{ op://Infrastructure/pushover/PUSHOVER_USER_KEY }}@{{ op://Infrastructure/sonarr/SONARR_PUSHOVER_TOKEN }}"
       SONARR_API_KEY: "{{ op://Infrastructure/sonarr/SONARR_API_KEY }}"
+      SONARR_URL: "http://sonarr:80"
+      SONARR_APPLICATION_URL: "https://sonarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      RADARR_APPLICATION_URL: "https://radarr.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      ALERTMANAGER_URL: "http://alertmanager:9093"
     networks: [apps]
     volumes:
       - /mnt/flashstor/apps/webhook-config:/config:ro
+      - /mnt/flashstor/apps/webhook-secret:/secret:ro
     tmpfs:
       - /tmp:size=32m
     read_only: true

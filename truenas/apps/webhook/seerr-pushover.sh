@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# URL-encode a value for the apprise query string
+function urienc() { jq --raw-output --null-input --arg u "${1}" '$u|@uri'; }
+
+
 SEERR_PUSHOVER_URL=${1:?}
 PAYLOAD=${2:?}
 
@@ -86,7 +90,7 @@ function notify() {
     fi
 
     apprise -vv --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
-        "${SEERR_PUSHOVER_URL}?url=${PUSHOVER_URL}&url_title=${PUSHOVER_URL_TITLE}&priority=${PUSHOVER_PRIORITY}&format=html"
+        "${SEERR_PUSHOVER_URL}?url=$(urienc "${PUSHOVER_URL}")&url_title=$(urienc "${PUSHOVER_URL_TITLE}")&priority=$(urienc "${PUSHOVER_PRIORITY}")&format=html"
 }
 
 function main() {

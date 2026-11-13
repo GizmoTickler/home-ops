@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remove the port from the IP address since Sonarr listens on port 80
-SONARR_REMOTE_ADDR=${SONARR_REMOTE_ADDR%%:*}
+# Sonarr API target comes from env (fixed), never from the request; the series id must be numeric.
+SONARR_URL="${SONARR_URL:?SONARR_URL env var is required}"
+if [[ "${SONARR_EVENT_TYPE:-}" != "Test" && ! "${SONARR_SERIES_ID:-}" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] invalid series id"; exit 1
+fi
 
 # Cache existing tags once at the start
 declare -A TAG_CACHE
 
 # Function to cache existing tags
 function cache_existing_tags() {
-    existing_tags_cache=$(curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "http://${SONARR_REMOTE_ADDR}/api/v3/tag")
+    existing_tags_cache=$(curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "${SONARR_URL}/api/v3/tag")
     while IFS=":" read -r id label; do
         TAG_CACHE["$id"]="$label"
     done < <(echo "${existing_tags_cache}" | jq --raw-output '.[] | "\(.id):\(.label)"')
@@ -22,7 +25,7 @@ function get_codec_tags() {
     # Extract and map codecs in one pass
     local codecs
     codecs=$(
-        curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "http://${SONARR_REMOTE_ADDR}/api/v3/episodefile?seriesId=${series_id}" | jq --raw-output '
+        curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "${SONARR_URL}/api/v3/episodefile?seriesId=${series_id}" | jq --raw-output '
         [
             .[] |
             (.mediaInfo.videoCodec // "other" |
@@ -49,7 +52,7 @@ function get_or_create_tag_id() {
     # If tag doesn't exist, create it
     if [[ -z "${tag_id}" ]]; then
         local new_tag
-        new_tag=$(curl -fsSL --request POST --header "X-Api-Key: ${SONARR_API_KEY}" --header "Content-Type: application/json" --data "$(jo label="${tag_label}")" "http://${SONARR_REMOTE_ADDR}/api/v3/tag")
+        new_tag=$(curl -fsSL --request POST --header "X-Api-Key: ${SONARR_API_KEY}" --header "Content-Type: application/json" --data "$(jo label="${tag_label}")" "${SONARR_URL}/api/v3/tag")
         tag_id=$(echo "${new_tag}" | jq --raw-output '.id')
 
         # Update cache
@@ -103,12 +106,12 @@ function update_series_tags() {
 
 function tag() {
     if [[ "${SONARR_EVENT_TYPE}" == "Test" ]]; then
-        echo "[DEBUG] test event received from ${SONARR_REMOTE_ADDR}, nothing to do ..."
+        echo "[DEBUG] test event received, nothing to do ..."
     elif [[ "${SONARR_EVENT_TYPE}" == "Download" ]]; then
         cache_existing_tags
 
         local orig_series_data
-        orig_series_data=$(curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "http://${SONARR_REMOTE_ADDR}/api/v3/series/${SONARR_SERIES_ID}")
+        orig_series_data=$(curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "${SONARR_URL}/api/v3/series/${SONARR_SERIES_ID}")
 
         local series_episode_file_count
         series_episode_file_count=$(echo "${orig_series_data}" | jq --raw-output '.statistics.episodeFileCount')
@@ -140,7 +143,7 @@ function tag() {
         curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" \
             --request PUT \
             --header "Content-Type: application/json" \
-            --data "${updated_series_data}" "http://${SONARR_REMOTE_ADDR}/api/v3/series" &>/dev/null
+            --data "${updated_series_data}" "${SONARR_URL}/api/v3/series" &>/dev/null
     fi
 }
 

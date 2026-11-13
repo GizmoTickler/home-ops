@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remove the port from the IP address since Sonarr listens on port 80
-SONARR_REMOTE_ADDR=${SONARR_REMOTE_ADDR%%:*}
+# Sonarr API target comes from env (fixed), never from the request; the series id must be numeric.
+SONARR_URL="${SONARR_URL:?SONARR_URL env var is required}"
+if [[ "${SONARR_EVENT_TYPE:-}" != "Test" && ! "${SONARR_SERIES_ID:-}" =~ ^[0-9]+$ ]]; then
+    echo "[ERROR] invalid series id"; exit 1
+fi
 
 function refresh() {
     if [[ "${SONARR_EVENT_TYPE}" == "Test" ]]; then
-        echo "[DEBUG] test event received from ${SONARR_REMOTE_ADDR}, nothing to do ..."
+        echo "[DEBUG] test event received, nothing to do ..."
     elif [[ "${SONARR_EVENT_TYPE}" == "Grab" ]]; then
         episodes=$(
-            curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "http://${SONARR_REMOTE_ADDR}/api/v3/episode?seriesId=${SERIES_ID}" |
+            curl -fsSL --header "X-Api-Key: ${SONARR_API_KEY}" "${SONARR_URL}/api/v3/episode?seriesId=${SONARR_SERIES_ID}" |
                 jq --raw-output '[.[] | select((.title == "TBA") or (.title == "TBD"))] | length'
         )
         if ((episodes > 0)); then
@@ -17,8 +20,8 @@ function refresh() {
             curl -fsSL --request POST \
                 --header "X-Api-Key: ${SONARR_API_KEY}" \
                 --header "Content-Type: application/json" \
-                --data-binary "$(jo name=RefreshSeries seriesId="${SERIES_ID}")" \
-                "http://${SONARR_REMOTE_ADDR}/api/v3/command" &>/dev/null
+                --data-binary "$(jo name=RefreshSeries seriesId="${SONARR_SERIES_ID}")" \
+                "${SONARR_URL}/api/v3/command" &>/dev/null
         fi
     fi
 }

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# URL-encode a value for the apprise query string
+function urienc() { jq --raw-output --null-input --arg u "${1}" '$u|@uri'; }
+
+
+SONARR_APPLICATION_URL="${SONARR_APPLICATION_URL:?SONARR_APPLICATION_URL env var is required}"  # from env, never the payload
+
 function notify() {
     if [[ "${SONARR_EVENT_TYPE}" == "Test" ]]; then
         printf -v PUSHOVER_TITLE "Test Notification"
@@ -32,7 +38,7 @@ function notify() {
     fi
 
     apprise -vv --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
-        "${SONARR_PUSHOVER_URL}?url=${PUSHOVER_URL}&url_title=${PUSHOVER_URL_TITLE}&priority=${PUSHOVER_PRIORITY}&format=html"
+        "${SONARR_PUSHOVER_URL}?url=$(urienc "${PUSHOVER_URL}")&url_title=$(urienc "${PUSHOVER_URL_TITLE}")&priority=$(urienc "${PUSHOVER_PRIORITY}")&format=html"
 }
 
 function main() {
