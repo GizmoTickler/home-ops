@@ -14,7 +14,7 @@ x-net-base: &net-base
   cap_drop: [ALL]
   cap_add: [NET_ADMIN]
   networks: [wan]
-  dns: [1.1.1.1, 9.9.9.9]
+  dns_search: ["."]
   dns_opt: ["attempts:5", "timeout:2", "single-request-reopen"]
   environment:
     TZ: America/New_York
@@ -22,6 +22,11 @@ x-net-base: &net-base
   command:
     - |
       iptables -C OUTPUT -o lo -j ACCEPT 2>/dev/null || iptables -I OUTPUT 1 -o lo -j ACCEPT
+      for dns_ip in 10.53.53.53/32 192.168.123.250/32 192.168.123.251/32; do
+        for proto in udp tcp; do
+          iptables -C OUTPUT -p "$$proto" -d "$$dns_ip" --dport 53 -j ACCEPT 2>/dev/null || iptables -A OUTPUT -p "$$proto" -d "$$dns_ip" --dport 53 -j ACCEPT
+        done
+      done
       for cidr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10; do
         iptables -C OUTPUT -d "$$cidr" -j REJECT --reject-with icmp-net-prohibited 2>/dev/null || iptables -A OUTPUT -d "$$cidr" -j REJECT --reject-with icmp-net-prohibited
       done
@@ -30,7 +35,7 @@ x-net-base: &net-base
       trap 'exit 0' TERM INT
       while :; do sleep 3600 & wait $$!; done
   healthcheck:
-    test: ["CMD-SHELL", "iptables -C OUTPUT -d 192.168.0.0/16 -j REJECT --reject-with icmp-net-prohibited && iptables -C OUTPUT -d 172.16.0.0/12 -j REJECT --reject-with icmp-net-prohibited && iptables -C OUTPUT -d 10.0.0.0/8 -j REJECT --reject-with icmp-net-prohibited"]
+    test: ["CMD-SHELL", "iptables -C OUTPUT -p udp -d 10.53.53.53/32 --dport 53 -j ACCEPT && iptables -C OUTPUT -d 192.168.0.0/16 -j REJECT --reject-with icmp-net-prohibited && iptables -C OUTPUT -d 172.16.0.0/12 -j REJECT --reject-with icmp-net-prohibited && iptables -C OUTPUT -d 10.0.0.0/8 -j REJECT --reject-with icmp-net-prohibited"]
     interval: 30s
     timeout: 5s
     retries: 3
@@ -50,7 +55,7 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     networks: [wan]
-    dns: [1.1.1.1, 9.9.9.9]
+    dns_search: ["."]
     environment:
       TZ: America/New_York
       GITHUB_APP_ID: "{{ op://Infrastructure/actions-runner/ACTIONS_RUNNER_APP_ID }}"
