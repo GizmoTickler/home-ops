@@ -31,5 +31,5 @@ services:
       - /sys:/host/sys:ro
     deploy:
       resources:
-        limits: {cpus: "0.5", memory: 256M}
+        limits: {cpus: "2", memory: 256M}
     logging: *logging

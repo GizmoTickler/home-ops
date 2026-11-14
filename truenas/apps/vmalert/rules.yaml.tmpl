@@ -2168,9 +2168,9 @@ groups:
       severity: warning
   - alert: ContainerCPUThrottled
     annotations:
-      description: Container {{ $labels.name }} is CPU-throttled on {{ $value | humanizePercentage }} of CFS periods.
+      description: Container {{ $labels.name }} is CPU-throttled on {{ $value | humanizePercentage }} of CFS periods while using >50% of its CPU quota.
       summary: Container CPU throttling above 25%
-    expr: (rate(container_cpu_cfs_throttled_periods_total{job="cadvisor",name!=""}[5m]) / (rate(container_cpu_cfs_periods_total{job="cadvisor",name!=""}[5m]) > 0)) > 0.25
+    expr: ((rate(container_cpu_cfs_throttled_periods_total{job="cadvisor",name!=""}[5m]) / (rate(container_cpu_cfs_periods_total{job="cadvisor",name!=""}[5m]) > 0)) > 0.25) and ((rate(container_cpu_usage_seconds_total{job="cadvisor",name!=""}[5m]) / ((container_spec_cpu_quota{job="cadvisor",name!=""} / (container_spec_cpu_period{job="cadvisor",name!=""} > 0)) > 0)) > 0.50)
     for: 10m
     keep_firing_for: 5m
     labels:

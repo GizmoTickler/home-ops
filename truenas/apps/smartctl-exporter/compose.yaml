@@ -25,5 +25,5 @@ services:
       - {host_ip: 192.168.120.10, target: 9633, published: 9633, protocol: tcp}
     deploy:
       resources:
-        limits: {cpus: "0.5", memory: 256M}
+        limits: {cpus: "2", memory: 256M}
     logging: *logging
