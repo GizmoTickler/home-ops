@@ -767,7 +767,11 @@ groups:
 
         only observable upstream-health signal (see report for the exporter gap).'
       summary: dnscrypt-proxy upstream {{ $labels.server }} slow on {{ $labels.instance }}
-    expr: dnscrypt_proxy_server_response_time_average_ms{job="dnscrypt-proxy"} > 250
+    # Only servers that actually carried queries: dnscrypt-proxy stops picking a server after one slow answer, so an
+    # idle server's average freezes (e.g. one timeout during a failover pinned dns1/cf-gateway at 5000 ms, 2026-11-13).
+    expr: |
+      (dnscrypt_proxy_server_response_time_average_ms{job="dnscrypt-proxy"} > 250)
+      and on(instance, server) (increase(dnscrypt_proxy_server_queries_total{job="dnscrypt-proxy"}[10m]) > 0)
     for: 10m
     keep_firing_for: 5m
     labels:
