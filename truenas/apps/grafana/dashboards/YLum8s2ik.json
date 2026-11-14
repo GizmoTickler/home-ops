@@ -42,10 +42,11 @@
       }
     ]
   },
-  "description": "ZFS health, ARC/L2ARC and per-dataset I/O from node_exporter on nas01.",
+  "description": "ZFS pool & dataset capacity, scrub status, ARC/L2ARC and per-dataset I/O from node_exporter on nas01.",
   "editable": true,
   "gnetId": 7845,
   "graphTooltip": 0,
+  "id": null,
   "iteration": 1574354030467,
   "links": [],
   "panels": [
@@ -109,7 +110,7 @@
       },
       "gridPos": {
         "h": 4,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 1
       },
@@ -151,7 +152,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Free space as seen by each pool's root dataset (statfs). Reservations/quotas on child datasets are not reflected; zpool-level capacity is not exported by node_exporter.",
+      "description": "Logical ZFS usable space utilization (used / (used + avail)) per pool root dataset, including all child datasets, zvols, and snapshots.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -159,23 +160,33 @@
           },
           "decimals": 1,
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
               }
             ]
           },
-          "unit": "bytes"
+          "unit": "percent"
         },
         "overrides": []
       },
       "gridPos": {
         "h": 4,
-        "w": 8,
-        "x": 8,
+        "w": 5,
+        "x": 6,
         "y": 1
       },
       "id": 3,
@@ -201,14 +212,79 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "node_filesystem_avail_bytes{instance=~\"$instance\",fstype=\"zfs\",mountpoint=~\"/mnt/[^/.]+\"}",
+          "expr": "100 * node_zfs_dataset_used_bytes{instance=~\"$instance\",dataset!~\".*/.*\"} / clamp_min(node_zfs_dataset_used_bytes{instance=~\"$instance\",dataset!~\".*/.*\"} + node_zfs_dataset_avail_bytes{instance=~\"$instance\",dataset!~\".*/.*\"}, 1)",
           "instant": true,
-          "legendFormat": "{{device}}",
+          "legendFormat": "{{zpool}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Available space (pool root dataset)",
+      "title": "Pool used % (usable)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Logical usable space remaining on each ZFS pool root dataset (zfs avail).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 11,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "node_zfs_dataset_avail_bytes{instance=~\"$instance\",dataset!~\".*/.*\"}",
+          "instant": true,
+          "legendFormat": "{{zpool}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Available space (usable)",
       "type": "stat"
     },
     {
@@ -1323,6 +1399,244 @@
       ],
       "title": "Read ops by dataset",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "id": 40,
+      "panels": [],
+      "title": "Pool Capacity, Scrubs & Dataset Usage",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Top-level ZFS datasets and zvols ranked by logical used space (including descendants and snapshots).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-BlPu"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 51
+      },
+      "id": 41,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "12.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "topk(12, node_zfs_dataset_used_bytes{instance=~\"$instance\",dataset=~\".+/.+\"})",
+          "instant": true,
+          "legendFormat": "{{dataset}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Top-level datasets by used space",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Raw zpool allocated and free space in bytes from zpool list.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 51
+      },
+      "id": 42,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "node_zfs_zpool_allocated_bytes{instance=~\"$instance\"}",
+          "instant": true,
+          "legendFormat": "{{zpool}} allocated",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "node_zfs_zpool_free_bytes{instance=~\"$instance\"}",
+          "instant": true,
+          "legendFormat": "{{zpool}} free",
+          "range": false,
+          "refId": "B"
+        }
+      ],
+      "title": "Pool raw allocated vs free (zpool)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Elapsed time since each ZFS pool's last completed scrub (from zpool status).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1209600
+              },
+              {
+                "color": "red",
+                "value": 2592000
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "id": 43,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "time() - (node_zfs_zpool_last_scrub_end_timestamp_seconds{instance=~\"$instance\"} > 0)",
+          "instant": true,
+          "legendFormat": "{{zpool}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Time since last scrub",
+      "type": "stat"
     }
   ],
   "refresh": "1m",
@@ -1390,5 +1704,5 @@
   "timezone": "browser",
   "title": "ZFS",
   "uid": "YLum8s2ik",
-  "version": 2
+  "version": 3
 }

@@ -136,7 +136,7 @@ groups:
 
         Free up space or expand the volume.'
       summary: '{{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full'
-    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 85
+    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay|zfs"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay|zfs"})) * 100 > 85
     for: 10m
     keep_firing_for: 5m
     labels:
@@ -148,7 +148,7 @@ groups:
 
         Immediate action required to prevent service disruption.'
       summary: 'CRITICAL: {{ $labels.instance }} {{ $labels.mountpoint }} is {{ $value | humanize }}% full'
-    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay"})) * 100 > 95
+    expr: (1 - (node_filesystem_avail_bytes{job="node-exporter", fstype!~"tmpfs|overlay|zfs"} / node_filesystem_size_bytes{job="node-exporter", fstype!~"tmpfs|overlay|zfs"})) * 100 > 95
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -975,8 +975,8 @@ groups:
       description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left and is filling up.
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemspacefillingup
       summary: Filesystem is predicted to run out of space within the next 24 hours.
-    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 15) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""}[6h],
-      86400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}) * 100) < 15) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}[6h],
+      86400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} == 0)
     for: 1h
     labels:
       severity: warning
@@ -985,8 +985,8 @@ groups:
       description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left and is filling up fast.
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemspacefillingup
       summary: Filesystem is predicted to run out of space within the next 4 hours.
-    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 10) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""}[6h],
-      14400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""} == 0)
+    expr: ((((node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}) * 100) < 10) and (predict_linear(node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}[6h],
+      14400) < 0)) and (node_filesystem_readonly{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} == 0)
     for: 1h
     labels:
       severity: critical
@@ -995,7 +995,7 @@ groups:
       description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left.
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutofspace
       summary: Filesystem has less than 5% space left.
-    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 5) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}) * 100) < 5) and (node_filesystem_readonly{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}
       == 0)
     for: 30m
     labels:
@@ -1005,7 +1005,7 @@ groups:
       description: Filesystem on {{ $labels.device }}, mounted on {{ $labels.mountpoint }}, at {{ $labels.instance }} has only {{ printf "%.2f" $value }}% available space left.
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/node/nodefilesystemalmostoutofspace
       summary: Filesystem has less than 3% space left.
-    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!="",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!="",mountpoint!=""}) * 100) < 3) and (node_filesystem_readonly{job="node-exporter",fstype!="",mountpoint!=""}
+    expr: (((node_filesystem_avail_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""} / node_filesystem_size_bytes{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}) * 100) < 3) and (node_filesystem_readonly{job="node-exporter",fstype!~"^$|zfs",mountpoint!=""}
       == 0)
     for: 30m
     labels:
@@ -1771,6 +1771,46 @@ groups:
     expr: node_zfs_zpool_state{state!="online"} > 0
     labels:
       severity: critical
+  - alert: ZfsPoolSpaceWarning
+    annotations:
+      description: 'ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} is {{ printf "%.1f" $value }}% full (logical used / usable capacity). Free up space or expand the pool.'
+      summary: 'ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} is {{ printf "%.1f" $value }}% full'
+    expr: (node_zfs_dataset_used_bytes{job="node-exporter", dataset!~".*/.*"} / clamp_min(node_zfs_dataset_used_bytes{job="node-exporter", dataset!~".*/.*"} + node_zfs_dataset_avail_bytes{job="node-exporter", dataset!~".*/.*"}, 1)) * 100 > 85
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: storage
+      severity: warning
+  - alert: ZfsPoolSpaceCritical
+    annotations:
+      description: 'ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} is critically full at {{ printf "%.1f" $value }}% (logical used / usable capacity). Immediate action required to prevent write failures.'
+      summary: 'CRITICAL: ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} is {{ printf "%.1f" $value }}% full'
+    expr: (node_zfs_dataset_used_bytes{job="node-exporter", dataset!~".*/.*"} / clamp_min(node_zfs_dataset_used_bytes{job="node-exporter", dataset!~".*/.*"} + node_zfs_dataset_avail_bytes{job="node-exporter", dataset!~".*/.*"}, 1)) * 100 > 95
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: storage
+      severity: critical
+  - alert: ZfsPoolDataErrors
+    annotations:
+      description: 'ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} has {{ $value }} reported data or scrub error(s). Inspect `zpool status` immediately.'
+      summary: 'CRITICAL: ZFS pool {{ $labels.zpool }} on {{ $labels.instance }} has data/scrub errors ({{ $value }})'
+    expr: node_zfs_zpool_error_count{job="node-exporter"} > 0 or node_zfs_zpool_scrub_errors{job="node-exporter"} > 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: storage
+      severity: critical
+  - alert: ZfsCollectorStale
+    annotations:
+      description: 'The ZFS textfile collector on {{ $labels.instance }} is failing or has not updated metrics in over 5 minutes.'
+      summary: 'ZFS textfile collector on {{ $labels.instance }} is down or stale'
+    expr: node_zfs_collector_up{job="node-exporter"} == 0 or (time() - node_zfs_collector_last_success_timestamp_seconds{job="node-exporter"}) > 300
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
 - name: vmsingle.rules
   rules:
   - alert: VMSingleDown

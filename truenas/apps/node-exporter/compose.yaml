@@ -33,3 +33,28 @@ services:
       resources:
         limits: {cpus: "2", memory: 256M}
     logging: *logging
+
+  zfs-collector:
+    image: docker.io/library/python:3.15-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
+    restart: unless-stopped
+    network_mode: service:node-exporter
+    environment:
+      TZ: America/New_York
+      INTERVAL_SECONDS: "30"
+      TEXTFILE_PATH: /textfile/zfs.prom
+    command: ["python3", "-u", "/config/zfs-collector.py"]
+    cap_drop: [ALL]
+    cap_add: [SYS_CHROOT]
+    security_opt:
+      - no-new-privileges:true
+    devices:
+      - /dev/zfs:/dev/zfs
+    read_only: true
+    volumes:
+      - /:/host/root:ro
+      - /mnt/flashstor/apps/node-exporter-config/zfs-collector.py:/config/zfs-collector.py:ro
+      - /mnt/flashstor/observability/node-exporter/textfile:/textfile
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M}
+    logging: *logging

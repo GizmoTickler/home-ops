@@ -330,7 +330,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "",
+      "description": "Logical ZFS pool usable space utilization (used / (used + avail)) across all datasets, child volumes, and snapshots on flashstor from the node-exporter ZFS textfile collector.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -387,7 +387,7 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "editorMode": "code",
-          "expr": "(100 * (node_filesystem_size_bytes{job=\"node-exporter\", mountpoint=\"/mnt/flashstor\"} - node_filesystem_avail_bytes{job=\"node-exporter\", mountpoint=\"/mnt/flashstor\"}) / node_filesystem_size_bytes{job=\"node-exporter\", mountpoint=\"/mnt/flashstor\"}) * on(instance) group_left() (0 * node_uname_info{job=\"node-exporter\", nodename=\"nas01\"} + 1)",
+          "expr": "(100 * node_zfs_dataset_used_bytes{job=\"node-exporter\", dataset=\"flashstor\"} / clamp_min(node_zfs_dataset_used_bytes{job=\"node-exporter\", dataset=\"flashstor\"} + node_zfs_dataset_avail_bytes{job=\"node-exporter\", dataset=\"flashstor\"}, 1)) * on(instance) group_left() (0 * node_uname_info{job=\"node-exporter\", nodename=\"nas01\"} + 1)",
           "instant": true,
           "legendFormat": "__auto",
           "range": false,
@@ -1809,5 +1809,5 @@
   "timezone": "browser",
   "title": "nas01 & Home-Ops Overview",
   "uid": "nas01-overview",
-  "version": 1
+  "version": 3
 }
