@@ -47,7 +47,7 @@ x-net-base: &net-base
 
 services:
   token-broker:
-    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
+    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:7ece17219b5ce764fff8bd2206bf66a612580fdc82d84b0097fbe6f4e8729801
     sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "65532:1001"
@@ -85,7 +85,7 @@ services:
     <<: *net-base
 
   runner-1:
-    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
+    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:7ece17219b5ce764fff8bd2206bf66a612580fdc82d84b0097fbe6f4e8729801
     restart: unless-stopped
     user: "1001:1001"
     network_mode: service:net-1
@@ -118,7 +118,7 @@ services:
     logging: *logging
 
   runner-2:
-    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
+    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:7ece17219b5ce764fff8bd2206bf66a612580fdc82d84b0097fbe6f4e8729801
     restart: unless-stopped
     user: "1001:1001"
     network_mode: service:net-2
@@ -151,7 +151,7 @@ services:
     logging: *logging
 
   runner-3:
-    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
+    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:7ece17219b5ce764fff8bd2206bf66a612580fdc82d84b0097fbe6f4e8729801
     restart: unless-stopped
     user: "1001:1001"
     network_mode: service:net-3
@@ -184,7 +184,7 @@ services:
     logging: *logging
 
   runner-4:
-    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:c867ecdf82d4e8537ea8a41acc6addae09f069daec137e5614b87e4678a953e8
+    image: ghcr.io/home-operations/actions-runner:2.338.0@sha256:7ece17219b5ce764fff8bd2206bf66a612580fdc82d84b0097fbe6f4e8729801
     restart: unless-stopped
     user: "1001:1001"
     network_mode: service:net-4
