@@ -1,4 +1,4 @@
-# blackbox-exporter — ICMP/TCP/HTTP/DNS probes for VictoriaMetrics (devices, DNS, NFS, internet RTT, Envoy cert expiry).
+# blackbox-exporter — ICMP/TCP/HTTP/DNS probes for VictoriaMetrics (devices, DNS, internet RTT, Envoy cert expiry).
 # Listens: blackbox-exporter:9115 on the `monitoring` network (scraped by victoria-metrics only).
 # Config:  blackbox.yml (modules). Probes leave via the `egress` bridge, SNAT to 192.168.123.157 (SC01 TrustSec
 #          SGT 25, monitoring only); probes of nas01's own IPs stay on the host.

@@ -168,13 +168,11 @@ groups:
   rules:
   - alert: Nas01StorageBridgeMtuDegraded
     annotations:
-      description: 'br0 carries 192.168.120.10 — the primary address used for VM/NFS
+      description: 'br0 carries 192.168.120.10 — nas01''s primary address (web UI, apps,
 
-        storage traffic. Below 9000 every storage session negotiates
+        VMs). Below 9000 every jumbo-capable LAN session negotiates
 
-        MSS 1448 instead of 8948, roughly 6x the per-byte packet overhead on
-
-        the storage path.
+        MSS 1448 instead of 8948, roughly 6x the per-byte packet overhead.
 
 
         Usual cause: a container/VM veth attached to br0 at the default 1500,
@@ -196,20 +194,16 @@ groups:
       severity: warning
   - alert: Nas01StorageInterfaceMtuDegraded
     annotations:
-      description: 'A member of nas01''s storage fabric has left jumbo. The storage ports
+      description: 'A member of nas01''s LACP bond has left jumbo. bond0 and its four 10G
 
-        ens786f0 (VLAN 1201, 192.168.201.10) and ens786f1 (VLAN 1202,
+        slaves (eno1, eno2, ens787f0, ens787f1) must all sit at 9000 or br0
 
-        192.168.202.10), plus bond0 and its four 10G slaves (MGMT NFS on
+        (192.168.120.10) silently loses jumbo frames. The NVMe-oF storage
 
-        192.168.120.10), must all sit at 9000 or the NVMe-oF/NFS paths to
-
-        pve and the lab hosts silently lose jumbo frames. VLANs 1203/1204
-
-        were retired 2026-10-16.'
+        ports ens786f0/f1 (VLANs 1201/1202) were retired 2026-11-14.'
       runbook_url: https://docs.victoriametrics.com/
       summary: nas01 {{ $labels.device }} MTU is {{ $value }}, expected 9000
-    expr: node_network_mtu_bytes{instance=~"nas01.*", device=~"ens786f0|ens786f1|bond0|eno1|eno2|ens787f0|ens787f1"} != 9000
+    expr: node_network_mtu_bytes{instance=~"nas01.*", device=~"bond0|eno1|eno2|ens787f0|ens787f1"} != 9000
     for: 10m
     keep_firing_for: 5m
     labels:

@@ -8,6 +8,6 @@ health:
   netns: blackbox-exporter
 ui:
   title: Blackbox exporter
-  description: "ICMP/TCP/HTTP/DNS probes (devices, DNS, NFS, internet RTT, Envoy certificate expiry)"
+  description: "ICMP/TCP/HTTP/DNS probes (devices, DNS, internet RTT, Envoy certificate expiry)"
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/prometheus.png
   home: https://github.com/prometheus/blackbox_exporter

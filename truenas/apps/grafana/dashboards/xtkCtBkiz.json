@@ -521,14 +521,14 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "probe_success{job=~\"probe/observability/(dns|nfs)\"}",
+          "expr": "probe_success{job=~\"probe/observability/dns\"}",
           "instant": true,
           "legendFormat": "{{instance}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "DNS / NFS (TCP)",
+      "title": "DNS (TCP)",
       "type": "stat"
     },
     {
@@ -1107,13 +1107,13 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "probe_duration_seconds{job=~\"probe/observability/(dns|nfs)\"}",
+          "expr": "probe_duration_seconds{job=~\"probe/observability/dns\"}",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "DNS / NFS TCP connect time",
+      "title": "DNS TCP connect time",
       "type": "timeseries"
     },
     {
