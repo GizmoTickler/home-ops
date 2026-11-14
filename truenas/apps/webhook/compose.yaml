@@ -50,7 +50,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     deploy:
       resources:
-        limits: {cpus: "1", memory: 192M}
+        limits: {cpus: "2", memory: 512M}
     logging: *logging
 
 networks:

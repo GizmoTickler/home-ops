@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-function urienc() { jq --raw-output --null-input --arg u "${1}" '$u|@uri'; }
+# shellcheck source=pushover.sh
+source "${WEBHOOK_LIB_DIR:-/config}/pushover.sh"
 
 function htmlesc() {
     local s="${1}"
@@ -135,8 +136,8 @@ function notify() {
             ;;
     esac
 
-    apprise --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
-        "${SONARR_PUSHOVER_URL}?url=$(urienc "${PUSHOVER_URL}")&url_title=$(urienc "${PUSHOVER_URL_TITLE}")&priority=$(urienc "${PUSHOVER_PRIORITY}")&format=html"
+    send_pushover "${SONARR_PUSHOVER_URL}" "${PUSHOVER_TITLE}" "${PUSHOVER_MESSAGE}" \
+        "${PUSHOVER_URL}" "${PUSHOVER_URL_TITLE}" "${PUSHOVER_PRIORITY}"
 }
 
 function main() {

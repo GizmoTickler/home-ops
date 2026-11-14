@@ -51,6 +51,10 @@ files:
   dest: /mnt/flashstor/apps/webhook-config/autobrr-pushover.sh
   owner: 0:0
   mode: '0755'
+- template: pushover.sh
+  dest: /mnt/flashstor/apps/webhook-config/pushover.sh
+  owner: 0:0
+  mode: '0644'
 - template: qui-pushover.sh
   dest: /mnt/flashstor/apps/webhook-config/qui-pushover.sh
   owner: 0:0

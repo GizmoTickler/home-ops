@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# URL-encode a value for the apprise query string
-function urienc() { jq --raw-output --null-input --arg u "${1}" '$u|@uri'; }
+# shellcheck source=pushover.sh
+source "${WEBHOOK_LIB_DIR:-/config}/pushover.sh"
 
 
 SEERR_PUSHOVER_URL=${1:?}
@@ -87,8 +87,8 @@ function notify() {
         printf -v PUSHOVER_PRIORITY "low"
     fi
 
-    apprise --title "${PUSHOVER_TITLE}" --body "${PUSHOVER_MESSAGE}" --input-format html \
-        "${SEERR_PUSHOVER_URL}?url=$(urienc "${PUSHOVER_URL}")&url_title=$(urienc "${PUSHOVER_URL_TITLE}")&priority=$(urienc "${PUSHOVER_PRIORITY}")&format=html"
+    send_pushover "${SEERR_PUSHOVER_URL}" "${PUSHOVER_TITLE}" "${PUSHOVER_MESSAGE}" \
+        "${PUSHOVER_URL}" "${PUSHOVER_URL_TITLE}" "${PUSHOVER_PRIORITY}"
 }
 
 function main() {
