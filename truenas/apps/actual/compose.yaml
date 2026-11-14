@@ -8,7 +8,7 @@ x-logging: &logging
 
 services:
   actual:
-    image: ghcr.io/actualbudget/actual-server:26.10.0@sha256:24645e971da6bb1a1f953d6859e307a0b29be1e8b4130a35b3220c209b5b860c
+    image: ghcr.io/actualbudget/actual-server:26.11.0@sha256:06cf186569cf58d93e12659ff1a517b65b5b0ebee7050a3991d4bd8a1d398da6
     sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
