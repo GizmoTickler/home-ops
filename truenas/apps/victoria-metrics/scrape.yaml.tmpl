@@ -29,10 +29,8 @@ scrape_configs:
     - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - 10.255.255.46
-    - gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - 10.255.255.50
     - mgateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-    - cell-gateway0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-    - cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
   relabel_configs:
   - source_labels:
     - __address__
@@ -81,79 +79,16 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
-- job_name: staticScrape/observability/cgw1-wan-http/0
+# Cellular backup WAN health, measured on the Alta Route10 itself: its autorate controller pings 6 public
+# reflectors through the T-Mobile link ~3x/s and serves the results (plus the CAKE upload rate) on LAN :9100
+# (uhttpd, /cfg/post-cfg.d/zz_cake_autorate). Replaces the cell-gateway1 blackbox jobs (cgw1-wan-*).
+- job_name: route10-cellular
+  scrape_timeout: 10s
   static_configs:
   - targets:
-    - http://www.google.com
-    - http://www.amazon.com
+    - 10.255.255.50:9100
     labels:
-      job: cgw1-wan-http
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /probe
-  params:
-    module:
-    - http_2xx
-  relabel_configs:
-  - target_label: job
-    replacement: cgw1-wan-http
-  - source_labels:
-    - __address__
-    target_label: __param_target
-  - source_labels:
-    - __param_target
-    target_label: instance
-  - target_label: __address__
-    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
-- job_name: staticScrape/observability/cgw1-wan-probes/0
-  static_configs:
-  - targets:
-    - 8.8.8.8
-    - 9.9.9.9
-    - 208.67.222.222
-    labels:
-      job: cgw1-wan-probes
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /probe
-  params:
-    module:
-    - wan_reachability
-  relabel_configs:
-  - target_label: job
-    replacement: cgw1-wan-probes
-  - source_labels:
-    - __address__
-    target_label: __param_target
-  - source_labels:
-    - __param_target
-    target_label: instance
-  - target_label: __address__
-    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
-- job_name: staticScrape/observability/cgw1-wan-tcp/0
-  static_configs:
-  - targets:
-    - www.apple.com:80
-    - www.microsoft.com:80
-    labels:
-      job: cgw1-wan-tcp
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /probe
-  params:
-    module:
-    - tcp_connect
-  relabel_configs:
-  - target_label: job
-    replacement: cgw1-wan-tcp
-  - source_labels:
-    - __address__
-    target_label: __param_target
-  - source_labels:
-    - __param_target
-    target_label: instance
-  - target_label: __address__
-    replacement: cell-gateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9115
+      device: route10
 - job_name: staticScrape/observability/dnscrypt-proxy/0
   static_configs:
   - targets:

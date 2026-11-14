@@ -84,15 +84,9 @@ endpoints:
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-  - name: Backup router (gateway1)
+  - name: Cellular router (Route10)
     group: Network
-    url: icmp://10.255.255.252
-    interval: 1m
-    conditions:
-      - "[CONNECTED] == true"
-  - name: Cellular router (cell-gateway1)
-    group: Network
-    url: icmp://10.255.255.250
+    url: icmp://10.255.255.50
     interval: 1m
     conditions:
       - "[CONNECTED] == true"

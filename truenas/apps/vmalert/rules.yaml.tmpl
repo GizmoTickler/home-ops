@@ -8,15 +8,15 @@ groups:
   rules:
   # Generic "probe failing" for nas01's blackbox-exporter. Targets that already have a dedicated, better-worded rule
   # are excluded here so one failure pages once: the DNS job (DNSServerDown/DNSAllServersDown), dns0/dns1 device
-  # probes (DHCPPrimaryDown/DHCPAllServersDown), gateway1 (BackupGatewayDown), the internet RTT job
-  # (InternetUnreachable), the cell-gateway WAN probes (CellularWAN*) and the SSH probes (NetworkDeviceSSHDown).
+  # probes (DHCPPrimaryDown/DHCPAllServersDown), the internet RTT job
+  # (InternetUnreachable), the Route10 device probe (BackupGatewayDown) and the SSH probes (NetworkDeviceSSHDown).
   - alert: BlackboxProbeFailed
     annotations:
       description: 'blackbox-exporter on nas01 gets no answer from {{ $labels.instance }} (job {{ $labels.job }}) for 15 minutes.
 
         A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 15).'
       summary: Probe {{ $labels.job }} -> {{ $labels.instance }} is failing
-    expr: probe_success{job!~"probe/observability/(dns|internet)|cgw[01]-wan-.*|network-ssh-probes", instance!~"(gateway1|dns[01])[.].*"} == 0
+    expr: probe_success{job!~"probe/observability/(dns|internet)|network-ssh-probes", instance!~"dns[01][.].*|10[.]255[.]255[.]50"} == 0
     for: 15m
     labels:
       severity: critical
@@ -768,11 +768,11 @@ groups:
   rules:
   - alert: BackupGatewayDown
     annotations:
-      description: 'ICMP probe to gateway1 (ISR 4321) has been failing for over 10 minutes.
+      description: 'ICMP probe to the Alta Route10 (10.255.255.50, cellular backup router) has been failing for over 10 minutes.
 
         Cellular WAN backup is unavailable. Primary fiber (UXG-Fiber) is the only internet path.'
-      summary: Backup gateway (gateway1) is unreachable
-    expr: probe_success{job="probe/observability/devices",instance=~"gateway1.*"} == 0
+      summary: Backup gateway (Route10) is unreachable
+    expr: probe_success{job="probe/observability/devices",instance="10.255.255.50"} == 0
     for: 10m
     keep_firing_for: 5m
     labels:
@@ -780,13 +780,26 @@ groups:
       severity: warning
   - alert: CellularWANDown
     annotations:
-      description: '{{ $value }} of 7 multi-protocol probes from cell-gateway1 (the only cellular modem) are failing.
+      description: '{{ $value }} of 6 public reflectors are not answering through the T-Mobile link (pinged ~3x/s by the
+        Route10 autorate controller).
 
-        The backup internet path (gateway1 -> cell-gateway1) is unavailable; fiber (UXG) is the only path.'
-      summary: Cellular backup WAN (cell-gateway1) has lost internet reachability
-    expr: count(probe_success{job=~"cgw1-wan.*"} == 0) >= 5
+        The backup internet path (SC01 -> Route10 -> modem) is unavailable; fiber (UXG) is the only path.'
+      summary: Cellular backup WAN (Route10) has lost internet reachability
+    expr: count(cellular_reflector_up{job="route10-cellular"} == 0) >= 5
     for: 90s
     keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularMonitorDown
+    annotations:
+      description: 'No fresh cellular health data from the Route10 for 10 minutes: the scrape of 10.255.255.50:9100 fails
+        or the autorate controller stopped (its metrics file is stale). CellularWANDown cannot fire meanwhile.
+
+        On Route10, /cfg/post-cfg.d/zz_cake_autorate restarts both the controller and its metrics uhttpd.'
+      summary: Route10 cellular monitoring/autorate is not reporting
+    expr: (up{job="route10-cellular"} == 0) or (time() - cellular_autorate_last_update_timestamp_seconds{job="route10-cellular"} > 120)
+    for: 10m
     labels:
       component: gateway
       severity: warning
@@ -1129,10 +1142,10 @@ groups:
     annotations:
       description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }} targets are down. Jobs with their own up-rule
         (node-exporter: ExternalHostDown, snmp-*: SNMPTargetDown, DNS exporters: DNSResolverTargetDown, kea-dhcp4:
-        KeaExporterDown, cgw*-wan-*: BackupGatewayDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
+        KeaExporterDown, route10-cellular: CellularMonitorDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|cgw[01]-wan-.*|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|cgw[01]-wan-.*|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning

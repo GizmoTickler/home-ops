@@ -105,11 +105,10 @@ metrics:
       - {color: "red", min: 0, max: 0}
     title: Fiber
 
-  # Cellular backup: cell-gateway1's own WAN probes (the only modem; cell-gateway0 has no WAN). Repoint to the
-  # Route10 once it is built.
+  # Cellular backup: the Route10 autorate controller's reflector pings through the T-Mobile link (6 reflectors).
   - name: wan_cellular1
     query: |
-      (label_replace(vector(1), "status", "UP", "", "") and on() (count(probe_success{job=~"cgw1-wan.*"} == 1) >= 5))
+      (label_replace(vector(1), "status", "UP", "", "") and on() (count(cellular_reflector_up{job="route10-cellular"} == 1) >= 3))
       or label_replace(vector(0), "status", "DOWN", "", "")
     label: status
     colors:
