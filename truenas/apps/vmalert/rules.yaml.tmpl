@@ -376,6 +376,20 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: KeaServerNotReceiving
+    annotations:
+      description: 'kea-dhcp4 on {{ $labels.instance }} received no DHCP packets in 30 min while its HA partner did.
+        SC01 relays every broadcast to both servers, so a healthy pair receives near-equal counts: this one has no
+        working DHCP socket and every client in its load-balancing scope goes unanswered (its control socket still
+        answers, so KeaNotServing stays quiet). Seen 2026-11-14: Kea started before ens3 was up after a reboot.
+        Check: ss -ulnp sport = :67; journalctl -u kea-dhcp4 | grep -i socket; fix: systemctl restart kea-dhcp4.'
+      summary: Kea on {{ $labels.instance }} is not receiving DHCP traffic
+    expr: (sum by (instance) (increase(kea_dhcp4_packets_received_total{job="kea-dhcp4"}[30m])) == 0) and on() (sum(increase(kea_dhcp4_packets_received_total{job="kea-dhcp4"}[30m])) > 10)
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
   - alert: KeaExporterDown
     annotations:
       description: 'kea-exporter on {{ $labels.instance }} cannot be scraped; pool and lease alerts are blind for this
