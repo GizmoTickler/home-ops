@@ -1392,11 +1392,11 @@ groups:
         - Query `rate(vm_log_messages_total{job="{{ $labels.job }}",instance="{{ $labels.instance }}",level="warn"}[5m])` to find the source code locations generating the warnings.
 
 
-        NOTE: The metric `vm_log_messages_total` tracks all log messages including those suppressed by `-loggerLevel`. Check the `is_printed` label to see whether the log was actually printed.
+        NOTE: The metric `vm_log_messages_total` tracks all log messages including those suppressed by `-loggerLevel`. Check the `is_printed` label to see whether the log was actually printed. Routine scrape failures (`promscrape/scrapework.go`) are excluded here because target reachability is covered by `up == 0` rules.
 
         '
       summary: '"{{ $labels.job }}" ({{ $labels.instance }}) generates too many warn logs'
-    expr: sum(increase(vm_log_messages_total{level="warn"}[5m])) without(app_version,location,is_printed) > 0
+    expr: sum(increase(vm_log_messages_total{level="warn",location!~".*promscrape/scrapework[.]go.*"}[5m])) without(app_version,location,is_printed) > 0
     for: 15m
     labels:
       severity: warning
