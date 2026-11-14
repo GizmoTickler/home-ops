@@ -579,15 +579,6 @@ static_resources:
                 route:
                   cluster: webhook
                   timeout: 0s
-            - name: k8s_internal_fallback
-              domains:
-              - '*'
-              routes:
-              - match:
-                  prefix: /
-                route:
-                  cluster: k8s_internal
-                  timeout: 0s
           http_filters:
           - name: envoy.filters.http.rbac
             typed_config:
@@ -1125,15 +1116,6 @@ static_resources:
                   prefix: /
                 route:
                   cluster: kromgo
-                  timeout: 0s
-            - name: k8s_external_fallback
-              domains:
-              - '*'
-              routes:
-              - match:
-                  prefix: /
-                route:
-                  cluster: k8s_external
                   timeout: 0s
           http_filters:
           - name: envoy.filters.http.router
@@ -1811,55 +1793,3 @@ static_resources:
               socket_address:
                 address: webhook
                 port_value: 80
-  - name: k8s_internal
-    type: STATIC
-    connect_timeout: 5s
-    load_assignment:
-      cluster_name: k8s_internal
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: 192.168.255.11
-                port_value: 443
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        common_tls_context:
-          alpn_protocols:
-          - h2
-          - http/1.1
-    typed_extension_protocol_options:
-      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-        upstream_http_protocol_options:
-          auto_sni: true
-        auto_config: {}
-  - name: k8s_external
-    type: STATIC
-    connect_timeout: 5s
-    load_assignment:
-      cluster_name: k8s_external
-      endpoints:
-      - lb_endpoints:
-        - endpoint:
-            address:
-              socket_address:
-                address: 192.168.255.12
-                port_value: 443
-    transport_socket:
-      name: envoy.transport_sockets.tls
-      typed_config:
-        '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-        common_tls_context:
-          alpn_protocols:
-          - h2
-          - http/1.1
-    typed_extension_protocol_options:
-      envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
-        '@type': type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
-        upstream_http_protocol_options:
-          auto_sni: true
-        auto_config: {}

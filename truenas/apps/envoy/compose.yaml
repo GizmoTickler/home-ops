@@ -9,7 +9,6 @@
 # Certs:   wildcard *.<domain> issued/renewed by `lego` sidecar (Let's Encrypt DNS-01 via Cloudflare) into
 #          /mnt/flashstor/apps/envoy-certs; Envoy hot-reloads via watched_directory.
 # Config:  envoy.yaml + acme-renew.sh rendered by the reconciler to /mnt/flashstor/apps/envoy-config.
-#          Hostnames not migrated yet fall through to the k8s gateways (192.168.255.11 / .12).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
