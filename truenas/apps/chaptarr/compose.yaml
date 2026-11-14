@@ -8,7 +8,7 @@ x-logging: &logging
 
 services:
   chaptarr:
-    image: docker.io/chaptarr/chaptarr:0.9.965@sha256:bb00d67cbe1485d1cd61ef178362a29b42aa08f86b290841aab4b115ad2647a6
+    image: docker.io/chaptarr/chaptarr:0.9.1000@sha256:7bc5774c79bd6e2deb633dd8555116a672b56be03e2b756b29fb86bedd44944c
     sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
     restart: unless-stopped
     user: "1000:1000"
