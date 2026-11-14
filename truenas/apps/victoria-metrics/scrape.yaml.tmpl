@@ -21,7 +21,12 @@ scrape_configs:
     - nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - nas01-console.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - pve.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - pve-console.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - unifi.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - alta-control.management.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - aap-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - omarchy0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - omarchy1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - jellyfin.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - edge0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -172,8 +177,8 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
-# Primary-WAN (UXG-Fiber) latency/reachability from nas01's own blackbox-exporter. Same targets as
-# nflo0-icmp-rtt above, which needs nflo0's blackbox (powered off); kept separate so nothing is removed.
+# Primary-WAN (UXG-Fiber) latency/reachability from nas01's own blackbox-exporter; kept separate from
+# probe/observability/internet so WAN RTT dashboards keep matching job="wan-icmp-rtt".
 - job_name: wan-icmp-rtt
   honor_labels: false
   scrape_interval: 30s
@@ -256,8 +261,8 @@ scrape_configs:
     - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - aap-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - unifi-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
-    - 192.168.120.15:9100
-    - 192.168.120.16:9100
+    - omarchy0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - omarchy1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     labels:
       job: node-exporter
   honor_labels: false

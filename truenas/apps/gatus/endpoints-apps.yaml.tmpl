@@ -137,6 +137,19 @@ endpoints:
     interval: 1m
     conditions:
     - "[STATUS] == 302"
+  - name: Scrutiny
+    group: Apps
+    url: http://192.168.123.153/api/health
+    interval: 1m
+    conditions:
+    - "[STATUS] == 200"
+    - "[BODY].success == true"
+  - name: SeaweedFS (S3)
+    group: Apps
+    url: https://s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    interval: 1m
+    conditions:
+    - "[STATUS] == 403"
   - name: Seerr (requests)
     group: Apps
     url: https://requests.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/

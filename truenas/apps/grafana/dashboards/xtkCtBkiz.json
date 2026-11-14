@@ -48,7 +48,7 @@
       }
     ]
   },
-  "description": "At-a-glance reachability: blackbox probes (nas01 + cell gateways), scrape-target health, TLS expiry.",
+  "description": "At-a-glance reachability: blackbox probes, Route10 cellular backup WAN & CAKE autorate, scrape-target health, TLS expiry.",
   "editable": true,
   "gnetId": 7587,
   "graphTooltip": 0,
@@ -772,14 +772,14 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "min by (job) (probe_success{job=~\"cgw1-wan-.*\"})",
+          "expr": "cellular_reflector_up{job=\"route10-cellular\"}",
           "instant": true,
-          "legendFormat": "{{job}}",
+          "legendFormat": "{{reflector}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Backup WAN via cell-gateway1",
+      "title": "Backup WAN via Route10 (cellular reflectors)",
       "type": "stat"
     },
     {
@@ -1013,6 +1013,7 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "expr": "avg(probe_icmp_duration_seconds{job=\"wan-icmp-rtt\",phase=\"rtt\"})",
+          "instant": false,
           "legendFormat": "primary (UXG-Fiber)",
           "range": true,
           "refId": "A"
@@ -1022,13 +1023,25 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "avg(probe_icmp_duration_seconds{job=\"cgw1-wan-probes\",phase=\"rtt\"})",
-          "legendFormat": "cell-gateway1",
+          "expr": "avg(cellular_reflector_rtt_ms{job=\"route10-cellular\"}) / 1000",
+          "instant": false,
+          "legendFormat": "backup (Route10 cellular)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(cellular_reflector_baseline_ms{job=\"route10-cellular\"}) / 1000",
+          "instant": false,
+          "legendFormat": "backup baseline (Route10)",
           "range": true,
           "refId": "C"
         }
       ],
-      "title": "Internet ICMP RTT: primary (nas01) vs backup (cell gateways)",
+      "title": "Internet ICMP RTT: primary (UXG-Fiber) vs backup (Route10 cellular)",
       "type": "timeseries"
     },
     {
@@ -1183,6 +1196,263 @@
         "x": 0,
         "y": 46
       },
+      "id": 40,
+      "panels": [],
+      "title": "Route10 cellular backup & CAKE autorate",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 47
+      },
+      "id": 41,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_reflector_rtt_ms{job=\"route10-cellular\"}",
+          "instant": false,
+          "legendFormat": "{{reflector}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Route10 per-reflector RTT",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 47
+      },
+      "id": 42,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_shaper_rate_kbps{job=\"route10-cellular\"} * 1000",
+          "instant": false,
+          "legendFormat": "CAKE shaper ({{direction}})",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_throughput_kbps{job=\"route10-cellular\"} * 1000",
+          "instant": false,
+          "legendFormat": "throughput ({{direction}})",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Route10 CAKE shaper & throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 47
+      },
+      "id": 43,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(rate(cellular_bloat_samples_total{job=\"route10-cellular\"}[5m]))",
+          "instant": false,
+          "legendFormat": "bloat samples/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum by (reflector) (rate(cellular_probe_total{job=\"route10-cellular\",result=\"fail\"}[5m]))",
+          "instant": false,
+          "legendFormat": "fail {{reflector}}",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Route10 bufferbloat & failed probes",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
       "id": 30,
       "panels": [],
       "title": "Targets & certificates",
@@ -1207,7 +1477,7 @@
         "h": 10,
         "w": 14,
         "x": 0,
-        "y": 47
+        "y": 56
       },
       "id": 31,
       "options": {
@@ -1293,7 +1563,7 @@
         "h": 10,
         "w": 10,
         "x": 14,
-        "y": 47
+        "y": 56
       },
       "id": 32,
       "options": {
@@ -1308,7 +1578,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "min by (instance) ((probe_ssl_earliest_cert_expiry - time()) / 86400)",
+          "expr": "min by (instance) ((probe_ssl_earliest_cert_expiry - time()) / 86400) or min by (instance) (label_replace((gatus_results_certificate_expiration_seconds{job=\"gatus\", name=~\"TrueNAS.*|Proxmox.*|UniFi.*|1Password.*|Jellyfin|SeaweedFS.*\"} > 0) / 86400, \"instance\", \"$1\", \"name\", \"(.*)\"))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -1375,5 +1645,5 @@
   "timezone": "",
   "title": "Probes & Scrape Targets",
   "uid": "xtkCtBkiz",
-  "version": 3
+  "version": 4
 }

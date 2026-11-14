@@ -1,22 +1,23 @@
 # vmalert rules (truenas/apps/vmalert). Rendered by the reconciler.
-# Ported from the k8s VMRules that still apply without the cluster: UXG/SC01/SNMP/BGP, DNS/DHCP, WAN, external hosts
-# (node-exporter on nas01/pve VMs/RHEL VMs), ZFS/SMART, nas01 storage path, truenas apps GitOps, blackbox, gatus,
-# and the VictoriaMetrics/vmalert/Alertmanager self-monitoring. Dropped: kube*/etcd/k8s.rules, flux, cert-manager,
-# cnpg, kopiur, scale-csi, external-dns, keda, VictoriaLogs and all log-based rules, trustsec-sgacl-exporter (k8s pod).
+# Ported from the k8s VMRules that still apply without the cluster: WAN/Route10 cellular, DNS/DHCP, external hosts
+# (node-exporter on nas01/PVE VMs/admin VMs), ZFS/SMART, nas01 storage path, truenas apps GitOps, blackbox, gatus,
+# Envoy backends, cAdvisor containers, and the VictoriaMetrics/vmalert/Alertmanager self-monitoring. Dropped:
+# kube*/etcd/k8s.rules, flux, cert-manager, cnpg, kopiur, scale-csi, external-dns, keda, VictoriaLogs and all
+# log-based rules, trustsec-sgacl-exporter (k8s pod), and snmp-*/network-ssh-probes (nflo0/VyOS retired).
 groups:
 - name: prometheus-blackbox-exporter
   rules:
   # Generic "probe failing" for nas01's blackbox-exporter. Targets that already have a dedicated, better-worded rule
   # are excluded here so one failure pages once: the DNS job (DNSServerDown/DNSAllServersDown), dns0/dns1 device
-  # probes (DHCPPrimaryDown/DHCPAllServersDown), the internet RTT job
-  # (InternetUnreachable), the Route10 device probe (BackupGatewayDown) and the SSH probes (NetworkDeviceSSHDown).
+  # probes (DHCPPrimaryDown/DHCPAllServersDown), the internet RTT job (InternetUnreachable), the Route10 device
+  # probe (BackupGatewayDown), and aap-0/omarchy0/omarchy1 device probes (ExternalHostDown).
   - alert: BlackboxProbeFailed
     annotations:
       description: 'blackbox-exporter on nas01 gets no answer from {{ $labels.instance }} (job {{ $labels.job }}) for 15 minutes.
 
-        A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 15).'
+        A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 25).'
       summary: Probe {{ $labels.job }} -> {{ $labels.instance }} is failing
-    expr: probe_success{job!~"probe/observability/(dns|internet)|network-ssh-probes", instance!~"dns[01][.].*|10[.]255[.]255[.]50"} == 0
+    expr: probe_success{job!~"probe/observability/(dns|internet)", instance!~"dns[01][.].*|10[.]255[.]255[.]50|aap-0[.].*|omarchy[01][.].*"} == 0
     for: 15m
     labels:
       severity: critical
@@ -63,6 +64,15 @@ groups:
     for: 5m
     labels:
       severity: critical
+  - alert: GatusTLSCertificateExpiringSoon
+    annotations:
+      description: 'The TLS certificate presented by Gatus check "{{ $labels.name }}" ({{ $labels.group }}) expires in {{ $value | humanize }} days.'
+      summary: TLS certificate on {{ $labels.name }} expires in {{ $value | humanize }} days
+    expr: (gatus_results_certificate_expiration_seconds{job="gatus", name=~"TrueNAS.*|Proxmox.*|UniFi.*|1Password.*|Jellyfin|SeaweedFS.*"} > 0) / 86400 < 14
+    for: 1h
+    labels:
+      component: certificates
+      severity: warning
 - name: envoy-backends.rules
   rules:
   # The OAuth2-protected apps (bazarr, chaptarr, it-tools, nzbget, pinchflat, prowlarr, qbittorrent, radarr, seerr,
@@ -91,7 +101,7 @@ groups:
 
         Check host connectivity and service status.'
       summary: Host {{ $labels.instance }} is down
-    expr: up{job="node-exporter", instance!~".*k8s.*"} == 0
+    expr: up{job="node-exporter"} == 0
     for: 3m
     keep_firing_for: 5m
     labels:
@@ -158,13 +168,13 @@ groups:
   rules:
   - alert: Nas01StorageBridgeMtuDegraded
     annotations:
-      description: 'br0 carries 192.168.120.10 — the address scale-csi uses for NVMe-oF,
+      description: 'br0 carries 192.168.120.10 — the primary address used for VM/NFS
 
-        iSCSI and NFS. Below 9000 every Kubernetes storage session negotiates
+        storage traffic. Below 9000 every storage session negotiates
 
         MSS 1448 instead of 8948, roughly 6x the per-byte packet overhead on
 
-        the cluster''s entire storage path.
+        the storage path.
 
 
         Usual cause: a container/VM veth attached to br0 at the default 1500,
@@ -194,7 +204,7 @@ groups:
 
         192.168.120.10), must all sit at 9000 or the NVMe-oF/NFS paths to
 
-        pve and the k8s nodes silently lose jumbo frames. VLANs 1203/1204
+        pve and the lab hosts silently lose jumbo frames. VLANs 1203/1204
 
         were retired 2026-10-16.'
       runbook_url: https://docs.victoriametrics.com/
@@ -907,245 +917,16 @@ groups:
     labels:
       component: storage
       severity: critical
-- interval: 60s
-  name: snmp-availability.rules
-  rules:
-  - alert: SNMPTargetDown
-    annotations:
-      description: 'snmp_exporter (nflo0) is getting no SNMP reply from {{ $labels.instance }}.
-
-        If this is SC01 (10.255.255.253), it is the known TrustSec return-path gap
-
-        (cell 18->24 lacks `permit udp src eq snmp`) — see proposal SC01 SNMP fix.'
-      summary: SNMP target {{ $labels.instance }} not responding
-    expr: up{job=~"snmp.*"} == 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: warning
-- interval: 60s
-  name: snmp-interfaces.rules
-  rules:
-  - alert: InterfaceErrors
-    annotations:
-      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
-
-        is accumulating in/out errors (>1/s over 5m).'
-      summary: Interface errors on {{ $labels.instance }} {{ $labels.ifName }}
-    expr: rate(ifInErrors{job=~"snmp.*"}[5m]) + rate(ifOutErrors{job=~"snmp.*"}[5m]) > 1
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: warning
-  - alert: InterfaceDiscards
-    annotations:
-      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on {{ $labels.instance }}
-
-        is discarding packets (>50/s over 5m) — possible congestion or buffer pressure.'
-      summary: Interface discards on {{ $labels.instance }} {{ $labels.ifName }}
-    expr: rate(ifInDiscards{job=~"snmp.*"}[5m]) + rate(ifOutDiscards{job=~"snmp.*"}[5m]) > 50
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: warning
-  - alert: SC01PortChannelMemberPolarized
-    annotations:
-      description: '{{ $labels.ifAlias }} ({{ $labels.ifName }}) on SC01 dropped {{ $value | humanize }}
-
-        egress packets in 15m. If only one member of a Po10/Po20 bundle is dropping while
-
-        its siblings stay clean, the LACP hash is polarizing elephant flows (storage/vMotion)
-
-        onto a single 10G member. Fix by spreading flow-tuples at the source (nas01 bond
-
-        xmit_hash_policy, more NVMe-oF sessions) rather than changing SC01''s global hash.'
-      summary: SC01 port-channel member {{ $labels.ifName }} dropping (LACP polarization?)
-    expr: increase(ifOutDiscards{job=~"snmp.*",instance="10.255.255.253",ifName=~"Te1/0/1[0-6]"}[15m]) > 50000
-    for: 5m
-    keep_firing_for: 15m
-    labels:
-      component: network
-      severity: warning
-  - alert: UplinkDown
-    annotations:
-      description: 'Transit/uplink {{ $labels.ifAlias }} ({{ $labels.ifName }}) on
-
-        {{ $labels.instance }} is not in operational-up state.'
-      summary: 'Uplink down: {{ $labels.instance }} {{ $labels.ifName }}'
-    expr: ifOperStatus{job=~"snmp.*",ifOperStatus="up",ifAlias=~"(?i).*(transit|uplink|po1|po2|portchannel|nas01|pve).*"} == 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: critical
-- interval: 60s
-  name: snmp-cisco-health.rules
-  rules:
-  - alert: CiscoHighCPU
-    annotations:
-      description: 5-min CPU on {{ $labels.instance }} (index {{ $labels.cpmCPUTotalIndex }}) is {{ $value }}%.
-      summary: High CPU on {{ $labels.instance }}
-    expr: cpmCPUTotal5minRev{job=~"snmp.*"} > 75
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: warning
-  - alert: CiscoHighMemory
-    annotations:
-      description: Memory pool {{ $labels.ciscoMemoryPoolName }} on {{ $labels.instance }} is {{ $value | humanize }}% used.
-      summary: High memory on {{ $labels.instance }} ({{ $labels.ciscoMemoryPoolName }})
-    expr: "100 * ciscoMemoryPoolUsed{job=~\"snmp.*\"}\n  / (ciscoMemoryPoolUsed{job=~\"snmp.*\"} + ciscoMemoryPoolFree{job=~\"snmp.*\"}) > 85"
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: warning
-- interval: 60s
-  name: snmp-bgp.rules
-  rules:
-  - alert: BGPPeerNotEstablished
-    annotations:
-      description: 'BGP session to {{ $labels.bgpPeerRemoteAddr }} on {{ $labels.instance }}
-
-        is not Established. ECMP/backup path may be degraded.'
-      summary: BGP peer {{ $labels.bgpPeerRemoteAddr }} down on {{ $labels.instance }}
-    expr: "min without (bgpPeerState) (\n  bgpPeerState{job=~\"snmp.*\",bgpPeerState=\"established\"}\n) == 0\nand on (instance, bgpPeerRemoteAddr)\nbgpPeerAdminStatus{job=~\"snmp.*\",bgpPeerAdminStatus=\"\
-      start\"} == 1"
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: network
-      severity: critical
-  - alert: BGPPeerFlapping
-    annotations:
-      description: '{{ $value }} BGP FSM established-transitions in the last hour to {{ $labels.bgpPeerRemoteAddr }}.'
-      summary: BGP peer {{ $labels.bgpPeerRemoteAddr }} flapping on {{ $labels.instance }}
-    expr: increase(bgpPeerFsmEstablishedTransitions{job=~"snmp.*"}[1h]) > 3
-    for: 5m
-    keep_firing_for: 15m
-    labels:
-      component: network
-      severity: warning
-- interval: 60s
-  name: geoip-feed-health.rules
-  rules:
-  - alert: GeoIPBlockEmpty
-    annotations:
-      description: '{{ $labels.instance }} GeoIP nft set {{ $labels.nsExtendCommand }} has 0 elements — the
-
-        cn/ru/kp/ir/by country-block is providing NO protection. Apply proposal B1
-
-        (configure firewall global-options geoip + run geoip-update.py --init).'
-      summary: GeoIP country-block set empty ({{ $labels.nsExtendCommand }})
-    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand=~"geoip_set_elements_wan_(local|transit)"} == 0
-    for: 15m
-    keep_firing_for: 10m
-    labels:
-      component: security
-      severity: warning
-  - alert: GeoIPUpdaterFailing
-    annotations:
-      description: geoip-update.py last run returned non-zero — GeoIP DB not refreshing.
-      summary: GeoIP updater failing on {{ $labels.instance }}
-    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_update_last_exit"} > 0
-    for: 1h
-    keep_firing_for: 30m
-    labels:
-      component: security
-      severity: warning
-  - alert: GeoIPDatabaseStale
-    annotations:
-      description: nftables-geoip.conf is {{ $value | humanizeDuration }} old (>14d) — GeoIP not refreshing.
-      summary: GeoIP database stale on {{ $labels.instance }}
-    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="geoip_conf_age_seconds"} > 1209600
-    for: 1h
-    keep_firing_for: 30m
-    labels:
-      component: security
-      severity: warning
-  - alert: ThreatFeedResolverDown
-    annotations:
-      description: The service that refreshes the reputation feeds (firehol/spamhaus/et/feodo/bitwire/hagezi) is not active — feeds will go stale.
-      summary: vyos-domain-resolver down on {{ $labels.instance }}
-    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="vyos_domain_resolver_up"} == 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: security
-      severity: critical
-  - alert: ThreatFeedEmpty
-    annotations:
-      description: '{{ $labels.nsExtendOutLine }} on {{ $labels.instance }} — a reputation-feed nftables set has been empty for 2h+; the feed URL may be dead or the resolver wedged.'
-      summary: Threat feed set empty on {{ $labels.instance }}
-    expr: nsExtendOutLine{job=~"snmp.*",nsExtendCommand="threat_feeds",nsExtendOutLine=~"feed_.*_elements (0|-1)"} == 1
-    for: 2h
-    keep_firing_for: 30m
-    labels:
-      component: security
-      severity: warning
-- interval: 60s
-  name: bgp-origination-drift.rules
-  rules:
-  - alert: BGPDefaultOriginationDrift
-    annotations:
-      description: '{{ $labels.instance }}: FRR is originating 0.0.0.0/0 but the SAVED VyOS
-
-        config has no `network 0.0.0.0/0` statement. A reboot or BGP commit will
-
-        silently withdraw the default (2026-07 gateway0 incident). Fix:
-
-        `set protocols bgp address-family ipv4-unicast network 0.0.0.0/0` + save.'
-      summary: BGP default-route drift on {{ $labels.instance }}
-    expr: "nsExtendOutputFull{job=~\"snmp.*\",nsExtendCommand=\"bgp_default_in_frr\"} == 1\n  and on(instance)\nnsExtendOutputFull{job=~\"snmp.*\",nsExtendCommand=\"bgp_default_in_config\"} == 0"
-    for: 10m
-    keep_firing_for: 15m
-    labels:
-      component: network
-      severity: critical
-  - alert: WANHealthWithdrawn
-    annotations:
-      description: '{{ $labels.instance }} wan-health-check has withdrawn BGP default origination — its WAN has no working internet path. Traffic is failing over per BGP design. NOTE: this SNMP signal refreshes
-        ~15min.'
-      summary: wan-health daemon withdrew the default on {{ $labels.instance }} (slow SNMP path)
-    expr: nsExtendOutputFull{job=~"snmp.*",nsExtendCommand="wan_health_state"} == 0
-    for: 2m
-    keep_firing_for: 10m
-    labels:
-      component: network
-      severity: warning
-- interval: 60s
-  name: network-ssh.rules
-  rules:
-  - alert: NetworkDeviceSSHDown
-    annotations:
-      description: '{{ $labels.instance }} is not answering TCP :22 from nflo0. If the device
-
-        is otherwise up (API/SNMP fine), this is the gw0-style silent SSH breakage
-
-        (2026-07: authorized_keys not regenerated after reboot — fix with the
-
-        delete-save-set-save key toggle via the VyOS API).'
-      summary: SSH down on {{ $labels.instance }}
-    expr: probe_success{job="network-ssh-probes"} == 0
-    for: 10m
-    keep_firing_for: 10m
-    labels:
-      component: network
-      severity: warning
 - name: general.rules
   rules:
   - alert: TargetDown
     annotations:
       description: '{{ printf "%.4g" $value }}% of the {{ $labels.job }} targets are down. Jobs with their own up-rule
-        (node-exporter: ExternalHostDown, snmp-*: SNMPTargetDown, DNS exporters: DNSResolverTargetDown, kea-dhcp4:
+        (node-exporter: ExternalHostDown, DNS exporters: DNSResolverTargetDown, kea-dhcp4:
         KeaExporterDown, route10-cellular: CellularMonitorDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|snmp-.*|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning

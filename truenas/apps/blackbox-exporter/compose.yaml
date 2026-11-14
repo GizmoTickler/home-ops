@@ -31,7 +31,7 @@ services:
     logging: *logging
 
 networks:
-  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Caddy is its ingress
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml), Envoy is its ingress
   # Off-host egress (scrapes/probes) SNATs to 192.168.123.157 = SC01 TrustSec SGT 25 (monitoring), not nas01's
   # SGT 15. .157 is a host alias on nas01 br0 (TrueNAS network config, not this repo). A bridge + SNAT, not the mgmt
   # macvlan: a macvlan child cannot reach its parent host, and the stack probes/scrapes nas01's own IPs.

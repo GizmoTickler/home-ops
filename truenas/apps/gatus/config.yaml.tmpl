@@ -90,6 +90,12 @@ endpoints:
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
+  - name: Alta Control
+    group: Network
+    url: icmp://192.168.120.17
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
   - name: DNS (VIP)
     group: Network
     url: 192.168.123.249
