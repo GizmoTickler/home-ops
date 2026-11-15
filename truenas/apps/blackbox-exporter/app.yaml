@@ -6,6 +6,10 @@ files:
 health:
   tcp: 127.0.0.1:9115
   netns: blackbox-exporter
+validate:
+  service: blackbox-exporter
+  entrypoint: /bin/blackbox_exporter
+  args: ["--config.file=/etc/blackbox/blackbox.yml", "--config.check"]
 ui:
   title: Blackbox exporter
   description: "ICMP/TCP/HTTP/DNS probes (devices, DNS, internet RTT, Envoy certificate expiry)"

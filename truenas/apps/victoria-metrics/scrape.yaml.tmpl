@@ -66,6 +66,49 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
+- job_name: probe/observability/dns-dot
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - dns_dot
+  static_configs:
+  - targets:
+    - 192.168.123.250:853   # dns0
+    - 192.168.123.251:853   # dns1
+    - 192.168.123.249:853   # keepalived VIP
+    - 10.53.53.53:853       # anycast
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+- job_name: probe/observability/dns-doh
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - dns_doh
+  static_configs:
+  - targets:
+    - https://dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+    - https://dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+    - https://dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    regex: "([^?]+).*"
+    target_label: instance
+    replacement: "$1"
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
 - job_name: route10-cellular
   scrape_timeout: 10s
   static_configs:

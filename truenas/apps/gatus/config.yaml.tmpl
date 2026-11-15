@@ -90,6 +90,12 @@ endpoints:
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
+  - name: Cellular modem (X75 mgateway1)
+    group: Network
+    url: icmp://192.168.224.1
+    interval: 1m
+    conditions:
+      - "[CONNECTED] == true"
   - name: Alta Control
     group: Network
     url: icmp://192.168.120.17
@@ -105,6 +111,14 @@ endpoints:
     interval: 1m
     conditions:
       - "[DNS_RCODE] == NOERROR"
+  - name: DNS-over-HTTPS (VIP)
+    group: Network
+    url: https://dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+    headers:
+      Accept: application/dns-message
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"
   - name: DNS (dns0)
     group: Network
     url: 192.168.123.250

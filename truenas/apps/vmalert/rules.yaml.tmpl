@@ -17,7 +17,7 @@ groups:
 
         A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 25).'
       summary: Probe {{ $labels.job }} -> {{ $labels.instance }} is failing
-    expr: probe_success{job!~"probe/observability/(dns|internet)", instance!~"dns[01][.].*|10[.]255[.]255[.]50|aap-0[.].*|omarchy[01][.].*"} == 0
+    expr: probe_success{job!~"probe/observability/(dns.*|internet)", instance!~"dns[01][.].*|10[.]255[.]255[.]50|aap-0[.].*|omarchy[01][.].*"} == 0
     for: 15m
     labels:
       severity: critical
@@ -574,6 +574,26 @@ groups:
     labels:
       component: dns
       severity: warning
+  - alert: EncryptedDNSProbeFailed
+    annotations:
+      description: 'Encrypted DNS probe ({{ $labels.job }}) to {{ $labels.instance }} has been failing for 5 minutes.'
+      summary: Encrypted DNS probe failing for {{ $labels.instance }}
+    expr: probe_success{job=~"probe/observability/dns-(doh|dot)"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: EdgeDoHBlocklistDegraded
+    annotations:
+      description: 'Edge firewall {{ $labels.device }} reports {{ $value }} public DoH blocklist entries (expected ~1400).'
+      summary: Edge DoH blocklist degraded on {{ $labels.device }} ({{ $value }} entries)
+    expr: edge_doh_blocklist_entries < 1000
+    for: 30m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
 - interval: 30s
   name: dns-anycast.rules
   rules:
@@ -822,6 +842,49 @@ groups:
       summary: Route10 cellular monitoring/autorate is not reporting
     expr: (up{job="route10-cellular"} == 0) or (time() - cellular_autorate_last_update_timestamp_seconds{job="route10-cellular"} > 120)
     for: 10m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularWatchdogDown
+    annotations:
+      description: 'Route10 continuous cellular watchdog daemon is missing or has not updated watchdog metrics for >2m.'
+      summary: Route10 cellular watchdog is not reporting
+    expr: |
+      ((up{job="route10-cellular"} == 1) and on(job) absent(cellular_watchdog_up{job="route10-cellular"}))
+      or (cellular_watchdog_up{job="route10-cellular"} == 0)
+      or ((up{job="route10-cellular"} == 1) and ((time() - cellular_watchdog_last_check_timestamp_seconds{job="route10-cellular"}) > 120))
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularWatchdogEscalated
+    annotations:
+      description: 'Route10 cellular watchdog escalated to stage {{ $value }} (2=modem_reset, 3=modem_reboot, 4=carrier_cooldown).'
+      summary: Route10 cellular watchdog escalated to stage {{ $value }}
+    expr: cellular_watchdog_stage{job="route10-cellular"} >= 2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularMSSClampMissing
+    annotations:
+      description: 'Route10 eth3 TCPMSS 1420 clamp rules are missing and cell-watchdog could not restore them. DoH over cellular will blackhole without MSS clamping.'
+      summary: Route10 cellular TCPMSS 1420 clamp missing
+    expr: cellular_mss_clamp_active{job="route10-cellular"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: UXGBBRDegraded
+    annotations:
+      description: 'UXG-Fiber BBR + fq reconciler on nas01 (cron 25) reports degraded BBR state or stale check (>30m).'
+      summary: UXG-Fiber BBR/fq degraded or reconciler stale
+    expr: (uxg_bbr_active{job="node-exporter"} == 0) or ((time() - uxg_bbr_last_check_timestamp_seconds{job="node-exporter"}) > 1800)
+    for: 15m
+    keep_firing_for: 5m
     labels:
       component: gateway
       severity: warning

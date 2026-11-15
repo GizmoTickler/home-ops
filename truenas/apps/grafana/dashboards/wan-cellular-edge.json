@@ -1,0 +1,2357 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "WAN primary (UXG-Fiber + BBR) & cellular backup (Route10 + T-Mobile 5G X75 watchdog, CAKE autorate, MSS 1420), plus edge DoH/DoT enforcement and core network reachability.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "icon": "dashboard",
+      "title": "DHCP & DNS",
+      "type": "link",
+      "url": "/d/dhcp-dns"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Probes & Scrape Targets",
+      "type": "link",
+      "url": "/d/xtkCtBkiz"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Cloudflare Tunnels",
+      "type": "link",
+      "url": "/d/V1SL92dVn"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "WAN & Edge Health At a Glance",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "1 when UXG-Fiber (10.255.255.46) is reachable AND at least one wan-icmp-rtt internet probe succeeds.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "min(probe_success{job=\"probe/observability/devices\",instance=\"10.255.255.46\"}) * max(probe_success{job=\"wan-icmp-rtt\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Primary WAN",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Primary WAN (UXG-Fiber)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Mean ICMP RTT from nas01 to 1.1.1.1 / 8.8.8.8 / 9.9.9.9 via primary UXG-Fiber path.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.04
+              },
+              {
+                "color": "red",
+                "value": 0.1
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(probe_icmp_duration_seconds{job=\"wan-icmp-rtt\",phase=\"rtt\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Fiber RTT",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Primary Fiber RTT",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Managed by nas01 cron 25 (uxg-bbr/reconcile.sh): tcp_bbr loaded, default_qdisc=fq, and >=4 eth6 fq queues.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DEGRADED"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "BBR + 4xfq"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "uxg_bbr_active{job=\"node-exporter\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "UXG BBR",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "UXG-Fiber BBR + fq",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "1 when Route10 continuous cell-watchdog passes internet checks over eth3 (or congestion guard suppresses idle false alarms).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "UNHEALTHY"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "READY"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_healthy{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Cellular WAN",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cellular Backup (Route10)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Number of 6 CAKE autorate ICMP reflectors currently answering over T-Mobile eth3.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "green",
+                "value": 6
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(cellular_reflector_up{job=\"route10-cellular\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Reflectors Up",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cellular Reflectors Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Current cell-watchdog escalation stage: 0=Idle, 1=WAN Restart, 2=Modem Reset, 3=Modem Reboot, 4=Carrier Cooldown.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "0: Idle (OK)"
+                },
+                "1": {
+                  "color": "orange",
+                  "index": 1,
+                  "text": "1: WAN Restart"
+                },
+                "2": {
+                  "color": "red",
+                  "index": 2,
+                  "text": "2: Modem Reset"
+                },
+                "3": {
+                  "color": "dark-red",
+                  "index": 3,
+                  "text": "3: Modem Reboot"
+                },
+                "4": {
+                  "color": "purple",
+                  "index": 4,
+                  "text": "4: Cooldown"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 1
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_stage{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Stage",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Watchdog Stage",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Self-healed eth3 TCPMSS 1420 clamp in mangle FORWARD (prevents Cloudflare DoH blackholing on 1472 cellular MTU).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "MISSING"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "ACTIVE"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 1
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_mss_clamp_active{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "MSS 1420",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Route10 MSS 1420 Clamp",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Active vmalert alerts for component=gateway.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "count(ALERTS{alertstate=\"firing\",component=\"gateway\"}) or vector(0)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Firing",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Firing Gateway Alerts",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 10,
+      "panels": [],
+      "title": "T-Mobile 5G X75 Modem (mgateway1) & Continuous Watchdog",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Route10->mgateway1 LAN reachability, rmnet_data0 WAN state, and X75 CFUN=1 full-power radio state.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 6
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_modem_lan_up{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "LAN (mgateway1)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "clamp_min(cellular_modem_wan_up{job=\"route10-cellular\"}, 0)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Modem WAN (rmnet)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_cfun{job=\"route10-cellular\"} == bool 1",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "RF Active (CFUN=1)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Modem Link / RMNET / RF State",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Current X75 radio attachment mode and LTE/5G NR bands from AT+QENG=\"servingcell\".",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 6,
+        "y": 6
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_info{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{mode}} ({{lte_band}} + {{nr_band}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Radio Mode & Bands",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Reference Signal Received Power (dBm): >= -95 good (green), -110..-95 fair (orange), < -110 weak (red).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": -110
+              },
+              {
+                "color": "green",
+                "value": -95
+              }
+            ]
+          },
+          "unit": "dBm",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 10,
+        "y": 6
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_rsrp_dbm{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR RSRP",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_lte_rsrp_dbm{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "LTE Anchor RSRP",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "5G NR & LTE RSRP",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "5G NR Signal-to-Interference+Noise Ratio and Reference Signal Received Quality (dB).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": -12
+              }
+            ]
+          },
+          "unit": "dB",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 14,
+        "y": 6
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_sinr_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR SINR",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_rsrq_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR RSRQ",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_lte_rsrq_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "LTE RSRQ",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "5G NR SINR & RSRQ",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Consecutive failed 10s checks and seconds since last cell-watchdog tick.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 6
+      },
+      "id": 15,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_fail_streak{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Fail Streak",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "time() - cellular_watchdog_last_check_timestamp_seconds{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Check Age (s)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Fail Streak & Check Age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Total recovery actions triggered since watchdog start (wan_renew, wan_restart, modem_reset, modem_reboot).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 6
+      },
+      "id": 16,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_recovery_total{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{action}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Auto-Recovery Actions",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 20,
+      "panels": [],
+      "title": "WAN Latency, CAKE Upload Autorate & RF Signal History",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Comparison of nas01 primary fiber ICMP RTT vs Route10 cellular reflector RTT and autorate baseline.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 3,
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Backup Cellular Baseline"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "dash": [
+                    8,
+                    6
+                  ],
+                  "fill": "dash"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 11
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(probe_icmp_duration_seconds{job=\"wan-icmp-rtt\",phase=\"rtt\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Primary Fiber (UXG)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(cellular_reflector_rtt_ms{job=\"route10-cellular\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Backup Cellular RTT (Route10)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(cellular_reflector_baseline_ms{job=\"route10-cellular\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Backup Cellular Baseline",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "WAN Latency: Primary Fiber (UXG) vs Backup Cellular (Route10)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "5G NR and LTE RF metrics polled from mgateway1 via AT+QENG=\"servingcell\".",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "dBm",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*(SINR|RSRQ).*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dB"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 11
+      },
+      "id": 22,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_rsrp_dbm{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR RSRP (dBm)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_lte_rsrp_dbm{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "LTE RSRP (dBm)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_sinr_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR SINR (dB)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_nr5g_rsrq_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "5G NR RSRQ (dB)",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_modem_lte_rsrq_db{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "LTE RSRQ (dB)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "X75 5G / LTE Signal Quality (RSRP dBm, SINR & RSRQ dB)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Dynamic upload-only CAKE shaper rate ceiling (5-45 Mbps) and measured eth3 throughput.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 19
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_shaper_rate_kbps{job=\"route10-cellular\"} * 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Shaper ceiling ({{direction}})",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_throughput_kbps{job=\"route10-cellular\"} * 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Throughput ({{direction}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Route10 CAKE Upload Shaper Ceiling & WAN Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "ICMP RTT measured across the 6 CAKE autorate reflectors over T-Mobile eth3.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 19
+      },
+      "id": 24,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_reflector_rtt_ms{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{reflector}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Route10 Per-Reflector Cellular RTT",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Watchdog escalation stage, consecutive fail streak, recovery rate, bufferbloat rate, and failed probes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 19
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_stage{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Watchdog stage",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "cellular_watchdog_fail_streak{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Fail streak",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum by (action) (increase(cellular_watchdog_recovery_total{job=\"route10-cellular\"}[15m]))",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Recoveries 15m ({{action}})",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(rate(cellular_bloat_samples_total{job=\"route10-cellular\"}[5m]))",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Bloat samples/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(rate(cellular_probe_total{job=\"route10-cellular\",result=\"fail\"}[5m]))",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Reflector fails/s",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Watchdog Escalation, Recoveries & Bufferbloat",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 30,
+      "panels": [],
+      "title": "Edge Hardening (DoH / DoT Enforcement, UXG-BBR) & Core Network",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Curated CIDR count loaded by AAP JT 47 (sync_doh_blocklist) on UXG-Fiber and Route10 ipsets (~1410).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1000
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 28
+      },
+      "id": 31,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "edge_doh_blocklist_entries",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Public DoH Blocklist Entries",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Cumulative firewall DROP packet counters for client public DoH (:443) and outbound DoT (:853) bypass attempts.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 4,
+        "y": 28
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "edge_doh_blocked_packets_total",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}} DoH ({{proto}})",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "edge_dot_blocked_packets_total",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}} DoT ({{proto}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Blocked Rogue DoH / DoT Packets",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Kernel release, TCP congestion control, default qdisc, and eth6 fq queue count on UXG-Fiber.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 5,
+        "x": 9,
+        "y": 28
+      },
+      "id": 33,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "uxg_bbr_info{job=\"node-exporter\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{congestion_control}} + {{default_qdisc}} ({{kernel}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "UXG-Fiber TCP Stack",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "ICMP reachability from nas01 (SGT 25) to SC01, UXG-Fiber, Route10, mgateway1, Alta Control, UniFi, edge0, edge1.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 10,
+        "x": 14,
+        "y": 28
+      },
+      "id": 34,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(probe_success{job=\"probe/observability/devices\",instance=~\"(sc01|unifi|alta-control|edge[01]|mgateway1)\\\\..*\"}, \"device\", \"$1\", \"instance\", \"^([^.]+).*\") or label_replace(probe_success{job=\"probe/observability/devices\",instance=\"10.255.255.46\"}, \"device\", \"uxg-fiber (.46)\", \"instance\", \".*\") or label_replace(probe_success{job=\"probe/observability/devices\",instance=\"10.255.255.50\"}, \"device\", \"route10 (.50)\", \"instance\", \".*\")",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "{{device}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Core Network Devices Reachability (ICMP)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Rate of blocked bypass attempts per minute against edge PUBLIC_DOH and :853 DoT DROP rules.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 35,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(edge_doh_blocked_packets_total[$__rate_interval]) * 60",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}} DoH {{proto}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(edge_dot_blocked_packets_total[$__rate_interval]) * 60",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}} DoT {{proto}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Blocked Rogue DoH & DoT Attempts Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "ICMP probe RTT from nas01 to core routers, switch, modem, controllers, and edge nodes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 4,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 36,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(probe_icmp_duration_seconds{job=\"probe/observability/devices\",phase=\"rtt\",instance=~\"(sc01|unifi|alta-control|edge[01]|mgateway1)\\\\..*\"}, \"device\", \"$1\", \"instance\", \"^([^.]+).*\") or label_replace(probe_icmp_duration_seconds{job=\"probe/observability/devices\",phase=\"rtt\",instance=\"10.255.255.46\"}, \"device\", \"uxg-fiber (.46)\", \"instance\", \".*\") or label_replace(probe_icmp_duration_seconds{job=\"probe/observability/devices\",phase=\"rtt\",instance=\"10.255.255.50\"}, \"device\", \"route10 (.50)\", \"instance\", \".*\")",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{device}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Core Network Devices ICMP RTT",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "network",
+    "wan",
+    "cellular",
+    "route10",
+    "uxg",
+    "security"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "WAN, Cellular Backup & Network Edge",
+  "uid": "wan-cellular-edge",
+  "version": 1
+}

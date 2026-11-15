@@ -33,3 +33,27 @@ modules:
       valid_rcodes: [NOERROR]
       validate_answer_rrs:
         fail_if_none_matches_regexp: ["IN\\s+SOA\\s"]
+  dns_dot:
+    prober: dns
+    timeout: 5s
+    dns:
+      transport_protocol: tcp
+      preferred_ip_protocol: ip4
+      dns_over_tls: true
+      tls_config:
+        server_name: "dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      query_name: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      query_type: SOA
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_none_matches_regexp: ["IN\\s+SOA\\s"]
+  dns_doh:
+    prober: http
+    timeout: 5s
+    http:
+      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
+      method: GET
+      headers:
+        Accept: application/dns-message
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4

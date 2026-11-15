@@ -29,6 +29,18 @@
       "title": "PowerDNS Auth",
       "type": "link",
       "url": "/d/pdns-auth"
+    },
+    {
+      "icon": "dashboard",
+      "title": "WAN & Edge",
+      "type": "link",
+      "url": "/d/wan-cellular-edge"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Probes & Targets",
+      "type": "link",
+      "url": "/d/xtkCtBkiz"
     }
   ],
   "panels": [
@@ -1840,6 +1852,807 @@
         }
       ],
       "title": "Cache hit ratio",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Encrypted DNS (DoH / DoT / DoQ), Anycast BGP & Resilience",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "1 when node is healthy and announcing 10.53.53.53/32 into SC01 BGP without demotion.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DEMOTED"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "ANNOUNCING"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 24
+      },
+      "id": 101,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(dns_anycast_announcing{job=\"node-exporter\"} * (1 - dns_anycast_demoted{job=\"node-exporter\"}), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{node}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Anycast BGP (10.53.53.53)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Synthetic blackbox DoH (:443 HTTPS wire query) and DoT (:853 TLS SOA query) probe results.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 3,
+        "y": 24
+      },
+      "id": 102,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(probe_success{job=\"probe/observability/dns-doh\"}, \"target\", \"DoH: $1\", \"instance\", \"^https://([^.]+).*\") or label_replace(probe_success{job=\"probe/observability/dns-dot\"}, \"target\", \"DoT: $1\", \"instance\", \"^(.*)$\")",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{target}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Encrypted DNS Probes (DoH & DoT)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "0 = Cloudflare Gateway filtered (normal); 1 = unfiltered Google DoH fallback active.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "FILTERED"
+                },
+                "1": {
+                  "color": "red",
+                  "index": 1,
+                  "text": "FALLBACK"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 11,
+        "y": 24
+      },
+      "id": 103,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(dns_upstream_fallback_active{job=\"node-exporter\"}, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{node}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream Filtering",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Minimum remaining lifetime across DoH and DoT server TLS certificates.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "d",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 24
+      },
+      "id": 104,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "min((probe_ssl_earliest_cert_expiry{job=~\"probe/observability/dns-(doh|dot)\"} - time()) / 86400)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Days Left",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "DNS TLS Cert Expiry",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Age of latest successful dns-stack-backup run across dns-0/dns-1 (alert >26h).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 90000
+              },
+              {
+                "color": "red",
+                "value": 97200
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 24
+      },
+      "id": 105,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "max(time() - dns_stack_backup_last_success_timestamp_seconds{job=\"node-exporter\",instance=~\"dns[01].*\"})",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Backup Age",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "DNS Backup Age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Minimum curated PUBLIC_DOH CIDR entries across UXG-Fiber and Route10 edge firewalls.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1000
+              }
+            ]
+          },
+          "unit": "none",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 24
+      },
+      "id": 106,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "min(edge_doh_blocklist_entries)",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Entries",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Edge DoH Blocklist",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Client query rate per frontend protocol handled by dnsdist.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "id": 107,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum by (proto) (rate(dnsdist_frontend_queries{job=\"dnsdist\"}[$__rate_interval]))",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{proto}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "DNS Queries by Protocol (UDP / TCP / DoT / DoH / DoQ)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Average dnsdist response latency (last 1000 queries) split across UDP/all, TCP, DoT, DoH, DoQ, DoH3.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms",
+          "decimals": 2,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "id": 108,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "Overall / UDP",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_tcp_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "TCP",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_dot_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "DoT",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_doh_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "DoH (HTTP/2)",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_doh3_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "DoH3 (HTTP/3)",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "avg(dnsdist_latency_doq_avg1000{job=\"dnsdist\"}) / 1000",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "DoQ",
+          "range": true,
+          "refId": "F"
+        }
+      ],
+      "title": "dnsdist Frontend Latency by Protocol",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Active dnscrypt-proxy upstream average latency (only servers carrying queries in the last 15m).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 4,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "id": 109,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "label_replace(dnscrypt_proxy_server_response_time_average_ms{job=\"dnscrypt-proxy\"} and on(instance, server) (increase(dnscrypt_proxy_server_queries_total{job=\"dnscrypt-proxy\"}[15m]) > 0), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "{{node}} / {{server}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Upstream DoH Response Time (dnscrypt-proxy)",
       "type": "timeseries"
     }
   ],
