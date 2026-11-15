@@ -116,9 +116,9 @@
           },
           "expr": "min(probe_success{job=\"probe/observability/devices\",instance=\"10.255.255.46\"}) * max(probe_success{job=\"wan-icmp-rtt\"})",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Primary WAN",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -191,9 +191,9 @@
           },
           "expr": "avg(probe_icmp_duration_seconds{job=\"wan-icmp-rtt\",phase=\"rtt\"})",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Fiber RTT",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -277,9 +277,9 @@
           },
           "expr": "uxg_bbr_active{job=\"node-exporter\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "UXG BBR",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -363,9 +363,9 @@
           },
           "expr": "cellular_watchdog_healthy{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Cellular WAN",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -438,9 +438,9 @@
           },
           "expr": "sum(cellular_reflector_up{job=\"route10-cellular\"})",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Reflectors Up",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -543,9 +543,9 @@
           },
           "expr": "cellular_watchdog_stage{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Stage",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -629,9 +629,9 @@
           },
           "expr": "cellular_mss_clamp_active{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "MSS 1420",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -700,9 +700,9 @@
           },
           "expr": "count(ALERTS{alertstate=\"firing\",component=\"gateway\"}) or vector(0)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Firing",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -727,7 +727,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Route10->mgateway1 LAN reachability, rmnet_data0 WAN state, and X75 CFUN=1 full-power radio state.",
+      "description": "Route10->mgateway1 LAN reachability, rmnet WAN state, and X75 CFUN=1 full-power radio state.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -799,9 +799,9 @@
           },
           "expr": "cellular_watchdog_modem_lan_up{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "LAN (mgateway1)",
-          "range": true,
+          "range": false,
           "refId": "A"
         },
         {
@@ -811,9 +811,9 @@
           },
           "expr": "clamp_min(cellular_modem_wan_up{job=\"route10-cellular\"}, 0)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Modem WAN (rmnet)",
-          "range": true,
+          "range": false,
           "refId": "B"
         },
         {
@@ -823,9 +823,9 @@
           },
           "expr": "cellular_modem_cfun{job=\"route10-cellular\"} == bool 1",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "RF Active (CFUN=1)",
-          "range": true,
+          "range": false,
           "refId": "C"
         }
       ],
@@ -891,11 +891,11 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "cellular_modem_info{job=\"route10-cellular\"}",
+          "expr": "label_join(cellular_modem_info{job=\"route10-cellular\",lte_band!=\"none\",nr_band!=\"none\"}, \"bands\", \" + \", \"lte_band\", \"nr_band\") or label_replace(cellular_modem_info{job=\"route10-cellular\",lte_band=\"none\",nr_band!=\"none\"}, \"bands\", \"$1\", \"nr_band\", \"(.*)\") or label_replace(cellular_modem_info{job=\"route10-cellular\",lte_band!=\"none\",nr_band=\"none\"}, \"bands\", \"$1\", \"lte_band\", \"(.*)\")",
           "format": "time_series",
-          "instant": false,
-          "legendFormat": "{{mode}} ({{lte_band}} + {{nr_band}})",
-          "range": true,
+          "instant": true,
+          "legendFormat": "{{mode}} ({{bands}})",
+          "range": false,
           "refId": "A"
         }
       ],
@@ -966,24 +966,12 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "cellular_modem_nr5g_rsrp_dbm{job=\"route10-cellular\"}",
+          "expr": "label_replace(cellular_modem_nr5g_rsrp_dbm{job=\"route10-cellular\"}, \"sig\", \"5G NR RSRP\", \"__name__\", \".*\") or label_replace(cellular_modem_lte_rsrp_dbm{job=\"route10-cellular\"}, \"sig\", \"LTE Anchor RSRP\", \"__name__\", \".*\")",
           "format": "time_series",
-          "instant": false,
-          "legendFormat": "5G NR RSRP",
-          "range": true,
+          "instant": true,
+          "legendFormat": "{{sig}}",
+          "range": false,
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "cellular_modem_lte_rsrp_dbm{job=\"route10-cellular\"}",
-          "format": "time_series",
-          "instant": false,
-          "legendFormat": "LTE Anchor RSRP",
-          "range": true,
-          "refId": "B"
         }
       ],
       "title": "5G NR & LTE RSRP",
@@ -1082,36 +1070,12 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "cellular_modem_nr5g_sinr_db{job=\"route10-cellular\"}",
+          "expr": "label_replace(cellular_modem_nr5g_sinr_db{job=\"route10-cellular\"}, \"sig\", \"5G NR SINR\", \"__name__\", \".*\") or label_replace(cellular_modem_nr5g_rsrq_db{job=\"route10-cellular\"}, \"sig\", \"5G NR RSRQ\", \"__name__\", \".*\") or label_replace(cellular_modem_lte_rsrq_db{job=\"route10-cellular\"}, \"sig\", \"LTE RSRQ\", \"__name__\", \".*\")",
           "format": "time_series",
-          "instant": false,
-          "legendFormat": "5G NR SINR",
-          "range": true,
+          "instant": true,
+          "legendFormat": "{{sig}}",
+          "range": false,
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "cellular_modem_nr5g_rsrq_db{job=\"route10-cellular\"}",
-          "format": "time_series",
-          "instant": false,
-          "legendFormat": "5G NR RSRQ",
-          "range": true,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "cellular_modem_lte_rsrq_db{job=\"route10-cellular\"}",
-          "format": "time_series",
-          "instant": false,
-          "legendFormat": "LTE RSRQ",
-          "range": true,
-          "refId": "C"
         }
       ],
       "title": "5G NR SINR & RSRQ",
@@ -1139,7 +1103,7 @@
               },
               {
                 "color": "orange",
-                "value": 30
+                "value": 75
               },
               {
                 "color": "red",
@@ -1224,9 +1188,9 @@
           },
           "expr": "cellular_watchdog_fail_streak{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Fail Streak",
-          "range": true,
+          "range": false,
           "refId": "A"
         },
         {
@@ -1236,9 +1200,9 @@
           },
           "expr": "time() - cellular_watchdog_last_check_timestamp_seconds{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Check Age",
-          "range": true,
+          "range": false,
           "refId": "B"
         }
       ],
@@ -1307,9 +1271,9 @@
           },
           "expr": "cellular_watchdog_recovery_total{job=\"route10-cellular\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{action}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1984,9 +1948,9 @@
           },
           "expr": "edge_doh_blocklist_entries",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{device}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2051,9 +2015,9 @@
           },
           "expr": "edge_doh_blocked_packets_total",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{device}} DoH ({{proto}})",
-          "range": true,
+          "range": false,
           "refId": "A"
         },
         {
@@ -2063,9 +2027,9 @@
           },
           "expr": "edge_dot_blocked_packets_total",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{device}} DoT ({{proto}})",
-          "range": true,
+          "range": false,
           "refId": "B"
         }
       ],
@@ -2133,9 +2097,9 @@
           },
           "expr": "uxg_bbr_info{job=\"node-exporter\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{congestion_control}} + {{default_qdisc}} ({{kernel}})",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],

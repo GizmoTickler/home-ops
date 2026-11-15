@@ -1944,9 +1944,9 @@
           },
           "expr": "label_replace(dns_anycast_announcing{job=\"node-exporter\"} * (1 - dns_anycast_demoted{job=\"node-exporter\"}), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2030,9 +2030,9 @@
           },
           "expr": "label_replace(probe_success{job=\"probe/observability/dns-doh\"}, \"target\", \"DoH: $1\", \"instance\", \"^https://([^.]+).*\") or label_replace(probe_success{job=\"probe/observability/dns-dot\"}, \"target\", \"DoT: $1\", \"instance\", \"^(.*)$\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{target}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2116,9 +2116,9 @@
           },
           "expr": "label_replace(dns_upstream_fallback_active{job=\"node-exporter\"}, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2191,9 +2191,9 @@
           },
           "expr": "min((probe_ssl_earliest_cert_expiry{job=~\"probe/observability/dns-(doh|dot)\"} - time()) / 86400)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Days Left",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2266,9 +2266,9 @@
           },
           "expr": "max(time() - dns_stack_backup_last_success_timestamp_seconds{job=\"node-exporter\",instance=~\"dns[01].*\"})",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Backup Age",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -2337,9 +2337,9 @@
           },
           "expr": "min(edge_doh_blocklist_entries)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "Entries",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
