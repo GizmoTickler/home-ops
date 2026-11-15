@@ -38,15 +38,17 @@ truenas/
 6. Apps on nas01 that are not in git are reported, never deleted. Catalog apps are refused (migrate by hand).
 7. Housekeeping: backup retention, state dirs 0700, `reconcile.log` rotation.
 8. Metrics → node-exporter textfile (`truenas_apps_gitops_*`), alerts in `apps/vmalert/rules.yaml.tmpl`
-   (group `truenas-apps-gitops.rules`).
+   (group `truenas-apps-gitops.rules`), and GitHub commit status (`nas01/apps-gitops`) posted back on full runs.
 
 Config: `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 0600, not in git). Optional keys (defaults):
 `deploy_timeout` (600), `backup_dir` (`<state_dir>/backup`), `backup_retention_days` (14), `backup_keep_newest` (5),
 `log_max_bytes` (5000000), `log_keep` (5), `preflight` (`{"enabled": true, "pull_images": true, "probe_lan": true}`),
 `ci_gate` (`{"enabled": true, "check_name": "Lint nas01 apps", "api_url": "https://api.github.com",
 "history_depth": 50, "timeout": 15, "token_ref": null}`; `token_ref` = optional `op://` ref to a GitHub token if the
-unauthenticated 60 requests/h limit is ever hit). **Emergency (CI or GitHub down, fix needed now):** set
-`"ci_gate": {"enabled": false}` in config.json, or run by hand with `--no-ci-gate`.
+unauthenticated 60 requests/h limit is ever hit), `github_status` (`{"enabled": true, "context": "nas01/apps-gitops",
+"api_url": "https://api.github.com", "timeout": 15, "token_ref": null}`; defaults `token_ref` to `ci_gate.token_ref`
+when unset). **Emergency (CI or GitHub down, fix needed now):** set `"ci_gate": {"enabled": false}` in config.json,
+or run by hand with `--no-ci-gate`.
 
 Secrets never touch git or the reconciler's logs: compose diffs are logged as changed key paths only and
 templated files as "N changed lines" (never values, old or new). File writes into app-owned directories are
@@ -99,8 +101,8 @@ x-portals:                                       # "Web UI" button in the TrueNA
   - {name: Web UI, scheme: http, host: 192.168.123.x, port: 80, path: /}
 ```
 Every `app.yaml` has a `health` probe and a `ui` block (`title`, `description`, `icon` https URL, `home`). TrueNAS
-custom apps have no icon/title support of their own, so the reconciler writes `ui` (and the image tag as the app
-version) into the app's TrueNAS metadata after each deploy. Icons: homarr-labs dashboard-icons via jsDelivr.
+custom apps have no icon/title support of their own, so the reconciler writes `ui` (and the image tag — preferring
+`ui.service` or the service matching the app name — as the app version) into the app's TrueNAS metadata after each deploy. Icons: homarr-labs dashboard-icons via jsDelivr.
 
 ## Shared networks and ingress
 `truenas/networks.yaml` defines two shared Docker networks, created by the reconciler before any app:

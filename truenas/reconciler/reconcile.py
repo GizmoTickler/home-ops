@@ -69,6 +69,8 @@ CONFIG_DEFAULTS = {
     "preflight": {"enabled": True, "pull_images": True, "probe_lan": True},
     "ci_gate": {"enabled": True, "check_name": "Lint nas01 apps", "api_url": "https://api.github.com",
                 "history_depth": 50, "timeout": 15, "token_ref": None},
+    "github_status": {"enabled": True, "context": "nas01/apps-gitops", "api_url": "https://api.github.com",
+                      "timeout": 15, "token_ref": None},
 }
 
 _now = time.time      # patched in tests
@@ -479,12 +481,25 @@ def ini_apply(spec, backup_dir):
 IX_APP_CONFIGS = "/mnt/.ix-apps/app_configs"
 
 
-def image_tag(compose):
-    for svc in (compose.get("services") or {}).values():
-        img = (svc or {}).get("image", "")
-        ref = img.split("@", 1)[0]
-        if ":" in ref.rsplit("/", 1)[-1]:
-            return ref.rsplit(":", 1)[1]
+def _svc_tag(svc):
+    img = (svc or {}).get("image", "")
+    ref = img.split("@", 1)[0]
+    if ":" in ref.rsplit("/", 1)[-1]:
+        return ref.rsplit(":", 1)[1]
+    return None
+
+
+def image_tag(compose, name=None, service=None):
+    svcs = compose.get("services") or {}
+    for key in (service, name):
+        if key and key in svcs:
+            tag = _svc_tag(svcs[key])
+            if tag:
+                return tag
+    for svc in svcs.values():
+        tag = _svc_tag(svc)
+        if tag:
+            return tag
     return None
 
 
@@ -500,7 +515,7 @@ def apply_ui(name, meta, compose, ctx):
     doc = yaml.safe_load(text) or {}
     md = doc.setdefault("metadata", {})
     want = {k: ui[k] for k in ("title", "description", "icon", "home") if k in ui}
-    tag = image_tag(compose)
+    tag = image_tag(compose, name=name, service=ui.get("service"))
     if tag:
         want["app_version"] = tag
     top = {"human_version": f"{tag}_custom"} if tag else {}
@@ -1285,6 +1300,83 @@ def git_pull(cfg, ctx, gate_on=True):
     return info
 
 
+def _post_commit_status(api_url, owner, repo, sha, token, context, state, description, timeout=15):
+    url = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/statuses/{sha}"
+    body = json.dumps({"state": state, "context": context, "description": description[:140]}).encode()
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+                 "Content-Type": "application/json", "User-Agent": "truenas-apps-reconciler",
+                 "X-GitHub-Api-Version": "2022-11-28"})
+    with urllib.request.urlopen(req, timeout=int(timeout)):
+        pass
+
+
+def post_github_status(cfg, ctx, results, ok_all, run_info):
+    """Post commit status to GitHub for the deployed (and held, if gated) SHA(s); deduplicated via state.json."""
+    gs = cfg_get(cfg, "github_status")
+    token_ref = gs.get("token_ref") or cfg_get(cfg, "ci_gate").get("token_ref")
+    if not gs.get("enabled") or not token_ref:
+        return
+    try:
+        owner, repo = repo_slug(cfg["repo"])
+        token = ctx.resolve(token_ref)
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"github-status: WARNING {e}")
+        return
+    commit, head, gate = run_info.get("commit", ""), run_info.get("head", ""), run_info.get("gate", "")
+    deploy = run_info.get("deploy", True)
+    real_apps = {k: v for k, v in results.items() if not k.startswith("_")}
+    bad = sorted(k for k, v in results.items() if not v)
+    targets = []
+    if deploy and len(commit) == 40:
+        if ok_all:
+            desc = f"Deployed on nas01 ({len(real_apps)}/{len(real_apps)} apps converged)"
+            prev = ctx.state.get("github_status_last_deployed")
+            revs = []
+            if isinstance(prev, str) and len(prev) == 40 and prev != commit and os.path.isdir(cfg.get("checkout", "")):
+                try:
+                    r = subprocess.run(
+                        ["git", "-C", cfg["checkout"], "rev-list", "--max-count=20", f"{prev}..{commit}"],
+                        capture_output=True, text=True, timeout=15)
+                    if r.returncode == 0:
+                        lines = r.stdout.split()
+                        if lines and lines[0] == commit:
+                            revs = list(reversed(lines))
+                except Exception:  # noqa: BLE001
+                    pass
+            if len(revs) > 1:
+                for sha in revs[:-1]:
+                    targets.append((sha, "success",
+                                    f"Deployed on nas01 via {commit[:7]} ({len(real_apps)}/{len(real_apps)} apps converged)"))
+            targets.append((commit, "success", desc))
+        else:
+            targets.append((commit, "failure", f"nas01 reconcile failed: {', '.join(bad)}"))
+    if len(head) == 40 and head != commit and gate == "held":
+        held_desc = f"Held by CI gate on nas01; deployed {commit[:7]}" if commit else "Held by CI gate on nas01"
+        targets.append((head, "pending", held_desc))
+
+    sent = ctx.state.setdefault("github_status", {})
+    all_posted_ok = True
+    for sha, st, desc in targets:
+        clipped = desc[:140]
+        want = {"state": st, "description": clipped}
+        if sent.get(sha) == want:
+            continue
+        try:
+            _post_commit_status(gs["api_url"], owner, repo, sha, token, gs["context"], st, clipped, gs["timeout"])
+            sent.pop(sha, None)
+            sent[sha] = want
+            ctx.log(f"github-status: {sha[:8]} -> {st} ({clipped})")
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"github-status: WARNING {sha[:8]}: {e}")
+            all_posted_ok = False
+    if len(sent) > 100:
+        ctx.state["github_status"] = dict(list(sent.items())[-100:])
+    if deploy and ok_all and len(commit) == 40 and all_posted_ok:
+        ctx.state["github_status_last_deployed"] = commit
+
+
 # ---- state / housekeeping --------------------------------------------------------------------------------
 def atomic_json(path, obj):
     d = os.path.dirname(path)
@@ -1623,6 +1715,8 @@ def main(argv=None):
     if not a.dry_run:
         mstate = update_metric_state(ctx.state.get("metrics", {}), ctx.events, results, ok_all, not a.app, int(_now()))
         ctx.state["metrics"] = mstate
+        if not a.app:
+            post_github_status(cfg, ctx, results, ok_all, run_info)
         atomic_json(os.path.join(sd, "state.json"), ctx.state)
         if not a.app:
             write_metrics(cfg, results, unmanaged, ok_all, mstate, run_info)

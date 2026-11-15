@@ -184,3 +184,59 @@ def test_fingerprints_are_keyed_not_plain_hashes(ctx):
     fp = rc.fingerprint(ctx, "secret-value")
     assert fp != hashlib.sha256(b"secret-value").hexdigest()[:32]
     assert os.stat(os.path.join(ctx.cfg["state_dir"], ".fingerprint-key")).st_mode & 0o777 == 0o600
+
+
+def test_image_tag_multi_service_selection():
+    c = {
+        "services": {
+            "grimmory-db": {"image": "mariadb:11.8.9"},
+            "grimmory": {"image": "ghcr.io/example/grimmory:v3.5.0"},
+        }
+    }
+    assert rc.image_tag(c, name="grimmory") == "v3.5.0"
+    assert rc.image_tag(c, name="grimmory", service="grimmory-db") == "11.8.9"
+    c_other = {
+        "services": {
+            "worker": {"image": "redis:7.2.4"},
+            "web": {"image": "nginx:1.25"},
+        }
+    }
+    assert rc.image_tag(c_other, name="myapp") == "7.2.4"
+
+
+def test_apply_ui_updates_metadata_multi_service(tmp_path, ctx, monkeypatch):
+    import yaml
+
+    ix = tmp_path / "ix-apps"
+    app_dir = ix / "grimmory"
+    app_dir.mkdir(parents=True)
+    meta_path = app_dir / "metadata.yaml"
+    meta_path.write_text(
+        yaml.safe_dump(
+            {
+                "metadata": {"app_version": "11.8.9", "version": "1.0.0"},
+                "human_version": "11.8.9_custom",
+                "version": "1.0.0",
+            },
+            sort_keys=False,
+        )
+    )
+    monkeypatch.setattr(rc, "IX_APP_CONFIGS", str(ix))
+    monkeypatch.setattr(rc.os, "fchown", lambda *a: None)
+
+    c = {
+        "services": {
+            "grimmory-db": {"image": "mariadb:11.8.9"},
+            "grimmory": {"image": "ghcr.io/example/grimmory:v3.5.0"},
+        }
+    }
+    rc.apply_ui("grimmory", {"ui": {"title": "Grimmory"}}, c, ctx)
+    updated = yaml.safe_load(meta_path.read_text())
+    assert updated["metadata"]["app_version"] == "v3.5.0"
+    assert updated["human_version"] == "v3.5.0_custom"
+
+    rc.apply_ui("grimmory", {"ui": {"title": "Grimmory", "service": "grimmory-db"}}, c, ctx)
+    updated_override = yaml.safe_load(meta_path.read_text())
+    assert updated_override["metadata"]["app_version"] == "11.8.9"
+    assert updated_override["human_version"] == "11.8.9_custom"
+

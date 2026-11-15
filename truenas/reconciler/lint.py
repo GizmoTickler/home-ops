@@ -76,6 +76,8 @@ def lint_app(d, shared=frozenset()):
             e(f"app.yaml ui.{k} is required")
     if ui.get("icon") and not str(ui["icon"]).startswith("https://"):
         e("app.yaml ui.icon must be an https URL")
+    if "service" in ui and ui["service"] not in (c.get("services") or {}):
+        e("app.yaml ui.service must name a service in compose.yaml")
     if not (meta or {}).get("health"):
         e("app.yaml health probe is required")
     meta = meta or {}

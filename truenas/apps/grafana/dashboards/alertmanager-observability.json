@@ -1337,7 +1337,7 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
+        "w": 3,
         "x": 0,
         "y": 25
       },
@@ -1406,8 +1406,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 4,
+        "w": 3,
+        "x": 3,
         "y": 25
       },
       "id": 20,
@@ -1475,8 +1475,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 8,
+        "w": 3,
+        "x": 6,
         "y": 25
       },
       "id": 21,
@@ -1558,8 +1558,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 12,
+        "w": 3,
+        "x": 9,
         "y": 25
       },
       "id": 22,
@@ -1599,6 +1599,133 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
+      "description": "Git commit currently deployed on nas01 (12-char SHA).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "unknown",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 25
+      },
+      "id": 27,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "truenas_apps_gitops_commit_info",
+          "instant": true,
+          "legendFormat": "{{commit}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Deployed Commit",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Time since the last nas01 reconciler run.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "dateTimeFromNow"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 15,
+        "y": 25
+      },
+      "id": 28,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "truenas_apps_gitops_last_run_timestamp_seconds * 1000",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Last Reconcile",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
       "description": "",
       "fieldConfig": {
         "defaults": {
@@ -1626,8 +1753,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 16,
+        "w": 3,
+        "x": 18,
         "y": 25
       },
       "id": 23,
@@ -1689,8 +1816,8 @@
       },
       "gridPos": {
         "h": 3,
-        "w": 4,
-        "x": 20,
+        "w": 3,
+        "x": 21,
         "y": 25
       },
       "id": 24,
@@ -1807,6 +1934,22 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Deployed"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "noValue",
+                "value": "—"
+              }
+            ]
           }
         ]
       },
@@ -1830,8 +1973,8 @@
         "showHeader": true,
         "sortBy": [
           {
-            "desc": false,
-            "displayName": "OK"
+            "desc": true,
+            "displayName": "Last Deployed"
           }
         ]
       },
@@ -1874,6 +2017,19 @@
           "legendFormat": "__auto",
           "range": false,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "truenas_apps_gitops_last_deploy_timestamp_seconds * 1000",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "GitOps App Convergence, Drift & Deploys",
@@ -1892,24 +2048,30 @@
               "Time 1": true,
               "Time 2": true,
               "Time 3": true,
+              "Time 4": true,
               "__name__ 1": true,
               "__name__ 2": true,
               "__name__ 3": true,
+              "__name__ 4": true,
               "instance 1": true,
               "instance 2": true,
               "instance 3": true,
+              "instance 4": true,
               "job 1": true,
               "job 2": true,
               "job 3": true,
+              "job 4": true,
               "prometheus 1": true,
               "prometheus 2": true,
-              "prometheus 3": true
+              "prometheus 3": true,
+              "prometheus 4": true
             },
             "renameByName": {
               "Value #A": "OK",
               "Value #B": "Drift",
               "Value #C": "Deploys (Total)",
-              "app": "App"
+              "app": "App",
+              "Value #D": "Last Deployed"
             }
           }
         }
@@ -1960,7 +2122,40 @@
           },
           "unit": "s"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "Deploys (15m)"
+              },
+              {
+                "id": "custom.drawStyle",
+                "value": "bars"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 50
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 9,
@@ -2004,9 +2199,9 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "editorMode": "code",
-          "expr": "sum by (app) (rate(truenas_apps_gitops_deploys_total[15m]) * 60) > 0",
+          "expr": "sum by (app) (increase(truenas_apps_gitops_deploys_total[15m])) > 0",
           "instant": false,
-          "legendFormat": "Deploy {{app}}/m",
+          "legendFormat": "Deploy: {{app}}",
           "range": true,
           "refId": "B"
         }

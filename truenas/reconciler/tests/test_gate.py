@@ -216,3 +216,92 @@ def test_shallow_fetch_deepens_to_reach_deployed(tmp_path, ctx, origin, monkeypa
         head = commit(origin, "kubernetes/noise.txt", f"{i}\n", f"noise {i}")
     info = rc.git_pull(ctx.cfg, ctx)
     assert info["status"] == "unchanged" and info["commit"] == head and info.get("deploy", True)
+
+
+def test_post_github_status_success_dedup_and_failure(ctx, monkeypatch):
+    ctx.cfg["ci_gate"] = {"token_ref": "op://Vault/Item/TOK"}
+    monkeypatch.setattr(ctx, "resolve", lambda ref: ctx.secrets.setdefault(ref, "secret-tok-xyz"))
+    posts = []
+
+    def fake_urlopen(req, timeout):
+        posts.append((req.full_url, dict(req.header_items()), json.loads(req.data.decode())))
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(rc.urllib.request, "urlopen", fake_urlopen)
+    sha = "a" * 40
+    run_info = {"commit": sha, "head": sha, "gate": "pass", "deploy": True}
+
+    rc.post_github_status(ctx.cfg, ctx, {"app1": True, "_skip": True}, True, run_info)
+    assert len(posts) == 1
+    url, headers, body = posts[0]
+    assert url == f"https://api.github.com/repos/o/r/statuses/{sha}"
+    assert headers["Authorization"] == "Bearer secret-tok-xyz"
+    assert body == {"state": "success", "context": "nas01/apps-gitops",
+                    "description": "Deployed on nas01 (1/1 apps converged)"}
+    assert ctx.state["github_status_last_deployed"] == sha
+
+    rc.post_github_status(ctx.cfg, ctx, {"app1": True, "_skip": True}, True, run_info)
+    assert len(posts) == 1
+
+    rc.post_github_status(ctx.cfg, ctx, {"app1": True, "app2": False}, False, run_info)
+    assert len(posts) == 2
+    assert posts[1][2]["state"] == "failure"
+    assert "app2" in posts[1][2]["description"]
+
+
+def test_post_github_status_batch_and_held_pending(tmp_path, ctx, origin, monkeypatch):
+    c1 = commit(origin, "a.txt", "1\n", "c1")
+    c2 = commit(origin, "a.txt", "2\n", "c2")
+    c3 = commit(origin, "a.txt", "3\n", "c3")
+    co = tmp_path / "co"
+    subprocess.run(["git", "clone", "-q", f"file://{origin}", str(co)], check=True)
+
+    ctx.cfg.update(repo="https://github.com/o/r.git", checkout=str(co),
+                   ci_gate={"token_ref": "op://Vault/Item/TOK"})
+    monkeypatch.setattr(ctx, "resolve", lambda ref: ctx.secrets.setdefault(ref, "secret-tok-xyz"))
+    ctx.state["github_status_last_deployed"] = c1
+    ctx.state["github_status"] = {c2: {"state": "pending", "description": f"Held by CI gate on nas01; deployed {c1[:7]}"}}
+
+    posts = []
+
+    def fake_urlopen(req, timeout):
+        sha = req.full_url.rsplit("/", 1)[-1]
+        posts.append((sha, json.loads(req.data.decode())))
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(rc.urllib.request, "urlopen", fake_urlopen)
+    head = "d" * 40
+    rc.post_github_status(ctx.cfg, ctx, {"app1": True}, True, {"commit": c3, "head": head, "gate": "held", "deploy": True})
+
+    by_sha = {sha: body for sha, body in posts}
+    assert set(by_sha) == {c2, c3, head}
+    assert by_sha[c2]["state"] == "success" and f"via {c3[:7]}" in by_sha[c2]["description"]
+    assert by_sha[c3]["state"] == "success" and "1/1 apps converged" in by_sha[c3]["description"]
+    assert by_sha[head]["state"] == "pending" and by_sha[head]["description"] == f"Held by CI gate on nas01; deployed {c3[:7]}"
+    assert ctx.state["github_status"][c2]["state"] == "success"
+    assert ctx.state["github_status_last_deployed"] == c3
+
+
+def test_post_github_status_api_error_warns_masked_and_does_not_advance(ctx, monkeypatch):
+    ctx.cfg["ci_gate"] = {"token_ref": "op://Vault/Item/TOK"}
+
+    def fake_connect(path):
+        if "/v1/vaults?" in path:
+            return [{"id": "v1"}]
+        if "/items?" in path:
+            return [{"id": "i1"}]
+        return {"fields": [{"label": "TOK", "value": "ghp_super_secret_token"}]}
+
+    monkeypatch.setattr(ctx, "_connect", fake_connect)
+    monkeypatch.setattr(rc.urllib.request, "urlopen",
+                        lambda req, timeout: (_ for _ in ()).throw(urllib.error.URLError("ghp_super_secret_token")))
+    prev = "0" * 40
+    sha = "e" * 40
+    ctx.state["github_status_last_deployed"] = prev
+
+    rc.post_github_status(ctx.cfg, ctx, {"app1": True}, True, {"commit": sha, "head": sha, "gate": "pass", "deploy": True})
+    assert ctx.state["github_status_last_deployed"] == prev
+    joined = "\n".join(ctx.log_lines)
+    assert "github-status: WARNING" in joined
+    assert "<op://Vault/Item/TOK>" in joined
+    assert "ghp_super_secret_token" not in joined
