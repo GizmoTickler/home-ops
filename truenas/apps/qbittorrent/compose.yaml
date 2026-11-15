@@ -1,8 +1,8 @@
 # qBittorrent — torrent client, VPN-only egress through one AirVPN WireGuard tunnel (gluetun).
 # Listens: 192.168.123.155:8080 (web UI, shared `mgmt` macvlan) and qbittorrent:8080 on the shared `apps` network
 #          (Envoy -> https://qbittorrent.<domain> behind Pocket ID; *arr apps / qui talk to it there)
-#          AirVPN forwarded port 29867 inbound on the tunnel (FIREWALL_VPN_INPUT_PORTS)
-# Network: qbittorrent shares gluetun's netns. gluetun = AirVPN Chicago (Sadalsuud), kernel WireGuard; its outer UDP
+#          the AirVPN forwarded port inbound on the tunnel (FIREWALL_VPN_INPUT_PORTS, from 1Password)
+# Network: qbittorrent shares gluetun's netns. gluetun = one AirVPN server (endpoint in 1Password), kernel WireGuard; its outer UDP
 #          leaves via the `wan` bridge (NAT to nas01 -> UXG -> Frontier). One tunnel = one stable public IP, which is
 #          what private trackers require (no multi-tunnel split/ECMP). Single-tunnel ceiling ~1.7-2.5 G (one nas01
 #          core in softirq), measured 2026-11-12.
@@ -26,14 +26,14 @@ services:
       VPN_SERVICE_PROVIDER: custom
       VPN_TYPE: wireguard
       WIREGUARD_IMPLEMENTATION: kernelspace   # v3.41: kernelspace|userspace|auto ("kernel" is rejected)
-      WIREGUARD_ENDPOINT_IP: 68.235.35.181          # AirVPN Sadalsuud (Chicago)
+      WIREGUARD_ENDPOINT_IP: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/endpoint_ip }}"
       WIREGUARD_ENDPOINT_PORT: "51820"
-      WIREGUARD_PUBLIC_KEY: PyLCXAQT8KkM4T+dUsOQfn+Ub3pGxfGlxkIApuig+hk=
+      WIREGUARD_PUBLIC_KEY: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/peer_public_key }}"
       WIREGUARD_PRIVATE_KEY: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/private_key }}"
       WIREGUARD_PRESHARED_KEY: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/preshared_key }}"
       WIREGUARD_ADDRESSES: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/address }}"
       WIREGUARD_MTU: "1320"                   # AirVPN default
-      FIREWALL_VPN_INPUT_PORTS: "29867"       # AirVPN forwarded port -> qBittorrent Session\Port
+      FIREWALL_VPN_INPUT_PORTS: "{{ op://Infrastructure/wviqdpxmhrphizw6bv3blh6v2m/forwarded_port }}"   # AirVPN forwarded port -> qBittorrent Session\Port
       HEALTH_TARGET_ADDRESSES: 1.1.1.1:443
       HTTP_CONTROL_SERVER_ADDRESS: 127.0.0.1:8000   # control API (can stop the VPN) never exposed on mgmt0
     sysctls:                        # per-netns (qbittorrent shares this netns): host bbr/fq does not carry over
