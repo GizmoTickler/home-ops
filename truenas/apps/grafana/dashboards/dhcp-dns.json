@@ -121,9 +121,9 @@
           },
           "expr": "label_replace(min by (instance) (dns_kea_up * (1 - dns_kea_dhcp_disabled)), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -191,9 +191,9 @@
           },
           "expr": "label_replace(dns_kea_ha_state_info * on (instance) group_left dns_kea_ha_state, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}: {{state}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -277,9 +277,9 @@
           },
           "expr": "label_replace(dns_kea_ha_partner_reachable, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -343,9 +343,9 @@
           },
           "expr": "label_replace(dns_keepalived_is_master == 1, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -429,9 +429,9 @@
           },
           "expr": "label_replace(dns_pg_logical_db_healthy, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{node}} {{db}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -515,9 +515,9 @@
           },
           "expr": "probe_success{job=\"probe/observability/dns\"}",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{instance}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -584,9 +584,9 @@
           },
           "expr": "count(ALERTS{alertstate=\"firing\",component=~\"dns|dhcp|postgres\"} or ALERTS{alertstate=\"firing\",alertname=~\"DNSAnycast.*|ReplicationSlot.*\"}) or vector(0)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "firing",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -658,9 +658,9 @@
           },
           "expr": "max(time() - dns_ha_metrics_last_success_timestamp_seconds)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "age",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -744,9 +744,9 @@
           },
           "expr": "min by (unit) (dns_service_active)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "{{unit}}",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -813,9 +813,9 @@
           },
           "expr": "count(up{instance=~\"dns[01].*\"} == 0) or vector(0)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "down",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -879,9 +879,9 @@
           },
           "expr": "sum(rate(dnsdist_queries[5m]))",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "qps",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -953,9 +953,9 @@
           },
           "expr": "(sum(rate(dnsdist_cache_hits[15m])) + sum(rate(pdns_recursor_packetcache_hits[15m]))) / clamp_min(sum(rate(dnsdist_queries[15m])), 1)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "hit",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1022,9 +1022,9 @@
           },
           "expr": "sum(max by (subnet) (kea_dhcp4_addresses_declined_total{pool=\"\"}))",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "declined",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1095,9 +1095,9 @@
           },
           "expr": "max(dns_kea_ha_unacked_clients)",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "unacked",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
@@ -1168,9 +1168,9 @@
           },
           "expr": "max(abs(dns_kea_ha_clock_skew_seconds))",
           "format": "time_series",
-          "instant": false,
+          "instant": true,
           "legendFormat": "skew",
-          "range": true,
+          "range": false,
           "refId": "A"
         }
       ],
