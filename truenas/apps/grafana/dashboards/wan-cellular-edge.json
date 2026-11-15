@@ -814,7 +814,7 @@
           "instant": false,
           "legendFormat": "Modem WAN (rmnet)",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         },
         {
           "datasource": {
@@ -826,7 +826,7 @@
           "instant": false,
           "legendFormat": "RF Active (CFUN=1)",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         }
       ],
       "title": "Modem Link / RMNET / RF State",
@@ -983,7 +983,7 @@
           "instant": false,
           "legendFormat": "LTE Anchor RSRP",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         }
       ],
       "title": "5G NR & LTE RSRP",
@@ -1006,8 +1006,12 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "orange",
+                "color": "red",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": -16
               },
               {
                 "color": "green",
@@ -1018,7 +1022,36 @@
           "unit": "dB",
           "decimals": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*SINR.*"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 4,
@@ -1066,7 +1099,7 @@
           "instant": false,
           "legendFormat": "5G NR RSRQ",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         },
         {
           "datasource": {
@@ -1078,7 +1111,7 @@
           "instant": false,
           "legendFormat": "LTE RSRQ",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         }
       ],
       "title": "5G NR SINR & RSRQ",
@@ -1117,7 +1150,48 @@
           "unit": "none",
           "decimals": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fail Streak"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 3
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Check Age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 4,
@@ -1163,9 +1237,9 @@
           "expr": "time() - cellular_watchdog_last_check_timestamp_seconds{job=\"route10-cellular\"}",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "Check Age (s)",
+          "legendFormat": "Check Age",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         }
       ],
       "title": "Fail Streak & Check Age",
@@ -1363,7 +1437,7 @@
           "instant": false,
           "legendFormat": "Backup Cellular RTT (Route10)",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         },
         {
           "datasource": {
@@ -1375,7 +1449,7 @@
           "instant": false,
           "legendFormat": "Backup Cellular Baseline",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         }
       ],
       "title": "WAN Latency: Primary Fiber (UXG) vs Backup Cellular (Route10)",
@@ -1486,7 +1560,7 @@
           "instant": false,
           "legendFormat": "LTE RSRP (dBm)",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         },
         {
           "datasource": {
@@ -1498,7 +1572,7 @@
           "instant": false,
           "legendFormat": "5G NR SINR (dB)",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         },
         {
           "datasource": {
@@ -1510,7 +1584,7 @@
           "instant": false,
           "legendFormat": "5G NR RSRQ (dB)",
           "range": true,
-          "refId": "A"
+          "refId": "D"
         },
         {
           "datasource": {
@@ -1522,7 +1596,7 @@
           "instant": false,
           "legendFormat": "LTE RSRQ (dB)",
           "range": true,
-          "refId": "A"
+          "refId": "E"
         }
       ],
       "title": "X75 5G / LTE Signal Quality (RSRP dBm, SINR & RSRQ dB)",
@@ -1616,7 +1690,7 @@
           "instant": false,
           "legendFormat": "Throughput ({{direction}})",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         }
       ],
       "title": "Route10 CAKE Upload Shaper Ceiling & WAN Throughput",
@@ -1793,7 +1867,7 @@
           "instant": false,
           "legendFormat": "Fail streak",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         },
         {
           "datasource": {
@@ -1805,7 +1879,7 @@
           "instant": false,
           "legendFormat": "Recoveries 15m ({{action}})",
           "range": true,
-          "refId": "A"
+          "refId": "C"
         },
         {
           "datasource": {
@@ -1817,7 +1891,7 @@
           "instant": false,
           "legendFormat": "Bloat samples/s",
           "range": true,
-          "refId": "A"
+          "refId": "D"
         },
         {
           "datasource": {
@@ -1829,7 +1903,7 @@
           "instant": false,
           "legendFormat": "Reflector fails/s",
           "range": true,
-          "refId": "A"
+          "refId": "E"
         }
       ],
       "title": "Watchdog Escalation, Recoveries & Bufferbloat",
@@ -1992,7 +2066,7 @@
           "instant": false,
           "legendFormat": "{{device}} DoT ({{proto}})",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         }
       ],
       "title": "Blocked Rogue DoH / DoT Packets",
@@ -2243,7 +2317,7 @@
           "instant": false,
           "legendFormat": "{{device}} DoT {{proto}}",
           "range": true,
-          "refId": "A"
+          "refId": "B"
         }
       ],
       "title": "Blocked Rogue DoH & DoT Attempts Rate",
