@@ -1,0 +1,3 @@
+# Apps intentionally retired from nas01. Listed custom apps are stopped and deleted by reconcile.py
+# (host ZFS datasets under /mnt/flashstor/apps/ are NEVER deleted automatically).
+retired: []

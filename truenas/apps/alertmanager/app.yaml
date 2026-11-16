@@ -4,8 +4,9 @@ dirs:
 files:
   - {template: alertmanager.yml.tmpl, dest: /mnt/flashstor/apps/alertmanager-config/alertmanager.yml, owner: "0:1000", mode: "0640"}
 health:
-  tcp: 127.0.0.1:9093
+  http: http://127.0.0.1:9093/-/healthy
   netns: alertmanager
+  expect: "OK"
 ui:
   title: Alertmanager
   description: "Alert routing -> Pushover + Watchdog heartbeat"

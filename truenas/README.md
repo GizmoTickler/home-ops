@@ -7,10 +7,12 @@ no `include:` of files on disk, no hand-run deploy scripts. Merging to `main` is
 truenas/
 ├── apps/<app>/
 │   ├── compose.yaml   # required: the full compose (what TrueNAS runs), secrets as {{ op://... }} refs
-│   ├── app.yaml       # optional: dirs / templated files / ini pins / health probe
+│   ├── app.yaml       # optional: dirs / templated files / ini pins / health probe / dashboards
 │   └── *.tmpl         # optional: config templates rendered to host paths (app.yaml `files:`)
+├── host/              # host-side scripts synced to /mnt/flashstor/secure-scripts/ (host.yaml)
+├── retired.yaml       # custom apps stopped and deleted cleanly on nas01 (datasets preserved)
 └── reconciler/
-    ├── reconcile.py   # runs on nas01 (root cron, every 10 min)
+    ├── reconcile.py   # runs on nas01 (root cron, every 10 min + coalesced webhook trigger)
     └── export_app.py  # one-off: export a live app as a git-safe compose.yaml
 ```
 
@@ -31,11 +33,17 @@ truenas/
    command (Envoy: `envoy --mode validate` with the target image on the fully rendered config; rendered files
    live in a root-only temp dir that is deleted right after). Then write files / patch ini, `app.update` (or
    `app.create`), wait while TrueNAS reports `DEPLOYING` (up to `deploy_timeout`; `CRASHED`/`STOPPED` = failure)
-   and for the `health` probe -- **automatic rollback** re-applies the exact previous compose with `app.update`
-   (and restores files/ini) and verifies health again.
-5. **Critical apps** (`critical: true`: onepassword-connect, pocket-id, envoy) deploy after all others, one at a
-   time in `order`; if one fails the run stops there.
-6. Apps on nas01 that are not in git are reported, never deleted. Catalog apps are refused (migrate by hand).
+   files/ini writes are crash-safe (`pending_redeploy` WAL + desired fingerprint check), and old images are
+   locally pinned (`ix-rollback/<app>/<svc>:prev`) before updates. Wait while TrueNAS reports `DEPLOYING`
+   (up to `deploy_timeout`; `CRASHED`/`STOPPED` = failure) and run the `health` probe (`tcp`/`http` + optional
+   `netns`, `expect` substring, `min_ready` restart-free soak) -- **automatic rollback** re-applies the exact
+   previous compose with `app.update` (and restores files/ini) and verifies health again. `--dry-run` and `--app`
+   use an ephemeral detached git worktree so they never mutate the shared checkout or deployed commit state.
+5. **Ordering:** `bootstrap: true` (`onepassword-connect`) converges first so `op://` resolution never fails on cold
+   boot; normal apps run next, then **critical apps** (`critical: true`: pocket-id, envoy) one at a time in `order`.
+   Connect unavailability or critical failure aborts the run.
+6. Apps listed in `truenas/retired.yaml` are deleted cleanly (datasets preserved); other apps absent from git are
+   reported, never deleted. Catalog apps are refused (migrate by hand). `truenas/host/` keeps webhook units in sync.
 7. Housekeeping: backup retention, state dirs 0700, `reconcile.log` rotation.
 8. Metrics → node-exporter textfile (`truenas_apps_gitops_*`), alerts in `apps/vmalert/rules.yaml.tmpl`
    (group `truenas-apps-gitops.rules`), and GitHub commit status (`nas01/apps-gitops`) posted back on full runs.
@@ -68,7 +76,8 @@ config live in `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 060
   Merging to `main` also wakes the reconciler automatically once CI (`Lint nas01 apps`) passes: GitHub delivers
   signed `push`/`check_run` events through Cloudflare Tunnel → Envoy `:8443` (`gitops-webhook.<domain>/hooks/truenas-gitops` only)
   → `apps/webhook` (verifies `X-Hub-Signature-256` HMAC and writes 0-byte `/trigger/poke`) → host `systemd.path`
-  (`POSTINIT`) running `reconcile.py --wait-lock 300`; the 10-minute cron catches drift and fallback runs.
+  (`POSTINIT`) running `trigger-run.py` → `reconcile.py --from-trigger --wait-lock 1800 --if-locked fail`
+  (consumes `/trigger/poke` inside `.lock` and coalesces mid-run pokes); the 10-minute cron catches drift and fallback runs.
 - New app: write `apps/<app>/compose.yaml` (+ `app.yaml`), merge; the reconciler creates it.
   Adopting an existing app: `export_app.py <app>` on nas01, commit the output, dry-run must show "in sync".
 
@@ -120,12 +129,15 @@ Public hostnames: `apps/cloudflared` (Cloudflare tunnel) -> Envoy's external lis
 dirs:   [{path: /mnt/flashstor/apps/x-config, owner: "1000:1000", mode: "0755"}]
 files:  [{template: x.conf.tmpl, dest: /mnt/flashstor/apps/x-config/x.conf, owner: "1000:1000", mode: "0600"}]
 ini:    [{path: /mnt/flashstor/apps/x-config/x.conf, set: {"Key": "value"}}]   # existing keys only (verbatim, section-blind); a missing key fails the app
-health: {tcp: "192.168.123.154:6789"}        # or {http: https://..., insecure: true}
-                                             # macvlan apps: {tcp: "127.0.0.1:8080", netns: <service>} (host can't reach its macvlan IPs)
+health: {tcp: "192.168.123.154:6789"}        # or {http: http://127.0.0.1:8080/ready, netns: <service>, expect: "OK", min_ready: 5}
+                                             # macvlan/bridge netns: `netns: <service>` probes inside container netns
 ui:     {title: NZBGet, description: "...", icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/nzbget.png, home: https://nzbget.com}
 deploy_timeout: 600                          # optional: s the app may stay DEPLOYING after a deploy
+bootstrap: true                              # optional: converge before resolving op:// for other apps
 critical: true                               # optional: deploy last, one at a time, abort the run on failure
-order: 20                                    # critical apps only, lower first (onepassword-connect = 0)
+order: 20                                    # critical/bootstrap apps only, lower first (onepassword-connect = 0)
+dashboards:                                  # optional: sync exported Grafana JSON files via netns HTTP API
+  {dir: dashboards, service: grafana, url: http://127.0.0.1:3000, user_env: GF_SECURITY_ADMIN_USER, pass_env: GF_SECURITY_ADMIN_PASSWORD, default_folder: infrastructure, folders: {...}, folder_map: {...}}
 validate: {service: envoy, entrypoint: envoy, args: ["--mode", "validate", "-c", "/etc/envoy/envoy.yaml"]}
                                              # optional preflight: run the target image (no network, read-only)
                                              # with the service's volumes, rendered files swapped in

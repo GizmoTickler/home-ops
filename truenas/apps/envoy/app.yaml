@@ -12,8 +12,10 @@ files:
     owner: "1000:1000"
     mode: "0755"
 health:
-  tcp: 127.0.0.1:9901       # admin endpoint, probed inside the container (macvlan: the host can't reach .156)
-  netns: envoy
+  http: http://127.0.0.1:9901/ready
+  netns: envoy              # admin endpoint, probed inside the container (macvlan: the host can't reach .156)
+  expect: "LIVE"
+  min_ready: 5
 ui:
   title: Envoy
   description: "HTTPS ingress for all nas01 apps — wildcard cert (LE via Cloudflare DNS-01), native Pocket ID OAuth2"

@@ -1,7 +1,8 @@
 # Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
 health:
-  tcp: 127.0.0.1:1411
+  http: http://127.0.0.1:1411/healthz
   netns: pocket-id
+  min_ready: 5
 ui:
   title: Pocket ID
   description: OIDC/passkey SSO for all apps (issuer https://id.<domain>, unchanged)

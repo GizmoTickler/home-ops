@@ -4,8 +4,9 @@ dirs:
 files:
   - {template: unifi-exporter.py, dest: /mnt/flashstor/apps/unifi-exporter-config/unifi-exporter.py, owner: "0:0", mode: "0644"}
 health:
-  tcp: 127.0.0.1:9130
+  http: http://127.0.0.1:9130/healthz
   netns: unifi-exporter
+  expect: "ok"
 validate:
   service: unifi-exporter
   entrypoint: python3

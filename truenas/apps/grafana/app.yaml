@@ -5,9 +5,33 @@ dirs:
 files:
   - {template: datasources.yaml, dest: /mnt/flashstor/apps/grafana-config/datasources/datasources.yaml, owner: "0:1000", mode: "0644"}
 health:
-  tcp: 127.0.0.1:3000
+  http: http://127.0.0.1:3000/api/health
   netns: grafana
+  expect: '"database": "ok"'
   timeout: 300
+dashboards:
+  dir: dashboards
+  service: grafana
+  url: http://127.0.0.1:3000
+  user_env: GF_SECURITY_ADMIN_USER
+  pass_env: GF_SECURITY_ADMIN_PASSWORD
+  default_folder: infrastructure
+  folders:
+    infrastructure: cfsq8nie0fkzka
+    network: cfsq8n8izv3swf
+    observability: dfsq8n5lu4zr4e
+  folder_map:
+    V1SL92dVn.json: network
+    envoy-downstream-skj2.json: network
+    envoy-overview-skj2.json: network
+    envoy-upstream-skj2.json: network
+    wan-cellular-edge.json: network
+    LzldHAVnz.json: observability
+    YLum8s2ik.json: observability
+    alertmanager-observability.json: observability
+    gatus-overview.json: observability
+    wNf0q_kZk.json: observability
+    xtkCtBkiz.json: observability
 ui:
   title: Grafana
   description: "Dashboards over nas01 VictoriaMetrics (Pocket ID login)"

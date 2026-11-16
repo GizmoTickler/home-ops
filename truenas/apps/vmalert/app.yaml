@@ -4,8 +4,9 @@ dirs:
 files:
   - {template: rules.yaml.tmpl, dest: /mnt/flashstor/apps/vmalert-config/rules.yaml, owner: "0:0", mode: "0644"}
 health:
-  tcp: 127.0.0.1:8880
+  http: http://127.0.0.1:8880/health
   netns: vmalert
+  expect: "OK"
 ui:
   title: vmalert
   description: "Alerting/recording rules for nas01 VictoriaMetrics"

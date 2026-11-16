@@ -2,11 +2,13 @@
 health:
   http: https://192.168.123.150/heartbeat
   insecure: true      # cert is for passwords.<domain>; probing by IP
+  min_ready: 5
 ui:
   title: 1Password Connect
   description: "Secret provider for External Secrets and the nas01 app reconciler"
   icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/1password.png
   home: https://developer.1password.com/docs/connect/
-# Critical: deployed after all other apps, one at a time; a failure aborts the rest of the run.
+# Bootstrap + Critical: converged first so op:// secret resolution never fails on cold boot.
+bootstrap: true
 critical: true
-order: 0          # first among critical apps: every {{ op://... }} ref resolves through it
+order: 0          # first among bootstrap/critical apps: every {{ op://... }} ref resolves through it

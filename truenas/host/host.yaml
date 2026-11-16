@@ -1,0 +1,11 @@
+# Host-side units and wrappers reconciled onto nas01 by truenas/reconciler/reconcile.py.
+files:
+  - src: trigger-run.py
+    dest: /mnt/flashstor/secure-scripts/apps-gitops/trigger-run.py
+    owner: "0:0"
+    mode: "0700"
+  - src: apps-gitops-webhook.sh
+    dest: /mnt/flashstor/secure-scripts/truenas_startup/apps-gitops-webhook.sh
+    owner: "0:0"
+    mode: "0700"
+    on_change: ["/bin/sh", "/mnt/flashstor/secure-scripts/truenas_startup/apps-gitops-webhook.sh"]

@@ -42,14 +42,17 @@ Behaviour per run:
   then critical apps one at a time; a failing critical app aborts the run. Apps present on nas01 but absent from
   git are reported (never deleted). Then: backup retention, metrics (node-exporter textfile), log rotation.
 
-Usage: reconcile.py [--dry-run] [--app NAME] [--config PATH] [--no-pull] [--no-ci-gate]
-Config (root 0600 JSON, NOT in git): see DEFAULT_CONFIG / CONFIG_DEFAULTS. Exit 0 if every app converged, 1 otherwise.
+Usage: reconcile.py [--dry-run] [--app NAME] [--config PATH] [--no-pull] [--no-ci-gate] [--wait-lock S] [--if-locked skip|fail]
+Config (root 0600 JSON, NOT in git): see DEFAULT_CONFIG / CONFIG_DEFAULTS. Exit 0 if every app converged, 1 on failure, 75 on lock contention with --if-locked fail.
 """
-import argparse, difflib, fcntl, hashlib, hmac, ipaddress, json, os, re, secrets as _secrets, shutil, stat, \
+import argparse, base64, difflib, fcntl, hashlib, hmac, ipaddress, json, os, re, secrets as _secrets, shutil, ssl, stat, \
     subprocess, sys, tempfile, time, urllib.error, urllib.parse, urllib.request
 import yaml
 
 DEFAULT_CONFIG = "/mnt/flashstor/secure-scripts/apps-gitops/config.json"
+DEFAULT_TRIGGER_FILE = "/mnt/flashstor/apps/webhook-trigger/poke"
+EX_TEMPFAIL = 75
+MAX_COALESCE_PASSES = 3
 REF = re.compile(r"\{\{\s*(op://[^}\s]+)\s*\}\}")
 ITEM_ID = re.compile(r"[a-z0-9]{26}")  # 1Password item ids are 26 lowercase base32 chars
 RUN_TIMEOUT = 600   # default s an app may stay DEPLOYING after a deploy (app.yaml deploy_timeout overrides)
@@ -60,6 +63,8 @@ POLL = 5
 CONFIG_DEFAULTS = {
     "branch": "main",
     "metrics_dir": None,
+    "trigger_file": None,
+    "min_ready_seconds": 0,
     "deploy_timeout": RUN_TIMEOUT,
     "backup_dir": None,                 # default <state_dir>/backup
     "backup_retention_days": 14,
@@ -77,6 +82,10 @@ _now = time.time      # patched in tests
 _sleep = time.sleep
 
 
+class ConnectUnavailableError(RuntimeError):
+    """Raised when the local 1Password Connect API is unreachable or returning 5xx."""
+
+
 def cfg_get(cfg, key):
     d = CONFIG_DEFAULTS.get(key)
     v = cfg.get(key, d)
@@ -92,6 +101,7 @@ class Ctx:
         self._vaults, self._items = {}, {}
         self.log_lines = []
         self.ui_changed = False
+        self.connect_ok = True
         self.live = None            # cached docker/host inventory for preflight (invalidated after deploys)
         self.shared_nets = {}       # name -> networks.yaml spec
         self.events = []            # (kind, app) for metrics: deploy, deploy_failure, rollback, rollback_failure, ...
@@ -119,8 +129,17 @@ class Ctx:
     def _connect(self, path):
         req = urllib.request.Request(self.cfg["connect_url"].rstrip("/") + path,
                                      headers={"Authorization": f"Bearer {self.cfg['connect_token']}"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return json.load(r)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if e.code >= 500:
+                self.connect_ok = False
+                raise ConnectUnavailableError(f"HTTP {e.code} from 1Password Connect") from e
+            raise
+        except (urllib.error.URLError, OSError) as e:
+            self.connect_ok = False
+            raise ConnectUnavailableError(f"1Password Connect unreachable: {e}") from e
 
     def resolve(self, ref):
         if ref in self.secrets:
@@ -252,32 +271,94 @@ def container_pid(app, service):
     return r.stdout.strip()
 
 
+def container_restarts(app):
+    """Return {container_id: (running, restart_count)} for an app's containers."""
+    r = sh(["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project=ix-{app}"], timeout=30)
+    ids = r.stdout.split() if r.returncode == 0 else []
+    if not ids:
+        return {}
+    ins = sh(["docker", "inspect", *ids], timeout=30)
+    if ins.returncode != 0:
+        return {}
+    out = {}
+    for c in json.loads(ins.stdout):
+        st = c.get("State") or {}
+        out[c.get("Id", "")] = (bool(st.get("Running")), int(c.get("RestartCount") or 0))
+    return out
+
+
+def _http_probe(url, insecure=False, expect=None, netns_pid=None):
+    """Run an HTTP(S) health probe directly or inside a container's network namespace."""
+    if netns_pid is not None:
+        script = (
+            "import ssl, sys, urllib.request\n"
+            "u, ins, exp = sys.argv[1], sys.argv[2] == '1', sys.argv[3]\n"
+            "ctx = ssl._create_unverified_context() if ins else None\n"
+            "with urllib.request.urlopen(u, timeout=10, context=ctx) as r:\n"
+            "    body = r.read(65536).decode('utf-8', 'replace')\n"
+            "    if r.status >= 400:\n"
+            "        raise SystemExit(f'HTTP {r.status}')\n"
+            "    if exp and exp not in body:\n"
+            "        raise SystemExit(f'body missing {exp!r}')\n"
+        )
+        r = sh(["nsenter", f"--net=/proc/{netns_pid}/ns/net", sys.executable, "-c", script,
+                url, "1" if insecure else "0", expect or ""], timeout=20)
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr.strip().splitlines() or r.stdout.strip().splitlines() or ["http probe failed"])[-1])
+        return
+    c = ssl._create_unverified_context() if insecure else None
+    with urllib.request.urlopen(url, timeout=10, context=c) as r:
+        body = r.read(65536).decode("utf-8", "replace")
+        if r.status >= 400:
+            raise RuntimeError(f"HTTP {r.status}")
+        if expect and expect not in body:
+            raise RuntimeError(f"body missing {expect!r}")
+
+
 def healthy(meta, name, ctx):
-    """Probe after RUNNING. `netns: <service>` runs a tcp probe inside that container's network namespace -- needed
-    for macvlan-attached apps, which the host itself can never reach (macvlan parent/child isolation)."""
+    """Probe after RUNNING. Supports tcp and http inside `netns: <service>`, `expect` body checks, and `min_ready`
+    restart-stability confirmation."""
     h = meta.get("health")
     if not h:
         return True
-    import socket, ssl
+    import socket
+    expect = h.get("expect")
+    min_ready = int(h.get("min_ready", cfg_get(ctx.cfg, "min_ready_seconds")) or 0)
+
+    def probe_once():
+        if "tcp" in h and h.get("netns"):
+            host, port = h["tcp"].rsplit(":", 1)
+            pid = container_pid(name, h["netns"])
+            r = sh(["nsenter", f"--net=/proc/{pid}/ns/net", sys.executable, "-c",
+                    "import socket,sys;socket.create_connection((sys.argv[1],int(sys.argv[2])),5).close()",
+                    host, port], timeout=20)
+            if r.returncode != 0:
+                raise RuntimeError((r.stderr.strip().splitlines() or ["probe failed"])[-1])
+        elif "tcp" in h:
+            host, port = h["tcp"].rsplit(":", 1)
+            socket.create_connection((host, int(port)), timeout=5).close()
+        elif "http" in h and h.get("netns"):
+            pid = container_pid(name, h["netns"])
+            _http_probe(h["http"], bool(h.get("insecure")), expect, netns_pid=pid)
+        else:
+            _http_probe(h["http"], bool(h.get("insecure")), expect)
+
     deadline, err = _now() + int(h.get("timeout", 120)), None
     while _now() < deadline:
         try:
-            if "tcp" in h and h.get("netns"):
-                host, port = h["tcp"].rsplit(":", 1)
-                pid = container_pid(name, h["netns"])
-                r = sh(["nsenter", f"--net=/proc/{pid}/ns/net", sys.executable, "-c",
-                        "import socket,sys;socket.create_connection((sys.argv[1],int(sys.argv[2])),5).close()",
-                        host, port], timeout=20)
-                if r.returncode != 0:
-                    raise RuntimeError((r.stderr.strip().splitlines() or ["probe failed"])[-1])
-            elif "tcp" in h:
-                host, port = h["tcp"].rsplit(":", 1)
-                socket.create_connection((host, int(port)), timeout=5).close()
-            else:
-                c = ssl._create_unverified_context() if h.get("insecure") else None
-                with urllib.request.urlopen(h["http"], timeout=10, context=c) as r:
-                    if r.status >= 400:
-                        raise RuntimeError(f"HTTP {r.status}")
+            probe_once()
+            if min_ready > 0:
+                before = container_restarts(name)
+                if not before or any(not run for run, _ in before.values()):
+                    raise RuntimeError("app containers not running for min_ready check")
+                _sleep(min_ready)
+                after = container_restarts(name)
+                if set(after) != set(before) or any(not run for run, _ in after.values()):
+                    raise RuntimeError("container restarted/disappeared during min_ready soak")
+                for cid, (_, cnt_b) in before.items():
+                    if after[cid][1] != cnt_b:
+                        raise RuntimeError(f"container {cid[:12]} restarted during min_ready soak")
+                probe_once()
             return True
         except Exception as e:  # noqa: BLE001
             err = e
@@ -897,6 +978,173 @@ def drift_report(baseline, live_fp):
     return out
 
 
+def save_state(ctx):
+    """Persist ctx.state atomically in live mode when state_dir exists."""
+    sd = (ctx.cfg or {}).get("state_dir")
+    if ctx.dry or not sd or not os.path.isdir(sd):
+        return
+    atomic_json(os.path.join(sd, "state.json"), ctx.state)
+
+
+def desired_fingerprints(ctx, desired_compose, rendered_files, meta):
+    """Compute keyed fingerprints for desired compose, rendered files, and desired ini settings."""
+    fp = {"compose": fingerprint(ctx, desired_compose), "files": {}, "ini": {}}
+    for fs, content in rendered_files:
+        fp["files"][fs["dest"]] = fingerprint(ctx, content)
+    for spec in meta.get("ini", []):
+        fp["ini"][spec["path"]] = fingerprint(ctx, {k: str(v) for k, v in spec["set"].items()})
+    return fp
+
+
+def pin_rollback_images(name, live_compose, desired_compose, ctx):
+    """Best-effort local tag of previous images before updating so offline rollbacks do not need a pull."""
+    if ctx.dry or not live_compose or live_compose == desired_compose:
+        return
+    desired_svcs = (desired_compose or {}).get("services") or {}
+    for svc_name, old_svc in (live_compose.get("services") or {}).items():
+        old_img = (old_svc or {}).get("image")
+        new_img = (desired_svcs.get(svc_name) or {}).get("image")
+        if old_img and old_img != new_img and image_present(old_img):
+            r = sh(["docker", "image", "tag", old_img, f"ix-rollback/{name}/{svc_name}:prev"], timeout=30)
+            if r.returncode != 0:
+                ctx.log(f"{name}: warning pinning rollback image {svc_name}: {r.stderr.strip()[-200:]}")
+
+
+def _env_lookup(svc_cfg, key):
+    env = (svc_cfg or {}).get("environment")
+    if isinstance(env, dict):
+        return env.get(key)
+    if isinstance(env, list):
+        prefix = f"{key}="
+        for entry in env:
+            if isinstance(entry, str) and entry.startswith(prefix):
+                return entry[len(prefix):]
+    return None
+
+
+def _grafana_sync(url, user, password, folders, items, pid, dry):
+    """Sync Grafana folders and dashboards via nsenter inside the container netns using stdin JSON."""
+    script = r"""
+import base64, json, sys, urllib.error, urllib.request
+req = json.load(sys.stdin)
+base = req["url"].rstrip("/")
+auth = base64.b64encode((req["user"] + ":" + req["password"]).encode()).decode()
+def api(path, method="GET", body=None):
+    hdr = {"Authorization": "Basic " + auth, "Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        hdr["Content-Type"] = "application/json"
+    r = urllib.request.Request(base + path, data=data, method=method, headers=hdr)
+    with urllib.request.urlopen(r, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+live_folders = {f["uid"]: f for f in api("/api/folders?limit=200")}
+for title, uid in req["folders"].items():
+    if uid not in live_folders and not req["dry"]:
+        api("/api/folders", "POST", {"uid": uid, "title": title})
+
+out = []
+for item in req["dashboards"]:
+    uid, fuid, want = item["uid"], item["folderUid"], item["dashboard"]
+    try:
+        cur = api("/api/dashboards/uid/" + uid)
+        live = dict(cur.get("dashboard") or {})
+        live.pop("id", None)
+        live.pop("version", None)
+        live_fuid = (cur.get("meta") or {}).get("folderUid", "")
+        if live == want and live_fuid == fuid:
+            out.append({"uid": uid, "file": item["file"], "status": "ok"})
+            continue
+        rec = {"uid": uid, "file": item["file"], "status": "changed" if req["dry"] else "updated",
+               "live_fuid": live_fuid, "live_dashboard": live}
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        rec = {"uid": uid, "file": item["file"], "status": "missing" if req["dry"] else "created"}
+    if not req["dry"]:
+        api("/api/dashboards/db", "POST", {"dashboard": {**want, "id": None}, "folderUid": fuid, "overwrite": True})
+    out.append(rec)
+print(json.dumps(out))
+"""
+    payload = {"url": url, "user": user, "password": password, "folders": folders, "dashboards": items, "dry": bool(dry)}
+    r = sh(["nsenter", f"--net=/proc/{pid}/ns/net", sys.executable, "-c", script],
+           timeout=120, input=json.dumps(payload))
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr.strip() or r.stdout.strip())[-400:] or f"exit {r.returncode}")
+    return json.loads(r.stdout.strip() or "[]")
+
+
+def reconcile_dashboards(appdir, name, meta, desired, applied_entry, ctx):
+    """Ensure declared Grafana dashboards and folders match git; return (ok, dash_fingerprints_or_None)."""
+    dspec = meta.get("dashboards")
+    if not dspec:
+        return True, None
+    ddir = os.path.join(appdir, dspec["dir"])
+    if not os.path.isdir(ddir):
+        ctx.log(f"{name}: dashboards dir {dspec['dir']} not found")
+        return False, None
+    folders = dict(dspec.get("folders") or {})
+    default_folder = dspec.get("default_folder", "infrastructure")
+    fmap = dspec.get("folder_map") or {}
+    items, want_fp = [], {}
+    for fn in sorted(os.listdir(ddir)):
+        if not fn.endswith(".json"):
+            continue
+        with open(os.path.join(ddir, fn)) as f:
+            dash = json.load(f)
+        dash.pop("id", None)
+        dash.pop("version", None)
+        uid = dash.get("uid")
+        if not uid:
+            ctx.log(f"{name}: dashboard {fn} missing uid")
+            return False, None
+        fname = fmap.get(fn, default_folder)
+        fuid = folders.get(fname, "")
+        want_fp[uid] = fingerprint(ctx, {"folderUid": fuid, "dashboard": dash})
+        items.append({"uid": uid, "file": fn, "folderUid": fuid, "dashboard": dash})
+
+    svc = dspec.get("service", name)
+    svc_cfg = (desired.get("services") or {}).get(svc)
+    user = _env_lookup(svc_cfg, dspec.get("user_env", "GF_SECURITY_ADMIN_USER"))
+    password = _env_lookup(svc_cfg, dspec.get("pass_env", "GF_SECURITY_ADMIN_PASSWORD"))
+    if not user or not password:
+        ctx.log(f"{name}: dashboard sync missing credentials env on service {svc}")
+        return False, None
+
+    try:
+        pid = container_pid(name, svc)
+    except Exception as e:  # noqa: BLE001
+        if ctx.dry:
+            ctx.log(f"{name}: dashboards JSON validated ({len(items)} files; container not running in dry-run)")
+            return True, None
+        ctx.log(f"{name}: dashboards sync failed locating container: {ctx.mask(str(e))}")
+        return False, None
+
+    prev_dash = (applied_entry or {}).get("dashboards") or {}
+    try:
+        res = _grafana_sync(dspec.get("url", "http://127.0.0.1:3000"), user, password, folders, items, pid, ctx.dry)
+    except Exception as e:  # noqa: BLE001
+        ctx.log(f"{name}: dashboards sync FAILED: {ctx.mask(str(e))}")
+        return False, None
+
+    for row in res:
+        st = row.get("status")
+        uid, fn = row["uid"], row["file"]
+        if st == "ok":
+            continue
+        if "live_dashboard" in row:
+            lfp = fingerprint(ctx, {"folderUid": row.get("live_fuid", ""), "dashboard": row["live_dashboard"]})
+            if uid in prev_dash and prev_dash[uid] != lfp:
+                ctx.drift[name] = True
+                ctx.event("drift", name)
+                ctx.log(f"{name}: DRIFT -- dashboard {uid} ({fn}) changed outside git"
+                        + (" (will be re-imported)" if ctx.dry else " (re-imported from git)"))
+                continue
+        ctx.log(f"{name}: dashboard {uid} ({fn}) {'would be ' + st if ctx.dry else st}")
+    return True, want_fp
+
+
 # ---- one app ---------------------------------------------------------------------------------------------
 def yaml_dump(o):
     return yaml.safe_dump(o, sort_keys=True, default_flow_style=False, width=200)
@@ -977,11 +1225,28 @@ def reconcile_app(appdir, ctx, meta=None):
         if ch:
             ini_todo.append((spec, ch))
 
-    def record_applied():
-        if not ctx.dry:
-            applied[name] = live_fingerprints(ctx, desired, meta)
+    want_fp = desired_fingerprints(ctx, desired, rendered_files, meta)
+    pending = bool((ctx.state.get("pending_redeploy") or {}).get(name))
+    prev_applied = applied.get(name) or {}
+    unconverged = bool(app and prev_applied and (
+        any((prev_applied.get("files") or {}).get(dest) not in (None, wfp)
+            for dest, wfp in want_fp["files"].items())
+        or any(os.path.lexists(ipath) and (prev_applied.get("ini") or {}).get(ipath) not in (None, wfp)
+               for ipath, wfp in want_fp["ini"].items())
+    ))
 
-    if not (compose_diff or file_changes or ini_todo or dirs_changed):
+    def record_applied(dash_fp=None):
+        if not ctx.dry:
+            fp = live_fingerprints(ctx, desired, meta)
+            if dash_fp is not None:
+                fp["dashboards"] = dash_fp
+            elif "dashboards" in (applied.get(name) or {}):
+                fp["dashboards"] = applied[name]["dashboards"]
+            applied[name] = fp
+            (ctx.state.get("pending_redeploy") or {}).pop(name, None)
+            save_state(ctx)
+
+    if not (compose_diff or file_changes or ini_todo or dirs_changed or pending or unconverged):
         state = app.get("state") if app else None
         if ctx.dry:  # dry-run exercises every preflight, so a bad image/config/IP shows up before it is deployed
             ctx.log(f"{name}: config in sync, state is {state} (would start)" if state != "RUNNING"
@@ -991,6 +1256,9 @@ def reconcile_app(appdir, ctx, meta=None):
                 ctx.log(f"{name}: PREFLIGHT FAILED: {p}")
             if probs:
                 ctx.event("preflight_failure", name)
+                return False
+            dok, _ = reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
+            if not dok:
                 return False
             ctx.log(f"{name}: preflight OK")
             return not ini_missing
@@ -1005,19 +1273,29 @@ def reconcile_app(appdir, ctx, meta=None):
                 ctx.log(f"{name}: start FAILED: {ctx.mask(str(e))}")
                 ok = False
             if ok:
+                dok, dash_fp = reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
+                if not dok:
+                    ctx.event("deploy_failure", name)
+                    return False
                 ctx.log(f"{name}: started (RUNNING{', healthy' if meta.get('health') else ''})")
-                record_applied()
+                record_applied(dash_fp)
                 ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
                 return not ini_missing
             ctx.event("deploy_failure", name)
             ctx.log(f"{name}: start/health FAILED (was {state})")
             return False
-        ctx.log(f"{name}: in sync ({state})")
-        record_applied()
+        dok, dash_fp = reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
+        if dok:
+            ctx.log(f"{name}: in sync ({state})")
+            record_applied(dash_fp)
+        else:
+            ctx.log(f"{name}: dashboard sync FAILED ({state})")
         ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
-        return not ini_missing
+        return dok and (not ini_missing)
 
     # ---- report ----
+    if (pending or unconverged) and not (compose_diff or file_changes or ini_todo or dirs_changed):
+        ctx.log(f"{name}: recovering unfinished/unconverged config deploy")
     if compose_diff:
         paths = changed_paths(live, desired) if live is not None else ["(app absent: create)"]
         ctx.log(f"{name}: compose differs at: " + ", ".join(paths[:40]) + (" ..." if len(paths) > 40 else "")
@@ -1041,6 +1319,7 @@ def reconcile_app(appdir, ctx, meta=None):
         return False
     ctx.log(f"{name}: preflight OK")
     if ctx.dry:
+        reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
         ctx.log(f"{name}: would deploy (dry-run)")
         return True
 
@@ -1053,7 +1332,10 @@ def reconcile_app(appdir, ctx, meta=None):
     bdir = os.path.join(backup_root(ctx.cfg), name)
     ctx.live = None  # anything we do now changes the live inventory
     ctx.event("deploy", name)
+    ctx.state.setdefault("pending_redeploy", {})[name] = int(_now())
+    save_state(ctx)
     try:
+        pin_rollback_images(name, live, desired, ctx)
         if ini_todo and app:
             ctx.log(f"{name}: stopping to patch ini")
             midclt("app.stop", name, job=True)
@@ -1067,13 +1349,16 @@ def reconcile_app(appdir, ctx, meta=None):
         if compose_diff:
             deploy_compose(name, desired, exists=bool(app))
             ctx.log(f"{name}: compose {'updated' if app else 'created'}")
-        elif file_changes or dirs_changed:
+        elif file_changes or dirs_changed or pending or unconverged:
             midclt("app.redeploy", name, job=True)
             ctx.log(f"{name}: redeployed for file changes")
         ensure_started(name, ctx)
         if wait_running(name, ctx, timeout) and healthy(meta, name, ctx):
+            dok, dash_fp = reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
+            if not dok:
+                raise RuntimeError("dashboards sync failed")
             ctx.log(f"{name}: converged (RUNNING{', healthy' if meta.get('health') else ''})")
-            record_applied()
+            record_applied(dash_fp)
             ctx.ui_changed |= apply_ui(name, meta, desired, ctx)
             return not ini_missing
         raise RuntimeError("not RUNNING/healthy")
@@ -1095,6 +1380,8 @@ def rollback(name, meta, app, live, prev_ini, prev_files, timeout, ctx):
                     write_file(fs["dest"], cur, fs.get("owner"), int(str(fs.get("mode", "0600")), 8))
         except Exception as e2:  # noqa: BLE001
             ctx.log(f"{name}: restoring files after failed create FAILED: {ctx.mask(str(e2))}")
+        (ctx.state.get("pending_redeploy") or {}).pop(name, None)
+        save_state(ctx)
         a = app_state(name)
         ctx.log(f"{name}: create failed; no previous version to roll back to"
                 + (f" (app now exists in state {a.get('state')} -- needs attention)" if a else " (app absent)"))
@@ -1117,6 +1404,9 @@ def rollback(name, meta, app, live, prev_ini, prev_files, timeout, ctx):
         ctx.log(f"{name}: ROLLBACK FAILED: {ctx.mask(str(e2))}")
         ok = False
     if ok:
+        ctx.state.setdefault("applied", {})[name] = live_fingerprints(ctx, live, meta)
+        (ctx.state.get("pending_redeploy") or {}).pop(name, None)
+        save_state(ctx)
         ctx.log(f"{name}: after rollback: RUNNING{', healthy' if meta.get('health') else ''}")
     else:
         ctx.event("rollback_failure", name)
@@ -1125,11 +1415,13 @@ def rollback(name, meta, app, live, prev_ini, prev_files, timeout, ctx):
 
 
 def order_apps(apps, metas):
-    """Non-critical apps by name, then critical apps by (order, name): they deploy last, one at a time."""
-    crit = lambda a: bool((metas.get(a) or {}).get("critical"))
-    normal = sorted(a for a in apps if not crit(a))
+    """Bootstrap apps first by (order, name), then non-critical apps by name, then critical apps by (order, name)."""
+    boot = lambda a: bool((metas.get(a) or {}).get("bootstrap"))
+    crit = lambda a: bool((metas.get(a) or {}).get("critical")) and not boot(a)
+    b_apps = sorted((a for a in apps if boot(a)), key=lambda a: (int((metas[a] or {}).get("order", 100)), a))
+    normal = sorted(a for a in apps if not boot(a) and not crit(a))
     critical = sorted((a for a in apps if crit(a)), key=lambda a: (int((metas[a] or {}).get("order", 100)), a))
-    return normal + critical
+    return b_apps + normal + critical
 
 
 def run_apps(root, apps, metas, ctx):
@@ -1138,12 +1430,22 @@ def run_apps(root, apps, metas, ctx):
     for i, name in enumerate(ordered):
         try:
             results[name] = reconcile_app(os.path.join(root, name), ctx, metas.get(name))
+        except ConnectUnavailableError as e:
+            ctx.connect_ok = False
+            ctx.log(f"{name}: 1Password Connect unavailable ({ctx.mask(str(e))}) -- aborting remaining apps")
+            results[name] = False
+            rest = ordered[i + 1:]
+            for r in rest:
+                results[r] = False
+            break
         except Exception as e:  # noqa: BLE001
             ctx.log(f"{name}: ERROR {ctx.mask(str(e))}")
             results[name] = False
-        if not results[name] and (metas.get(name) or {}).get("critical"):
+        m = metas.get(name) or {}
+        if not results[name] and (m.get("critical") or m.get("bootstrap")):
             rest = ordered[i + 1:]
-            ctx.log(f"{name}: CRITICAL app failed -- aborting the run" + (f"; skipped: {', '.join(rest)}" if rest else ""))
+            ctx.log(f"{name}: {'BOOTSTRAP' if m.get('bootstrap') else 'CRITICAL'} app failed -- aborting the run"
+                    + (f"; skipped: {', '.join(rest)}" if rest else ""))
             for r in rest:
                 results[r] = False
             break
@@ -1222,7 +1524,7 @@ def gate_decide(head, current, candidates, check, is_ancestor, same_tree):
                                      + (", ".join(skipped) or "none checked"))
 
 
-def git_pull(cfg, ctx, gate_on=True):
+def git_pull(cfg, ctx, gate_on=True, partial=False):
     co, repo, br = cfg["checkout"], cfg["repo"], cfg.get("branch", "main")
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
 
@@ -1278,7 +1580,7 @@ def git_pull(cfg, ctx, gate_on=True):
                         reason=f"last good commit {target[:8]} is no longer in the fetched history")
             target = None
         ctx.log(f"ci-gate: {info['status']}: {info['reason']}")
-        if not ctx.dry:
+        if not ctx.dry and not partial:
             if len(cache) > 500:
                 cache = dict(list(cache.items())[-500:])
             gstate["verdicts"] = cache
@@ -1290,13 +1592,28 @@ def git_pull(cfg, ctx, gate_on=True):
     else:
         target = head
         ctx.log("ci-gate: DISABLED -- deploying the branch tip unchecked")
-        if not ctx.dry:  # keep the last-good marker current so re-enabling the gate starts from here
+        if not ctx.dry and not partial:  # keep the last-good marker current so re-enabling the gate starts from here
             gstate["deployed"] = head
             atomic_json(cache_p, gstate)
-    if target is not None:  # deploy=False: the checkout (and this script) is never moved to an ungated commit
-        run("reset", "--hard", target)
-    info["commit"] = run("rev-parse", "HEAD").stdout.strip()
-    ctx.log(f"git {br}@{head[:7]} deploying {info['commit'][:7]}")
+    cur_head = run("rev-parse", "HEAD").stdout.strip()
+    if ctx.dry or partial:
+        # Never mutate the live shared checkout during --dry-run or single-app runs.
+        if target is not None and target != cur_head:
+            wt = tempfile.mkdtemp(dir=preflight_tmp(ctx), prefix="wt-")
+            try:
+                run("worktree", "add", "--detach", wt, target)
+                info["worktree"] = wt
+                info["commit"] = target
+            except Exception:  # noqa: BLE001
+                shutil.rmtree(wt, ignore_errors=True)
+                raise
+        else:
+            info["commit"] = target or cur_head
+    else:
+        if target is not None:  # deploy=False: the checkout (and this script) is never moved to an ungated commit
+            run("reset", "--hard", target)
+        info["commit"] = run("rev-parse", "HEAD").stdout.strip()
+    ctx.log(f"git {br}@{head[:7]} {'checking' if ctx.dry else 'deploying'} {info['commit'][:7]}")
     return info
 
 
@@ -1560,6 +1877,10 @@ def render_metrics(results, unmanaged, ok_all, now, mstate, run_info, prev_succe
         [({}, 1 if run_info.get("api_ok", True) else 0)])
     fam("ci_gate_held", "gauge", "1 if the branch tip's truenas/ changes are held back (CI failed/pending/missing).",
         [({}, 1 if run_info.get("gate") == "held" else 0)])
+    fam("connect_ok", "gauge", "1 if 1Password Connect API was healthy during the run.",
+        [({}, 1 if run_info.get("connect_ok", True) else 0)])
+    fam("commit_converged", "gauge", "1 if all apps converged onto the checked-out commit.",
+        [({}, 1 if run_info.get("converged", ok_all) else 0)])
     c, ts = mstate.get("counters", {}), mstate.get("last", {})
     apps = sorted(set(real_results) | {a for k in c.values() for a in k if not a.startswith("_")})
     for kind, (stem, help_) in COUNTERS.items():
@@ -1606,6 +1927,156 @@ def write_metrics(cfg, results, unmanaged, ok_all, mstate=None, run_info=None, n
         raise
 
 
+# ---- trigger / host / retired ----------------------------------------------------------------------------
+def _trigger_path(cfg, cli_trigger=None):
+    if cli_trigger:
+        return cli_trigger
+    tf = cfg.get("trigger_file")
+    if tf:
+        return tf
+    if str(cfg.get("checkout", "")).startswith("/mnt/flashstor/") and os.path.isdir(os.path.dirname(DEFAULT_TRIGGER_FILE)):
+        return DEFAULT_TRIGGER_FILE
+    return None
+
+
+def _open_trigger_dir(path):
+    parent, name = os.path.dirname(path), os.path.basename(path)
+    if not parent or not name or os.path.islink(parent):
+        return None, name
+    try:
+        return os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW), name
+    except OSError:
+        return None, name
+
+
+def trigger_pending(path):
+    if not path:
+        return False
+    dfd, name = _open_trigger_dir(path)
+    if dfd is None:
+        return False
+    try:
+        st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+        return stat.S_ISREG(st.st_mode)
+    except OSError:
+        return False
+    finally:
+        os.close(dfd)
+
+
+def consume_trigger(path):
+    if not path:
+        return False
+    dfd, name = _open_trigger_dir(path)
+    if dfd is None:
+        return False
+    try:
+        try:
+            st = os.stat(name, dir_fd=dfd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"{path} is not a regular file (symlink/FIFO?) -- refusing")
+        os.unlink(name, dir_fd=dfd)
+        return True
+    finally:
+        os.close(dfd)
+
+
+def reconcile_host(checkout, ctx):
+    """Sync files declared in truenas/host/host.yaml when their destination parent directory exists."""
+    hdir = os.path.join(checkout, "truenas", "host")
+    hfile = os.path.join(hdir, "host.yaml")
+    if not os.path.exists(hfile):
+        return True
+    spec_doc = yaml.safe_load(open(hfile)) or {}
+    ok = True
+    hap = ctx.state.setdefault("host_applied", {})
+    for spec in spec_doc.get("files") or []:
+        src = os.path.join(hdir, spec["src"])
+        dest = spec["dest"]
+        if not os.path.isdir(os.path.dirname(dest)):
+            continue
+        with open(src) as f:
+            want = f.read()
+        mode = int(str(spec.get("mode", "0700")), 8)
+        uid, gid = parse_owner(spec.get("owner", "0:0"))
+        cur, st = read_file_st(dest)
+        prev = hap.get(dest)
+        if cur is not None and prev and fingerprint(ctx, cur) != prev:
+            ctx.log(f"host: DRIFT -- {dest} modified outside git"
+                    + (" (would restore)" if ctx.dry else " (restoring from git)"))
+        needs_write = cur != want or st is None or (st.st_uid, st.st_gid, st.st_mode & 0o7777) != (uid, gid, mode)
+        if not needs_write:
+            hap[dest] = fingerprint(ctx, want)
+            continue
+        if ctx.dry:
+            ctx.log(f"host: would update {dest} (dry-run)")
+            continue
+        bdir = os.path.join(backup_root(ctx.cfg), "_host")
+        write_file(dest, want, spec.get("owner", "0:0"), mode, bdir)
+        hap[dest] = fingerprint(ctx, want)
+        ctx.log(f"host: updated {dest}")
+        if spec.get("on_change"):
+            r = sh(spec["on_change"], timeout=60)
+            if r.returncode != 0:
+                ctx.log(f"host: on_change hook failed for {dest}: {r.stderr.strip()[-300:]}")
+                ok = False
+            else:
+                ctx.log(f"host: on_change hook OK ({spec['on_change'][0]})")
+    return ok
+
+
+def reconcile_retired(checkout, ctx):
+    """Stop and delete retired custom apps declared in truenas/retired.yaml (never deletes host datasets)."""
+    rfile = os.path.join(checkout, "truenas", "retired.yaml")
+    if not os.path.exists(rfile):
+        return True
+    doc = yaml.safe_load(open(rfile)) or {}
+    names = [str(x) for x in (doc.get("retired") or [])]
+    if not names:
+        return True
+    live = {x["name"]: x for x in midclt("app.query")}
+    ok = True
+    for rname in names:
+        if rname not in live:
+            if not ctx.dry:
+                (ctx.state.get("applied") or {}).pop(rname, None)
+                (ctx.state.get("pending_redeploy") or {}).pop(rname, None)
+            continue
+        if not live[rname].get("custom_app"):
+            ctx.log(f"{rname}: listed in retired.yaml as a CATALOG app -- refusing auto-delete")
+            ok = False
+            continue
+        if ctx.dry:
+            ctx.log(f"{rname}: retired -- would stop and delete custom app (dry-run)")
+            continue
+        try:
+            midclt("app.delete", rname, job=True)
+            (ctx.state.get("applied") or {}).pop(rname, None)
+            (ctx.state.get("pending_redeploy") or {}).pop(rname, None)
+            imgs = sh(["docker", "images", "--format", "{{.Repository}}:{{.Tag}}", f"ix-rollback/{rname}/*"], timeout=30)
+            for tag in imgs.stdout.splitlines():
+                if tag.strip():
+                    sh(["docker", "rmi", tag.strip()], timeout=30)
+            ctx.log(f"{rname}: retired custom app deleted")
+        except Exception as e:  # noqa: BLE001
+            ctx.log(f"{rname}: delete FAILED: {ctx.mask(str(e))}")
+            ok = False
+    return ok
+
+
+def cleanup_worktree(checkout, wt):
+    if not wt:
+        return
+    try:
+        subprocess.run(["git", "-C", checkout, "worktree", "remove", "--force", wt],
+                       capture_output=True, text=True, timeout=60)
+    except Exception:  # noqa: BLE001
+        pass
+    shutil.rmtree(wt, ignore_errors=True)
+
+
 # ---- main ------------------------------------------------------------------------------------------------
 def main(argv=None):
     ap = argparse.ArgumentParser()
@@ -1614,7 +2085,11 @@ def main(argv=None):
     ap.add_argument("--app", action="append")
     ap.add_argument("--no-pull", action="store_true")
     ap.add_argument("--no-ci-gate", action="store_true", help="emergency: deploy the branch tip without CI check")
-    ap.add_argument("--wait-lock", type=int, default=0, help="seconds to wait for .lock before exiting (0 = non-blocking)")
+    ap.add_argument("--wait-lock", type=int, default=None, help="seconds to wait for .lock (default 0, or 300 with --app)")
+    ap.add_argument("--if-locked", choices=("skip", "fail"), default=None,
+                    help="action on lock timeout (default skip, or fail with --app)")
+    ap.add_argument("--trigger-file", default=None, help="coalesced webhook trigger file path")
+    ap.add_argument("--from-trigger", action="store_true", help="exit 0 immediately if poke already consumed under lock")
     a = ap.parse_args(argv)
     t0 = _now()
     with open(a.config) as f:
@@ -1623,7 +2098,9 @@ def main(argv=None):
     os.makedirs(sd, mode=0o700, exist_ok=True)
     lfd = os.open(os.path.join(sd, ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     lockf = os.fdopen(lfd, "r+")
-    lock_deadline = _now() + max(0, a.wait_lock)
+    wait_s = a.wait_lock if a.wait_lock is not None else (300 if a.app else 0)
+    on_locked = a.if_locked or ("fail" if a.app else "skip")
+    lock_deadline = _now() + max(0, wait_s)
     while True:
         try:
             fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -1632,8 +2109,22 @@ def main(argv=None):
             if _now() >= lock_deadline:
                 print("another reconcile is running", file=sys.stderr)
                 lockf.close()
-                return 0
+                return EX_TEMPFAIL if on_locked == "fail" else 0
             _sleep(1)
+
+    tpath = _trigger_path(cfg, a.trigger_file)
+    reexec_env = os.environ.get("RECONCILE_GATE_INFO")
+    from_self_exec = reexec_env is not None
+    if tpath and not a.dry_run:
+        try:
+            had_poke = consume_trigger(tpath)
+        except Exception as e:  # noqa: BLE001
+            print(f"trigger error: {e}", file=sys.stderr)
+            had_poke = False
+        if a.from_trigger and not from_self_exec and not a.no_pull and not had_poke:
+            lockf.close()
+            return 0
+
     ctx = Ctx(cfg, a.dry_run)
     if not a.dry_run:
         os.fchmod(lfd, 0o600)
@@ -1642,89 +2133,128 @@ def main(argv=None):
     me = os.path.realpath(__file__)
     before = open(me, "rb").read()
     gate_on = cfg_get(cfg, "ci_gate")["enabled"] and not a.no_ci_gate
-    run_info = {"gate": "nopull", "commit": "", "head": "", "api_ok": True}
-    deploy = True
-    if not a.no_pull:
-        gi = git_pull(cfg, ctx, gate_on)
-        deploy = gi.get("deploy", True)
-        run_info.update(gate=gi["status"], commit=gi["commit"], head=gi["head"], api_ok=gi["api_ok"], deploy=deploy)
-        if os.path.exists(me) and open(me, "rb").read() != before:
-            # the pull updated this very script: re-exec the new code (release the lock first) for this run
-            ctx.log("reconciler updated by git -- re-executing new version")
-            write_runlog(cfg, ctx)
-            lockf.close()
-            os.environ["RECONCILE_GATE_INFO"] = json.dumps(run_info)  # carried into the new process's metrics
-            os.execv(sys.executable, [sys.executable, me, *sys.argv[1:], "--no-pull"])
-    elif os.environ.get("RECONCILE_GATE_INFO"):
-        run_info.update(json.loads(os.environ.pop("RECONCILE_GATE_INFO")))
-        deploy = run_info.get("deploy", True)
-    else:
+
+    ok_all = True
+    for pass_no in range(MAX_COALESCE_PASSES):
+        pass_t0 = _now() if pass_no > 0 else t0
+        ctx.events = []
+        ctx.drift = {}
+        ctx.ui_changed = False
+        ctx.connect_ok = True
+        ctx.live = None
+        run_info = {"gate": "nopull", "commit": "", "head": "", "api_ok": True, "connect_ok": True}
+        deploy = True
+        worktree = None
+        should_pull = (not a.no_pull) or (pass_no > 0)
+        if should_pull:
+            gi = git_pull(cfg, ctx, gate_on, partial=bool(a.app))
+            deploy = gi.get("deploy", True)
+            worktree = gi.get("worktree")
+            run_info.update(gate=gi["status"], commit=gi["commit"], head=gi["head"], api_ok=gi["api_ok"], deploy=deploy)
+            if not a.dry_run and not a.app and os.path.exists(me) and open(me, "rb").read() != before:
+                # the pull updated this very script: re-exec the new code (release the lock first) for this run
+                ctx.log("reconciler updated by git -- re-executing new version")
+                write_runlog(cfg, ctx)
+                lockf.close()
+                os.environ["RECONCILE_GATE_INFO"] = json.dumps(run_info)  # carried into the new process's metrics
+                os.execv(sys.executable, [sys.executable, me, *sys.argv[1:], "--no-pull"])
+        elif reexec_env:
+            run_info.update(json.loads(reexec_env))
+            os.environ.pop("RECONCILE_GATE_INFO", None)
+            reexec_env = None
+            deploy = run_info.get("deploy", True)
+        else:
+            try:
+                run_info["commit"] = subprocess.run(["git", "-C", cfg["checkout"], "rev-parse", "HEAD"],
+                                                    capture_output=True, text=True, timeout=30).stdout.strip()
+            except Exception:  # noqa: BLE001
+                pass
+
+        checkout = worktree or cfg["checkout"]
         try:
-            run_info["commit"] = subprocess.run(["git", "-C", cfg["checkout"], "rev-parse", "HEAD"],
-                                                capture_output=True, text=True, timeout=30).stdout.strip()
-        except Exception:  # noqa: BLE001
-            pass
-    root = os.path.join(cfg["checkout"], "truenas", "apps")
-    apps = sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "compose.yaml")))
-    all_apps = list(apps)
-    if a.app:
-        apps = [x for x in apps if x in a.app]
-    ctx.public_tokens = set(all_apps)
-    metas = {}
-    for n in apps:
-        try:
-            metas[n] = load_app(os.path.join(root, n))[1]
-        except Exception as e:  # noqa: BLE001
-            ctx.log(f"{n}: ERROR reading app.yaml: {e}")
-            raw_meta = read_file(os.path.join(root, n, "app.yaml")) or ""
-            if re.search(r"(?m)^\s*critical\s*:\s*true\b", raw_meta):
-                om = re.search(r"(?m)^\s*order\s*:\s*(-?\d+)\b", raw_meta)
-                metas[n] = {"critical": True, "order": int(om.group(1)) if om else -1}
+            root = os.path.join(checkout, "truenas", "apps")
+            apps = sorted(d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "compose.yaml")))
+            all_apps = list(apps)
+            if a.app:
+                apps = [x for x in apps if x in a.app]
+            ctx.public_tokens = set(all_apps)
+            metas = {}
+            for n in apps:
+                try:
+                    metas[n] = load_app(os.path.join(root, n))[1]
+                except Exception as e:  # noqa: BLE001
+                    ctx.log(f"{n}: ERROR reading app.yaml: {e}")
+                    raw_meta = read_file(os.path.join(root, n, "app.yaml")) or ""
+                    if re.search(r"(?m)^\s*critical\s*:\s*true\b", raw_meta):
+                        om = re.search(r"(?m)^\s*order\s*:\s*(-?\d+)\b", raw_meta)
+                        metas[n] = {"critical": True, "order": int(om.group(1)) if om else -1}
+                    else:
+                        metas[n] = {}
+            results, unmanaged = {}, 0
+            if not a.app and deploy:
+                if not reconcile_host(checkout, ctx):
+                    results["_host"] = False
+            if not ensure_networks(os.path.join(checkout, "truenas", "networks.yaml"), ctx):
+                results["_networks"] = False
+            if deploy:
+                results.update(run_apps(root, apps, metas, ctx))
             else:
-                metas[n] = {}
-    results, unmanaged = {}, 0
-    if not ensure_networks(os.path.join(cfg["checkout"], "truenas", "networks.yaml"), ctx):
-        results["_networks"] = False
-    if deploy:
-        results.update(run_apps(root, apps, metas, ctx))
-    else:
-        ctx.log("ci-gate: nothing has passed CI yet on a fresh checkout -- no app reconciled")
-        results["_ci_gate"] = False
-    if not a.app:
-        live_names = {x["name"] for x in midclt("app.query")}
-        for extra in sorted(live_names - set(all_apps)):
-            ctx.log(f"{extra}: on nas01 but NOT in git (unmanaged)")
-            unmanaged += 1
-    if ctx.ui_changed and not a.dry_run:
-        try:
-            midclt("app.metadata.generate", job=True)
-            ctx.log("UI metadata regenerated")
-        except Exception as e:  # noqa: BLE001
-            ctx.log(f"UI metadata regenerate failed: {e}")
-    try:
-        removed, kept = prune_backups(backup_root(cfg), all_apps, cfg_get(cfg, "backup_retention_days"),
-                                      cfg_get(cfg, "backup_keep_newest"), _now(), a.dry_run, ctx.log)
-        run_info["backup_bytes"] = kept
-        ctx.log(f"backup: {len(removed)} file(s) {'would be ' if a.dry_run else ''}removed by retention; "
-                f"{kept // (1024 * 1024)} MiB kept")
-    except Exception as e:  # noqa: BLE001
-        ctx.log(f"backup: retention failed: {e}")
-    ok_all = all(results.values())
-    run_info["duration"] = _now() - t0
-    run_info["drift"] = ctx.drift
-    if not a.dry_run:
-        mstate = update_metric_state(ctx.state.get("metrics", {}), ctx.events, results, ok_all, not a.app, int(_now()))
-        ctx.state["metrics"] = mstate
-        if not a.app:
-            post_github_status(cfg, ctx, results, ok_all, run_info)
-        atomic_json(os.path.join(sd, "state.json"), ctx.state)
-        if not a.app:
-            write_metrics(cfg, results, unmanaged, ok_all, mstate, run_info)
-    bad = sorted(k for k, v in results.items() if not v)
-    ctx.log(f"run: {'OK' if ok_all else 'FAILED'} ({len(results) - len(bad)}/{len(results)} converged"
-            + (f"; not converged: {', '.join(bad)}" if bad else "") + f") in {run_info['duration']:.0f} s"
-            + (" (dry-run)" if a.dry_run else ""))
-    write_runlog(cfg, ctx)
+                ctx.log("ci-gate: nothing has passed CI yet on a fresh checkout -- no app reconciled")
+                results["_ci_gate"] = False
+            if not a.app and deploy:
+                if not reconcile_retired(checkout, ctx):
+                    results["_retired"] = False
+            if not a.app:
+                live_names = {x["name"] for x in midclt("app.query")}
+                for extra in sorted(live_names - set(all_apps)):
+                    ctx.log(f"{extra}: on nas01 but NOT in git (unmanaged)")
+                    unmanaged += 1
+            if ctx.ui_changed and not a.dry_run:
+                try:
+                    midclt("app.metadata.generate", job=True)
+                    ctx.log("UI metadata regenerated")
+                except Exception as e:  # noqa: BLE001
+                    ctx.log(f"UI metadata regenerate failed: {e}")
+            try:
+                removed, kept = prune_backups(backup_root(cfg), all_apps, cfg_get(cfg, "backup_retention_days"),
+                                              cfg_get(cfg, "backup_keep_newest"), _now(), a.dry_run, ctx.log)
+                run_info["backup_bytes"] = kept
+                ctx.log(f"backup: {len(removed)} file(s) {'would be ' if a.dry_run else ''}removed by retention; "
+                        f"{kept // (1024 * 1024)} MiB kept")
+            except Exception as e:  # noqa: BLE001
+                ctx.log(f"backup: retention failed: {e}")
+            ok_all = all(results.values())
+            run_info["duration"] = _now() - pass_t0
+            run_info["drift"] = ctx.drift
+            run_info["connect_ok"] = ctx.connect_ok
+            if deploy and ok_all and not a.app and not a.dry_run and len(run_info.get("commit", "")) == 40:
+                ctx.state["converged_commit"] = run_info["commit"]
+            run_info["converged"] = (ctx.state.get("converged_commit") == run_info.get("commit")) \
+                if (deploy and run_info.get("commit")) else False
+            if not a.dry_run:
+                mstate = update_metric_state(ctx.state.get("metrics", {}), ctx.events, results, ok_all, not a.app, int(_now()))
+                ctx.state["metrics"] = mstate
+                if not a.app:
+                    post_github_status(cfg, ctx, results, ok_all, run_info)
+                atomic_json(os.path.join(sd, "state.json"), ctx.state)
+                if not a.app:
+                    write_metrics(cfg, results, unmanaged, ok_all, mstate, run_info)
+            bad = sorted(k for k, v in results.items() if not v)
+            ctx.log(f"run: {'OK' if ok_all else 'FAILED'} ({len(results) - len(bad)}/{len(results)} converged"
+                    + (f"; not converged: {', '.join(bad)}" if bad else "") + f") in {run_info['duration']:.0f} s"
+                    + (" (dry-run)" if a.dry_run else ""))
+            write_runlog(cfg, ctx)
+        finally:
+            cleanup_worktree(cfg["checkout"], worktree)
+
+        can_coalesce = (
+            not a.dry_run and not a.app and tpath and trigger_pending(tpath)
+            and (not a.no_pull or from_self_exec) and pass_no + 1 < MAX_COALESCE_PASSES
+        )
+        if not can_coalesce:
+            break
+        consume_trigger(tpath)
+        ctx.log("trigger poked during reconcile -- running coalesced pass")
     return 0 if ok_all else 1
 
 

@@ -1697,6 +1697,14 @@ groups:
     for: 1h
     labels:
       severity: info
+  - alert: TrueNASAppsConnectUnavailable
+    annotations:
+      description: 1Password Connect API was unreachable or unhealthy during nas01 app reconciliation, aborting secret resolution.
+      summary: nas01 reconciler cannot reach 1Password Connect
+    expr: truenas_apps_gitops_connect_ok == 0
+    for: 10m
+    labels:
+      severity: critical
 - name: zfs
   rules:
   - alert: ZfsUnexpectedPoolState

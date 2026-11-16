@@ -4,8 +4,9 @@ dirs:
 files:
   - {template: scrape.yaml.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/scrape.yaml, owner: "0:0", mode: "0644"}
 health:
-  tcp: 127.0.0.1:8428
+  http: http://127.0.0.1:8428/health
   netns: victoria-metrics
+  expect: "OK"
   timeout: 300            # opening the copied 90 d of history takes a while
 ui:
   title: VictoriaMetrics
