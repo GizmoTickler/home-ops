@@ -196,7 +196,10 @@ def reconcile_app(appdir, ctx, meta=None):
             rt.midclt("app.redeploy", name, job=True)
             ctx.log(f"{name}: redeployed for file changes")
         rt.ensure_started(name, ctx)
-        if rt.wait_running(name, ctx, timeout) and rt.healthy(meta, name, ctx):
+        running = rt.wait_running(name, ctx, timeout)
+        if running:
+            rt.sync_apps_east_west(ctx)
+        if running and rt.healthy(meta, name, ctx):
             dok, dash_fp = rt.reconcile_dashboards(appdir, name, meta, desired, prev_applied, ctx)
             if not dok:
                 raise RuntimeError("dashboards sync failed")
@@ -242,7 +245,10 @@ def rollback(name, meta, app, live, prev_ini, prev_files, timeout, ctx):
         rt.deploy_compose(name, live, exists=True)
         ctx.log(f"{name}: re-applied previous compose (app.update)")
         rt.ensure_started(name, ctx)
-        ok = rt.wait_running(name, ctx, timeout) and rt.healthy(meta, name, ctx)
+        running = rt.wait_running(name, ctx, timeout)
+        if running:
+            rt.sync_apps_east_west(ctx)
+        ok = running and rt.healthy(meta, name, ctx)
     except Exception as e2:  # noqa: BLE001
         ctx.log(f"{name}: ROLLBACK FAILED: {ctx.mask(str(e2))}")
         ok = False

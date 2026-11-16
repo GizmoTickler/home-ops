@@ -61,6 +61,17 @@ def consume_trigger(path):
         os.close(dfd)
 
 
+def sync_apps_east_west(ctx):
+    """Re-apply apps bridge East-West nftables policy when the host helper is installed."""
+    if ctx.dry or not os.path.isfile(rt.APPS_EAST_WEST_SCRIPT):
+        return True
+    r = rt.sh(["/usr/bin/python3", rt.APPS_EAST_WEST_SCRIPT, "--apply"], timeout=30)
+    if r.returncode != 0:
+        ctx.log(f"apps-east-west: FAILED: {r.stderr.strip()[-300:]}")
+        return False
+    return True
+
+
 def reconcile_host(checkout, ctx):
     """Sync files declared in truenas/host/host.yaml when their destination parent directory exists."""
     hdir = os.path.join(checkout, "truenas", "host")
@@ -102,6 +113,8 @@ def reconcile_host(checkout, ctx):
                 ok = False
             else:
                 ctx.log(f"host: on_change hook OK ({spec['on_change'][0]})")
+    if not rt.sync_apps_east_west(ctx):
+        ok = False
     return ok
 
 

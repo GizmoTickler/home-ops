@@ -43,6 +43,24 @@ Unit=apps-gitops-webhook.service
 WantedBy=multi-user.target
 EOF
 
+cat > "$UNIT_DIR/apps-east-west-nft.service" <<'EOF'
+[Unit]
+Description=Enforce L2 East-West nftables isolation on Docker apps bridge
+After=docker.service middlewared.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /mnt/flashstor/secure-scripts/apps-gitops/apps-east-west-nft.py --apply
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
-systemctl reset-failed apps-gitops-webhook.service apps-gitops-webhook.path 2>/dev/null || true
+systemctl reset-failed apps-gitops-webhook.service apps-gitops-webhook.path apps-east-west-nft.service 2>/dev/null || true
 systemctl start apps-gitops-webhook.path
+systemctl start apps-east-west-nft.service || true

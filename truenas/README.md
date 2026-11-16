@@ -121,7 +121,11 @@ custom apps have no icon/title support of their own, so the reconciler writes `u
   **Envoy** (`apps/envoy`, 192.168.123.156 on the LAN) terminates TLS with its wildcard cert and proxies to the
   app by service name (service names must be unique across apps). Envoy carries a network alias for each hostname
   it serves, so apps calling `https://<host>.<domain>` stay on the host. Pocket ID login for apps without their own
-  OIDC: Envoy's native `envoy.filters.http.oauth2` HTTP filter enabled per route in `envoy.yaml.tmpl`.
+  OIDC: Envoy's native `envoy.filters.http.oauth2` HTTP filter enabled per route in `envoy.yaml.tmpl`. L2 East-West on
+  the `apps` bridge is isolated by [apps-east-west-nft.py](truenas/host/apps-east-west-nft.py) (`table bridge
+  apps_east_west` via `nf_conntrack_bridge`): Envoy (`172.31.200.254`) acts as the hub, `cloudflared` can reach only
+  Envoy `:8443`, `webhook` reaches Envoy `:443`/`:9093`, apps reach Envoy `:443`, `@media_cluster` peers talk among
+  themselves, and all other container-to-container lateral traffic is dropped.
 - `mgmt` (macvlan on br0, 192.168.120.0/22): for apps that need their own LAN IP (Envoy, qBittorrent's gluetun,
   Home Assistant). Only one macvlan per subnet is possible, hence shared. Each IP needs an SC01 TrustSec sgt-map.
 Public hostnames: `apps/cloudflared` (Cloudflare tunnel) -> Envoy's external listener (`:8443`, apps network only).

@@ -4,6 +4,7 @@ import fcntl, os, re, time, urllib, urllib.request  # noqa: F401 - urllib export
 
 DEFAULT_CONFIG = "/mnt/flashstor/secure-scripts/apps-gitops/config.json"
 DEFAULT_TRIGGER_FILE = "/mnt/flashstor/apps/webhook-trigger/poke"
+APPS_EAST_WEST_SCRIPT = "/mnt/flashstor/secure-scripts/apps-gitops/apps-east-west-nft.py"
 EX_TEMPFAIL = 75
 MAX_COALESCE_PASSES = 3
 REF = re.compile(r"\{\{\s*(op://[^}\s]+)\s*\}\}")
@@ -141,6 +142,7 @@ _open_trigger_dir = _host._open_trigger_dir
 trigger_pending = _host.trigger_pending
 consume_trigger = _host.consume_trigger
 reconcile_host = _host.reconcile_host
+sync_apps_east_west = _host.sync_apps_east_west
 reconcile_retired = _host.reconcile_retired
 
 secure_state = _housekeeping.secure_state

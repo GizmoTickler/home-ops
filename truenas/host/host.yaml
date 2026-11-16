@@ -9,6 +9,11 @@ files:
     dest: /mnt/flashstor/secure-scripts/apps-gitops/trigger-run.py
     owner: "0:0"
     mode: "0700"
+  - src: apps-east-west-nft.py
+    dest: /mnt/flashstor/secure-scripts/apps-gitops/apps-east-west-nft.py
+    owner: "0:0"
+    mode: "0700"
+    on_change: ["/usr/bin/python3", "/mnt/flashstor/secure-scripts/apps-gitops/apps-east-west-nft.py", "--self-check"]
   - src: apps-gitops-webhook.sh
     dest: /mnt/flashstor/secure-scripts/truenas_startup/apps-gitops-webhook.sh
     owner: "0:0"
