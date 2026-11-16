@@ -1705,6 +1705,14 @@ groups:
     for: 10m
     labels:
       severity: critical
+  - alert: TrueNASAppsReconcilerFallbackActive
+    annotations:
+      description: The checked-out reconciler crashed without writing its completion nonce; launcher.py executed the pinned last-good N-1 snapshot. Fix truenas/reconciler/ in git and check reconcile.log on nas01.
+      summary: nas01 reconciler running on N-1 fallback snapshot
+    expr: truenas_apps_gitops_launcher_fallback_active == 1
+    for: 5m
+    labels:
+      severity: warning
 - name: zfs
   rules:
   - alert: ZfsUnexpectedPoolState

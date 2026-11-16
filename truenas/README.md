@@ -9,10 +9,11 @@ truenas/
 │   ├── compose.yaml   # required: the full compose (what TrueNAS runs), secrets as {{ op://... }} refs
 │   ├── app.yaml       # optional: dirs / templated files / ini pins / health probe / dashboards
 │   └── *.tmpl         # optional: config templates rendered to host paths (app.yaml `files:`)
-├── host/              # host-side scripts synced to /mnt/flashstor/secure-scripts/ (host.yaml)
+├── host/              # host-side launcher, trigger wrapper, & systemd path scripts synced via host.yaml
 ├── retired.yaml       # custom apps stopped and deleted cleanly on nas01 (datasets preserved)
 └── reconciler/
-    ├── reconcile.py   # runs on nas01 (root cron, every 10 min + coalesced webhook trigger)
+    ├── reconcile.py   # entrypoint + test facade (supervised by /mnt/.../launcher.py with N-1 fallback)
+    ├── reconciler_lib/# single-responsibility modules (gate, preflight, deploy, grafana, host, housekeeping, cli)
     └── export_app.py  # one-off: export a live app as a git-safe compose.yaml
 ```
 
@@ -76,8 +77,9 @@ config live in `/mnt/flashstor/secure-scripts/apps-gitops/config.json` (root 060
   Merging to `main` also wakes the reconciler automatically once CI (`Lint nas01 apps`) passes: GitHub delivers
   signed `push`/`check_run` events through Cloudflare Tunnel → Envoy `:8443` (`gitops-webhook.<domain>/hooks/truenas-gitops` only)
   → `apps/webhook` (verifies `X-Hub-Signature-256` HMAC and writes 0-byte `/trigger/poke`) → host `systemd.path`
-  (`POSTINIT`) running `trigger-run.py` → `reconcile.py --from-trigger --wait-lock 1800 --if-locked fail`
-  (consumes `/trigger/poke` inside `.lock` and coalesces mid-run pokes); the 10-minute cron catches drift and fallback runs.
+  (`POSTINIT`) running `trigger-run.py` → `launcher.py` (N-1 fallback + CI-gated self-heal supervisor) →
+  `reconcile.py --from-trigger --wait-lock 1800 --if-locked fail` (consumes `/trigger/poke` inside `.lock` and
+  coalesces mid-run pokes); the 10-minute cron invokes `launcher.py` for drift detection and fallback runs.
 - New app: write `apps/<app>/compose.yaml` (+ `app.yaml`), merge; the reconciler creates it.
   Adopting an existing app: `export_app.py <app>` on nas01, commit the output, dry-run must show "in sync".
 

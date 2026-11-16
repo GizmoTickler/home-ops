@@ -30,7 +30,7 @@ jobs:
       - name: Lint
         run: |
           python3 -m pip install --quiet pyyaml pytest prometheus-client
-          python3 -m py_compile truenas/reconciler/*.py
+          python3 -m py_compile truenas/reconciler/*.py truenas/reconciler/reconciler_lib/*.py truenas/host/*.py
           python3 truenas/reconciler/lint.py truenas/apps
       - name: Reconciler unit tests
         run: python3 -m pytest -q -p no:cacheprovider truenas/reconciler/tests

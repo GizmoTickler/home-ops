@@ -212,6 +212,15 @@ def lint_truenas_meta(apps_root, app_names):
                         int(str(item["mode"]), 8)
                     except ValueError:
                         errs.append(f"host/host.yaml: mode must be octal ({item['mode']})")
+    lib_dir = os.path.join(troot, "reconciler", "reconciler_lib")
+    if os.path.isdir(lib_dir):
+        for fn in sorted(os.listdir(lib_dir)):
+            if fn.endswith(".py"):
+                lp = os.path.join(lib_dir, fn)
+                try:
+                    ast.parse(open(lp).read(), filename=lp)
+                except SyntaxError as ex:
+                    errs.append(f"reconciler_lib/{fn}: python syntax error: {ex}")
     return errs
 
 

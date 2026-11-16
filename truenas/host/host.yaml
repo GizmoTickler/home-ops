@@ -1,5 +1,10 @@
 # Host-side units and wrappers reconciled onto nas01 by truenas/reconciler/reconcile.py.
 files:
+  - src: launcher.py
+    dest: /mnt/flashstor/secure-scripts/apps-gitops/launcher.py
+    owner: "0:0"
+    mode: "0700"
+    on_change: ["/usr/bin/python3", "/mnt/flashstor/secure-scripts/apps-gitops/launcher.py", "--self-check"]
   - src: trigger-run.py
     dest: /mnt/flashstor/secure-scripts/apps-gitops/trigger-run.py
     owner: "0:0"
