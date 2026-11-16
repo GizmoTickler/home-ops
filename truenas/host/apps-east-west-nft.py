@@ -2,8 +2,8 @@
 """Enforce L2 East-West microsegmentation on nas01's shared Docker `apps` bridge.
 
 Pure Python stdlib so third-party or reconciler package breakage never disables enforcement.
-Only touches `table bridge apps_east_west` and marks non-apps interfaces `notrack` in bridge
-prerouting so macvlan/other bridges stay clear of bridge conntrack.
+Only touches `table bridge apps_east_west` and scopes `chain forward` to the `apps` bridge (`ibrname`/`obrname`)
+without setting `notrack`, so host IPv4 `iptables` DNAT/MASQUERADE conntrack on other Docker bridges stays intact.
 """
 
 import argparse
@@ -133,13 +133,9 @@ def render_ruleset(br_if, records):
             "    }",
         ]
     lines += [
-        "    chain prerouting {",
-        "        type filter hook prerouting priority -300; policy accept;",
-        f'        meta ibrname != "{br_if}" notrack accept',
-        "    }",
-        "",
         "    chain forward {",
         "        type filter hook forward priority filter; policy accept;",
+        f'        meta ibrname != "{br_if}" accept',
         f'        meta obrname != "{br_if}" accept',
         "        ether type arp accept",
         "        ct state established,related accept",
@@ -153,6 +149,7 @@ def render_ruleset(br_if, records):
     lines += [
         f"        ip saddr {WEBHOOK_IP} ip daddr {ENVOY_IP} tcp dport {{ 443, 9093 }} counter accept",
         f"        ip daddr {ENVOY_IP} tcp dport 443 counter accept",
+        f"        ip daddr {ENVOY_IP} tcp flags & (syn | ack) == ack counter accept",
         "        ip saddr @media_cluster ip daddr @media_cluster counter accept",
         "        counter drop",
         "    }",

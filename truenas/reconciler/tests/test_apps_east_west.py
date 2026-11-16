@@ -38,7 +38,9 @@ def test_render_ruleset_with_and_without_cloudflared():
         {"name": "ix-sonarr-sonarr-1", "project": "sonarr", "ip": "172.31.200.23"},
     ]
     nft_with_cf = mod.render_ruleset("br-28f3ce2d09e9", full_records)
-    assert 'meta ibrname != "br-28f3ce2d09e9" notrack accept' in nft_with_cf
+    assert "notrack" not in nft_with_cf
+    assert "chain prerouting" not in nft_with_cf
+    assert 'meta ibrname != "br-28f3ce2d09e9" accept' in nft_with_cf
     assert 'meta obrname != "br-28f3ce2d09e9" accept' in nft_with_cf
     assert "set cloudflared_ips" in nft_with_cf
     assert "elements = { 172.31.200.5 }" in nft_with_cf
@@ -46,6 +48,7 @@ def test_render_ruleset_with_and_without_cloudflared():
     assert "ip saddr @cloudflared_ips counter drop" in nft_with_cf
     assert "ip saddr 172.31.200.253 ip daddr 172.31.200.254 tcp dport { 443, 9093 } counter accept" in nft_with_cf
     assert "ip daddr 172.31.200.254 tcp dport 443 counter accept" in nft_with_cf
+    assert "ip daddr 172.31.200.254 tcp flags & (syn | ack) == ack counter accept" in nft_with_cf
     assert "ip saddr @media_cluster ip daddr @media_cluster counter accept" in nft_with_cf
     assert nft_with_cf.strip().endswith("counter drop\n    }\n}")
 
