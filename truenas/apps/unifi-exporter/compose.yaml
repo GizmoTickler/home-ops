@@ -1,0 +1,44 @@
+# unifi-exporter — Prometheus exporter for UniFi Network wireless/RF, roaming, and client health.
+# Listens: unifi-exporter:9130 on the `monitoring` network (scraped by victoria-metrics).
+# Access:  Polls https://192.168.120.6/proxy/network via the `egress` bridge, SNAT to 192.168.123.157
+#          (SC01 TrustSec SGT 25 -> unifi0 SGT 23), because default SGT 15 is blocked from HTTPS on unifi0.
+# Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
+x-logging: &logging
+  driver: json-file
+  options: {max-size: 10m, max-file: "3"}
+
+services:
+  unifi-exporter:
+    image: docker.io/library/python:3.15-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
+    restart: unless-stopped
+    user: "1000:1000"
+    command: ["python3", "-B", "-u", "/etc/unifi-exporter/unifi-exporter.py"]
+    environment:
+      TZ: America/New_York
+      PYTHONDONTWRITEBYTECODE: "1"
+      UNIFI_URL: https://192.168.120.6/proxy/network
+      UNIFI_API_KEY: "{{ op://Infrastructure/Unifi-Test-Harness/API_KEY }}"
+      UNIFI_VERIFY_TLS: "false"
+      LISTEN_PORT: "9130"
+      CACHE_TTL_SECONDS: "20"
+    networks:
+      monitoring: {}
+      egress:
+        gw_priority: 100          # default route: off-host controller polling leaves as 192.168.123.157 (SGT 25)
+    volumes:
+      - /mnt/flashstor/apps/unifi-exporter-config:/etc/unifi-exporter:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 128M}
+    logging: *logging
+
+networks:
+  monitoring: {external: true}   # monitoring stack network (truenas/networks.yaml)
+  egress:
+    driver: bridge
+    driver_opts:
+      com.docker.network.host_ipv4: 192.168.123.157

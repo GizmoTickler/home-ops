@@ -1930,3 +1930,75 @@ groups:
     keep_firing_for: 5m
     labels:
       severity: warning
+- name: unifi-wifi.rules
+  rules:
+  - alert: UniFiExporterDown
+    annotations:
+      description: UniFi exporter cannot be scraped or cannot poll the UniFi controller on {{ $labels.instance }}.
+      summary: UniFi exporter down or controller unreachable
+    expr: absent(up{job="unifi"}) or up{job="unifi"} == 0 or unifi_collector_up{job="unifi"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: critical
+  - alert: UniFiDeviceDown
+    annotations:
+      description: UniFi device {{ $labels.ap }} ({{ $labels.type }}, {{ $labels.mac }}) reported state={{ $value }} for more than 3 minutes.
+      summary: UniFi device {{ $labels.ap }} is offline
+    expr: unifi_device_state{job="unifi"} != 1
+    for: 3m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: critical
+  - alert: UniFiAPUplinkDegraded
+    annotations:
+      description: AP {{ $labels.ap }} wired uplink negotiated at {{ $value }} Mbps (expected >= 1000 Mbps). Check PoE switch port and cabling.
+      summary: AP {{ $labels.ap }} uplink below 1 Gbps
+    expr: unifi_device_uplink_speed_mbps{job="unifi",type="uap"} < 1000
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: warning
+  - alert: UniFiRadioNotRunning
+    annotations:
+      description: Radio {{ $labels.radio }} on AP {{ $labels.ap }} is not in RUN state for 5 minutes (likely DFS CAC wait, thermal throttling, or radio failure).
+      summary: AP {{ $labels.ap }} radio {{ $labels.radio }} not running
+    expr: unifi_radio_running{job="unifi"} == 0 and on (ap, mac) unifi_device_state{job="unifi"} == 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: warning
+  - alert: UniFiPolicyDrift
+    annotations:
+      description: AP {{ $labels.ap }} has band steering re-enabled or minimum RSSI enforcement active, violating the roaming-assistant baseline.
+      summary: UniFi RF policy drift on {{ $labels.ap }}
+    expr: unifi_ap_bandsteering_off{job="unifi"} == 0 or (max without (radio) (unifi_radio_min_rssi_enabled{job="unifi"}) == 1)
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: warning
+  - alert: UniFiHighInterference5G6G
+    annotations:
+      description: AP {{ $labels.ap }} radio {{ $labels.radio }} has {{ $value | printf "%.1f" }}% non-self interference over 10m. Check for DFS radar or adjacent wideband transmitters.
+      summary: High 5/6 GHz interference on {{ $labels.ap }} ({{ $labels.radio }})
+    expr: avg_over_time(unifi_radio_interference_pct{job="unifi",radio=~"na|6e"}[10m]) > 25
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: warning
+  - alert: UniFiClientRoamStorm
+    annotations:
+      description: Client {{ $labels.client }} roamed {{ $value }} times in 1 hour, indicating sticky-client boundary ping-pong or TX power imbalance.
+      summary: Roam storm for client {{ $labels.client }}
+    expr: unifi_roams_client_1h{job="unifi"} > 12
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: wifi
+      severity: warning

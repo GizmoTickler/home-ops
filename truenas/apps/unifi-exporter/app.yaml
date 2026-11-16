@@ -1,0 +1,17 @@
+# Reconciled by truenas/reconciler/reconcile.py (see truenas/README.md).
+dirs:
+  - {path: /mnt/flashstor/apps/unifi-exporter-config, owner: "0:0", mode: "0755"}
+files:
+  - {template: unifi-exporter.py, dest: /mnt/flashstor/apps/unifi-exporter-config/unifi-exporter.py, owner: "0:0", mode: "0644"}
+health:
+  tcp: 127.0.0.1:9130
+  netns: unifi-exporter
+validate:
+  service: unifi-exporter
+  entrypoint: python3
+  args: ["-B", "/etc/unifi-exporter/unifi-exporter.py", "--check"]
+ui:
+  title: UniFi exporter
+  description: "Prometheus exporter for UniFi Network AP radios, clients, roaming events, and RF interference"
+  icon: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/ubiquiti-unifi.png
+  home: https://help.ui.com

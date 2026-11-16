@@ -344,3 +344,12 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
+- job_name: unifi
+  scrape_interval: 30s
+  scrape_timeout: 15s
+  static_configs:
+  - targets:
+    - unifi-exporter:9130
+  relabel_configs:
+  - target_label: instance
+    replacement: unifi0
