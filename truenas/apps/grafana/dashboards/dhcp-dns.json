@@ -20,18 +20,6 @@
     },
     {
       "icon": "dashboard",
-      "title": "PowerDNS Recursor",
-      "type": "link",
-      "url": "/d/pdns-recursor"
-    },
-    {
-      "icon": "dashboard",
-      "title": "PowerDNS Auth",
-      "type": "link",
-      "url": "/d/pdns-auth"
-    },
-    {
-      "icon": "dashboard",
       "title": "WAN & Edge",
       "type": "link",
       "url": "/d/wan-cellular-edge"
@@ -363,23 +351,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "red",
-                  "index": 1,
-                  "text": "FAIL"
-                },
-                "1": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "OK"
-                }
-              },
-              "type": "value"
-            }
-          ],
+          "mappings": [],
           "noValue": "NO DATA",
           "thresholds": {
             "mode": "absolute",
@@ -390,7 +362,7 @@
               },
               {
                 "color": "green",
-                "value": 1
+                "value": 34
               }
             ]
           },
@@ -427,15 +399,15 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(dns_pg_logical_db_healthy, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "expr": "label_replace(knot_zone_count{job=\"knot\",section=\"server\"}, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
           "instant": true,
-          "legendFormat": "{{node}} {{db}}",
+          "legendFormat": "{{node}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Spock replication",
+      "title": "Knot zones",
       "type": "stat"
     },
     {
@@ -582,7 +554,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "count(ALERTS{alertstate=\"firing\",component=~\"dns|dhcp|postgres\"} or ALERTS{alertstate=\"firing\",alertname=~\"DNSAnycast.*|ReplicationSlot.*\"}) or vector(0)",
+          "expr": "count(ALERTS{alertstate=\"firing\",component=~\"dns|dhcp\"} or ALERTS{alertstate=\"firing\",alertname=~\"DNSAnycast.*\"}) or vector(0)",
           "format": "time_series",
           "instant": true,
           "legendFormat": "firing",
@@ -951,7 +923,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "(sum(rate(dnsdist_cache_hits[15m])) + sum(rate(pdns_recursor_packetcache_hits[15m]))) / clamp_min(sum(rate(dnsdist_queries[15m])), 1)",
+          "expr": "(sum(rate(dnsdist_cache_hits[15m])) + sum(rate(unbound_total_num_cachehits[15m]))) / clamp_min(sum(rate(dnsdist_queries[15m])), 1)",
           "format": "time_series",
           "instant": true,
           "legendFormat": "hit",
@@ -1529,7 +1501,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "ALERTS{alertstate=\"firing\",component=~\"dns|dhcp|postgres\"} or ALERTS{alertstate=\"firing\",alertname=~\"DNSAnycast.*|ReplicationSlot.*\"}",
+          "expr": "ALERTS{alertstate=\"firing\",component=~\"dns|dhcp\"} or ALERTS{alertstate=\"firing\",alertname=~\"DNSAnycast.*\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -1537,7 +1509,7 @@
           "refId": "A"
         }
       ],
-      "title": "Active alerts (dns / dhcp / postgres)",
+      "title": "Active alerts (dns / dhcp)",
       "transformations": [
         {
           "id": "organize",
@@ -1831,10 +1803,10 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "sum(rate(pdns_recursor_packetcache_hits[$__rate_interval])) / clamp_min(sum(rate(pdns_recursor_questions[$__rate_interval])), 0.001)",
+          "expr": "sum(rate(unbound_total_num_cachehits[$__rate_interval])) / clamp_min(sum(rate(unbound_total_num_queries[$__rate_interval])), 0.001)",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "recursor packet cache",
+          "legendFormat": "Unbound cache",
           "range": true,
           "refId": "B"
         },
@@ -1843,10 +1815,10 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "(sum(rate(dnsdist_cache_hits[$__rate_interval])) + sum(rate(pdns_recursor_packetcache_hits[$__rate_interval]))) / clamp_min(sum(rate(dnsdist_queries[$__rate_interval])), 0.001)",
+          "expr": "sum(rate(unbound_total_num_cachehits[$__rate_interval])) / clamp_min(sum(rate(unbound_total_num_queries[$__rate_interval])), 0.001)",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "combined",
+          "legendFormat": "Unbound cache",
           "range": true,
           "refId": "C"
         }
@@ -1950,7 +1922,7 @@
           "refId": "A"
         }
       ],
-      "title": "Anycast BGP (10.53.53.53)",
+      "title": "Anycast BGP (.53 / .54)",
       "type": "stat"
     },
     {
@@ -2054,14 +2026,14 @@
             {
               "options": {
                 "0": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "FILTERED"
-                },
-                "1": {
                   "color": "red",
                   "index": 1,
-                  "text": "FALLBACK"
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "UP"
                 }
               },
               "type": "value"
@@ -2072,11 +2044,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "red",
                 "value": null
               },
               {
-                "color": "red",
+                "color": "green",
                 "value": 1
               }
             ]
@@ -2114,7 +2086,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(dns_upstream_fallback_active{job=\"node-exporter\"}, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "expr": "label_replace(min by (instance) (up{job=~\"knot|unbound|dnsdist\"}), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{node}}",
@@ -2122,7 +2094,7 @@
           "refId": "A"
         }
       ],
-      "title": "Upstream Filtering",
+      "title": "Resolver targets up",
       "type": "stat"
     },
     {
@@ -2644,15 +2616,15 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(dnscrypt_proxy_server_response_time_average_ms{job=\"dnscrypt-proxy\"} and on(instance, server) (increase(dnscrypt_proxy_server_queries_total{job=\"dnscrypt-proxy\"}[15m]) > 0), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "expr": "label_replace(unbound_total_recursion_time_avg_seconds{job=\"unbound\"} * 1000, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
           "format": "time_series",
           "instant": false,
-          "legendFormat": "{{node}} / {{server}}",
+          "legendFormat": "{{node}}",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Upstream DoH Response Time (dnscrypt-proxy)",
+      "title": "Unbound Avg Recursion Latency",
       "type": "timeseries"
     }
   ],

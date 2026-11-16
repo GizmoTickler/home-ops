@@ -411,21 +411,10 @@ groups:
     labels:
       component: dns
       severity: warning
-  - alert: SpockDatabaseUnhealthy
-    annotations:
-      description: 'Spock replication for database {{ $labels.db }} on {{ $labels.instance }} has a missing or
-        disabled subscription; the {{ $labels.db }} data on dns0/dns1 will diverge.'
-      summary: Spock {{ $labels.db }} replication unhealthy on {{ $labels.instance }}
-    expr: dns_pg_logical_db_healthy{job="node-exporter"} == 0
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: postgres
-      severity: warning
   - alert: DNSHAMetricsStale
     annotations:
       description: 'The dns-ha-metrics collector on {{ $labels.instance }} has not completed for {{ $value | humanizeDuration }};
-        every Kea HA / Spock / unit alert for that node is blind. Check: systemctl status dns-ha-metrics.timer.'
+        every Kea HA / unit alert for that node is blind. Check: systemctl status dns-ha-metrics.timer.'
       summary: dns-ha-metrics stale on {{ $labels.instance }}
     expr: time() - dns_ha_metrics_last_success_timestamp_seconds{job="node-exporter"} > 300
     for: 5m
@@ -444,54 +433,15 @@ groups:
     labels:
       component: dns
       severity: warning
-  - alert: ReplicationSlotInactiveLong
-    annotations:
-      description: 'Multi-master replication has been down for 30+ minutes; DNS/DHCP
-
-        writes are landing on one node only and the datasets are diverging.
-
-        Runbook: check output_plugin_libraries first (PG minor upgrades can
-
-        break Spock BY POLICY — see claude-config runbooks/proposals/dns-anycast §23.1).'
-      summary: Spock slot {{ $labels.slot_name }} inactive >30m — nodes are diverging
-    expr: pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
-    for: 30m
-    keep_firing_for: 5m
-    labels:
-      severity: critical
-  - alert: ReplicationSlotInactive
-    annotations:
-      description: 'Slot {{ $labels.slot_name }} on {{ $labels.instance }} has been inactive for 5m.
-
-        WAL will accumulate until max_slot_wal_keep_size (4GB). Investigate Spock subscription health.'
-      summary: Spock replication slot {{ $labels.slot_name }} inactive on {{ $labels.instance }}
-    expr: pg_replication_slot_slot_is_active{job="postgres-exporter"} == 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: postgres
-      severity: warning
-  - alert: ReplicationLagHigh
-    annotations:
-      description: 'Slot {{ $labels.slot_name }} on {{ $labels.instance }} has >50MB unreplicated WAL for 10m.
-
-        Multi-master sync is lagging; writes on other node not yet applied locally.'
-      summary: Spock replication lag >50MB for slot {{ $labels.slot_name }}
-    expr: (pg_replication_slot_slot_current_wal_lsn{job="postgres-exporter"} - pg_replication_slot_slot_confirmed_flush_lsn{job="postgres-exporter"}) > 52428800
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: postgres
-      severity: warning
   - alert: DNSCacheHitRatioLow
     annotations:
-      description: 'Combined dnsdist + recursor packet cache hit ratio: {{ $value | humanizePercentage }} for 1h.
+      description: 'Combined dnsdist + Unbound cache hit ratio: {{ $value | humanizePercentage }} for 1h.
 
         Typical healthy value is 85-90%. Likely a warming period after restart, unusual query
 
-        mix, or a cache configuration regression in the 3-layer stack.'
+        mix, or a cache configuration regression in the resolver stack.'
       summary: Effective DNS cache hit ratio <70% (cluster-wide)
-    expr: "(\n  sum(rate(dnsdist_cache_hits{job=\"dnsdist\"}[15m]))\n  +\n  sum(rate(pdns_recursor_packetcache_hits{job=\"pdns-recursor\"}[15m]))\n)\n/\nclamp_min(sum(rate(dnsdist_queries{job=\"dnsdist\"\
+    expr: "(\n  sum(rate(dnsdist_cache_hits{job=\"dnsdist\"}[15m]))\n  +\n  sum(rate(unbound_total_num_cachehits{job=\"unbound\"}[15m]))\n)\n/\nclamp_min(sum(rate(dnsdist_queries{job=\"dnsdist\"\
       }[15m])), 1)\n< 0.7"
     for: 1h
     keep_firing_for: 5m
@@ -543,34 +493,6 @@ groups:
     expr: (count(dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) or vector(0)) < 2
     for: 1h
     keep_firing_for: 1h
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSUpstreamFallbackActive
-    annotations:
-      description: 'dnscrypt-proxy on this node is using the Google public DoH fallback — CF Gateway
-
-        filtering is BYPASSED. Auto-restore happens when Gateway probes recover; if this
-
-        persists, CF Gateway is down or a manual break-glass was left active
-
-        (dns-upstream-breakglass status / restore).'
-      summary: UNFILTERED Google DoH fallback active on {{ $labels.instance }}
-    expr: max by (instance) (dns_upstream_fallback_active{job="node-exporter",instance=~"dns[01].*"}) == 1
-    for: 1m
-    keep_firing_for: 10m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSUpstreamWatchdogStale
-    annotations:
-      description: 'dns-upstream-watchdog.timer has not ticked in >10m — automatic Google-DoH failover
-
-        for CF Gateway outages is not armed on this node.'
-      summary: DNS upstream watchdog not running on {{ $labels.instance }}
-    expr: (time() - dns_upstream_watchdog_last_run_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 600
-    for: 5m
-    keep_firing_for: 15m
     labels:
       component: dns
       severity: warning
@@ -642,19 +564,12 @@ groups:
 - interval: 30s
   name: dns-resolver.rules
   rules:
-  - alert: RecursorServfailRateHigh
+  - alert: UnboundServfailRateHigh
     annotations:
-      description: 'PowerDNS Recursor on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
-
-        Healthy baseline is ~0/s. Likely cause: DNSSEC trust-anchor gap, upstream resolver
-
-        failure, or broken forwarding. Cross-check RecursorDNSSECBogusIncreasing and
-
-        dnscrypt upstream health. This is the signal class that caused the 2026-06-10
-
-        guest/IoT reverse-PTR outage.'
-      summary: Recursor SERVFAIL rate elevated on {{ $labels.instance }}
-    expr: rate(pdns_recursor_servfail_answers{job="pdns-recursor"}[5m]) > 1
+      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
+        Healthy baseline is ~0/s. Likely cause: upstream Cloudflare Gateway DoT issue or internal Knot stub failure.'
+      summary: Unbound SERVFAIL rate elevated on {{ $labels.instance }}
+    expr: rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 1
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -664,9 +579,9 @@ groups:
     annotations:
       description: 'dnsdist on {{ $labels.instance }} returned {{ $value | humanize }} SERVFAIL/s to clients (5m rate).
 
-        This is what end users actually experience. Likely a recursor backend failure or
+        This is what end users actually experience. Likely an Unbound backend failure or
 
-        a DNSSEC/upstream problem propagating through the VIP. Check RecursorServfailRateHigh
+        upstream problem propagating through the VIP. Check UnboundServfailRateHigh
 
         and DnsdistBackendDown.'
       summary: dnsdist is returning SERVFAIL to clients on {{ $labels.instance }}
@@ -676,66 +591,34 @@ groups:
     labels:
       component: dns
       severity: critical
-  - alert: RecursorDNSSECBogusIncreasing
+  - alert: UnboundClientLatencyHigh
     annotations:
-      description: 'PowerDNS Recursor on {{ $labels.instance }} is recording {{ $value | humanize }} bogus
-
-        DNSSEC validations/s (5m rate). Bogus results return SERVFAIL with EDE 12 to clients.
-
-        Likely cause: a DNSSEC trust-anchor gap, expired/invalid RRSIGs upstream, or a
-
-        missing/stale root key. This is the precise silent signal behind the 2026-06-10
-
-        guest/IoT reverse-PTR outage. Check the recursor root trust anchor and
-
-        rec_control current-queries / dump-trace.'
-      summary: DNSSEC validation failures (bogus) increasing on {{ $labels.instance }}
-    expr: "sum by (instance) (\n  rate({__name__=~\"pdns_recursor_dnssec_result_bogus.*\",job=\"pdns-recursor\"}[5m])\n) > 1"
-    for: 5m
-    keep_firing_for: 10m
-    labels:
-      component: dns
-      severity: critical
-  - alert: RecursorClientLatencyHigh
-    annotations:
-      description: 'Average client-answer latency on {{ $labels.instance }} is {{ $value | humanize }}s over 10m
-
-        (healthy floor ~16-28ms). Upstream DoH may be slow or failing, or the recursor is
-
-        spending time on retries/timeouts. Check RecursorOutgoingTimeoutsHigh and dnscrypt
-
-        upstream response time.'
-      summary: Recursor client-answer latency high on {{ $labels.instance }}
-    expr: "(\n  rate(pdns_recursor_cumul_clientanswers_seconds_sum{job=\"pdns-recursor\"}[10m])\n  /\n  clamp_min(rate(pdns_recursor_cumul_clientanswers_seconds_count{job=\"pdns-recursor\"}[10m]), 1)\n\
-      ) > 0.15"
+      description: 'Average Unbound recursion latency on {{ $labels.instance }} is {{ $value | humanize }}s over 10m.
+        Upstream Cloudflare Zero Trust Gateway DoT may be slow or retrying.'
+      summary: Unbound recursion latency high on {{ $labels.instance }}
+    expr: avg by (instance) (unbound_total_recursion_time_avg_seconds{job="unbound"}) > 0.25
     for: 10m
     keep_firing_for: 5m
     labels:
       component: dns
       severity: warning
-  - alert: RecursorOutgoingTimeoutsHigh
+  - alert: UnboundRequestlistExceeded
     annotations:
-      description: 'PowerDNS Recursor on {{ $labels.instance }} is timing out on {{ $value | humanize }} outgoing
-
-        queries/s (5m rate). Upstream resolvers (DoH via dnscrypt-proxy or authoritatives)
-
-        may be unreachable or slow. Often a precursor to SERVFAILs and elevated latency.'
-      summary: Recursor outgoing query timeouts rising on {{ $labels.instance }}
-    expr: rate(pdns_recursor_outgoing_timeouts{job="pdns-recursor"}[5m]) > 1
-    for: 10m
+      description: 'Unbound on {{ $labels.instance }} is dropping queries from an exhausted request list ({{ $value | humanize }}/s).'
+      summary: Unbound request list exceeded on {{ $labels.instance }}
+    expr: rate(unbound_total_requestlist_exceeded{job="unbound"}[5m]) > 0
+    for: 5m
     keep_firing_for: 5m
     labels:
       component: dns
       severity: warning
   - alert: DnsdistBackendDown
     annotations:
-      description: 'dnsdist on {{ $labels.instance }} has marked recursor backend "{{ $labels.server }}"
+      description: 'dnsdist on {{ $labels.instance }} has marked Unbound backend "{{ $labels.server }}"
 
-        ({{ $labels.address }}) as DOWN. The dnsdist->recursor path for that backend is failing
+        ({{ $labels.address }}) as DOWN. Resolution continues via the surviving backend, but redundancy is lost.
 
-        its health check. Resolution continues via the surviving backend, but redundancy is lost.
-
-        Investigate the recursor process / port 5301 on the affected node.'
+        Investigate the unbound process / port 5301 on the affected node.'
       summary: dnsdist backend {{ $labels.server }} is DOWN on {{ $labels.instance }}
     expr: dnsdist_server_status{job="dnsdist"} == 0
     for: 2m
@@ -745,12 +628,10 @@ groups:
       severity: warning
   - alert: DnsdistAllBackendsDown
     annotations:
-      description: 'Every recursor backend behind dnsdist on {{ $labels.instance }} is DOWN. This node''s
+      description: 'Every Unbound backend behind dnsdist on {{ $labels.instance }} is DOWN. This node''s
 
-        dnsdist cannot resolve anything via the recursor tier. If this is the VIP master, all
-
-        clients are affected. Immediate action required.'
-      summary: All dnsdist recursor backends DOWN on {{ $labels.instance }}
+        dnsdist cannot resolve anything via the Unbound tier. Immediate action required.'
+      summary: All dnsdist Unbound backends DOWN on {{ $labels.instance }}
     expr: sum by (instance) (dnsdist_server_status{job="dnsdist"}) == 0
     for: 1m
     keep_firing_for: 5m
@@ -765,7 +646,7 @@ groups:
 
         If both nodes show the same job down, resolution for that component is fully offline.'
       summary: DNS scrape target {{ $labels.job }} down on {{ $labels.instance }}
-    expr: up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0
+    expr: up{job=~"dnsdist|unbound|knot"} == 0
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -777,34 +658,12 @@ groups:
 
         resolver stack is offline cluster-wide. Immediate action required.'
       summary: DNS component {{ $labels.job }} is down on ALL nodes
-    expr: count by (job) (up{job=~"dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy"} == 0) >= 2
+    expr: count by (job) (up{job=~"dnsdist|unbound|knot"} == 0) >= 2
     for: 2m
     keep_firing_for: 5m
     labels:
       component: dns
       severity: critical
-  - alert: DnscryptUpstreamLatencyHigh
-    annotations:
-      description: 'dnscrypt-proxy on {{ $labels.instance }} reports {{ $value | humanize }}ms average response
-
-        time from upstream "{{ $labels.server }}" (healthy ~33-38ms). The upstream DoH resolver
-
-        may be degraded; this feeds recursor latency and can cascade into outgoing timeouts and
-
-        SERVFAILs. NOTE: dnscrypt-proxy 2.1.15 has no upstream-error counter, so latency is the
-
-        only observable upstream-health signal (see report for the exporter gap).'
-      summary: dnscrypt-proxy upstream {{ $labels.server }} slow on {{ $labels.instance }}
-    # Only servers that actually carried queries: dnscrypt-proxy stops picking a server after one slow answer, so an
-    # idle server's average freezes (e.g. one timeout during a failover pinned dns1/cf-gateway at 5000 ms, 2026-11-13).
-    expr: |
-      (dnscrypt_proxy_server_response_time_average_ms{job="dnscrypt-proxy"} > 250)
-      and on(instance, server) (increase(dnscrypt_proxy_server_queries_total{job="dnscrypt-proxy"}[10m]) > 0)
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
 - interval: 30s
   name: wan-gateway.rules
   rules:
@@ -1001,7 +860,7 @@ groups:
         KeaExporterDown, route10-cellular: CellularMonitorDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up{job!~"node-exporter|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|dnsdist|pdns-recursor|pdns-auth|dnscrypt-proxy|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|dnsdist|unbound|knot|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|dnsdist|unbound|knot|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning

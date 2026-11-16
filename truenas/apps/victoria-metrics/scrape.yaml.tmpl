@@ -56,7 +56,8 @@ scrape_configs:
     - 192.168.123.250:53   # dns0
     - 192.168.123.251:53   # dns1
     - 192.168.123.249:53   # keepalived VIP
-    - 10.53.53.53:53       # anycast
+    - 10.53.53.53:53       # anycast primary (dns0)
+    - 10.53.53.54:53       # anycast secondary (dns1)
   relabel_configs:
   - source_labels:
     - __address__
@@ -77,7 +78,8 @@ scrape_configs:
     - 192.168.123.250:853   # dns0
     - 192.168.123.251:853   # dns1
     - 192.168.123.249:853   # keepalived VIP
-    - 10.53.53.53:853       # anycast
+    - 10.53.53.53:853       # anycast primary (dns0)
+    - 10.53.53.54:853       # anycast secondary (dns1)
   relabel_configs:
   - source_labels:
     - __address__
@@ -116,19 +118,32 @@ scrape_configs:
     - 10.255.255.50:9100
     labels:
       device: route10
-- job_name: staticScrape/observability/dnscrypt-proxy/0
+- job_name: staticScrape/observability/knot/0
   static_configs:
   - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:49312
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:49312
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9433
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9433
     labels:
-      job: dnscrypt-proxy
+      job: knot
   honor_labels: false
   scrape_timeout: 10s
   metrics_path: /metrics
   relabel_configs:
   - target_label: job
-    replacement: dnscrypt-proxy
+    replacement: knot
+- job_name: staticScrape/observability/unbound/0
+  static_configs:
+  - targets:
+    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9167
+    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9167
+    labels:
+      job: unbound
+  honor_labels: false
+  scrape_timeout: 10s
+  metrics_path: /metrics
+  relabel_configs:
+  - target_label: job
+    replacement: unbound
 - job_name: staticScrape/observability/dnsdist/0
   static_configs:
   - targets:
@@ -237,45 +252,6 @@ scrape_configs:
     replacement: onepassword-connect
   tls_config:
     insecure_skip_verify: true
-- job_name: staticScrape/observability/pdns-auth/0
-  static_configs:
-  - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8081
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8081
-    labels:
-      job: pdns-auth
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
-  relabel_configs:
-  - target_label: job
-    replacement: pdns-auth
-- job_name: staticScrape/observability/pdns-recursor/0
-  static_configs:
-  - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8092
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8092
-    labels:
-      job: pdns-recursor
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
-  relabel_configs:
-  - target_label: job
-    replacement: pdns-recursor
-- job_name: staticScrape/observability/postgres-exporter/0
-  static_configs:
-  - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9187
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9187
-    labels:
-      job: postgres-exporter
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
-  relabel_configs:
-  - target_label: job
-    replacement: postgres-exporter
 - job_name: staticScrape/observability/rhel-node-exporter/0
   static_configs:
   - targets:

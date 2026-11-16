@@ -146,6 +146,15 @@ endpoints:
     interval: 1m
     conditions:
       - "[DNS_RCODE] == NOERROR"
+  - name: DNS (anycast 10.53.53.54)
+    group: Network
+    url: 10.53.53.54
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
+    interval: 1m
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
 
   # ---- Management UIs. ----
   - name: TrueNAS (nas01)
