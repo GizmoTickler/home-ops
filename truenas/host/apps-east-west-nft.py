@@ -2,8 +2,8 @@
 """Enforce L2 East-West microsegmentation on nas01's shared Docker `apps` bridge.
 
 Pure Python stdlib so third-party or reconciler package breakage never disables enforcement.
-Only touches `table bridge apps_east_west` and scopes `chain forward` to the `apps` bridge (`ibrname`/`obrname`)
-without setting `notrack`, so host IPv4 `iptables` DNAT/MASQUERADE conntrack on other Docker bridges stays intact.
+Enforces a 100% stateless `table bridge apps_east_west` scoped to the `apps` bridge (`ibrname`/`obrname`)
+and unloads `nf_conntrack_bridge` so `br0` KVM hairpin (`dns-0`) and Docker SNAT/DNAT conntrack stay untouched.
 """
 
 import argparse
@@ -138,8 +138,8 @@ def render_ruleset(br_if, records):
         f'        meta ibrname != "{br_if}" accept',
         f'        meta obrname != "{br_if}" accept',
         "        ether type arp accept",
-        "        ct state established,related accept",
         f"        ip saddr {ENVOY_IP} counter accept",
+        f"        ip daddr {ENVOY_IP} tcp flags & (syn | ack) != syn counter accept",
     ]
     if cf_ips:
         lines += [
@@ -149,7 +149,6 @@ def render_ruleset(br_if, records):
     lines += [
         f"        ip saddr {WEBHOOK_IP} ip daddr {ENVOY_IP} tcp dport {{ 443, 9093 }} counter accept",
         f"        ip daddr {ENVOY_IP} tcp dport 443 counter accept",
-        f"        ip daddr {ENVOY_IP} tcp flags & (syn | ack) == ack counter accept",
         "        ip saddr @media_cluster ip daddr @media_cluster counter accept",
         "        counter drop",
         "    }",
@@ -171,7 +170,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Enforce L2 East-West isolation on nas01 Docker apps bridge")
     ap.add_argument("--self-check", action="store_true", help="validate imports/syntax and exit")
     ap.add_argument("--dry-run", action="store_true", help="print generated ruleset and syntax-check with nft -c")
-    ap.add_argument("--apply", action="store_true", help="load nf_conntrack_bridge and apply nftables ruleset")
+    ap.add_argument("--apply", action="store_true", help="apply stateless nftables ruleset and unload nf_conntrack_bridge")
     args = ap.parse_args(argv)
 
     if args.self_check:
@@ -193,8 +192,8 @@ def main(argv=None):
                 return p.returncode
         return 0
 
-    subprocess.run(["modprobe", "nf_conntrack_bridge"], check=True, timeout=30)
     subprocess.run(["nft", "-f", "-"], input=ruleset, text=True, check=True, timeout=30)
+    subprocess.run(["modprobe", "-r", "nf_conntrack_bridge"], capture_output=True, timeout=30)
     return 0
 
 
