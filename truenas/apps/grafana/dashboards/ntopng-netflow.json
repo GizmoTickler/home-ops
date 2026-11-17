@@ -1005,7 +1005,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 58, 'Discord', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS application, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 GROUP BY application ORDER BY bytes DESC LIMIT 20",
+          "rawSql": "SELECT multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS application, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 GROUP BY application ORDER BY bytes DESC LIMIT 20",
           "refId": "A"
         }
       ],
@@ -1368,11 +1368,174 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, INTERFACE_ID AS ifid, IPv4NumToString(IPV4_SRC_ADDR) AS src_ip, IPv4NumToString(IPV4_DST_ADDR) AS dst_ip, IP_DST_PORT AS dport, coalesce(m.NAME, toString(f.PROTOCOL)) AS proto, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 58, 'Discord', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, DOMAIN_NAME AS domain, TOTAL_BYTES AS bytes, SCORE AS risk_score FROM ntopng.flows AS f LEFT JOIN ntopng.flow_l4_map AS m ON f.PROTOCOL = m.PROTOCOL WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID IN (0, 1) ORDER BY f.TOTAL_BYTES DESC LIMIT 50",
+          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, INTERFACE_ID AS ifid, IPv4NumToString(IPV4_SRC_ADDR) AS src_ip, IPv4NumToString(IPV4_DST_ADDR) AS dst_ip, IP_DST_PORT AS dport, coalesce(m.NAME, toString(f.PROTOCOL)) AS proto, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, DOMAIN_NAME AS domain, TOTAL_BYTES AS bytes, SCORE AS risk_score FROM ntopng.flows AS f LEFT JOIN ntopng.flow_l4_map AS m ON f.PROTOCOL = m.PROTOCOL WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID IN (0, 1) ORDER BY f.TOTAL_BYTES DESC LIMIT 50",
           "refId": "A"
         }
       ],
       "title": "Recent High-Volume & Scored Flows (ClickHouse Forensics)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 64
+      },
+      "id": 27,
+      "panels": [],
+      "title": "Endpoint / Client Browsing & App Activity ($client_ip)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 65
+      },
+      "id": 28,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT if(INFO != '' AND NOT startsWith(INFO, '/'), INFO, DOMAIN_NAME) AS site, DOMAIN_NAME AS root_domain, count() AS flows, sum(TOTAL_BYTES) AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID IN (0, 2) AND (INFO != '' OR DOMAIN_NAME != '') AND ('${client_ip:raw}' = 'ALL' OR IPV4_SRC_ADDR = toUInt32(toIPv4OrZero('${client_ip:raw}'))) GROUP BY site, root_domain ORDER BY bytes DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Visited Sites & SNI Hostnames ($client_ip)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 65
+      },
+      "id": 29,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS application, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 AND ('${client_ip:raw}' = 'ALL' OR IPV4_SRC_ADDR = toUInt32(toIPv4OrZero('${client_ip:raw}'))) GROUP BY application ORDER BY bytes DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "Endpoint Application Usage ($client_ip)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 65
+      },
+      "id": 30,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, IPv4NumToString(IPV4_SRC_ADDR) AS client_ip, if(SRC_MAC > 0, hex(SRC_MAC), '') AS mac, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, if(INFO != '' AND NOT startsWith(INFO, '/'), INFO, DOMAIN_NAME) AS site, TOTAL_BYTES AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID IN (0, 2) AND (INFO != '' OR DOMAIN_NAME != '') AND ('${client_ip:raw}' = 'ALL' OR IPV4_SRC_ADDR = toUInt32(toIPv4OrZero('${client_ip:raw}'))) ORDER BY LAST_SEEN DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Chronological Browsing & DNS Log ($client_ip)",
       "type": "table"
     }
   ],
@@ -1386,7 +1549,36 @@
     "network"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": "ALL",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-nflo0"
+        },
+        "definition": "SELECT DISTINCT IPv4NumToString(IPV4_SRC_ADDR) AS client_ip FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 AND bitAnd(IPV4_SRC_ADDR, 4294966272) IN (IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.116.0')) ORDER BY client_ip",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Endpoint IP",
+        "multi": false,
+        "name": "client_ip",
+        "options": [],
+        "query": {
+          "query": "SELECT DISTINCT IPv4NumToString(IPV4_SRC_ADDR) AS client_ip FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 AND bitAnd(IPV4_SRC_ADDR, 4294966272) IN (IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.116.0')) ORDER BY client_ip",
+          "queryType": "sql"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-3h",
