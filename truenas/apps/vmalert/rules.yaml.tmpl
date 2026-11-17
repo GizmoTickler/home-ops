@@ -747,6 +747,56 @@ groups:
     labels:
       component: gateway
       severity: warning
+  - alert: EdgeConntrackSaturationWarning
+    annotations:
+      description: 'Conntrack table utilization on {{ $labels.device }} is {{ $value | humanizePercentage }} (>70%). Check for high-CPS floods, port scans, or runaway NAT sessions.'
+      summary: Conntrack table >70% on {{ $labels.device }} ({{ $value | humanizePercentage }})
+    expr: (edge_conntrack_entries / clamp_min(edge_conntrack_limit, 1)) > 0.70
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: EdgeConntrackSaturationCritical
+    annotations:
+      description: 'Conntrack table utilization on {{ $labels.device }} is {{ $value | humanizePercentage }} (>85%); new NAT/forwarded flows face imminent exhaustion.'
+      summary: Conntrack table critically high (>85%) on {{ $labels.device }}
+    expr: (edge_conntrack_entries / clamp_min(edge_conntrack_limit, 1)) > 0.85
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: critical
+  - alert: EdgeConntrackBucketPressure
+    annotations:
+      description: 'Conntrack average chain depth on {{ $labels.device }} is {{ printf "%.2f" $value }} entries per hash bucket (>8 entries / >16 tuple nodes per bucket). On Route10 (8,192 buckets, 1 GiB RAM) this flags >65,536 flows before kernel slab pressure risks OOM.'
+      summary: Conntrack hash-bucket pressure on {{ $labels.device }} ({{ printf "%.1f" $value }}/bucket)
+    expr: (edge_conntrack_entries / clamp_min(edge_conntrack_buckets, 1)) > 8
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: EdgeConntrackTableOverrunDrops
+    annotations:
+      description: 'Netfilter conntrack on {{ $labels.device }} is actively dropping or early-evicting connections (filtering out benign SMP insert_failed races).'
+      summary: Conntrack table overrun drops on {{ $labels.device }}
+    expr: (increase(edge_conntrack_early_drops_total[5m]) > 0) or ((increase(edge_conntrack_drops_total[5m]) - increase(edge_conntrack_insert_failed_total[5m])) > 5)
+    for: 1m
+    keep_firing_for: 10m
+    labels:
+      component: gateway
+      severity: critical
+  - alert: EdgeConntrackMetricsMissing
+    annotations:
+      description: 'Only {{ $value }} edge gateway(s) exported edge_conntrack_limit (expected 2: uxg-fiber and route10). Check nas01 cron 25 (uxg-bbr) and Route10 cell-watchdog.'
+      summary: Edge conntrack metrics missing (count={{ $value }}, expected 2)
+    expr: (count(edge_conntrack_limit) or vector(0)) < 2
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
 - interval: 30s
   name: node-resource-usage.rules
   rules:
