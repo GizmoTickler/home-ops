@@ -736,6 +736,11 @@
           "mappings": [
             {
               "options": {
+                "-1": {
+                  "color": "orange",
+                  "index": 2,
+                  "text": "POLL ERR"
+                },
                 "0": {
                   "color": "red",
                   "index": 1,
@@ -748,6 +753,18 @@
                 }
               },
               "type": "value"
+            },
+            {
+              "options": {
+                "from": 2,
+                "result": {
+                  "color": "red",
+                  "index": 3,
+                  "text": "OFFLINE"
+                },
+                "to": 99
+              },
+              "type": "range"
             }
           ],
           "noValue": "NO DATA",
@@ -809,7 +826,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "clamp_min(cellular_modem_wan_up{job=\"route10-cellular\"}, 0)",
+          "expr": "cellular_modem_wan_up{job=\"route10-cellular\"}",
           "format": "time_series",
           "instant": true,
           "legendFormat": "Modem WAN (rmnet)",
@@ -821,7 +838,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "cellular_modem_cfun{job=\"route10-cellular\"} == bool 1",
+          "expr": "cellular_modem_cfun{job=\"route10-cellular\"}",
           "format": "time_series",
           "instant": true,
           "legendFormat": "RF Active (CFUN=1)",

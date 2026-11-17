@@ -737,6 +737,16 @@ groups:
     labels:
       component: gateway
       severity: warning
+  - alert: CellularModemATPollDegraded
+    annotations:
+      description: 'Route10 can reach the cellular modem over LAN, but AT-command RF telemetry polling on /usr/sbin/r10-modem-ctl has failed for >10m (likely stale /tmp/at_queue lock or serial AT contention). Data-plane forwarding may still be up.'
+      summary: Cellular modem AT telemetry poll failing
+    expr: (cellular_watchdog_modem_lan_up{job="route10-cellular"} == 1) and on(job) (cellular_modem_at_poll_ok{job="route10-cellular"} == 0)
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
   - alert: UXGBBRDegraded
     annotations:
       description: 'UXG-Fiber BBR + fq reconciler on nas01 (cron 25) reports degraded BBR state or stale check (>30m).'
