@@ -261,6 +261,7 @@ scrape_configs:
     - unifi-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - omarchy0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - omarchy1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
+    - netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     labels:
       job: node-exporter
   honor_labels: false
@@ -268,6 +269,34 @@ scrape_configs:
   relabel_configs:
   - target_label: job
     replacement: node-exporter
+- job_name: staticScrape/observability/snmp-cisco/0
+  static_configs:
+  - targets:
+    - 10.255.255.253
+    labels:
+      job: snmp
+  honor_labels: false
+  scrape_interval: 60s
+  scrape_timeout: 30s
+  metrics_path: /snmp
+  params:
+    auth:
+    - ntopng_v3
+    module:
+    - if_mib
+    - cisco_health
+    - bgp
+  relabel_configs:
+  - target_label: job
+    replacement: snmp-cisco
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9116
 - job_name: vmsingle-stack
   static_configs:
   - targets:

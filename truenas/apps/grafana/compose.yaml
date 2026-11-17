@@ -29,6 +29,7 @@ services:
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
       GF_METRICS_ENABLED: "true"
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
       GF_LOG_MODE: console
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_AUTH_OAUTH_AUTO_LOGIN: "true"
@@ -56,7 +57,7 @@ services:
       - /mnt/flashstor/apps/grafana-data:/var/lib/grafana
       - /mnt/flashstor/apps/grafana-config/datasources:/etc/grafana/provisioning/datasources:ro
     tmpfs:
-      - /tmp:size=64m,uid=1000,gid=1000
+      - /tmp:size=256m,uid=1000,gid=1000
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

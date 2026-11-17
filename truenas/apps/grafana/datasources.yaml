@@ -29,3 +29,17 @@ datasources:
     url: http://alertmanager:9093
     jsonData: {implementation: prometheus}
     editable: false
+  - name: ClickHouse (nflo0)
+    uid: clickhouse-nflo0
+    type: grafana-clickhouse-datasource
+    access: proxy
+    jsonData:
+      server: 192.168.120.9
+      host: 192.168.120.9
+      port: 8123
+      protocol: http
+      username: grafana_ro
+      defaultDatabase: ntopng
+    secureJsonData:
+      password: "{{ op://Infrastructure/nflo0/clickhouse_grafana_password }}"
+    editable: false

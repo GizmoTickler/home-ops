@@ -181,3 +181,9 @@ endpoints:
     interval: 1m
     conditions:
       - "[STATUS] == 200"
+  - name: ntopng (nflo0)
+    group: Management
+    url: https://netflow.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/lua/login.lua
+    interval: 1m
+    conditions:
+      - "[STATUS] == 200"

@@ -3,7 +3,7 @@ dirs:
   - {path: /mnt/flashstor/apps/grafana-config, owner: "0:1000", mode: "0755"}
   - {path: /mnt/flashstor/apps/grafana-config/datasources, owner: "0:1000", mode: "0755"}
 files:
-  - {template: datasources.yaml, dest: /mnt/flashstor/apps/grafana-config/datasources/datasources.yaml, owner: "0:1000", mode: "0644"}
+  - {template: datasources.yaml, dest: /mnt/flashstor/apps/grafana-config/datasources/datasources.yaml, owner: "0:1000", mode: "0640"}
 health:
   http: http://127.0.0.1:3000/api/health
   netns: grafana
@@ -25,6 +25,7 @@ dashboards:
     envoy-downstream-skj2.json: network
     envoy-overview-skj2.json: network
     envoy-upstream-skj2.json: network
+    ntopng-netflow.json: network
     wan-cellular-edge.json: network
     LzldHAVnz.json: observability
     YLum8s2ik.json: observability

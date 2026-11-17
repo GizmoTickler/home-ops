@@ -3,7 +3,7 @@
 # (node-exporter on nas01/PVE VMs/admin VMs), ZFS/SMART, nas01 storage path, truenas apps GitOps, blackbox, gatus,
 # Envoy backends, cAdvisor containers, and the VictoriaMetrics/vmalert/Alertmanager self-monitoring. Dropped:
 # kube*/etcd/k8s.rules, flux, cert-manager, cnpg, kopiur, scale-csi, external-dns, keda, VictoriaLogs and all
-# log-based rules, trustsec-sgacl-exporter (k8s pod), and snmp-*/network-ssh-probes (nflo0/VyOS retired).
+# log-based rules, trustsec-sgacl-exporter (k8s pod), and snmp-vyos/network-ssh-probes (VyOS retired).
 groups:
 - name: prometheus-blackbox-exporter
   rules:
@@ -2017,4 +2017,77 @@ groups:
     keep_firing_for: 5m
     labels:
       component: wifi
+      severity: warning
+- interval: 1m
+  name: flow-telemetry.rules
+  rules:
+  - alert: NtopngDown
+    annotations:
+      description: ntopng local REST v2 API on nflo0 is unhealthy (ntopng_up == 0).
+      summary: ntopng API unreachable on nflo0
+    expr: ntopng_up == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: Nflo0PipelineServiceDown
+    annotations:
+      description: Flow telemetry service {{ $labels.unit }} on nflo0 is not active.
+      summary: nflo0 pipeline unit {{ $labels.unit }} down
+    expr: nflo0_unit_active == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngFlowExportStale
+    annotations:
+      description: No active or new flows written to ClickHouse ntopng.flows for {{ $value | humanizeDuration }} (threshold 15m).
+      summary: ntopng flow export to ClickHouse is stale (nflo0)
+    expr: (time() - ntopng_flows_last_seen_timestamp_seconds) > 900
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngFlowFreshnessMetricMissing
+    annotations:
+      description: ntopng_flows_last_seen_timestamp_seconds is absent — ntopng-flow-freshness.timer or nflo0 node_exporter scrape is down.
+      summary: ntopng flow-freshness watchdog metric is missing
+    expr: absent(ntopng_flows_last_seen_timestamp_seconds)
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngSpanCaptureStale
+    annotations:
+      description: ClickHouse ntopng.flows ERSPAN-DPI (ifid=0) has 0 flows in the last 10m. Check SC01 monitor session 2 -> Te1/0/14 and cento@erspan1 on nflo0.
+      summary: nflo0 SPAN DPI capture stalled
+    expr: ntopng_clickhouse_flows_10m{ifid="0"} == 0
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngIpfixCaptureStale
+    annotations:
+      description: ClickHouse ntopng.flows IPFIX-NetFlow (ifid=1) has 0 flows in the last 10m. Check SC01 NTOPNG-EXPORTER and nprobe@collector on nflo0.
+      summary: nflo0 IPFIX collector capture stalled
+    expr: ntopng_clickhouse_flows_10m{ifid="1"} == 0
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: observability
+      severity: warning
+  - alert: NtopngDroppedFlowsHigh
+    annotations:
+      description: ntopng {{ $labels.ifname }} is experiencing sustained packet or ZMQ flow drops (rate {{ $value | printf "%.2f" }}/s).
+      summary: High flow/packet drops on ntopng {{ $labels.ifname }}
+    expr: rate(ntopng_interface_zmq_dropped_flows_total[10m]) > 1 or rate(ntopng_interface_drops_total[10m]) > 100
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: observability
       severity: warning

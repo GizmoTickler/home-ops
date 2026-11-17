@@ -1,0 +1,1396 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "SC01 IPFIX NetFlow + Local SPAN 10G DPI/DNS on nflo0 (ntopng + nProbe + Cento + ClickHouse) and SNMP interface telemetry.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "icon": "dashboard",
+      "title": "WAN & Cellular Edge",
+      "type": "link",
+      "url": "/d/wan-cellular-edge"
+    },
+    {
+      "icon": "dashboard",
+      "title": "DHCP & DNS",
+      "type": "link",
+      "url": "/d/dhcp-dns"
+    },
+    {
+      "icon": "dashboard",
+      "title": "Probes & Scrape Targets",
+      "type": "link",
+      "url": "/d/xtkCtBkiz"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "nflo0 Pipeline Health & Telemetry Freshness",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "min(ntopng_up{job=\"node-exporter\"})",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "ntopng API",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "count(nflo0_unit_active{job=\"node-exporter\"} == 1)",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "nflo0 Services Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "time() - max(ntopng_flows_last_seen_timestamp_seconds{job=\"node-exporter\"})",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "ClickHouse Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(ntopng_clickhouse_bytes_on_disk{job=\"node-exporter\"})",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "ClickHouse DB Size",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "sum(ntopng_interface_active_flows{job=\"node-exporter\"})",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Flows (Total)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "max(ntopng_interface_active_hosts{job=\"node-exporter\",ifid=\"1\"})",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Hosts (IPFIX)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "count(bgpPeerState{job=\"snmp-cisco\"} == 6)",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "SC01 BGP Peers Established",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 5
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "ntopng_clickhouse_flows_10m{job=\"node-exporter\"}",
+          "legendFormat": "{{ifname}}",
+          "refId": "A"
+        }
+      ],
+      "title": "ClickHouse 10m Flow Ingest by Stream",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 5
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "ntopng_interface_throughput_bps{job=\"node-exporter\"}",
+          "legendFormat": "{{ifname}}",
+          "refId": "A"
+        }
+      ],
+      "title": "ntopng Capture Throughput by Stream",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 5
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(ntopng_interface_drops_total{job=\"node-exporter\"}[5m])",
+          "legendFormat": "Pkt Drops/s {{ifname}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(ntopng_interface_zmq_dropped_flows_total{job=\"node-exporter\"}[5m])",
+          "legendFormat": "ZMQ Flow Drops/s {{ifname}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Pipeline Drops & Packet Drop Rate",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 12,
+      "panels": [],
+      "title": "SC01 WAN, Core Trunks & VLAN Bandwidth (SNMP + IPFIX)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(ifHCInOctets{job=\"snmp-cisco\",ifName=~\"Vl3044|Te1/1/2\"}[5m]) * 8",
+          "legendFormat": "RX {{ifName}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "-rate(ifHCOutOctets{job=\"snmp-cisco\",ifName=~\"Vl3044|Te1/1/2\"}[5m]) * 8",
+          "legendFormat": "TX {{ifName}}",
+          "refId": "B"
+        }
+      ],
+      "title": "SC01 WAN Links (Fiber Vl3044 & Cellular Te1/1/2)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(ifHCInOctets{job=\"snmp-cisco\",ifName=~\"Po10|Po20|Vl2609|Vl20|Vl550|Vl700|Vl999\"}[5m]) * 8",
+          "legendFormat": "RX {{ifName}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "rate(ifHCOutOctets{job=\"snmp-cisco\",ifName=~\"Po10|Po20|Vl2609|Vl20|Vl550|Vl700|Vl999\"}[5m]) * 8",
+          "legendFormat": "TX {{ifName}}",
+          "refId": "B"
+        }
+      ],
+      "title": "SC01 Trunks & Client VLAN SVIs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 15,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT multiIf( INPUT_SNMP = 87, 'Vlan3044 (Frontier WAN)', INPUT_SNMP = 38, 'Te1/1/2 (Route10 Cellular)', INPUT_SNMP = 31, 'Te1/0/23 (UXG LAN)', INPUT_SNMP = 64, 'Vlan2609 (Trusted)', INPUT_SNMP = 61, 'Vlan20 (IoT)', INPUT_SNMP = 62, 'Vlan550 (Cameras)', INPUT_SNMP = 81, 'Vlan700 (Guest)', INPUT_SNMP = 55, 'Vlan999 (MGMT)', INPUT_SNMP = 58, 'Po10 (nas01)', INPUT_SNMP = 59, 'Po20 (pve)', concat('ifIndex-', toString(INPUT_SNMP)) ) AS interface, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 GROUP BY interface ORDER BY bytes DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "SC01 IPFIX Volume by Ingress Interface (ClickHouse)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 16,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT $__timeInterval(FIRST_SEEN) AS time, multiIf( INPUT_SNMP = 87, 'Vlan3044 (Frontier WAN)', INPUT_SNMP = 38, 'Te1/1/2 (Route10 Cellular)', INPUT_SNMP = 31, 'Te1/0/23 (UXG LAN)', INPUT_SNMP = 64, 'Vlan2609 (Trusted)', INPUT_SNMP = 61, 'Vlan20 (IoT)', INPUT_SNMP = 62, 'Vlan550 (Cameras)', INPUT_SNMP = 81, 'Vlan700 (Guest)', INPUT_SNMP = 55, 'Vlan999 (MGMT)', INPUT_SNMP = 58, 'Po10 (nas01)', INPUT_SNMP = 59, 'Po20 (pve)', concat('ifIndex-', toString(INPUT_SNMP)) ) AS interface, sum(TOTAL_BYTES) AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 GROUP BY time, interface ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "ClickHouse Bytes Over Time by SC01 Ingress Interface",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 17,
+      "panels": [],
+      "title": "L7 nDPI Applications, SNI Domains, DNS & ASNs (SPAN DPI + IPFIX)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 30
+      },
+      "id": 18,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 58, 'Discord', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS application, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 GROUP BY application ORDER BY bytes DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Top L7 nDPI Applications (ERSPAN DPI)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 30
+      },
+      "id": 19,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT if(DOMAIN_NAME != '', DOMAIN_NAME, '(no SNI/Host)') AS domain, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 GROUP BY domain ORDER BY bytes DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top TLS/QUIC/HTTP Domains (ERSPAN DPI)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 30
+      },
+      "id": 20,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT if(DOMAIN_NAME != '', DOMAIN_NAME, INFO) AS qname, count() AS queries, sum(TOTAL_BYTES) AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 2 AND qname != '' GROUP BY qname ORDER BY queries DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top DNS Queries (nProbe DNS Monitor)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 38
+      },
+      "id": 21,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT f.DST_ASN AS asn, any(a.handle) AS handle, any(a.description) AS organization, sum(f.TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows AS f LEFT JOIN ntopng.asn_info AS a ON f.DST_ASN = a.asn WHERE $__timeFilter(f.FIRST_SEEN) AND f.DST_ASN > 0 AND f.INTERFACE_ID IN (0, 1) GROUP BY f.DST_ASN ORDER BY bytes DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Destination ASNs",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 38
+      },
+      "id": 22,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT IPv4NumToString(if(bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0'), IPV4_SRC_ADDR, IPV4_DST_ADDR)) AS host_ip, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 AND (bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0') OR bitAnd(IPV4_DST_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0')) GROUP BY host_ip ORDER BY bytes DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top Internal Hosts (IPFIX + SPAN)",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 46
+      },
+      "id": 23,
+      "panels": [],
+      "title": "TrustSec East-West Zone Matrix & Flow Forensics",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 47
+      },
+      "id": 24,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT multiIf( bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT (120/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted (132/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT (136/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras (116/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest (140/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 'Cellular (224/22)', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.255.255.0'), 'Transit (10.255.255/24)', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.53.53.0'), 'Anycast DNS', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.123.123.0'), 'Anycast NTP', 'External/WAN' ) AS src_zone, multiIf( bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT (120/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted (132/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT (136/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras (116/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest (140/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 'Cellular (224/22)', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.255.255.0'), 'Transit (10.255.255/24)', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.53.53.0'), 'Anycast DNS', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.123.123.0'), 'Anycast NTP', 'External/WAN' ) AS dst_zone, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 GROUP BY src_zone, dst_zone ORDER BY bytes DESC LIMIT 30",
+          "refId": "A"
+        }
+      ],
+      "title": "TrustSec Zone-to-Zone Traffic Matrix (IPFIX)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 47
+      },
+      "id": 25,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT multiIf( bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT (120/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted (132/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT (136/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras (116/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest (140/22)', bitAnd(IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 'Cellular (224/22)', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.255.255.0'), 'Transit (10.255.255/24)', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.53.53.0'), 'Anycast DNS', bitAnd(IPV4_SRC_ADDR, 4294967040) = IPv4StringToNum('10.123.123.0'), 'Anycast NTP', 'External/WAN' ) AS src_zone, multiIf( bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT (120/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted (132/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT (136/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras (116/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest (140/22)', bitAnd(IPV4_DST_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 'Cellular (224/22)', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.255.255.0'), 'Transit (10.255.255/24)', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.53.53.0'), 'Anycast DNS', bitAnd(IPV4_DST_ADDR, 4294967040) = IPv4StringToNum('10.123.123.0'), 'Anycast NTP', 'External/WAN' ) AS dst_zone, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 GROUP BY src_zone, dst_zone HAVING src_zone != 'External/WAN' AND dst_zone != 'External/WAN' AND src_zone != dst_zone ORDER BY bytes DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "East-West Inter-Zone Flows Only (Excluding External/WAN)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "id": 26,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, INTERFACE_ID AS ifid, IPv4NumToString(IPV4_SRC_ADDR) AS src_ip, IPv4NumToString(IPV4_DST_ADDR) AS dst_ip, IP_DST_PORT AS dport, coalesce(m.NAME, toString(f.PROTOCOL)) AS proto, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 58, 'Discord', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, DOMAIN_NAME AS domain, TOTAL_BYTES AS bytes, SCORE AS risk_score FROM ntopng.flows AS f LEFT JOIN ntopng.flow_l4_map AS m ON f.PROTOCOL = m.PROTOCOL WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID IN (0, 1) ORDER BY f.TOTAL_BYTES DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent High-Volume & Scored Flows (ClickHouse Forensics)",
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "netflow",
+    "ntopng",
+    "clickhouse",
+    "trustsec",
+    "network"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "America/New_York",
+  "title": "Network Flow, SPAN DPI & TrustSec Forensics",
+  "uid": "ntopng-netflow",
+  "version": 1
+}
