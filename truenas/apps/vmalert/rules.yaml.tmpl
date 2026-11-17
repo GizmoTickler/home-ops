@@ -769,10 +769,20 @@ groups:
       severity: critical
   - alert: EdgeConntrackBucketPressure
     annotations:
-      description: 'Conntrack average chain depth on {{ $labels.device }} is {{ printf "%.2f" $value }} entries per hash bucket (>8 entries / >16 tuple nodes per bucket). On Route10 (8,192 buckets, 1 GiB RAM) this flags >65,536 flows before kernel slab pressure risks OOM.'
+      description: 'Conntrack average chain depth on {{ $labels.device }} is {{ printf "%.2f" $value }} entries per hash bucket (>8 entries / >16 tuple nodes per bucket). Both edges run at 4:1 (UXG 131k/32k, Route10 65k/16k); exceeding 8 indicates hash-ratio drift or table strain.'
       summary: Conntrack hash-bucket pressure on {{ $labels.device }} ({{ printf "%.1f" $value }}/bucket)
     expr: (edge_conntrack_entries / clamp_min(edge_conntrack_buckets, 1)) > 8
     for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: Route10SFEAccelInactive
+    annotations:
+      description: 'Route10 ECM SFE (Alternate) fast-path acceleration is not active (cellular_sfe_accel_active == 0). Check Alta Control device Acceleration setting (Alternate) and lsmod ecm/qca_nss_sfe.'
+      summary: Route10 SFE fast-path acceleration inactive
+    expr: cellular_sfe_accel_active{job="route10-cellular"} == 0
+    for: 10m
     keep_firing_for: 5m
     labels:
       component: gateway

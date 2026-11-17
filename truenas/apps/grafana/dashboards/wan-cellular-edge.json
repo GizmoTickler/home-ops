@@ -2388,7 +2388,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Percentage of nf_conntrack_max currently in use on UXG-Fiber (131,072 max) and Route10 (500,000 max).",
+      "description": "Percentage of nf_conntrack_max currently in use on UXG-Fiber (131,072 max) and Route10 (65,536 max).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2542,7 +2542,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Average conntrack entries per hash bucket (target <=4). Catches Route10 (8,192 buckets) hash-chain pressure early.",
+      "description": "Average conntrack entries per hash bucket (target <=4). Monitors UXG-Fiber (32,768 buckets) and Route10 (16,384 buckets) hash-chain pressure.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2617,7 +2617,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "UXG-Fiber Qualcomm PPE/ECM offloaded flows and 1h sum of early_drop evictions across both edge routers.",
+      "description": "UXG-Fiber PPE/ECM & Route10 SFE/ECM offloaded flows plus 1h sum of early_drop evictions across both edge routers.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2646,6 +2646,21 @@
             "matcher": {
               "id": "byName",
               "options": "uxg-fiber PPE offloaded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "route10 SFE offloaded"
             },
             "properties": [
               {
@@ -2700,15 +2715,27 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
+          "expr": "edge_ecm_offloaded_flows{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": true,
+          "legendFormat": "route10 SFE offloaded",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
           "expr": "sum by (device) (increase(edge_conntrack_early_drops_total[1h]))",
           "format": "time_series",
           "instant": true,
           "legendFormat": "{{device}} early drops (1h)",
           "range": false,
-          "refId": "B"
+          "refId": "C"
         }
       ],
-      "title": "UXG PPE Offloaded Flows & 1h Early Drops",
+      "title": "Edge Offloaded Flows (PPE/SFE) & 1h Early Drops",
       "type": "stat"
     },
     {
@@ -2716,7 +2743,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Active nf_conntrack entries on UXG-Fiber and Route10 alongside UXG-Fiber PPE/ECM offloaded flows.",
+      "description": "Active nf_conntrack entries on UXG-Fiber and Route10 alongside UXG-Fiber PPE & Route10 SFE offloaded flows.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2801,9 +2828,21 @@
           "legendFormat": "uxg-fiber PPE offloaded",
           "range": true,
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "expr": "edge_ecm_offloaded_flows{job=\"route10-cellular\"}",
+          "format": "time_series",
+          "instant": false,
+          "legendFormat": "route10 SFE offloaded",
+          "range": true,
+          "refId": "C"
         }
       ],
-      "title": "Edge Conntrack Active Entries & PPE Offload",
+      "title": "Edge Conntrack Active Entries & PPE / SFE Offload",
       "type": "timeseries"
     },
     {
@@ -2934,5 +2973,5 @@
   "timezone": "browser",
   "title": "WAN, Cellular Backup & Network Edge",
   "uid": "wan-cellular-edge",
-  "version": 2
+  "version": 3
 }
