@@ -1181,6 +1181,23 @@
                 "value": "bytes"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "host_ip"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to ${__value.raw}",
+                    "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=${__value.raw}"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1205,7 +1222,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT IPv4NumToString(if(bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0'), IPV4_SRC_ADDR, IPV4_DST_ADDR)) AS host_ip, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 AND (bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0') OR bitAnd(IPV4_DST_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0')) GROUP BY host_ip ORDER BY bytes DESC LIMIT 25",
+          "rawSql": "SELECT IPv4NumToString(if(bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0'), IPV4_SRC_ADDR, IPV4_DST_ADDR)) AS host_ip, coalesce(nullIf(replaceRegexpOne(anyLastIf(if(bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0'), SRC_LABEL, DST_LABEL), if(bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0'), SRC_LABEL, DST_LABEL) != ''), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), '—') AS hostname, sum(TOTAL_BYTES) AS bytes, count() AS flows FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 1 AND (bitAnd(IPV4_SRC_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0') OR bitAnd(IPV4_DST_ADDR, 4294901760) = IPv4StringToNum('192.168.0.0')) GROUP BY host_ip ORDER BY bytes DESC LIMIT 25",
           "refId": "A"
         }
       ],
@@ -1344,6 +1361,23 @@
                 "value": "bytes"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "src_ip"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to ${__value.raw}",
+                    "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=${__value.raw}"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1368,7 +1402,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, INTERFACE_ID AS ifid, IPv4NumToString(IPV4_SRC_ADDR) AS src_ip, IPv4NumToString(IPV4_DST_ADDR) AS dst_ip, IP_DST_PORT AS dport, coalesce(m.NAME, toString(f.PROTOCOL)) AS proto, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, DOMAIN_NAME AS domain, TOTAL_BYTES AS bytes, SCORE AS risk_score FROM ntopng.flows AS f LEFT JOIN ntopng.flow_l4_map AS m ON f.PROTOCOL = m.PROTOCOL WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID IN (0, 1) ORDER BY f.TOTAL_BYTES DESC LIMIT 50",
+          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, INTERFACE_ID AS ifid, IPv4NumToString(IPV4_SRC_ADDR) AS src_ip, if(f.SRC_LABEL != '' AND f.SRC_LABEL != IPv4NumToString(f.IPV4_SRC_ADDR), replaceRegexpOne(f.SRC_LABEL, '\\\\.[^.]+\\\\.[^.]+$', ''), '—') AS src_host, IPv4NumToString(IPV4_DST_ADDR) AS dst_ip, IP_DST_PORT AS dport, coalesce(m.NAME, toString(f.PROTOCOL)) AS proto, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, DOMAIN_NAME AS domain, TOTAL_BYTES AS bytes, SCORE AS risk_score FROM ntopng.flows AS f LEFT JOIN ntopng.flow_l4_map AS m ON f.PROTOCOL = m.PROTOCOL WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID IN (0, 1) ORDER BY f.TOTAL_BYTES DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -1407,6 +1441,96 @@
                 "value": "bytes"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "client_ip"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to ${__value.raw}",
+                    "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "hostname"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to ${__data.fields.client_ip}",
+                    "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=${__data.fields.client_ip:percentencode}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "id": 28,
+      "links": [
+        {
+          "title": "Reset Endpoint Filter (Show All)",
+          "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=ALL"
+        }
+      ],
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-nflo0"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "WITH asset_map AS ( SELECT ip, argMaxIf(name, last_seen, name != '' AND name != ip) AS asset_name, argMaxIf(manufacturer, last_seen, manufacturer NOT IN ('', 'unknown') AND mac NOT LIKE '4C:BC:48:%') AS vendor, argMaxIf(mac, last_seen, mac != '' AND mac NOT LIKE '4C:BC:48:%') AS mac_str FROM ntopng.assets WHERE type = 'host' AND ip != '' GROUP BY ip ) SELECT IPv4NumToString(f.IPV4_SRC_ADDR) AS client_ip, coalesce( nullIf(replaceRegexpOne(anyLastIf(f.SRC_LABEL, f.SRC_LABEL != '' AND f.SRC_LABEL != IPv4NumToString(f.IPV4_SRC_ADDR)), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), nullIf(replaceRegexpOne(any(a.asset_name), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), '—' ) AS hostname, multiIf( bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 'Cellular', 'Other' ) AS zone, if(any(a.vendor) != '', any(a.vendor), '—') AS vendor, if(any(a.mac_str) != '', any(a.mac_str), '—') AS mac, count() AS flows, sum(f.TOTAL_BYTES) AS bytes, formatDateTime(max(f.LAST_SEEN), '%Y-%m-%d %H:%i:%S') AS last_seen FROM ntopng.flows AS f LEFT JOIN asset_map AS a ON IPv4NumToString(f.IPV4_SRC_ADDR) = a.ip WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID = 0 AND bitAnd(f.IPV4_SRC_ADDR, 4294966272) IN ( IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.116.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.224.0') ) GROUP BY f.IPV4_SRC_ADDR ORDER BY bytes DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Active Local Endpoints Directory — Click Any Host or IP to Drill Down",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-nflo0"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
           }
         ]
       },
@@ -1414,9 +1538,15 @@
         "h": 9,
         "w": 8,
         "x": 0,
-        "y": 65
+        "y": 73
       },
-      "id": 28,
+      "id": 29,
+      "links": [
+        {
+          "title": "Reset Endpoint Filter (Show All)",
+          "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=ALL"
+        }
+      ],
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
@@ -1464,9 +1594,15 @@
         "h": 9,
         "w": 8,
         "x": 8,
-        "y": 65
+        "y": 73
       },
-      "id": 29,
+      "id": 30,
+      "links": [
+        {
+          "title": "Reset Endpoint Filter (Show All)",
+          "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=ALL"
+        }
+      ],
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
@@ -1507,6 +1643,23 @@
                 "value": "bytes"
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "client_ip"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Drill down to ${__value.raw}",
+                    "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=${__value.raw}"
+                  }
+                ]
+              }
+            ]
           }
         ]
       },
@@ -1514,9 +1667,15 @@
         "h": 9,
         "w": 8,
         "x": 16,
-        "y": 65
+        "y": 73
       },
-      "id": 30,
+      "id": 31,
+      "links": [
+        {
+          "title": "Reset Endpoint Filter (Show All)",
+          "url": "/d/ntopng-netflow?${__url_time_range}&var-client_ip=ALL"
+        }
+      ],
       "options": {
         "cellHeight": "sm",
         "showHeader": true,
@@ -1531,7 +1690,7 @@
           "editorType": "sql",
           "format": 1,
           "queryType": "table",
-          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, IPv4NumToString(IPV4_SRC_ADDR) AS client_ip, if(SRC_MAC > 0, hex(SRC_MAC), '') AS mac, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, if(INFO != '' AND NOT startsWith(INFO, '/'), INFO, DOMAIN_NAME) AS site, TOTAL_BYTES AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID IN (0, 2) AND (INFO != '' OR DOMAIN_NAME != '') AND ('${client_ip:raw}' = 'ALL' OR IPV4_SRC_ADDR = toUInt32(toIPv4OrZero('${client_ip:raw}'))) ORDER BY LAST_SEEN DESC LIMIT 100",
+          "rawSql": "SELECT formatDateTime(LAST_SEEN, '%Y-%m-%d %H:%i:%S') AS last_seen, IPv4NumToString(IPV4_SRC_ADDR) AS client_ip, if(SRC_LABEL != '' AND SRC_LABEL != IPv4NumToString(IPV4_SRC_ADDR), replaceRegexpOne(SRC_LABEL, '\\\\.[^.]+\\\\.[^.]+$', ''), '—') AS hostname, multiIf( L7_PROTO = 5, 'DNS', L7_PROTO = 6, 'IPP', L7_PROTO = 7, 'HTTP', L7_PROTO = 8, 'mDNS', L7_PROTO = 9, 'NTP', L7_PROTO = 11, 'NFS', L7_PROTO = 12, 'SSDP', L7_PROTO = 13, 'BGP', L7_PROTO = 14, 'SNMP', L7_PROTO = 18, 'DHCP', L7_PROTO = 24, 'Tailscale', L7_PROTO = 45, 'WhatsAppCall', L7_PROTO = 47, 'Xbox', L7_PROTO = 49, 'TikTok', L7_PROTO = 58, 'Discord', L7_PROTO = 74, 'Steam', L7_PROTO = 78, 'STUN', L7_PROTO = 79, 'IPsec', L7_PROTO = 81, 'ICMP', L7_PROTO = 88, 'RDP', L7_PROTO = 91, 'TLS', L7_PROTO = 92, 'SSH', L7_PROTO = 110, 'AmazonAlexa', L7_PROTO = 119, 'Facebook', L7_PROTO = 122, 'GMail', L7_PROTO = 124, 'YouTube', L7_PROTO = 126, 'Google', L7_PROTO = 128, 'NetFlow/IPFIX', L7_PROTO = 133, 'Netflix', L7_PROTO = 140, 'Apple', L7_PROTO = 142, 'WhatsApp', L7_PROTO = 143, 'AppleiCloud', L7_PROTO = 156, 'Spotify', L7_PROTO = 157, 'FacebookMessenger', L7_PROTO = 173, 'Nintendo', L7_PROTO = 178, 'Amazon', L7_PROTO = 188, 'QUIC', L7_PROTO = 195, 'Twitch', L7_PROTO = 196, 'DoH/DoT', L7_PROTO = 199, 'Snapchat', L7_PROTO = 203, 'GitHub', L7_PROTO = 205, 'Reddit', L7_PROTO = 206, 'WireGuard', L7_PROTO = 211, 'Instagram', L7_PROTO = 212, 'Microsoft', L7_PROTO = 219, 'Microsoft365', L7_PROTO = 220, 'Cloudflare', L7_PROTO = 222, 'MQTT', L7_PROTO = 231, 'PlayStation', L7_PROTO = 235, 'SteamDatagramRelay', L7_PROTO = 238, 'ApplePush', L7_PROTO = 239, 'GoogleServices', L7_PROTO = 240, 'AmazonVideo', L7_PROTO = 250, 'Teams', L7_PROTO = 265, 'AmazonAWS', L7_PROTO = 276, 'Azure', L7_PROTO = 277, 'iCloudPrivateRelay', L7_PROTO = 284, 'GoogleCloud', L7_PROTO = 300, 'CloudflareWarp', L7_PROTO = 346, 'Roblox', L7_PROTO = 401, 'BFD', L7_PROTO = 419, 'ClickHouse', L7_PROTO = 447, 'Ubiquiti', L7_PROTO = 457, 'Matter', L7_PROTO = 463, 'AWS_S3', L7_PROTO = 464, 'AWS_CloudFront', L7_PROTO = 467, 'Akamai', L7_PROTO = 0, 'Unknown', concat('nDPI-', toString(L7_PROTO)) ) AS l7_app, if(INFO != '' AND NOT startsWith(INFO, '/'), INFO, DOMAIN_NAME) AS site, TOTAL_BYTES AS bytes FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID IN (0, 2) AND (INFO != '' OR DOMAIN_NAME != '') AND ('${client_ip:raw}' = 'ALL' OR IPV4_SRC_ADDR = toUInt32(toIPv4OrZero('${client_ip:raw}'))) ORDER BY LAST_SEEN DESC LIMIT 100",
           "refId": "A"
         }
       ],
@@ -1561,21 +1720,18 @@
           "type": "grafana-clickhouse-datasource",
           "uid": "clickhouse-nflo0"
         },
-        "definition": "SELECT DISTINCT IPv4NumToString(IPV4_SRC_ADDR) AS client_ip FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 AND bitAnd(IPV4_SRC_ADDR, 4294966272) IN (IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.116.0')) ORDER BY client_ip",
+        "definition": "SELECT value, if(h != '', concat(h, ' — ', z, ' (', value, ')'), concat(z, ' — ', value)) AS label FROM ( WITH asset_map AS ( SELECT ip, argMaxIf(name, last_seen, name != '' AND name != ip) AS asset_name FROM ntopng.assets WHERE type = 'host' AND ip != '' GROUP BY ip ) SELECT IPv4NumToString(f.IPV4_SRC_ADDR) AS value, multiIf( bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT', 'Cellular' ) AS z, multiIf( bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 1, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 2, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 3, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 4, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 5, 6 ) AS z_ord, coalesce( nullIf(replaceRegexpOne(anyLastIf(f.SRC_LABEL, f.SRC_LABEL != '' AND f.SRC_LABEL != IPv4NumToString(f.IPV4_SRC_ADDR)), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), nullIf(replaceRegexpOne(any(a.asset_name), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), '' ) AS h FROM ntopng.flows AS f LEFT JOIN asset_map AS a ON IPv4NumToString(f.IPV4_SRC_ADDR) = a.ip WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID = 0 AND bitAnd(f.IPV4_SRC_ADDR, 4294966272) IN ( IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.116.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.224.0') ) GROUP BY f.IPV4_SRC_ADDR ) ORDER BY z_ord, label",
         "hide": 0,
         "includeAll": true,
-        "label": "Endpoint IP",
+        "label": "Endpoint",
         "multi": false,
         "name": "client_ip",
         "options": [],
-        "query": {
-          "query": "SELECT DISTINCT IPv4NumToString(IPV4_SRC_ADDR) AS client_ip FROM ntopng.flows WHERE $__timeFilter(FIRST_SEEN) AND INTERFACE_ID = 0 AND bitAnd(IPV4_SRC_ADDR, 4294966272) IN (IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.116.0')) ORDER BY client_ip",
-          "queryType": "sql"
-        },
+        "query": "SELECT value, if(h != '', concat(h, ' — ', z, ' (', value, ')'), concat(z, ' — ', value)) AS label FROM ( WITH asset_map AS ( SELECT ip, argMaxIf(name, last_seen, name != '' AND name != ip) AS asset_name FROM ntopng.assets WHERE type = 'host' AND ip != '' GROUP BY ip ) SELECT IPv4NumToString(f.IPV4_SRC_ADDR) AS value, multiIf( bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 'Trusted', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 'Guest', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 'IoT', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 'Cameras', bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.120.0'), 'MGMT', 'Cellular' ) AS z, multiIf( bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.132.0'), 1, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.140.0'), 2, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.136.0'), 3, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.116.0'), 4, bitAnd(f.IPV4_SRC_ADDR, 4294966272) = IPv4StringToNum('192.168.224.0'), 5, 6 ) AS z_ord, coalesce( nullIf(replaceRegexpOne(anyLastIf(f.SRC_LABEL, f.SRC_LABEL != '' AND f.SRC_LABEL != IPv4NumToString(f.IPV4_SRC_ADDR)), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), nullIf(replaceRegexpOne(any(a.asset_name), '\\\\.[^.]+\\\\.[^.]+$', ''), ''), '' ) AS h FROM ntopng.flows AS f LEFT JOIN asset_map AS a ON IPv4NumToString(f.IPV4_SRC_ADDR) = a.ip WHERE $__timeFilter(f.FIRST_SEEN) AND f.INTERFACE_ID = 0 AND bitAnd(f.IPV4_SRC_ADDR, 4294966272) IN ( IPv4StringToNum('192.168.132.0'), IPv4StringToNum('192.168.140.0'), IPv4StringToNum('192.168.136.0'), IPv4StringToNum('192.168.116.0'), IPv4StringToNum('192.168.120.0'), IPv4StringToNum('192.168.224.0') ) GROUP BY f.IPV4_SRC_ADDR ) ORDER BY z_ord, label",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
-        "sort": 1,
+        "sort": 0,
         "type": "query"
       }
     ]
