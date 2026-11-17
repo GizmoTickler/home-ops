@@ -450,8 +450,12 @@
                 "value": null
               },
               {
+                "color": "orange",
+                "value": 3
+              },
+              {
                 "color": "green",
-                "value": 1
+                "value": 4
               }
             ]
           },
@@ -485,7 +489,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "count(bgpPeerState{job=\"snmp-cisco\"} == 6)",
+          "expr": "count(bgpPeerState{job=\"snmp-cisco\",bgpPeerState=\"established\"} == 1)",
           "instant": true,
           "legendFormat": "",
           "refId": "A"
