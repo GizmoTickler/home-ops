@@ -345,7 +345,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Spock logical replication health per node and database (kea, pdns).",
+      "description": "Authoritative zone count served by Knot DNS on each node (dns0 primary, dns1 secondary).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -730,7 +730,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Scrape targets on dns-0/dns-1 (node, kea, pdns-auth, recursor, dnsdist, postgres, dnscrypt) that are down.",
+      "description": "Scrape targets on dns0/dns1 (node-exporter, kea-dhcp4, knot, unbound, dnsdist) that are down.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -865,7 +865,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Combined dnsdist + recursor packet-cache hit ratio over 15m (same expression as DNSCacheHitRatioLow).",
+      "description": "Combined dnsdist + Unbound cache hit ratio over 15m (same expression as DNSCacheHitRatioLow).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1809,18 +1809,6 @@
           "legendFormat": "Unbound cache",
           "range": true,
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
-          },
-          "expr": "sum(rate(unbound_total_num_cachehits[$__rate_interval])) / clamp_min(sum(rate(unbound_total_num_queries[$__rate_interval])), 0.001)",
-          "format": "time_series",
-          "instant": false,
-          "legendFormat": "Unbound cache",
-          "range": true,
-          "refId": "C"
         }
       ],
       "title": "Cache hit ratio",
@@ -2549,7 +2537,7 @@
         "type": "prometheus",
         "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
       },
-      "description": "Active dnscrypt-proxy upstream average latency (only servers carrying queries in the last 15m).",
+      "description": "Windowed p50 and p95 Unbound recursion latency from histogram buckets (excludes cached hits).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2616,15 +2604,171 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(unbound_total_recursion_time_avg_seconds{job=\"unbound\"} * 1000, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
-          "format": "time_series",
-          "instant": false,
-          "legendFormat": "{{node}}",
+          "editorMode": "code",
+          "expr": "label_replace(histogram_quantile(0.50, sum by (instance, le) (rate(unbound_recursion_time_seconds_bucket{job=\"unbound\"}[$__rate_interval]))) * 1000, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "legendFormat": "{{node}} p50",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "label_replace(histogram_quantile(0.95, sum by (instance, le) (rate(unbound_recursion_time_seconds_bucket{job=\"unbound\"}[$__rate_interval]))) * 1000, \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "legendFormat": "{{node}} p95",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "Unbound Avg Recursion Latency",
+      "title": "Unbound Recursion Latency (p50 / p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "Rate of non-NOERROR Unbound responses (NXDOMAIN, REFUSED, SERVFAIL, FORMERR) and DNSSEC bogus answers.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 110,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "label_replace(rate(unbound_num_answer_rcode{job=\"unbound\",rcode!~\"NOERROR|nodata\"}[$__rate_interval]), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "legendFormat": "{{node}} {{rcode}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "label_replace(rate(unbound_num_answer_bogus{job=\"unbound\"}[$__rate_interval]), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "legendFormat": "{{node}} DNSSEC_BOGUS",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Unbound Response Codes (Non-NOERROR)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+      },
+      "description": "dnsdist backend timeouts/s to Unbound and max Knot zone serial delta between dns0 and dns1.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "showPoints": "never"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 111,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "label_replace(rate(dnsdist_downstream_timeouts{job=\"dnsdist\"}[$__rate_interval]), \"node\", \"$1\", \"instance\", \"(dns[01]).*\")",
+          "legendFormat": "{{node}} downstream timeouts/s",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+          },
+          "editorMode": "code",
+          "expr": "max(max by (zone) (knot_zone_serial{job=\"knot\"}) - min by (zone) (knot_zone_serial{job=\"knot\"}))",
+          "legendFormat": "max Knot serial drift",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "dnsdist Downstream Timeouts & Knot Serial Drift",
       "type": "timeseries"
     }
   ],

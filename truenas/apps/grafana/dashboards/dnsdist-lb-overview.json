@@ -381,7 +381,7 @@
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
           "expr": "dnsdist_server_status{instance=~\"$instance\"}",
-          "legendFormat": "{{instance}} → {{server}}",
+          "legendFormat": "{{instance}} \u2192 {{server}}",
           "refId": "A"
         }
       ],
@@ -1109,7 +1109,7 @@
               "color": "rgba(255,0,255,0.7)"
             },
             "filterValues": {
-              "le": 1E-9
+              "le": 1e-09
             },
             "legend": {
               "show": true
@@ -1650,7 +1650,7 @@
                 "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
               },
               "expr": "rate(dnsdist_server_queries{job=\"dnsdist\", instance=~\"$instance\"}[$__rate_interval])",
-              "legendFormat": "{{instance}} → {{server}}",
+              "legendFormat": "{{instance}} \u2192 {{server}}",
               "refId": "A"
             }
           ],
@@ -1748,7 +1748,7 @@
                 "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
               },
               "expr": "dnsdist_server_latency{job=\"dnsdist\", instance=~\"$instance\"}",
-              "legendFormat": "{{instance}} → {{server}}",
+              "legendFormat": "{{instance}} \u2192 {{server}}",
               "refId": "A"
             }
           ],
@@ -1850,7 +1850,7 @@
                 "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
               },
               "expr": "dnsdist_server_outstanding{job=\"dnsdist\", instance=~\"$instance\"}",
-              "legendFormat": "{{instance}} → {{server}}",
+              "legendFormat": "{{instance}} \u2192 {{server}}",
               "refId": "A"
             }
           ],
@@ -1944,7 +1944,7 @@
                 "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
               },
               "expr": "dnsdist_server_tcpcurrentconnections{job=\"dnsdist\", instance=~\"$instance\"}",
-              "legendFormat": "{{instance}} → {{server}}",
+              "legendFormat": "{{instance}} \u2192 {{server}}",
               "refId": "A"
             }
           ],
@@ -2042,7 +2042,7 @@
                 "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
               },
               "expr": "rate(dnsdist_server_healthcheckfailures{job=\"dnsdist\", instance=~\"$instance\"}[$__rate_interval])",
-              "legendFormat": "{{instance}} → {{server}}",
+              "legendFormat": "{{instance}} \u2192 {{server}}",
               "refId": "A"
             }
           ],
@@ -2468,6 +2468,17 @@
               "expr": "sum(rate(dnsdist_acl_drops{instance=~\"$instance\"}[$__rate_interval]))",
               "legendFormat": "ACL Drops",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
+              },
+              "editorMode": "code",
+              "expr": "rate(dnsdist_downstream_timeouts{instance=~\"$instance\"}[$__rate_interval])",
+              "legendFormat": "{{instance}} downstream timeouts",
+              "range": true,
+              "refId": "Z"
             }
           ],
           "title": "Non-Compliant & ACL Drops",

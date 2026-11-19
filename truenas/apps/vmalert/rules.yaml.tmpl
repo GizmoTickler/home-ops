@@ -214,7 +214,7 @@ groups:
   rules:
   - alert: DNSServerDown
     annotations:
-      description: 'TCP probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
+      description: 'UDP SOA probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
 
         DHCP clients may lose DNS resolution if both servers fail.'
       summary: DNS server {{ $labels.instance }} is down
@@ -569,7 +569,15 @@ groups:
       description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
         Healthy baseline is ~0/s. Likely cause: upstream Cloudflare Gateway DoT issue or internal Knot stub failure.'
       summary: Unbound SERVFAIL rate elevated on {{ $labels.instance }}
-    expr: rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 1
+    expr: |
+      rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 1
+      or (
+        rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 0.2
+        and (
+          rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m])
+          / clamp_min(rate(unbound_total_num_queries{job="unbound"}[5m]), 1)
+        ) > 0.05
+      )
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -585,7 +593,15 @@ groups:
 
         and DnsdistBackendDown.'
       summary: dnsdist is returning SERVFAIL to clients on {{ $labels.instance }}
-    expr: rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 1
+    expr: |
+      rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 1
+      or (
+        rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 0.2
+        and (
+          rate(dnsdist_servfail_responses{job="dnsdist"}[5m])
+          / clamp_min(rate(dnsdist_queries{job="dnsdist"}[5m]), 1)
+        ) > 0.05
+      )
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -593,11 +609,68 @@ groups:
       severity: critical
   - alert: UnboundClientLatencyHigh
     annotations:
-      description: 'Average Unbound recursion latency on {{ $labels.instance }} is {{ $value | humanize }}s over 10m.
+      description: 'Windowed p95 Unbound recursion latency on {{ $labels.instance }} is {{ $value | humanizeDuration }} over 10m.
         Upstream Cloudflare Zero Trust Gateway DoT may be slow or retrying.'
-      summary: Unbound recursion latency high on {{ $labels.instance }}
-    expr: avg by (instance) (unbound_total_recursion_time_avg_seconds{job="unbound"}) > 0.25
+      summary: Unbound p95 recursion latency high on {{ $labels.instance }}
+    expr: |
+      histogram_quantile(0.95, sum by (instance, le) (rate(unbound_recursion_time_seconds_bucket{job="unbound"}[10m]))) > 0.5
+      and on (instance) (rate(unbound_total_num_recursivereplies{job="unbound"}[10m]) > 0.1)
     for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: UnboundDNSSECBogusHigh
+    annotations:
+      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} DNSSEC BOGUS answers/s (5m rate).
+        Check internal trust anchor (/etc/unbound/keys.d/internal-trust-anchor.key) vs Knot DNSKEY, or upstream DNSSEC breakage.'
+      summary: Unbound DNSSEC bogus answers elevated on {{ $labels.instance }}
+    expr: rate(unbound_num_answer_bogus{job="unbound"}[5m]) > 0.5
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: UnboundRefusedRateHigh
+    annotations:
+      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} REFUSED/s (5m rate) for >10m.
+        Usually indicates a misbehaving client sending RD=0 queries or an upstream/ACL refusal.'
+      summary: Unbound REFUSED rate elevated on {{ $labels.instance }}
+    expr: rate(unbound_num_answer_rcode{job="unbound",rcode="REFUSED"}[5m]) > 2
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: DnsdistDownstreamTimeoutsHigh
+    annotations:
+      description: 'dnsdist on {{ $labels.instance }} is seeing {{ $value | humanize }} downstream timeouts/s to Unbound (5m rate).
+        Check Unbound UDP socket buffers (so-rcvbuf), CPU/requestlist saturation, or a client query burst.'
+      summary: dnsdist downstream timeouts elevated on {{ $labels.instance }}
+    expr: rate(dnsdist_downstream_timeouts{job="dnsdist"}[5m]) > 0.5
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: KnotZoneSerialDrift
+    annotations:
+      description: 'Knot zone {{ $labels.zone }} has mismatched SOA serials between dns0 and dns1 (delta={{ $value }}) for >10m.
+        AXFR/NOTIFY replication may be broken. Check: ssh dns-1 "sudo knotc zone-status" and journalctl -u knot.'
+      summary: Knot zone {{ $labels.zone }} serial out of sync between dns0 and dns1
+    expr: (max by (zone) (knot_zone_serial{job="knot"}) - min by (zone) (knot_zone_serial{job="knot"})) > 0
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: KnotZoneExpirationSoon
+    annotations:
+      description: 'Secondary Knot zone {{ $labels.zone }} on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}.
+        AXFR refreshes from dns0 have been failing; once expired the secondary stops answering for this zone.'
+      summary: Knot secondary zone {{ $labels.zone }} expiring soon on {{ $labels.instance }}
+    expr: knot_zone_stats_expiration{job="knot"} > 0 and knot_zone_stats_expiration{job="knot"} < 86400
+    for: 15m
     keep_firing_for: 5m
     labels:
       component: dns

@@ -31,6 +31,14 @@ inhibit_rules:
   - source_matchers: [severity = "critical"]
     target_matchers: [severity = "warning"]
     equal: [alertname, namespace]
+  - source_matchers: [alertname = "DNSAllServersDown"]
+    target_matchers: [alertname = "DNSServerDown"]
+  - source_matchers: [alertname = "DnsdistAllBackendsDown"]
+    target_matchers: [alertname = "DnsdistBackendDown"]
+    equal: [instance]
+  - source_matchers: [alertname = "DNSResolverComponentAllDown"]
+    target_matchers: [alertname = "DNSResolverTargetDown"]
+    equal: [job]
 receivers:
   - name: "null"
   - name: heartbeat
