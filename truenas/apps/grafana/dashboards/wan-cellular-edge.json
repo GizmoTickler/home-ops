@@ -2979,7 +2979,7 @@
       },
       "id": 50,
       "panels": [],
-      "title": "mgateway1 Native Modem Telemetry (QuecManager Direct)",
+      "title": "mgateway1 Native Modem Telemetry (CellCore Direct)",
       "type": "row"
     },
     {
@@ -3034,7 +3034,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_ca_bandwidth_mhz{job=\"mgateway1\"}",
+          "expr": "cellcore_ca_bandwidth_mhz{job=\"mgateway1\"}",
           "instant": true,
           "legendFormat": "CA Total MHz",
           "refId": "A"
@@ -3095,7 +3095,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_ca_components{job=\"mgateway1\"}",
+          "expr": "cellcore_ca_components{job=\"mgateway1\"}",
           "instant": true,
           "legendFormat": "Carriers",
           "refId": "A"
@@ -3156,7 +3156,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "max(quecmanager_temperature_celsius{job=\"mgateway1\",sensor!=\"zeroc\"})",
+          "expr": "max(cellcore_temperature_celsius{job=\"mgateway1\",sensor!=\"zeroc\"})",
           "instant": true,
           "legendFormat": "Peak Temp",
           "refId": "A"
@@ -3217,7 +3217,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_timing_advance_meters{job=\"mgateway1\"}",
+          "expr": "cellcore_timing_advance_meters{job=\"mgateway1\"}",
           "instant": true,
           "legendFormat": "TA Distance",
           "refId": "A"
@@ -3269,7 +3269,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_rsrp_dbm{job=\"mgateway1\"}",
+          "expr": "cellcore_rsrp_dbm{job=\"mgateway1\"}",
           "legendFormat": "RX{{chain}} RSRP",
           "refId": "A"
         },
@@ -3278,7 +3278,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_serving_rsrp_dbm{job=\"mgateway1\"}",
+          "expr": "cellcore_serving_rsrp_dbm{job=\"mgateway1\"}",
           "legendFormat": "Serving RSRP",
           "refId": "B"
         }
@@ -3329,7 +3329,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_sinr_db{job=\"mgateway1\"}",
+          "expr": "cellcore_sinr_db{job=\"mgateway1\"}",
           "legendFormat": "RX{{chain}} SINR",
           "refId": "A"
         },
@@ -3338,7 +3338,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_serving_sinr_db{job=\"mgateway1\"}",
+          "expr": "cellcore_serving_sinr_db{job=\"mgateway1\"}",
           "legendFormat": "Serving SINR",
           "refId": "B"
         }
@@ -3388,7 +3388,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_temperature_celsius{job=\"mgateway1\",sensor=~\"cpuss-0|cpuss-3|mdmss-0|mdmq6-0|sdr0|ethphy-0|aoss-0|xo-therm\"}",
+          "expr": "cellcore_temperature_celsius{job=\"mgateway1\",sensor=~\"cpuss-0|cpuss-3|mdmss-0|mdmq6-0|sdr0|ethphy-0|aoss-0|xo-therm\"}",
           "legendFormat": "{{sensor}}",
           "refId": "A"
         }
@@ -3438,7 +3438,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(quecmanager_at_latency_seconds_bucket{job=\"mgateway1\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(cellcore_at_latency_seconds_bucket{job=\"mgateway1\"}[5m])))",
           "legendFormat": "AT p50",
           "refId": "A"
         },
@@ -3447,7 +3447,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(quecmanager_at_latency_seconds_bucket{job=\"mgateway1\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(cellcore_at_latency_seconds_bucket{job=\"mgateway1\"}[5m])))",
           "legendFormat": "AT p95",
           "refId": "B"
         },
@@ -3456,7 +3456,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_at_last_latency_seconds{job=\"mgateway1\"}",
+          "expr": "cellcore_at_last_latency_seconds{job=\"mgateway1\"}",
           "legendFormat": "AT last",
           "refId": "C"
         }
@@ -3507,7 +3507,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_ca_component_bandwidth_mhz{job=\"mgateway1\"}",
+          "expr": "cellcore_ca_component_bandwidth_mhz{job=\"mgateway1\"}",
           "legendFormat": "{{role}} {{band}} (#{{index}}) MHz",
           "refId": "A"
         },
@@ -3516,7 +3516,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "quecmanager_dataplane_ipa_clk_mhz{job=\"mgateway1\"}",
+          "expr": "cellcore_dataplane_ipa_clk_mhz{job=\"mgateway1\"}",
           "legendFormat": "IPA Clock MHz",
           "refId": "B"
         }
