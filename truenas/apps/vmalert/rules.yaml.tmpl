@@ -820,6 +820,56 @@ groups:
     labels:
       component: gateway
       severity: warning
+  - alert: ModemMetricsScrapeDown
+    annotations:
+      description: 'Direct VictoriaMetrics scrape of mgateway1 /api/v1/metrics has been down for >5m.'
+      summary: mgateway1 native metrics scrape down
+    expr: up{job="mgateway1"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemOverheating
+    annotations:
+      description: 'mgateway1 thermal sensor {{ $labels.sensor }} reached {{ printf "%.1f" $value }}C (>75C) for >5m.'
+      summary: mgateway1 overheating ({{ $labels.sensor }} {{ printf "%.1f" $value }}C)
+    expr: quecmanager_temperature_celsius{job="mgateway1",sensor!="zeroc"} > 75
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemCACollapsed
+    annotations:
+      description: 'mgateway1 aggregated 5G downlink bandwidth dropped to {{ $value }} MHz (<100 MHz) for >15m — likely lost primary n41 carrier aggregation.'
+      summary: mgateway1 5G CA bandwidth collapsed ({{ $value }} MHz)
+    expr: (quecmanager_registered{job="mgateway1"} == 1) and (quecmanager_ca_bandwidth_mhz{job="mgateway1"} < 100)
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemDataplaneDown
+    annotations:
+      description: 'mgateway1 native QMI WDS session ({{ $labels.family }}) has been disconnected for >5m while the modem is powered on.'
+      summary: mgateway1 native WDS {{ $labels.family }} bearer disconnected
+    expr: (quecmanager_dataplane_mode{job="mgateway1",mode="native"} == 1) and on(job) (quecmanager_dataplane_wds_connected{job="mgateway1"} == 0)
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemATLatencyHigh
+    annotations:
+      description: 'mgateway1 SMD AT command p95 round-trip latency is {{ printf "%.2f" $value }}s (>1.5s) for >10m.'
+      summary: mgateway1 AT channel latency high ({{ printf "%.2f" $value }}s p95)
+    expr: histogram_quantile(0.95, sum by (le) (rate(quecmanager_at_latency_seconds_bucket{job="mgateway1"}[5m]))) > 1.5
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
   - alert: UXGBBRDegraded
     annotations:
       description: 'UXG-Fiber BBR + fq reconciler on nas01 (cron 25) reports degraded BBR state or stale check (>30m).'
