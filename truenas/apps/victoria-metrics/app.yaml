@@ -3,6 +3,7 @@ dirs:
   - {path: /mnt/flashstor/apps/victoria-metrics-config, owner: "0:0", mode: "0755"}
 files:
   - {template: scrape.yaml.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/scrape.yaml, owner: "0:0", mode: "0644"}
+  - {template: mgateway1.token.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/mgateway1.token, owner: "0:0", mode: "0600"}
 health:
   http: http://127.0.0.1:8428/health
   netns: victoria-metrics

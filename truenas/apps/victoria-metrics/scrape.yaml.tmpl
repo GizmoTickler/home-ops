@@ -118,6 +118,17 @@ scrape_configs:
     - 10.255.255.50:9100
     labels:
       device: route10
+- job_name: mgateway1
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  scheme: https
+  metrics_path: /api/v1/metrics
+  bearer_token_file: /etc/vm/mgateway1.token
+  static_configs:
+  - targets:
+    - mgateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:443
+    labels:
+      device: mgateway1
 - job_name: staticScrape/observability/knot/0
   static_configs:
   - targets:
