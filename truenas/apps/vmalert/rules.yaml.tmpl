@@ -870,6 +870,106 @@ groups:
     labels:
       component: gateway
       severity: warning
+  - alert: ModemAntennaDegraded
+    annotations:
+      description: 'mgateway1 reports fewer than 4 active NR5G RX chains or >12 dB RSRP spread while RRC Connected for >10m — inspect MHF4 pigtails and antennas.'
+      summary: mgateway1 4x4 MIMO antenna chain degraded or skewed
+    expr: (cellcore_rrc_state_code{job="mgateway1"} == 2) and ((cellcore_antenna_active_chains{job="mgateway1"} < 4) or (cellcore_antenna_rsrp_spread_db{job="mgateway1"} > 12))
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemCellLockBypassed
+    annotations:
+      description: 'mgateway1 Cell-Lock Dead-Man Switch temporarily bypassed the locked tower/PCI to preserve connectivity.'
+      summary: mgateway1 cell lock bypassed by Dead-Man Switch
+    expr: cellcore_cell_lock_bypassed{job="mgateway1"} == 1
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemSsrStorm
+    annotations:
+      description: 'mgateway1 observed {{ printf "%.0f" $value }} Qualcomm QRTR baseband subsystem restarts (SSR) in the last 15m.'
+      summary: mgateway1 baseband SSR crash loop ({{ printf "%.0f" $value }}/15m)
+    expr: increase(cellcore_qrtr_ssr_total{job="mgateway1"}[15m]) >= 2
+    for: 0m
+    keep_firing_for: 10m
+    labels:
+      component: gateway
+      severity: critical
+  - alert: ModemThermalThrottling
+    annotations:
+      description: 'mgateway1 Qualcomm QMI TMD thermal mitigation is actively throttling RF/PA performance for >5m.'
+      summary: mgateway1 QMI TMD thermal throttling active
+    expr: cellcore_qmi_tmd_throttling{job="mgateway1"} == 1
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemAirCipherNull
+    annotations:
+      description: 'mgateway1 reports NULL air-interface ciphering (EEA0/NEA0) for >2m — possible unencrypted cell or rogue base station.'
+      summary: mgateway1 air-interface ciphering is NULL (EEA0/NEA0)
+    expr: cellcore_air_cipher_null{job="mgateway1"} == 1
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: critical
+  - alert: ModemTlsCertExpiring
+    annotations:
+      description: 'mgateway1 TLS certificate expires in {{ printf "%.1f" $value }} days (<14d). Check CellCore ACME renewal.'
+      summary: mgateway1 TLS certificate expiring ({{ printf "%.0f" $value }}d left)
+    expr: cellcore_tls_cert_days_remaining{job="mgateway1"} < 14
+    for: 1h
+    keep_firing_for: 10m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemEthDownshifted
+    annotations:
+      description: 'mgateway1 Ethernet link to Route10 downshifted to {{ printf "%.0f" $value }} Mb/s (<2500 Mb/s) for >5m.'
+      summary: mgateway1 2.5GbE link downshifted ({{ printf "%.0f" $value }} Mb/s)
+    expr: (cellcore_eth0_speed_mbps{job="mgateway1"} > 0) and (cellcore_eth0_speed_mbps{job="mgateway1"} < 2500)
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemLinkWatchCooldown
+    annotations:
+      description: 'mgateway1 CellCore LinkWatch exhausted recovery retries and entered cooldown.'
+      summary: mgateway1 LinkWatch entered cooldown
+    expr: cellcore_quecwatch_state{job="mgateway1",state="cooldown"} == 1
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemCloudflaredDown
+    annotations:
+      description: 'mgateway1 out-of-band Cloudflare Tunnel has <2 HA connections or is down for >5m.'
+      summary: mgateway1 out-of-band Cloudflare Tunnel degraded/down
+    expr: (cellcore_cloudflared_up{job="mgateway1"} == 0) or (cellcore_cloudflared_ha_connections{job="mgateway1"} < 2)
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: ModemHardHung
+    annotations:
+      description: 'mgateway1 is unreachable from BOTH Route10 (eth3 LAN down) and nas01 (metrics scrape down) for >=10m while Route10 is healthy — modem SoC/PCIe may be hard-hung; power-cycle switch.mgateway1_smartplug.'
+      summary: mgateway1 hard-hung (unreachable on Route10 + nas01 for >=10m)
+    expr: (cellular_watchdog_modem_lan_up{job="route10-cellular"} == 0) and on() (up{job="mgateway1"} == 0) and on() (probe_success{job="probe/observability/devices",instance="10.255.255.50"} == 1)
+    for: 10m
+    keep_firing_for: 10m
+    labels:
+      component: gateway
+      severity: critical
   - alert: UXGBBRDegraded
     annotations:
       description: 'UXG-Fiber BBR + fq reconciler on nas01 (cron 25) reports degraded BBR state or stale check (>30m).'
