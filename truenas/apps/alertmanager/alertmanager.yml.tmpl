@@ -33,12 +33,10 @@ inhibit_rules:
     equal: [alertname, namespace]
   - source_matchers: [alertname = "DNSAllServersDown"]
     target_matchers: [alertname = "DNSServerDown"]
-  - source_matchers: [alertname = "DnsdistAllBackendsDown"]
-    target_matchers: [alertname = "DnsdistBackendDown"]
-    equal: [instance]
-  - source_matchers: [alertname = "DNSResolverComponentAllDown"]
-    target_matchers: [alertname = "DNSResolverTargetDown"]
-    equal: [job]
+  - source_matchers: [alertname = "ZoneCoreAllDown"]
+    target_matchers: [alertname = "ZoneCoreDown"]
+  - source_matchers: [alertname = "ZoneCoreBgpAllDown"]
+    target_matchers: [alertname = "ZoneCoreBgpSessionDown"]
 receivers:
   - name: "null"
   - name: heartbeat

@@ -4,6 +4,8 @@ dirs:
 files:
   - {template: scrape.yaml.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/scrape.yaml, owner: "0:0", mode: "0644"}
   - {template: mgateway1.token.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/mgateway1.token, owner: "0:0", mode: "0600"}
+  - {template: zonecore-0.token.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/zonecore-0.token, owner: "0:0", mode: "0600"}
+  - {template: zonecore-1.token.tmpl, dest: /mnt/flashstor/apps/victoria-metrics-config/zonecore-1.token, owner: "0:0", mode: "0600"}
 health:
   http: http://127.0.0.1:8428/health
   netns: victoria-metrics

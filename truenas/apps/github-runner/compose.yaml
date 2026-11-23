@@ -22,7 +22,7 @@ x-net-base: &net-base
   command:
     - |
       iptables -C OUTPUT -o lo -j ACCEPT 2>/dev/null || iptables -I OUTPUT 1 -o lo -j ACCEPT
-      for dns_ip in 10.53.53.53/32 192.168.123.250/32 192.168.123.251/32; do
+      for dns_ip in 10.53.53.53/32 10.53.53.54/32 192.168.120.240/32 192.168.120.241/32; do
         for proto in udp tcp; do
           iptables -C OUTPUT -p "$$proto" -d "$$dns_ip" --dport 53 -j ACCEPT 2>/dev/null || iptables -A OUTPUT -p "$$proto" -d "$$dns_ip" --dport 53 -j ACCEPT
         done

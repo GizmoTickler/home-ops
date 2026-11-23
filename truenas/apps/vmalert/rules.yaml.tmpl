@@ -215,8 +215,7 @@ groups:
   - alert: DNSServerDown
     annotations:
       description: 'UDP SOA probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
-
-        DHCP clients may lose DNS resolution if both servers fail.'
+        Check ZoneCore DNS listener & BGP anycast on zonecore-0 / zonecore-1.'
       summary: DNS server {{ $labels.instance }} is down
     expr: probe_success{job="probe/observability/dns"} == 0
     for: 5m
@@ -226,10 +225,7 @@ groups:
       severity: warning
   - alert: DNSAllServersDown
     annotations:
-      description: 'Every probed DNS target (dns0, dns1 and the 10.53.53.53 anycast address)
-
-        is unreachable on port 53.
-
+      description: 'Every probed DNS target (zonecore-0, zonecore-1, 10.53.53.53, 10.53.53.54) is unreachable on port 53.
         All DNS resolution for the network is offline. Immediate action required.'
       summary: All DNS servers are down
     expr: "count(probe_success{job=\"probe/observability/dns\"} == 0)\n  == count(probe_success{job=\"probe/observability/dns\"})"
@@ -238,264 +234,6 @@ groups:
     labels:
       component: dns
       severity: critical
-  - alert: DHCPPrimaryDown
-    annotations:
-      description: 'ICMP probe to dns0 has been failing for over 5 minutes.
-
-        Kea HA standby (dns1) should take over DHCP serving.
-
-        Investigate dns0 VM on TrueNAS.'
-      summary: Primary DHCP server (dns0) is down
-    expr: probe_success{job="probe/observability/devices",instance=~"dns0.*"} == 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: DHCPAllServersDown
-    annotations:
-      description: 'Both dns0 and dns1 are unreachable via ICMP.
-
-        No DHCP leases can be issued or renewed. Existing clients retain leases until expiry.
-
-        Immediate action required.'
-      summary: All DHCP servers are down
-    expr: count(probe_success{job="probe/observability/devices",instance=~"dns[01][.].*"} == 0) == 2
-    for: 2m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: critical
-  # Kea/DHCP health (Stork replacement, 2026-11-13). dns_* series come from the dns_ha_metrics textfile collector
-  # (infrastructure-automation roles/dns_ha_metrics); kea_dhcp4_* from kea-exporter on :9548.
-  - alert: KeaNotServing
-    annotations:
-      description: 'kea-dhcp4 does not answer its control socket on {{ $labels.instance }}. The HA partner should
-        serve every scope, but nothing is redundant now. Check: systemctl status kea-dhcp4; journalctl -u kea-dhcp4.'
-      summary: Kea DHCP is down on {{ $labels.instance }}
-    expr: dns_kea_up{job="node-exporter"} == 0
-    for: 2m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaNotServingAnywhere
-    annotations:
-      description: 'Neither dns0 nor dns1 reports a working kea-dhcp4 (or neither reports at all). No leases can be
-        issued or renewed; existing clients keep theirs until expiry.'
-      summary: No Kea DHCP server is serving
-    expr: (sum(dns_kea_up{job="node-exporter"}) or vector(0)) == 0
-    for: 2m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: critical
-  - alert: KeaDHCPDisabled
-    annotations:
-      description: 'Kea on {{ $labels.instance }} is running but has DHCP service disabled (lost its lease database,
-        or an operator/partner command disabled it). Check status-get dhcp-state on the control socket.'
-      summary: Kea DHCP service disabled on {{ $labels.instance }}
-    expr: dns_kea_dhcp_disabled{job="node-exporter"} == 1
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaHAStateAbnormal
-    annotations:
-      description: 'Kea HA on {{ $labels.instance }} is in state {{ $labels.state }} (normal: load-balancing).
-        partner-down means this node serves every scope alone; waiting/syncing/terminated need attention.'
-      summary: Kea HA {{ $labels.state }} on {{ $labels.instance }}
-    expr: dns_kea_ha_state_info{job="node-exporter",state!="load-balancing"} == 1
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaHAPartnerUnreachable
-    annotations:
-      description: '{{ $labels.instance }} has lost its Kea HA heartbeat to the partner (port 8000). Leases issued
-        now are not mirrored until the link returns.'
-      summary: Kea HA partner unreachable from {{ $labels.instance }}
-    expr: dns_kea_ha_partner_reachable{job="node-exporter"} == 0 and on(instance) dns_kea_up{job="node-exporter"} == 1
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaHAClockSkew
-    annotations:
-      description: 'Kea HA partners disagree on time by {{ $value }}s. Kea stops HA at 60 s; check chrony on dns0/dns1.'
-      summary: Kea HA clock skew {{ $value }}s
-    expr: abs(dns_kea_ha_clock_skew_seconds{job="node-exporter"}) > 30
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaPoolUtilizationHigh
-    annotations:
-      description: 'Pool {{ $labels.pool }} in {{ $labels.subnet }} is {{ $value | humanizePercentage }} assigned.'
-      summary: DHCP pool {{ $labels.subnet }} above 80%
-    expr: max by (subnet, pool) (kea_dhcp4_addresses_assigned_total{job="kea-dhcp4",pool!=""} / kea_dhcp4_addresses_total{job="kea-dhcp4",pool!=""}) > 0.8
-    for: 30m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaPoolNearlyExhausted
-    annotations:
-      description: 'Pool {{ $labels.pool }} in {{ $labels.subnet }} is {{ $value | humanizePercentage }} assigned;
-        new clients on this VLAN will soon get no address.'
-      summary: DHCP pool {{ $labels.subnet }} above 95%
-    expr: max by (subnet, pool) (kea_dhcp4_addresses_assigned_total{job="kea-dhcp4",pool!=""} / kea_dhcp4_addresses_total{job="kea-dhcp4",pool!=""}) > 0.95
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: critical
-  - alert: KeaAddressesDeclined
-    annotations:
-      description: '{{ $value }} addresses in {{ $labels.subnet }} were declined in the last hour: a client found the
-        offered IP already in use (static IP inside the pool, or a rogue device).'
-      summary: DHCP address conflicts in {{ $labels.subnet }}
-    expr: max by (subnet) (increase(kea_dhcp4_addresses_declined_total{job="kea-dhcp4",pool=""}[1h])) > 3
-    for: 0m
-    keep_firing_for: 30m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaNoLeasesIssued
-    annotations:
-      description: 'Neither Kea node sent a DHCPACK in 2 h (normal is dozens). Both may be up but not reachable by
-        clients: check SC01 ip helper-address on the SVIs and TrustSec for udp/67.'
-      summary: No DHCP leases issued in 2 h
-    expr: (sum(increase(kea_dhcp4_packets_sent_total{job="kea-dhcp4",operation="ack"}[2h])) or vector(0)) < 1
-    for: 30m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: KeaServerNotReceiving
-    annotations:
-      description: 'kea-dhcp4 on {{ $labels.instance }} received no DHCP packets in 30 min while its HA partner did.
-        SC01 relays every broadcast to both servers, so a healthy pair receives near-equal counts: this one has no
-        working DHCP socket and every client in its load-balancing scope goes unanswered (its control socket still
-        answers, so KeaNotServing stays quiet). Seen 2026-11-14: Kea started before ens3 was up after a reboot.
-        Check: ss -ulnp sport = :67; journalctl -u kea-dhcp4 | grep -i socket; fix: systemctl restart kea-dhcp4.'
-      summary: Kea on {{ $labels.instance }} is not receiving DHCP traffic
-    expr: (sum by (instance) (increase(kea_dhcp4_packets_received_total{job="kea-dhcp4"}[30m])) == 0) and on() (sum(increase(kea_dhcp4_packets_received_total{job="kea-dhcp4"}[30m])) > 10)
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: critical
-  - alert: KeaExporterDown
-    annotations:
-      description: 'kea-exporter on {{ $labels.instance }} cannot be scraped; pool and lease alerts are blind for this
-        node. Check: systemctl status kea-exporter.'
-      summary: kea-exporter down on {{ $labels.instance }}
-    expr: up{job="kea-dhcp4"} == 0
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dhcp
-      severity: warning
-  - alert: DNSDHCPServiceInactive
-    annotations:
-      description: 'systemd unit {{ $labels.unit }} is not active on {{ $labels.instance }}.'
-      summary: '{{ $labels.unit }} inactive on {{ $labels.instance }}'
-    expr: dns_service_active{job="node-exporter"} == 0
-    for: 3m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSHAMetricsStale
-    annotations:
-      description: 'The dns-ha-metrics collector on {{ $labels.instance }} has not completed for {{ $value | humanizeDuration }};
-        every Kea HA / unit alert for that node is blind. Check: systemctl status dns-ha-metrics.timer.'
-      summary: dns-ha-metrics stale on {{ $labels.instance }}
-    expr: time() - dns_ha_metrics_last_success_timestamp_seconds{job="node-exporter"} > 300
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSHAMetricsMissing
-    annotations:
-      description: 'Fewer than two dns nodes export dns_ha_metrics_last_success_timestamp_seconds, so Kea HA alerts
-        are blind for at least one node (collector removed, or node_exporter not scraped).'
-      summary: dns-ha-metrics missing on a dns node
-    expr: (count(dns_ha_metrics_last_success_timestamp_seconds{job="node-exporter"}) or vector(0)) < 2
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSCacheHitRatioLow
-    annotations:
-      description: 'Combined dnsdist + Unbound cache hit ratio: {{ $value | humanizePercentage }} for 1h.
-
-        Typical healthy value is 85-90%. Likely a warming period after restart, unusual query
-
-        mix, or a cache configuration regression in the resolver stack.'
-      summary: Effective DNS cache hit ratio <70% (cluster-wide)
-    expr: "(\n  sum(rate(dnsdist_cache_hits{job=\"dnsdist\"}[15m]))\n  +\n  sum(rate(unbound_total_num_cachehits{job=\"unbound\"}[15m]))\n)\n/\nclamp_min(sum(rate(dnsdist_queries{job=\"dnsdist\"\
-      }[15m])), 1)\n< 0.7"
-    for: 1h
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: info
-  - alert: KeepalivedVIPFlap
-    annotations:
-      description: 'The DNS VIP (192.168.123.249) changed master/backup state repeatedly across dns0/dns1.
-
-        Health check may be flapping; investigate check-dns-health.sh and network between nodes.'
-      summary: Keepalived DNS VIP flapped {{ $value }} times in 10m
-    expr: sum(changes(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}[10m])) > 4
-    for: 0m
-    keep_firing_for: 15m
-    labels:
-      component: dns
-      severity: warning
-  - alert: KeepalivedNoMaster
-    annotations:
-      description: 'Expected exactly 1 master for the DNS VIP. Current master count: {{ $value }}.
-
-        0 = no master (VIP offline); >1 = split-brain (both nodes claim master).'
-      summary: Keepalived DNS VIP election unhealthy (count={{ $value }})
-    expr: sum(dns_keepalived_is_master{job="node-exporter",instance=~"dns[01].*"}) != 1
-    for: 2m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: critical
-  - alert: DNSStackBackupStale
-    annotations:
-      description: 'dns-stack-backup.service has not completed successfully in >26h on this node.
-
-        Check: systemctl status dns-stack-backup.{service,timer} and /var/backups/dns-stack/.'
-      summary: DNS stack backup stale on {{ $labels.instance }} ({{ $value | humanizeDuration }} old)
-    expr: (time() - dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) > 93600
-    for: 30m
-    keep_firing_for: 1h
-    labels:
-      component: dns
-      severity: warning
-  - alert: DNSStackBackupMetricMissing
-    annotations:
-      description: 'dns_stack_backup_last_success_timestamp_seconds is absent for one or both DNS nodes.
-
-        Verify the dns-stack-backup timer exists and /var/lib/node_exporter/textfile/dns_backup.prom is written.'
-      summary: DNS stack backup metric missing (series count {{ $value }}, expected 2)
-    expr: (count(dns_stack_backup_last_success_timestamp_seconds{job="node-exporter",instance=~"dns[01].*"}) or vector(0)) < 2
-    for: 1h
-    keep_firing_for: 1h
-    labels:
-      component: dns
-      severity: warning
   - alert: EncryptedDNSProbeFailed
     annotations:
       description: 'Encrypted DNS probe ({{ $labels.job }}) to {{ $labels.instance }} has been failing for 5 minutes.'
@@ -516,222 +254,140 @@ groups:
     labels:
       component: dns
       severity: warning
-- interval: 30s
-  name: dns-anycast.rules
-  rules:
-  - alert: DNSAnycastBothDemoted
+  # ZoneCore DDI/NTP/BGP/HA appliances (zonecore-0 192.168.120.240, zonecore-1 192.168.120.241, witness 192.168.120.243).
+  - alert: ZoneCoreDown
     annotations:
-      description: 'Both gates have applied ANYCAST_OUT_DEGRADED. Traffic still flows
-
-        (equal-length paths ECMP), but the gate believes neither dnsdist is
-
-        answering — either both are broken, or the shared probe is lying.
-
-        Verify with dig against each node''s PHYSICAL address first.'
-      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastbothdemoted--critical
-      summary: Both DNS nodes report dnsdist unhealthy — anycast degraded on both
-    expr: sum(dns_anycast_demoted) >= 2
-    for: 2m
-    keep_firing_for: 5m
-    labels:
-      severity: critical
-  - alert: DNSAnycastNodeDemoted
-    annotations:
-      description: 'Service is fine on the peer; redundancy is reduced. Likely dnsdist
-
-        down/hung on the node, gate stopped for maintenance, or a node that
-
-        booted and never promoted.'
-      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#dnsanycastnodedemoted--warning-10m
-      summary: '{{ $labels.instance }} demoted from anycast ECMP for >10m'
-    expr: dns_anycast_demoted == 1
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      severity: warning
-  - alert: DNSAnycastMetricMissing
-    annotations:
-      description: 'dns_anycast_* gauges absent — the gate daemon or its textfile
-
-        publication may not be running on one or both nodes.'
-      runbook_url: https://github.com/GizmoTickler/claude-config/blob/main/infra/runbooks/dns-anycast-incident.md#first-commands-always
-      summary: Anycast gate metrics missing for one or both DNS nodes
-    expr: absent(dns_anycast_healthy) or count(dns_anycast_healthy) < 2
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      severity: warning
-- interval: 30s
-  name: dns-resolver.rules
-  rules:
-  - alert: UnboundServfailRateHigh
-    annotations:
-      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} SERVFAIL/s (5m rate).
-        Healthy baseline is ~0/s. Likely cause: upstream Cloudflare Gateway DoT issue or internal Knot stub failure.'
-      summary: Unbound SERVFAIL rate elevated on {{ $labels.instance }}
-    expr: |
-      rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 1
-      or (
-        rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m]) > 0.2
-        and (
-          rate(unbound_num_answer_rcode{job="unbound",rcode="SERVFAIL"}[5m])
-          / clamp_min(rate(unbound_total_num_queries{job="unbound"}[5m]), 1)
-        ) > 0.05
-      )
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: critical
-  - alert: DnsdistServfailRateHigh
-    annotations:
-      description: 'dnsdist on {{ $labels.instance }} returned {{ $value | humanize }} SERVFAIL/s to clients (5m rate).
-
-        This is what end users actually experience. Likely an Unbound backend failure or
-
-        upstream problem propagating through the VIP. Check UnboundServfailRateHigh
-
-        and DnsdistBackendDown.'
-      summary: dnsdist is returning SERVFAIL to clients on {{ $labels.instance }}
-    expr: |
-      rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 1
-      or (
-        rate(dnsdist_servfail_responses{job="dnsdist"}[5m]) > 0.2
-        and (
-          rate(dnsdist_servfail_responses{job="dnsdist"}[5m])
-          / clamp_min(rate(dnsdist_queries{job="dnsdist"}[5m]), 1)
-        ) > 0.05
-      )
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: critical
-  - alert: UnboundClientLatencyHigh
-    annotations:
-      description: 'Windowed p95 Unbound recursion latency on {{ $labels.instance }} is {{ $value | humanizeDuration }} over 10m.
-        Upstream Cloudflare Zero Trust Gateway DoT may be slow or retrying.'
-      summary: Unbound p95 recursion latency high on {{ $labels.instance }}
-    expr: |
-      histogram_quantile(0.95, sum by (instance, le) (rate(unbound_recursion_time_seconds_bucket{job="unbound"}[10m]))) > 0.5
-      and on (instance) (rate(unbound_total_num_recursivereplies{job="unbound"}[10m]) > 0.1)
-    for: 10m
+      description: 'ZoneCore metrics scrape or daemon liveness failed on {{ $labels.instance }} ({{ $labels.node }}).
+        Redundancy is lost while one node is down. Check: ssh root@{{ $labels.node }} "systemctl status zonecored".'
+      summary: ZoneCore node {{ $labels.node }} is down
+    expr: up{job="zonecore"} == 0 or zonecore_up{job="zonecore"} == 0
+    for: 3m
     keep_firing_for: 5m
     labels:
       component: dns
       severity: warning
-  - alert: UnboundDNSSECBogusHigh
+  - alert: ZoneCoreAllDown
     annotations:
-      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} DNSSEC BOGUS answers/s (5m rate).
-        Check internal trust anchor (/etc/unbound/keys.d/internal-trust-anchor.key) vs Knot DNSKEY, or upstream DNSSEC breakage.'
-      summary: Unbound DNSSEC bogus answers elevated on {{ $labels.instance }}
-    expr: rate(unbound_num_answer_bogus{job="unbound"}[5m]) > 0.5
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: critical
-  - alert: UnboundRefusedRateHigh
-    annotations:
-      description: 'Unbound on {{ $labels.instance }} is returning {{ $value | humanize }} REFUSED/s (5m rate) for >10m.
-        Usually indicates a misbehaving client sending RD=0 queries or an upstream/ACL refusal.'
-      summary: Unbound REFUSED rate elevated on {{ $labels.instance }}
-    expr: rate(unbound_num_answer_rcode{job="unbound",rcode="REFUSED"}[5m]) > 2
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DnsdistDownstreamTimeoutsHigh
-    annotations:
-      description: 'dnsdist on {{ $labels.instance }} is seeing {{ $value | humanize }} downstream timeouts/s to Unbound (5m rate).
-        Check Unbound UDP socket buffers (so-rcvbuf), CPU/requestlist saturation, or a client query burst.'
-      summary: dnsdist downstream timeouts elevated on {{ $labels.instance }}
-    expr: rate(dnsdist_downstream_timeouts{job="dnsdist"}[5m]) > 0.5
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: KnotZoneSerialDrift
-    annotations:
-      description: 'Knot zone {{ $labels.zone }} has mismatched SOA serials between dns0 and dns1 (delta={{ $value }}) for >10m.
-        AXFR/NOTIFY replication may be broken. Check: ssh dns-1 "sudo knotc zone-status" and journalctl -u knot.'
-      summary: Knot zone {{ $labels.zone }} serial out of sync between dns0 and dns1
-    expr: (max by (zone) (knot_zone_serial{job="knot"}) - min by (zone) (knot_zone_serial{job="knot"})) > 0
-    for: 10m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: KnotZoneExpirationSoon
-    annotations:
-      description: 'Secondary Knot zone {{ $labels.zone }} on {{ $labels.instance }} expires in {{ $value | humanizeDuration }}.
-        AXFR refreshes from dns0 have been failing; once expired the secondary stops answering for this zone.'
-      summary: Knot secondary zone {{ $labels.zone }} expiring soon on {{ $labels.instance }}
-    expr: knot_zone_stats_expiration{job="knot"} > 0 and knot_zone_stats_expiration{job="knot"} < 86400
-    for: 15m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: UnboundRequestlistExceeded
-    annotations:
-      description: 'Unbound on {{ $labels.instance }} is dropping queries from an exhausted request list ({{ $value | humanize }}/s).'
-      summary: Unbound request list exceeded on {{ $labels.instance }}
-    expr: rate(unbound_total_requestlist_exceeded{job="unbound"}[5m]) > 0
-    for: 5m
-    keep_firing_for: 5m
-    labels:
-      component: dns
-      severity: warning
-  - alert: DnsdistBackendDown
-    annotations:
-      description: 'dnsdist on {{ $labels.instance }} has marked Unbound backend "{{ $labels.server }}"
-
-        ({{ $labels.address }}) as DOWN. Resolution continues via the surviving backend, but redundancy is lost.
-
-        Investigate the unbound process / port 5301 on the affected node.'
-      summary: dnsdist backend {{ $labels.server }} is DOWN on {{ $labels.instance }}
-    expr: dnsdist_server_status{job="dnsdist"} == 0
+      description: 'Both zonecore-0 and zonecore-1 failed liveness/scrape. DNS, DHCP, and NTP are offline cluster-wide.
+        Immediate action required.'
+      summary: Both ZoneCore appliances are down
+    expr: (count(up{job="zonecore"} == 1) or vector(0)) == 0
     for: 2m
     keep_firing_for: 5m
     labels:
       component: dns
-      severity: warning
-  - alert: DnsdistAllBackendsDown
+      severity: critical
+  - alert: ZoneCoreNodeUnreachable
     annotations:
-      description: 'Every Unbound backend behind dnsdist on {{ $labels.instance }} is DOWN. This node''s
-
-        dnsdist cannot resolve anything via the Unbound tier. Immediate action required.'
-      summary: All dnsdist Unbound backends DOWN on {{ $labels.instance }}
-    expr: sum by (instance) (dnsdist_server_status{job="dnsdist"}) == 0
+      description: 'ICMP probe to {{ $labels.instance }} has been failing for 5 minutes.
+        Investigate VM on PVE (zonecore-0, VM 220) or TrueNAS (zonecore-1, VM 135).'
+      summary: ZoneCore host {{ $labels.instance }} unreachable
+    expr: probe_success{job="probe/observability/devices",instance=~"zonecore-[01]\\..*"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreWitnessUnreachable
+    annotations:
+      description: 'ICMP probe to the SC01 IOx ZoneCore quorum witness (192.168.120.243) has been failing for 5 minutes.
+        Automatic split-brain fencing / partner-down DHCP promotion is unavailable until witness returns.'
+      summary: ZoneCore SC01 quorum witness (192.168.120.243) unreachable
+    expr: probe_success{job="probe/observability/devices",instance="192.168.120.243"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreHAPeerLost
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} lost encrypted ZCE1 HA heartbeat to its partner on :9444 for >5m.
+        Config/lease replication is paused until the peer link recovers.'
+      summary: ZoneCore HA peer unreachable on {{ $labels.node }}
+    expr: zonecore_ha_peer_in_touch{job="zonecore"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreHAWalLagHigh
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} WAL lag is {{ $value }} entries behind its HA partner for >10m.'
+      summary: ZoneCore HA WAL lag high on {{ $labels.node }} ({{ $value }} entries)
+    expr: zonecore_ha_wal_lag_entries{job="zonecore"} > 500
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreBgpSessionDown
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} has {{ $value }} established BGP sessions to SC01 (expected >=1).
+        Anycast prefixes (10.53.53.53/54, 10.123.123.123/124) are withdrawn from this node.'
+      summary: ZoneCore BGP anycast session down on {{ $labels.node }}
+    expr: zonecore_bgp_sessions_up{job="zonecore"} < 1
+    for: 3m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreBgpAllDown
+    annotations:
+      description: 'Neither ZoneCore node has an established BGP session with SC01. All DNS (10.53.53.53/54) and NTP
+        (10.123.123.123/124) anycast VIPs are unrouted. Immediate action required.'
+      summary: All ZoneCore BGP anycast sessions are down
+    expr: (sum(zonecore_bgp_sessions_up{job="zonecore"}) or vector(0)) == 0
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: ZoneCoreRogueDhcpDetected
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} detected {{ $value }} rogue DHCP server alert(s) on the LAN.'
+      summary: Rogue DHCP server detected by {{ $labels.node }}
+    expr: zonecore_dhcp_rogue_alerts{job="zonecore"} > 0
     for: 1m
-    keep_firing_for: 5m
+    keep_firing_for: 15m
     labels:
-      component: dns
-      severity: critical
-  - alert: DNSResolverTargetDown
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreNtpUnsynchronized
     annotations:
-      description: 'Prometheus scrape of {{ $labels.job }} on {{ $labels.instance }} has been failing (up==0)
-
-        for 5m. The exporter or the underlying DNS service ({{ $labels.job }}) may be dead.
-
-        If both nodes show the same job down, resolution for that component is fully offline.'
-      summary: DNS scrape target {{ $labels.job }} down on {{ $labels.instance }}
-    expr: up{job=~"dnsdist|unbound|knot"} == 0
-    for: 5m
+      description: 'ZoneCore {{ $labels.node }} native Rust NTS clock reports stratum {{ $value }} (unsynchronized).
+        Check upstream NTS reachability on TCP/4460 and UDP/123.'
+      summary: ZoneCore NTP unsynchronized on {{ $labels.node }}
+    expr: zonecore_ntp_stratum{job="zonecore"} == 0 or zonecore_ntp_stratum{job="zonecore"} >= 16
+    for: 10m
     keep_firing_for: 5m
     labels:
       component: dns
       severity: warning
-  - alert: DNSResolverComponentAllDown
+  - alert: ZoneCoreCertExpiringSoon
     annotations:
-      description: '{{ $labels.job }} is down (up==0) on both dns0 and dns1. That entire tier of the
-
-        resolver stack is offline cluster-wide. Immediate action required.'
-      summary: DNS component {{ $labels.job }} is down on ALL nodes
-    expr: count by (job) (up{job=~"dnsdist|unbound|knot"} == 0) >= 2
+      description: 'ZoneCore {{ $labels.node }} active TLS certificate expires in {{ $value | humanizeDuration }}.'
+      summary: ZoneCore TLS cert expiring soon on {{ $labels.node }}
+    expr: zonecore_cert_expiry_seconds{job="zonecore"} < 1209600
+    for: 1h
+    keep_firing_for: 1h
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreCommitConfirmPending
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} has an unconfirmed OS commit-confirm timer active for >15m.'
+      summary: ZoneCore commit-confirm pending on {{ $labels.node }}
+    expr: zonecore_os_commit_confirm_pending{job="zonecore"} == 1
+    for: 15m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreAuthoritativeZonesMissing
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} has 0 authoritative DNS zones loaded.'
+      summary: ZoneCore authoritative zones missing on {{ $labels.node }}
+    expr: zonecore_dns_zones_authoritative{job="zonecore"} < 1
     for: 2m
     keep_firing_for: 5m
     labels:
@@ -1153,7 +809,7 @@ groups:
         KeaExporterDown, route10-cellular: CellularMonitorDown, the VictoriaMetrics stack: VMSingleDown/VMAlertDown/VMAlertmanagerDown) are left out here.'
       runbook_url: https://runbooks.prometheus-operator.dev/runbooks/general/targetdown
       summary: One or more targets are unreachable.
-    expr: (100 * (count(up{job!~"node-exporter|dnsdist|unbound|knot|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|dnsdist|unbound|knot|kea-dhcp4|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
+    expr: (100 * (count(up{job!~"node-exporter|zonecore|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"} == 0) by(job) / count(up{job!~"node-exporter|zonecore|route10-cellular|vmsingle-stack|vmalert-stack|vmalertmanager-stack"}) by(job))) > 10
     for: 10m
     labels:
       severity: warning

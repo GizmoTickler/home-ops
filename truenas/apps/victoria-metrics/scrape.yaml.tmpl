@@ -31,8 +31,9 @@ scrape_configs:
     - s3.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - edge0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
     - edge1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - zonecore-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - zonecore-1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+    - 192.168.120.243
     - 10.255.255.46
     - 10.255.255.50
     - mgateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
@@ -50,14 +51,13 @@ scrape_configs:
   metrics_path: /probe
   params:
     module:
-    - dns_soa       # a real UDP query (zone SOA via dnsdist -> recursor -> auth), not just an open TCP port
+    - dns_soa       # a real UDP SOA query through ZoneCore authoritative + anycast
   static_configs:
   - targets:
-    - 192.168.123.250:53   # dns0
-    - 192.168.123.251:53   # dns1
-    - 192.168.123.249:53   # keepalived VIP
-    - 10.53.53.53:53       # anycast primary (dns0)
-    - 10.53.53.54:53       # anycast secondary (dns1)
+    - 192.168.120.240:53   # zonecore-0
+    - 192.168.120.241:53   # zonecore-1
+    - 10.53.53.53:53       # anycast primary (zonecore-0)
+    - 10.53.53.54:53       # anycast secondary (zonecore-1)
   relabel_configs:
   - source_labels:
     - __address__
@@ -75,11 +75,10 @@ scrape_configs:
     - dns_dot
   static_configs:
   - targets:
-    - 192.168.123.250:853   # dns0
-    - 192.168.123.251:853   # dns1
-    - 192.168.123.249:853   # keepalived VIP
-    - 10.53.53.53:853       # anycast primary (dns0)
-    - 10.53.53.54:853       # anycast secondary (dns1)
+    - 192.168.120.240:853   # zonecore-0
+    - 192.168.120.241:853   # zonecore-1
+    - 10.53.53.53:853       # anycast primary
+    - 10.53.53.54:853       # anycast secondary
   relabel_configs:
   - source_labels:
     - __address__
@@ -98,8 +97,8 @@ scrape_configs:
   static_configs:
   - targets:
     - https://dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
-    - https://dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
-    - https://dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+    - https://zonecore-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
+    - https://zonecore-1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}/dns-query?dns=AAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
   relabel_configs:
   - source_labels:
     - __address__
@@ -129,58 +128,39 @@ scrape_configs:
     - mgateway1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:443
     labels:
       device: mgateway1
-- job_name: staticScrape/observability/knot/0
+# ZoneCore DDI/NTP/BGP/HA appliances (replaced legacy dns-0/dns-1 Knot+Unbound+dnsdist+Kea on 2026-11-23).
+- job_name: zonecore-0
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  scheme: https
+  metrics_path: /api/v1/metrics
+  bearer_token_file: /etc/vm/zonecore-0.token
+  tls_config:
+    insecure_skip_verify: true
   static_configs:
   - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9433
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9433
+    - zonecore-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:443
     labels:
-      job: knot
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
+      node: zonecore-0
   relabel_configs:
   - target_label: job
-    replacement: knot
-- job_name: staticScrape/observability/unbound/0
+    replacement: zonecore
+- job_name: zonecore-1
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  scheme: https
+  metrics_path: /api/v1/metrics
+  bearer_token_file: /etc/vm/zonecore-1.token
+  tls_config:
+    insecure_skip_verify: true
   static_configs:
   - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9167
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9167
+    - zonecore-1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:443
     labels:
-      job: unbound
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
+      node: zonecore-1
   relabel_configs:
   - target_label: job
-    replacement: unbound
-- job_name: staticScrape/observability/dnsdist/0
-  static_configs:
-  - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8083
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:8083
-    labels:
-      job: dnsdist
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
-  relabel_configs:
-  - target_label: job
-    replacement: dnsdist
-- job_name: staticScrape/observability/kea-dhcp4/0
-  static_configs:
-  - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9548
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9548
-    labels:
-      job: kea-dhcp4
-  honor_labels: false
-  scrape_timeout: 10s
-  metrics_path: /metrics
-  relabel_configs:
-  - target_label: job
-    replacement: kea-dhcp4
+    replacement: zonecore
 - job_name: staticScrape/observability/nas-node-exporter/0
   static_configs:
   - targets:
@@ -266,8 +246,6 @@ scrape_configs:
 - job_name: staticScrape/observability/rhel-node-exporter/0
   static_configs:
   - targets:
-    - dns0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
-    - dns1.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - aap-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - unifi-0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100
     - omarchy0.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}:9100

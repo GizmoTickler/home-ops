@@ -25,7 +25,7 @@ run_lego() {
     --email "$ACME_EMAIL" \
     --path /certs \
     --dns cloudflare \
-    --dns.resolvers 192.168.123.250:53 \
+    --dns.resolvers 10.53.53.53:53 \
     --dns.propagation.wait 90s \
     --domains "$DOMAIN" \
     --domains "*.$DOMAIN" \

@@ -14,7 +14,7 @@
 # either DNS server, so one DNS VM going down does not blank the whole page.
 connectivity:
   checker:
-    target: 192.168.123.249:53
+    target: 10.53.53.53:53
     interval: 1m
 
 metrics: true
@@ -102,19 +102,25 @@ endpoints:
     interval: 1m
     conditions:
       - "[CONNECTED] == true"
-  - name: DNS (VIP)
+  - name: DNS (zonecore-0)
     group: Network
-    url: 192.168.123.249
+    url: 192.168.120.240
     dns:
       query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
       query-type: A
     interval: 1m
     conditions:
       - "[DNS_RCODE] == NOERROR"
-  # Gatus's Go http.Transport sets TLSClientConfig without ForceAttemptHTTP2, forcing HTTP/1.1; dnsdist's native
-  # nghttp2 DoH frontend requires HTTP/2 (RFC 8484) and rejects HTTP/1.1 with 505. Probe through blackbox-exporter's
-  # dns_doh module on `monitoring` so Gatus checks the real HTTP/2 + TLS + DNS wireformat path.
-  - name: DNS-over-HTTPS (VIP)
+  - name: DNS (zonecore-1)
+    group: Network
+    url: 192.168.120.241
+    dns:
+      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
+      query-type: A
+    interval: 1m
+    conditions:
+      - "[DNS_RCODE] == NOERROR"
+  - name: DNS-over-HTTPS (anycast)
     group: Network
     url: http://blackbox-exporter:9115/probe?module=dns_doh&target=https%3A%2F%2Fdns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}%2Fdns-query%3Fdns%3DAAABAAABAAAAAAAACWxvY2FsaG9zdAAAAQAB
     ui:
@@ -124,24 +130,12 @@ endpoints:
     conditions:
       - "[STATUS] == 200"
       - "[BODY] == pat(*probe_success 1*)"
-  - name: DNS (dns0)
+  - name: ZoneCore Witness (SC01)
     group: Network
-    url: 192.168.123.250
-    dns:
-      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-      query-type: A
+    url: icmp://192.168.120.243
     interval: 1m
     conditions:
-      - "[DNS_RCODE] == NOERROR"
-  - name: DNS (dns1)
-    group: Network
-    url: 192.168.123.251
-    dns:
-      query-name: nas01.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}
-      query-type: A
-    interval: 1m
-    conditions:
-      - "[DNS_RCODE] == NOERROR"
+      - "[CONNECTED] == true"
   - name: DNS (anycast 10.53.53.53)
     group: Network
     url: 10.53.53.53
