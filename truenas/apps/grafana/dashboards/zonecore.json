@@ -7,20 +7,6 @@
   "graphTooltip": 1,
   "links": [
     {
-      "icon": "external link",
-      "targetBlank": true,
-      "title": "ZoneCore-0 UI",
-      "type": "link",
-      "url": "https://zonecore-0.achva.casa"
-    },
-    {
-      "icon": "external link",
-      "targetBlank": true,
-      "title": "ZoneCore-1 UI",
-      "type": "link",
-      "url": "https://zonecore-1.achva.casa"
-    },
-    {
       "icon": "dashboard",
       "title": "WAN & Edge",
       "type": "link",
