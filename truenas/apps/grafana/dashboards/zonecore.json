@@ -789,7 +789,7 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(probe_duration_seconds{job=\"probe/observability/dns\"}, \"target\", \"DNS $1\", \"instance\", \"^(.*)$\") or label_replace(probe_duration_seconds{job=\"probe/observability/dns-dot\"}, \"target\", \"DoT $1\", \"instance\", \"^(.*)$\") or label_replace(probe_duration_seconds{job=\"probe/observability/dns-doh\"}, \"target\", \"DoH $1\", \"instance\", \"^https://([^.]+).*\")",
+          "expr": "label_replace(probe_duration_seconds{job=\"probe/observability/dns\",instance!~\"192\\\\.168\\\\.123\\\\.(249|250|251):.*\"}, \"target\", \"DNS $1\", \"instance\", \"^(.*)$\") or label_replace(probe_duration_seconds{job=\"probe/observability/dns-dot\",instance!~\"192\\\\.168\\\\.123\\\\.(249|250|251):.*\"}, \"target\", \"DoT $1\", \"instance\", \"^(.*)$\") or label_replace(probe_duration_seconds{job=\"probe/observability/dns-doh\",instance!~\"https://dns[01]\\\\..*\"}, \"target\", \"DoH $1\", \"instance\", \"^https://([^.]+).*\")",
           "legendFormat": "{{target}}",
           "refId": "A"
         }
@@ -867,7 +867,8 @@
             "type": "prometheus",
             "uid": "b79efb5c-1de8-4ddb-a450-4acf0cb3c0eb"
           },
-          "expr": "label_replace(probe_success{job=\"probe/observability/dns\"}, \"target\", \"DNS $1\", \"instance\", \"^(.*)$\") or label_replace(probe_success{job=\"probe/observability/dns-dot\"}, \"target\", \"DoT $1\", \"instance\", \"^(.*)$\") or label_replace(probe_success{job=\"probe/observability/dns-doh\"}, \"target\", \"DoH $1\", \"instance\", \"^https://([^.]+).*\")",
+          "expr": "label_replace(probe_success{job=\"probe/observability/dns\",instance!~\"192\\\\.168\\\\.123\\\\.(249|250|251):.*\"}, \"target\", \"DNS $1\", \"instance\", \"^(.*)$\") or label_replace(probe_success{job=\"probe/observability/dns-dot\",instance!~\"192\\\\.168\\\\.123\\\\.(249|250|251):.*\"}, \"target\", \"DoT $1\", \"instance\", \"^(.*)$\") or label_replace(probe_success{job=\"probe/observability/dns-doh\",instance!~\"https://dns[01]\\\\..*\"}, \"target\", \"DoH $1\", \"instance\", \"^https://([^.]+).*\")",
+          "instant": true,
           "legendFormat": "{{target}}",
           "refId": "A"
         }
