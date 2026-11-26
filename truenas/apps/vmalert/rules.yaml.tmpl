@@ -299,6 +299,26 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: ZoneCoreWitnessUnhealthy
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} reports the SC01 quorum witness unhealthy (HMAC auth failure, HTTP error, or lease rejection) for >5m.'
+      summary: ZoneCore quorum witness unhealthy on {{ $labels.node }}
+    expr: zonecore_ha_witness_healthy{job="zonecore"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreHAConflictsOpen
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} has {{ $value }} unresolved HA state conflict(s) in the Conflict Audit Queue.'
+      summary: ZoneCore HA conflicts open on {{ $labels.node }} ({{ $value }})
+    expr: zonecore_ha_conflicts_open{job="zonecore"} > 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
   - alert: ZoneCoreHAPeerLost
     annotations:
       description: 'ZoneCore {{ $labels.node }} lost encrypted ZCE1 HA heartbeat to its partner on :9444 for >5m.
@@ -352,13 +372,53 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: ZoneCoreDhcpPoolLow
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} DHCP subnet {{ $labels.subnet }} has only {{ $value }} free address(es) remaining (<10).'
+      summary: 'ZoneCore DHCP pool low on {{ $labels.node }} ({{ $labels.subnet }}: {{ $value }} free)'
+    expr: zonecore_dhcp_pool_free{job="zonecore"} < 10
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreDnsUpstreamDown
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} reports DNS upstream {{ $labels.upstream }} unhealthy for >5m.'
+      summary: ZoneCore DNS upstream {{ $labels.upstream }} down on {{ $labels.node }}
+    expr: zonecore_dns_upstream_up{job="zonecore"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
   - alert: ZoneCoreNtpUnsynchronized
     annotations:
-      description: 'ZoneCore {{ $labels.node }} native Rust NTS clock reports stratum {{ $value }} (unsynchronized).
+      description: 'ZoneCore {{ $labels.node }} native Rust NTS clock is unsynchronized (synced=0 or stratum 0/>=16).
         Check upstream NTS reachability on TCP/4460 and UDP/123.'
       summary: ZoneCore NTP unsynchronized on {{ $labels.node }}
-    expr: zonecore_ntp_stratum{job="zonecore"} == 0 or zonecore_ntp_stratum{job="zonecore"} >= 16
+    expr: zonecore_ntp_synced{job="zonecore"} == 0 or zonecore_ntp_stratum{job="zonecore"} == 0 or zonecore_ntp_stratum{job="zonecore"} >= 16
     for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreNtpOffsetHigh
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} native Rust NTS clock offset is {{ printf "%.3f" $value }}s (>50ms) for >5m.'
+      summary: ZoneCore NTP clock offset high on {{ $labels.node }} ({{ printf "%.3f" $value }}s)
+    expr: abs(zonecore_ntp_offset_seconds{job="zonecore"}) > 0.05
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreOtaUnblessed
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} active A/B OTA slot has not been blessed for >15m after boot.'
+      summary: ZoneCore OTA slot unblessed on {{ $labels.node }}
+    expr: zonecore_ota_blessed{job="zonecore"} == 0
+    for: 15m
     keep_firing_for: 5m
     labels:
       component: dns
