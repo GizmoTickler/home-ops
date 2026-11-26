@@ -309,6 +309,28 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: ZoneCorePrimaryBelowWitnessFloor
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} claims Primary role at an epoch below the SC01 quorum witness epoch floor.
+        Possible split-brain fencing violation; inspect HA state and witness immediately.'
+      summary: ZoneCore Primary {{ $labels.node }} below witness epoch floor
+    expr: zonecore_ha_primary_below_witness_floor{job="zonecore"} == 1
+    for: 1m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
+  - alert: ZoneCoreBothSecondary
+    annotations:
+      description: 'Both ZoneCore HA nodes report Secondary role with 0 Primaries for >2m.
+        DHCP lease issuance and Primary config writes are stalled; inspect HA peer link and SC01 witness.'
+      summary: ZoneCore HA cluster has no Primary (both nodes Secondary)
+    expr: sum(zonecore_ha_role{job="zonecore",role="primary"}) == 0 and count(zonecore_ha_role{job="zonecore",role="secondary"} == 1) >= 2
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
   - alert: ZoneCoreHAConflictsOpen
     annotations:
       description: 'ZoneCore {{ $labels.node }} has {{ $value }} unresolved HA state conflict(s) in the Conflict Audit Queue.'
@@ -382,6 +404,26 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: ZoneCoreDhcpPoolWarn80
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} DHCP subnet {{ $labels.subnet }} pool utilization is {{ $value | humanizePercentage }} (>=80%) for >10m.'
+      summary: 'ZoneCore DHCP pool >=80% on {{ $labels.node }} ({{ $labels.subnet }}: {{ $value | humanizePercentage }})'
+    expr: zonecore_dhcp_pool_utilization_ratio{job="zonecore"} >= 0.80
+    for: 10m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
+  - alert: ZoneCoreDhcpPoolCrit95
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} DHCP subnet {{ $labels.subnet }} pool utilization is {{ $value | humanizePercentage }} (>=95%); imminent address exhaustion.'
+      summary: 'CRITICAL: ZoneCore DHCP pool >=95% on {{ $labels.node }} ({{ $labels.subnet }}: {{ $value | humanizePercentage }})'
+    expr: zonecore_dhcp_pool_utilization_ratio{job="zonecore"} >= 0.95
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: critical
   - alert: ZoneCoreDnsUpstreamDown
     annotations:
       description: 'ZoneCore {{ $labels.node }} reports DNS upstream {{ $labels.upstream }} unhealthy for >5m.'
@@ -420,6 +462,17 @@ groups:
     expr: zonecore_ota_blessed{job="zonecore"} == 0
     for: 15m
     keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreOtaReverted
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} A/B OTA boot watchdog reverted an unblessed trial slot ({{ printf "%.0f" $value }} revert(s) in the last 15m).
+        Inspect /boot/efi/zonecore/last-revert and zonecored logs.'
+      summary: ZoneCore A/B OTA slot reverted on {{ $labels.node }}
+    expr: increase(zonecore_ota_reverts_total{job="zonecore"}[15m]) > 0
+    for: 0m
+    keep_firing_for: 10m
     labels:
       component: dns
       severity: warning
