@@ -234,6 +234,17 @@ groups:
     labels:
       component: dns
       severity: critical
+  - alert: DNSTcpProbeFailed
+    annotations:
+      description: 'TCP SOA probe to DNS port 53 on {{ $labels.instance }} has been failing for over 5 minutes.
+        Check ZoneCore TCP DNS listener & BGP anycast on zonecore-0 / zonecore-1.'
+      summary: DNS TCP probe failing for {{ $labels.instance }}
+    expr: probe_success{job="probe/observability/dns-tcp"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
   - alert: EncryptedDNSProbeFailed
     annotations:
       description: 'Encrypted DNS probe ({{ $labels.job }}) to {{ $labels.instance }} has been failing for 5 minutes.'
@@ -362,6 +373,17 @@ groups:
     labels:
       component: dhcp
       severity: warning
+  - alert: ZoneCoreHaSyncDegraded
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} synchronous HA replication timed out and entered degraded mode for >2m.
+        Check peer latency on :9444 and HA WAL replication health.'
+      summary: ZoneCore HA synchronous replication degraded on {{ $labels.node }}
+    expr: zonecore_ha_sync_degraded{job="zonecore"} == 1
+    for: 2m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
   - alert: ZoneCoreBgpSessionDown
     annotations:
       description: 'ZoneCore {{ $labels.node }} has {{ $value }} established BGP sessions to SC01 (expected >=1).
@@ -429,6 +451,28 @@ groups:
       description: 'ZoneCore {{ $labels.node }} reports DNS upstream {{ $labels.upstream }} unhealthy for >5m.'
       summary: ZoneCore DNS upstream {{ $labels.upstream }} down on {{ $labels.node }}
     expr: zonecore_dns_upstream_up{job="zonecore"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreDnsQueryLogExportErrors
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} experienced DNS query-log export delivery errors or >50 queue drops in the last 10m.
+        Check external LogCore/dnstap collector reachability and backpressure.'
+      summary: ZoneCore DNS query-log export errors/drops on {{ $labels.node }}
+    expr: increase(zonecore_dns_query_log_errors_total{job="zonecore"}[10m]) > 0 or increase(zonecore_dns_query_log_dropped_total{job="zonecore"}[10m]) > 50
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreNtpProbeFailed
+    annotations:
+      description: 'NTPv4 UDP/123 active probe from nas01 to {{ $labels.target }} ({{ $labels.node }}) has failed for >5m.
+        Check ZoneCore NTP listener (:123), BGP anycast (10.123.123.123/124), and SC01 TrustSec SGT 15 -> 60.'
+      summary: ZoneCore NTP anycast probe failing for {{ $labels.node }} ({{ $labels.target }})
+    expr: zonecore_ntp_probe_success{job="node-exporter"} == 0
     for: 5m
     keep_firing_for: 5m
     labels:

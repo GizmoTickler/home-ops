@@ -33,6 +33,17 @@ modules:
       valid_rcodes: [NOERROR]
       validate_answer_rrs:
         fail_if_none_matches_regexp: ["IN\\s+SOA\\s"]
+  dns_soa_tcp:
+    prober: dns
+    timeout: 5s
+    dns:
+      transport_protocol: tcp
+      preferred_ip_protocol: ip4
+      query_name: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      query_type: SOA
+      valid_rcodes: [NOERROR]
+      validate_answer_rrs:
+        fail_if_none_matches_regexp: ["IN\\s+SOA\\s"]
   dns_dot:
     prober: dns
     timeout: 5s
@@ -57,3 +68,16 @@ modules:
         Accept: application/dns-message
       valid_status_codes: [200]
       preferred_ip_protocol: ip4
+  # TCP+TLS handshake probe for ZoneCore NTS-KE (:4460); wire into VictoriaMetrics scrape.yaml.tmpl once
+  # nts_server_enabled=true (post-NS07) and SC01 TrustSec permits SGT 25 -> 11 TCP/4460.
+  # Note: blackbox-exporter v0.29.1 only implements http/tcp/dns(udp|tcp+DoT)/icmp/grpc/unix probers —
+  # it has NO native QUIC (DoQ UDP/853) or binary UDP NTPv4 (UDP/123) prober. Active NTPv4 probing of
+  # 10.123.123.123/124 runs in truenas/apps/node-exporter/ntp-probe.py (textfile collector, SGT 15 -> 60).
+  nts_ke_tls:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
+      tls: true
+      tls_config:
+        server_name: "dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"

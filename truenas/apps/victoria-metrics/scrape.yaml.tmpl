@@ -67,6 +67,31 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
+- job_name: probe/observability/dns-tcp
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - dns_soa_tcp   # TCP :53 SOA query through ZoneCore authoritative + anycast
+  static_configs:
+  - targets:
+    - 192.168.120.240:53   # zonecore-0
+    - 192.168.120.241:53   # zonecore-1
+    - 10.53.53.53:53       # anycast primary (zonecore-0)
+    - 10.53.53.54:53       # anycast secondary (zonecore-1)
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+# Note: blackbox-exporter v0.29.1 does not implement QUIC (DoQ UDP/853) or NTPv4 (UDP/123) probers.
+# Active NTPv4 probing of 10.123.123.123/124 runs via truenas/apps/node-exporter/ntp-probe.py (scraped
+# under job="node-exporter"). Enable probe/observability/nts-ke (module: nts_ke_tls, TCP/4460) once
+# ZoneCore enables nts_server_enabled=true (post-NS07) and SC01 TrustSec permits SGT 25 -> 11 TCP/4460.
 - job_name: probe/observability/dns-dot
   honor_labels: false
   metrics_path: /probe

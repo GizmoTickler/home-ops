@@ -3,6 +3,7 @@ dirs:
   - {path: /mnt/flashstor/apps/node-exporter-config, owner: "0:0", mode: "0755"}
 files:
   - {template: zfs-collector.py, dest: /mnt/flashstor/apps/node-exporter-config/zfs-collector.py, owner: "0:0", mode: "0555"}
+  - {template: ntp-probe.py, dest: /mnt/flashstor/apps/node-exporter-config/ntp-probe.py, owner: "0:0", mode: "0555"}
 health:
   tcp: 192.168.120.10:9100
 ui:

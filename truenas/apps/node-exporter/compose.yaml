@@ -58,3 +58,26 @@ services:
       resources:
         limits: {cpus: "0.25", memory: 64M}
     logging: *logging
+
+  ntp-probe:
+    image: docker.io/library/python:3.15-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
+    restart: unless-stopped
+    network_mode: service:node-exporter
+    environment:
+      TZ: America/New_York
+      INTERVAL_SECONDS: "30"
+      PROBE_TIMEOUT_SECONDS: "2.0"
+      NTP_TARGETS: "zonecore-0=10.123.123.123,zonecore-1=10.123.123.124"
+      TEXTFILE_PATH: /textfile/ntp_probe.prom
+    command: ["python3", "-u", "/config/ntp-probe.py"]
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    volumes:
+      - /mnt/flashstor/apps/node-exporter-config/ntp-probe.py:/config/ntp-probe.py:ro
+      - /mnt/flashstor/observability/node-exporter/textfile:/textfile
+    deploy:
+      resources:
+        limits: {cpus: "0.1", memory: 32M}
+    logging: *logging
