@@ -599,6 +599,21 @@ groups:
     labels:
       component: gateway
       severity: warning
+  - alert: CellularFailoverBlackholed
+    annotations:
+      description: 'mwan3 on the Alta Route10 reports its cellular WAN as not online. While that is true, mwan3 marks
+        every forwarded packet for blackhole, so a fiber outage gets no failover even though the modem link is up.
+
+        Check `mwan3 status` on 10.255.255.50; the WAN health check pings IPs set in Alta Control (WAN1 monitor host).
+        2026-11-27: was silently broken for days because the check pinged a hostname that the retired dns-0/dns-1
+        could no longer resolve.'
+      summary: Cellular backup WAN would blackhole failover traffic (mwan3 wan not online)
+    expr: edge_mwan3_wan_online{job="route10-cellular"} == 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: gateway
+      severity: critical
   - alert: CellularWANDown
     annotations:
       description: '{{ $value }} of 6 public reflectors are not answering through the T-Mobile link (pinged ~3x/s by the
