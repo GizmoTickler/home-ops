@@ -3,6 +3,7 @@ dirs:
   - {path: /mnt/flashstor/apps/blackbox-exporter-config, owner: "0:0", mode: "0755"}
 files:
   - {template: blackbox.yml, dest: /mnt/flashstor/apps/blackbox-exporter-config/blackbox.yml, owner: "0:0", mode: "0644"}
+  - {template: zonecore-prober.py, dest: /mnt/flashstor/apps/blackbox-exporter-config/zonecore-prober.py, owner: "0:0", mode: "0555"}
 health:
   tcp: 127.0.0.1:9115
   netns: blackbox-exporter

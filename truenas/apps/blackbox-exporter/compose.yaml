@@ -1,7 +1,8 @@
-# blackbox-exporter — ICMP/TCP/HTTP/DNS probes for VictoriaMetrics (devices, DNS, internet RTT, Envoy cert expiry).
-# Listens: blackbox-exporter:9115 on the `monitoring` network (scraped by victoria-metrics only).
-# Config:  blackbox.yml (modules). Probes leave via the `egress` bridge, SNAT to 192.168.123.157 (SC01 TrustSec
-#          SGT 25, monitoring only); probes of nas01's own IPs stay on the host.
+# blackbox-exporter — ICMP/TCP/HTTP/DNS/DoQ/NTP probes for VictoriaMetrics (devices, DNS, NTP, internet RTT, Envoy cert expiry).
+# Listens: blackbox-exporter:9115 and zonecore-prober:9116 on the `monitoring` network (scraped by victoria-metrics only).
+# Config:  blackbox.yml (modules) + zonecore-prober.py (RFC 9250 DoQ UDP/853 + RFC 5905 NTPv4 UDP/123).
+#          blackbox-exporter leaves via the `egress` bridge, SNAT to 192.168.123.157 (SC01 TrustSec SGT 25);
+#          zonecore-prober stays on `monitoring` only (NAT via nas01 SGT 15, permitted for UDP/853 & UDP/123).
 # Managed by truenas/reconciler — edit here and merge (see truenas/README.md).
 x-logging: &logging
   driver: json-file
@@ -28,6 +29,29 @@ services:
     deploy:
       resources:
         limits: {cpus: "0.5", memory: 128M}
+    logging: *logging
+
+  zonecore-prober:
+    image: docker.io/library/python:3.15-alpine@sha256:0f9552bb28711333da16915ec146f5e6bb44a7fdac9ced15dc17c2e0206346dd
+    sysctls: {net.ipv4.tcp_congestion_control: bbr}   # per-netns; never inherit a changed host default
+    restart: unless-stopped
+    user: "65534:65534"
+    environment:
+      TZ: America/New_York
+      LISTEN_PORT: "9116"
+      PROBE_TIMEOUT_SECONDS: "4.0"
+      DOQ_QUERY_NAME: "{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+      DOQ_SERVER_NAME: "dns.{{ op://Infrastructure/cluster-config/SECRET_DOMAIN }}"
+    command: ["python3", "-u", "/etc/blackbox/zonecore-prober.py"]
+    networks: [monitoring]        # NATs via nas01 (SGT 15), permitted for ZoneCore UDP/853 (DoQ) & UDP/123 (NTP)
+    volumes:
+      - /mnt/flashstor/apps/blackbox-exporter-config:/etc/blackbox:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits: {cpus: "0.25", memory: 64M}
     logging: *logging
 
 networks:

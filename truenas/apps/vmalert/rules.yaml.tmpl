@@ -7,17 +7,18 @@
 groups:
 - name: prometheus-blackbox-exporter
   rules:
-  # Generic "probe failing" for nas01's blackbox-exporter. Targets that already have a dedicated, better-worded rule
-  # are excluded here so one failure pages once: the DNS job (DNSServerDown/DNSAllServersDown), dns0/dns1 device
-  # probes (DHCPPrimaryDown/DHCPAllServersDown), the internet RTT job (InternetUnreachable), the Route10 device
-  # probe (BackupGatewayDown), and aap-0/omarchy0/omarchy1 device probes (ExternalHostDown).
+  # Generic "probe failing" for nas01's blackbox-exporter / zonecore-prober. Targets that already have a dedicated,
+  # better-worded rule are excluded here so one failure pages once: the DNS jobs (DNSServerDown/DNSAllServersDown/
+  # DNSTcpProbeFailed/EncryptedDNSProbeFailed), the NTP job (ZoneCoreNtpProbeFailed), dns0/dns1 device probes,
+  # the internet RTT job (InternetUnreachable), the Route10 device probe (BackupGatewayDown), and
+  # aap-0/omarchy0/omarchy1 device probes (ExternalHostDown).
   - alert: BlackboxProbeFailed
     annotations:
       description: 'blackbox-exporter on nas01 gets no answer from {{ $labels.instance }} (job {{ $labels.job }}) for 15 minutes.
 
         A timeout to a device that is otherwise up usually means SC01 TrustSec does not permit the probe from nas01 (SGT 25).'
       summary: Probe {{ $labels.job }} -> {{ $labels.instance }} is failing
-    expr: probe_success{job!~"probe/observability/(dns.*|internet)", instance!~"dns[01][.].*|10[.]255[.]255[.]50|aap-0[.].*|omarchy[01][.].*"} == 0
+    expr: probe_success{job!~"probe/observability/(dns.*|ntp|internet)", instance!~"dns[01][.].*|10[.]255[.]255[.]50|aap-0[.].*|omarchy[01][.].*"} == 0
     for: 15m
     labels:
       severity: critical
@@ -249,7 +250,7 @@ groups:
     annotations:
       description: 'Encrypted DNS probe ({{ $labels.job }}) to {{ $labels.instance }} has been failing for 5 minutes.'
       summary: Encrypted DNS probe failing for {{ $labels.instance }}
-    expr: probe_success{job=~"probe/observability/dns-(doh|dot)"} == 0
+    expr: probe_success{job=~"probe/observability/dns-(doh|dot|doq)"} == 0
     for: 5m
     keep_firing_for: 5m
     labels:
@@ -480,7 +481,7 @@ groups:
       severity: warning
   - alert: ZoneCoreDnsRfc5011AnchorsExhausted
     annotations:
-      description: 'ZoneCore {{ $labels.node }} has zero active valid RFC 5011 DNSSEC trust anchors for a tracked zone (such as root ".") after revocation; DNSSEC validation is failing closed (Bogus) and BGP health may drain this node.
+      description: 'ZoneCore {{ $labels.node }} has zero active valid RFC 5011 DNSSEC trust anchors for a tracked zone (such as root ".") after revocation; DNSSEC validation is failing closed (Bogus; alert-only per ZC-QD01, BGP/VIP remain active).
         Verify upstream root/zone KSK status, reset the revoked RFC 5011 zone state via the admin recovery API/CLI to reload trusted anchors, and confirm DNSSEC validation recovers.'
       summary: 'CRITICAL: ZoneCore RFC 5011 trust anchors exhausted on {{ $labels.node }}'
     expr: zonecore_dns_rfc5011_anchors_exhausted{job="zonecore"} > 0
@@ -502,10 +503,10 @@ groups:
       severity: warning
   - alert: ZoneCoreNtpProbeFailed
     annotations:
-      description: 'NTPv4 UDP/123 active probe from nas01 to {{ $labels.target }} ({{ $labels.node }}) has failed for >5m.
+      description: 'NTPv4 UDP/123 active probe from nas01 to {{ $labels.instance }} has failed for >5m.
         Check ZoneCore NTP listener (:123), BGP anycast (10.123.123.123/124), and SC01 TrustSec SGT 15 -> 60.'
-      summary: ZoneCore NTP anycast probe failing for {{ $labels.node }} ({{ $labels.target }})
-    expr: zonecore_ntp_probe_success{job="node-exporter"} == 0
+      summary: ZoneCore NTP anycast probe failing for {{ $labels.instance }}
+    expr: probe_success{job="probe/observability/ntp"} == 0
     for: 5m
     keep_firing_for: 5m
     labels:

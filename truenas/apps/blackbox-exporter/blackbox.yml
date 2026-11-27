@@ -71,8 +71,8 @@ modules:
   # TCP+TLS handshake probe for ZoneCore NTS-KE (:4460); wire into VictoriaMetrics scrape.yaml.tmpl once
   # nts_server_enabled=true (post-NS07) and SC01 TrustSec permits SGT 25 -> 11 TCP/4460.
   # Note: blackbox-exporter v0.29.1 only implements http/tcp/dns(udp|tcp+DoT)/icmp/grpc/unix probers —
-  # it has NO native QUIC (DoQ UDP/853) or binary UDP NTPv4 (UDP/123) prober. Active NTPv4 probing of
-  # 10.123.123.123/124 runs in truenas/apps/node-exporter/ntp-probe.py (textfile collector, SGT 15 -> 60).
+  # it has NO native QUIC (DoQ UDP/853) or binary UDP NTPv4 (UDP/123) prober. Active RFC 9250 DoQ and
+  # RFC 5905 NTPv4 probes run in the `zonecore-prober` sidecar (zonecore-prober:9116, monitoring net / SGT 15).
   nts_ke_tls:
     prober: tcp
     timeout: 5s

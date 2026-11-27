@@ -89,9 +89,9 @@ scrape_configs:
   - target_label: __address__
     replacement: blackbox-exporter:9115
 # Note: blackbox-exporter v0.29.1 does not implement QUIC (DoQ UDP/853) or NTPv4 (UDP/123) probers.
-# Active NTPv4 probing of 10.123.123.123/124 runs via truenas/apps/node-exporter/ntp-probe.py (scraped
-# under job="node-exporter"). Enable probe/observability/nts-ke (module: nts_ke_tls, TCP/4460) once
-# ZoneCore enables nts_server_enabled=true (post-NS07) and SC01 TrustSec permits SGT 25 -> 11 TCP/4460.
+# Active RFC 9250 DoQ (:853) and RFC 5905 NTPv4 (:123) probing runs via the `zonecore-prober` sidecar
+# (zonecore-prober:9116 on `monitoring` net, NATing via nas01 SGT 15). Enable probe/observability/nts-ke
+# (module: nts_ke_tls, TCP/4460) once ZoneCore enables nts_server_enabled=true and TrustSec permits it.
 - job_name: probe/observability/dns-dot
   honor_labels: false
   metrics_path: /probe
@@ -113,6 +113,46 @@ scrape_configs:
     target_label: instance
   - target_label: __address__
     replacement: blackbox-exporter:9115
+- job_name: probe/observability/dns-doq
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - dns_doq               # RFC 9250 DoQ (QUICv1 + TLS 1.3 + ALPN doq) SOA query
+  static_configs:
+  - targets:
+    - 192.168.120.240:853   # zonecore-0
+    - 192.168.120.241:853   # zonecore-1
+    - 10.53.53.53:853       # anycast primary
+    - 10.53.53.54:853       # anycast secondary
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: zonecore-prober:9116
+- job_name: probe/observability/ntp
+  honor_labels: false
+  metrics_path: /probe
+  params:
+    module:
+    - ntp                   # RFC 5905 NTPv4 Mode-3 -> synced Mode-4 UDP/123 probe
+  static_configs:
+  - targets:
+    - 10.123.123.123:123    # clock0 anycast (zonecore-0)
+    - 10.123.123.124:123    # clock1 anycast (zonecore-1)
+  relabel_configs:
+  - source_labels:
+    - __address__
+    target_label: __param_target
+  - source_labels:
+    - __param_target
+    target_label: instance
+  - target_label: __address__
+    replacement: zonecore-prober:9116
 - job_name: probe/observability/dns-doh
   honor_labels: false
   metrics_path: /probe
