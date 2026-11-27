@@ -446,6 +446,17 @@ groups:
     labels:
       component: dhcp
       severity: critical
+  - alert: ZoneCoreDhcpDdnsReconcileCapTripped
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} halted stale DDNS host deletions because the number of distinct stale hosts exceeded the safety cap.
+        Inspect the DDNS reconcile dry-run plan and, if the deletions are expected, override with force=true as an admin to clear the cap.'
+      summary: ZoneCore DHCP DDNS reconcile delete cap tripped on {{ $labels.node }}
+    expr: zonecore_dhcp_ddns_reconcile_cap_tripped{job="zonecore"} > 0
+    for: 5m
+    keep_firing_for: 5m
+    labels:
+      component: dhcp
+      severity: warning
   - alert: ZoneCoreDnsUpstreamDown
     annotations:
       description: 'ZoneCore {{ $labels.node }} reports DNS upstream {{ $labels.upstream }} unhealthy for >5m.'
@@ -464,6 +475,28 @@ groups:
     expr: increase(zonecore_dns_query_log_errors_total{job="zonecore"}[10m]) > 0 or increase(zonecore_dns_query_log_dropped_total{job="zonecore"}[10m]) > 50
     for: 5m
     keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: warning
+  - alert: ZoneCoreDnsRfc5011AnchorsExhausted
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} has zero active valid RFC 5011 DNSSEC trust anchors for a tracked zone (such as root ".") after revocation; DNSSEC validation is failing closed (Bogus) and BGP health may drain this node.
+        Verify upstream root/zone KSK status, reset the revoked RFC 5011 zone state via the admin recovery API/CLI to reload trusted anchors, and confirm DNSSEC validation recovers.'
+      summary: 'CRITICAL: ZoneCore RFC 5011 trust anchors exhausted on {{ $labels.node }}'
+    expr: zonecore_dns_rfc5011_anchors_exhausted{job="zonecore"} > 0
+    for: 1m
+    keep_firing_for: 5m
+    labels:
+      component: dns
+      severity: critical
+  - alert: ZoneCoreDnsRfc5011RevocationAlert
+    annotations:
+      description: 'ZoneCore {{ $labels.node }} recorded {{ printf "%.0f" $value }} RFC 5011 root/zone trust-anchor revocation alert(s) in the last 15m.
+        Verify upstream root/zone KSK rollover status immediately; if anchors become exhausted, run the RFC 5011 zone reset recovery procedure to reload trusted anchors.'
+      summary: ZoneCore RFC 5011 trust-anchor revocation alert on {{ $labels.node }}
+    expr: increase(zonecore_dns_rfc5011_revocation_alerts_total{job="zonecore"}[15m]) > 0
+    for: 1m
+    keep_firing_for: 10m
     labels:
       component: dns
       severity: warning
