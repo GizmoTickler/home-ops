@@ -614,6 +614,20 @@ groups:
     labels:
       component: gateway
       severity: critical
+  - alert: CellularZtnaEgressUnhealthy
+    annotations:
+      description: 'The Route10 Zero Trust egress tunnel (ztegress) has had no fresh handshake or no answering probe
+        for 15 minutes. The watcher fails open, so failover still works, but house traffic on cellular goes out plain
+        eth3 and T-Mobile throttles video to ~2.5 Mbit/s again.
+
+        Check `/cfg/ztna-egress/ztna-egress.sh status` on 10.255.255.50 and claude-config infra/alta/ztna-egress/README.md
+        (service token route10-cellular-egress expires 2027-11-28).'
+      summary: Route10 Zero Trust egress tunnel is down (failover falls back to throttled plain cellular)
+    expr: edge_ztna_egress_healthy{job="route10-cellular"} == 0 and on(instance) edge_ztna_egress_disabled{job="route10-cellular"} == 0
+    for: 15m
+    labels:
+      component: gateway
+      severity: warning
   - alert: CellularWANDown
     annotations:
       description: '{{ $value }} of 6 public reflectors are not answering through the T-Mobile link (pinged ~3x/s by the
