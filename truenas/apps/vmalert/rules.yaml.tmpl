@@ -616,15 +616,26 @@ groups:
       severity: critical
   - alert: CellularZtnaEgressUnhealthy
     annotations:
-      description: 'The Route10 Zero Trust egress tunnel (ztegress) has had no fresh handshake or no answering probe
-        for 15 minutes. The watcher fails open, so failover still works, but house traffic on cellular goes out plain
+      description: 'None of the Route10 Zero Trust egress tunnels (ztegress..ztegress4) has had a fresh handshake and
+        an answering probe for 15 minutes. The watcher fails open, so failover still works, but house traffic on cellular goes out plain
         eth3 and T-Mobile throttles video to ~2.5 Mbit/s again.
 
         Check `/cfg/ztna-egress/ztna-egress.sh status` on 10.255.255.50 and claude-config infra/alta/ztna-egress/README.md
         (service token route10-cellular-egress expires 2027-11-28).'
-      summary: Route10 Zero Trust egress tunnel is down (failover falls back to throttled plain cellular)
+      summary: All Route10 Zero Trust egress tunnels are down (failover falls back to throttled plain cellular)
     expr: edge_ztna_egress_healthy{job="route10-cellular"} == 0 and on(instance) edge_ztna_egress_disabled{job="route10-cellular"} == 0
     for: 15m
+    labels:
+      component: gateway
+      severity: warning
+  - alert: CellularZtnaEgressDegraded
+    annotations:
+      description: '{{ $labels.tunnel }} on the Route10 has been out of the Zero Trust egress multipath route for 30
+        minutes. Failover still goes through the remaining tunnel(s), with less
+        headroom (each WARP tunnel tops out around 300-600 Mbit/s). Check `/cfg/ztna-egress/ztna-egress.sh status` on 10.255.255.50.'
+      summary: A Route10 Zero Trust egress tunnel is down (reduced failover throughput)
+    expr: edge_ztna_egress_tunnel_healthy{job="route10-cellular"} == 0 and on(instance) edge_ztna_egress_healthy{job="route10-cellular"} == 1
+    for: 30m
     labels:
       component: gateway
       severity: warning
